@@ -66,6 +66,7 @@ object TaskScoringEngine {
         val isMorning = hour < prefs.peakEnergyStart
         val isLowEnergySlot = hour in 13..15  // post-lunch dip
         val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
+        val isWithinWorkDay = hour in prefs.workDayStart until prefs.workDayEnd
 
         var s = 0f
 
@@ -252,6 +253,12 @@ object TaskScoringEngine {
         if (!isWeekend && task.contextTag == "@home") s -= 15f
         // Bonus for context match (e.g., @phone tasks when you have time to call)
         if (task.contextTag == "@computer" && !isWeekend) s += 10f
+
+        // ── 14b. WORK HOURS ADJUSTMENT ────────────────────────────────────────
+        // Penalize work-tagged tasks outside the user's configured work window
+        if (!isWithinWorkDay && task.contextTag == "@work") s -= 60f
+        // Boost work tasks during work hours
+        if (isWithinWorkDay && task.contextTag == "@work") s += 20f
 
         // ── 15. RECENCY BIAS CORRECTION ──────────────────────────────────────
         // Old tasks that haven't been started yet get a nudge
