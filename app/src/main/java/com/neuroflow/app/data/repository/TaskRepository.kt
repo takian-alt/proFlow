@@ -3,9 +3,11 @@ package com.neuroflow.app.data.repository
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -48,4 +50,63 @@ class TaskRepository @Inject constructor(
     suspend fun delete(task: TaskEntity) = taskDao.delete(task)
     suspend fun deleteAll() = taskDao.deleteAll()
     suspend fun resetEstimationErrors() = taskDao.resetEstimationErrors()
+
+    /**
+     * Marks [task] as completed and, if it has a recurrence, inserts the next occurrence.
+     * The next occurrence's [TaskEntity.habitDate] is always shifted by the recurrence interval.
+     * deadline/scheduledDate are also shifted if they were set on the original.
+     * Returns the new task ID if a recurrence was created, null otherwise.
+     */
+    suspend fun completeAndRecur(task: TaskEntity, now: Long): String? {
+        update(
+            task.copy(
+                status = TaskStatus.COMPLETED,
+                completedAt = now,
+                isHabitual = task.recurrence != Recurrence.NONE,
+                habitStreak = if (task.recurrence != Recurrence.NONE) task.habitStreak + 1 else task.habitStreak,
+                updatedAt = now
+            )
+        )
+
+        if (task.recurrence == Recurrence.NONE) return null
+
+        val intervalMs = when (task.recurrence) {
+            Recurrence.DAILY   -> 86_400_000L
+            Recurrence.WEEKLY  -> 7 * 86_400_000L
+            Recurrence.MONTHLY -> 30 * 86_400_000L
+            Recurrence.CUSTOM  -> task.recurrenceIntervalDays * 86_400_000L
+            Recurrence.NONE    -> 0L
+        }
+
+        // Anchor for the next occurrence: prefer habitDate, fall back to scheduledDate,
+        // fall back to deadlineDate, fall back to now (so there's always a next-due date).
+        val currentAnchor = task.habitDate ?: task.scheduledDate ?: task.deadlineDate ?: now
+        val nextAnchor = currentAnchor + intervalMs
+
+        val newId = UUID.randomUUID().toString()
+        insert(
+            task.copy(
+                id = newId,
+                status = TaskStatus.ACTIVE,
+                completedAt = null,
+                habitDate = nextAnchor,
+                deadlineDate = task.deadlineDate?.plus(intervalMs),
+                scheduledDate = task.scheduledDate?.plus(intervalMs),
+                isScheduleLocked = task.isScheduleLocked,
+                totalTimeTrackedMinutes = 0f,
+                sessionCount = 0,
+                lastSessionDurationMinutes = null,
+                actualDurationMinutes = null,
+                estimationErrorMape = null,
+                estimationErrorSmape = null,
+                focusModePoints = 0,
+                postponeCount = 0,
+                habitStreak = task.habitStreak + 1,
+                isHabitual = true,
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+        return newId
+    }
 }

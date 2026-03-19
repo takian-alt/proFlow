@@ -7,6 +7,7 @@ import com.neuroflow.app.data.local.MIGRATION_2_3
 import com.neuroflow.app.data.local.MIGRATION_3_4
 import com.neuroflow.app.data.local.MIGRATION_4_5
 import com.neuroflow.app.data.local.MIGRATION_5_6
+import com.neuroflow.app.data.local.MIGRATION_6_7
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.GoalDao
@@ -31,7 +32,7 @@ object AppModule {
             NeuroFlowDatabase::class.java,
             "neuroflow_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
     }
 

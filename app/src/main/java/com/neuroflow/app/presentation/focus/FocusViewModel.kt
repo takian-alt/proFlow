@@ -13,13 +13,11 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Recurrence
-import com.neuroflow.app.domain.model.TaskStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
 data class FocusUiState(
@@ -45,6 +43,7 @@ data class FocusUiState(
     val isCompleted: Boolean = false,
     val pointsEarned: Int = 0,
     val showCompletionSheet: Boolean = false,
+    val completedHabitStreak: Int = 0,   // streak after completion — avoids stale task snapshot in UI
     // Live scoring
     val currentScore: Int = 0,
     val urgencyFraction: Float = 0f,
@@ -388,51 +387,22 @@ class FocusViewModel @Inject constructor(
             val points = task.impactScore / 10
             val now = System.currentTimeMillis()
 
-            taskRepository.update(
-                task.copy(
-                    status = TaskStatus.COMPLETED,
-                    completedAt = now,
-                    actualDurationMinutes = actualDuration,
-                    estimationErrorMape = mape,
-                    estimationErrorSmape = smape,
-                    focusModePoints = points,
-                    isHabitual = task.recurrence != Recurrence.NONE,
-                    habitStreak = if (task.recurrence != Recurrence.NONE) task.habitStreak + 1 else task.habitStreak,
-                    updatedAt = now
-                )
+            // Update the completed task with focus-specific fields first, then delegate
+            // completion + recurrence to the shared repository helper.
+            val taskWithFocusData = task.copy(
+                actualDurationMinutes = actualDuration,
+                estimationErrorMape = mape,
+                estimationErrorSmape = smape,
+                focusModePoints = points,
+                updatedAt = now
             )
+            taskRepository.completeAndRecur(taskWithFocusData, now)
 
-            if (task.recurrence != Recurrence.NONE) {
-                val intervalMs = when (task.recurrence) {
-                    Recurrence.DAILY   -> 86_400_000L
-                    Recurrence.WEEKLY  -> 7 * 86_400_000L
-                    Recurrence.MONTHLY -> 30 * 86_400_000L
-                    Recurrence.CUSTOM  -> task.recurrenceIntervalDays * 86_400_000L
-                    Recurrence.NONE    -> 0L
-                }
-                taskRepository.insert(
-                    task.copy(
-                        id = UUID.randomUUID().toString(),
-                        status = TaskStatus.ACTIVE,
-                        completedAt = null,
-                        deadlineDate = task.deadlineDate?.plus(intervalMs),
-                        scheduledDate = task.scheduledDate?.plus(intervalMs),
-                        isScheduleLocked = task.isScheduleLocked,
-                        totalTimeTrackedMinutes = 0f,
-                        sessionCount = 0,
-                        lastSessionDurationMinutes = null,
-                        actualDurationMinutes = null,
-                        estimationErrorMape = null,
-                        estimationErrorSmape = null,
-                        focusModePoints = 0,
-                        postponeCount = 0,
-                        habitStreak = task.habitStreak + 1,
-                        isHabitual = true,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                )
-            }
+            // Compute the streak that should be shown in the completion sheet.
+            // completeAndRecur increments habitStreak on the completed task, so add 1 here
+            // for recurring tasks. Non-recurring tasks don't have a habit streak to show.
+            val newHabitStreak = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE)
+                task.habitStreak + 1 else task.habitStreak
 
             preferencesDataStore.updatePreferences { prefs ->
                 val now2 = System.currentTimeMillis()
@@ -461,7 +431,7 @@ class FocusViewModel @Inject constructor(
                 )
             }
 
-            _uiState.update { it.copy(isCompleted = true, pointsEarned = points, showCompletionSheet = true) }
+            _uiState.update { it.copy(isCompleted = true, pointsEarned = points, showCompletionSheet = true, completedHabitStreak = newHabitStreak) }
         }
     }
 

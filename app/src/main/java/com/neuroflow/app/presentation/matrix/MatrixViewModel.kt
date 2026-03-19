@@ -8,7 +8,6 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.domain.model.TaskStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -85,13 +84,7 @@ class MatrixViewModel @Inject constructor(
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            taskRepository.update(
-                task.copy(
-                    status = TaskStatus.COMPLETED,
-                    completedAt = now,
-                    updatedAt = now
-                )
-            )
+            taskRepository.completeAndRecur(task, now)
             preferencesDataStore.updatePreferences { prefs ->
                 val todayStart = run {
                     val cal = java.util.Calendar.getInstance()

@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.presentation.common.getQuadrantLabel
 import com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
@@ -765,6 +766,7 @@ fun FocusScreen(
         CompletionSheet(
             task = task!!,
             pointsEarned = uiState.pointsEarned,
+            habitStreak = uiState.completedHabitStreak,
             identityLabel = uiState.preferences.identityLabel,
             onNextTask = {
                 viewModel.dismissCompletion()
@@ -783,6 +785,7 @@ fun FocusScreen(
 private fun CompletionSheet(
     task: TaskEntity,
     pointsEarned: Int,
+    habitStreak: Int,
     identityLabel: String,
     onNextTask: () -> Unit,
     onHome: () -> Unit
@@ -811,9 +814,10 @@ private fun CompletionSheet(
                 style = MaterialTheme.typography.titleMedium,
                 color = NeuroFlowColors.Purple
             )
-            if (task.isHabitual && task.habitStreak > 0) {
+            // Show streak for any recurring task — use the post-completion value passed from VM
+            if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE && habitStreak > 0) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("Streak: ${task.habitStreak} days 🔥", fontSize = 14.sp)
+                Text("Streak: $habitStreak days 🔥", fontSize = 14.sp)
             }
             if (identityLabel.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))

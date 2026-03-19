@@ -50,6 +50,7 @@ fun NewTaskSheet(
     var scheduledDate by remember { mutableLongStateOf(editTask?.scheduledDate ?: 0L) }
     var scheduledTime by remember { mutableLongStateOf(editTask?.scheduledTime ?: -1L) }
     var isScheduleLocked by remember { mutableStateOf(editTask?.isScheduleLocked ?: false) }
+    var habitDate by remember { mutableLongStateOf(editTask?.habitDate ?: 0L) }
     var estimatedDuration by remember { mutableIntStateOf(editTask?.estimatedDurationMinutes ?: 0) }
     var impactScore by remember { mutableFloatStateOf((editTask?.impactScore ?: 50).toFloat()) }
     var valueScore by remember { mutableFloatStateOf((editTask?.valueScore ?: 50).toFloat()) }
@@ -82,6 +83,7 @@ fun NewTaskSheet(
     var showTimePicker by remember { mutableStateOf(false) }
     var showSchedDatePicker by remember { mutableStateOf(false) }
     var showSchedTimePicker by remember { mutableStateOf(false) }
+    var showHabitDatePicker by remember { mutableStateOf(false) }
     var datePickerTarget by remember { mutableStateOf("deadline") }
 
     ModalBottomSheet(
@@ -274,33 +276,49 @@ fun NewTaskSheet(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            // DEADLINE
-            SectionLabel("DEADLINE (when it must be done)")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    datePickerTarget = "deadline"
-                    showDatePicker = true
-                }) {
+            // HABIT DATE — shown only for recurring tasks; this is the anchor that shifts each cycle
+            if (selectedRecurrence != Recurrence.NONE) {
+                SectionLabel("HABIT START DATE (first occurrence due date)")
+                OutlinedButton(onClick = { showHabitDatePicker = true }) {
                     Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        if (deadlineDate > 0) formatDate(deadlineDate) else "Date",
-                        color = if (deadlineDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        if (habitDate > 0) formatDate(habitDate) else "Pick start date",
+                        color = if (habitDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
                     )
                 }
-                OutlinedButton(onClick = {
-                    datePickerTarget = "deadline"
-                    showTimePicker = true
-                }) {
-                    Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        if (deadlineTime >= 0) formatTime(deadlineTime) else "Time",
-                        color = if (deadlineTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
+
+            // DEADLINE — hidden for recurring tasks (use habitDate instead)
+            if (selectedRecurrence == Recurrence.NONE) {
+                SectionLabel("DEADLINE (when it must be done)")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        datePickerTarget = "deadline"
+                        showDatePicker = true
+                    }) {
+                        Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (deadlineDate > 0) formatDate(deadlineDate) else "Date",
+                            color = if (deadlineDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    OutlinedButton(onClick = {
+                        datePickerTarget = "deadline"
+                        showTimePicker = true
+                    }) {
+                        Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (deadlineTime >= 0) formatTime(deadlineTime) else "Time",
+                            color = if (deadlineTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // REMINDERS
             SectionLabel("REMINDERS (before deadline/scheduled time)")
@@ -315,43 +333,45 @@ fun NewTaskSheet(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            // SCHEDULED
-            SectionLabel("SCHEDULED (when you plan to do it)")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    datePickerTarget = "scheduled"
-                    showSchedDatePicker = true
-                }) {
-                    Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        if (scheduledDate > 0) formatDate(scheduledDate) else "Date",
-                        color = if (scheduledDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                    )
+            // SCHEDULED — hidden for recurring tasks (habitDate is the anchor)
+            if (selectedRecurrence == Recurrence.NONE) {
+                SectionLabel("SCHEDULED (when you plan to do it)")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        datePickerTarget = "scheduled"
+                        showSchedDatePicker = true
+                    }) {
+                        Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (scheduledDate > 0) formatDate(scheduledDate) else "Date",
+                            color = if (scheduledDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    OutlinedButton(onClick = {
+                        datePickerTarget = "scheduled"
+                        showSchedTimePicker = true
+                    }) {
+                        Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (scheduledTime >= 0) formatTime(scheduledTime) else "Time",
+                            color = if (scheduledTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
-                OutlinedButton(onClick = {
-                    datePickerTarget = "scheduled"
-                    showSchedTimePicker = true
-                }) {
-                    Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        if (scheduledTime >= 0) formatTime(scheduledTime) else "Time",
-                        color = if (scheduledTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // Lock schedule
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = isScheduleLocked,
-                    onCheckedChange = { isScheduleLocked = it }
-                )
-                Text("🔒 Lock Schedule (won't be auto-rescheduled)")
+                // Lock schedule
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = isScheduleLocked,
+                        onCheckedChange = { isScheduleLocked = it }
+                    )
+                    Text("🔒 Lock Schedule (won't be auto-rescheduled)")
+                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
 
             // ESTIMATED DURATION
             SectionLabel("ESTIMATED DURATION")
@@ -679,10 +699,11 @@ fun NewTaskSheet(
                                 priority = selectedPriority,
                                 recurrence = selectedRecurrence,
                                 recurrenceIntervalDays = customIntervalDays,
-                                deadlineDate = if (deadlineDate > 0) deadlineDate else null,
-                                deadlineTime = if (deadlineTime >= 0) deadlineTime else null,
-                                scheduledDate = if (scheduledDate > 0) scheduledDate else null,
-                                scheduledTime = if (scheduledTime >= 0) scheduledTime else null,
+                                habitDate = if (selectedRecurrence != Recurrence.NONE && habitDate > 0) habitDate else null,
+                                deadlineDate = if (selectedRecurrence == Recurrence.NONE && deadlineDate > 0) deadlineDate else null,
+                                deadlineTime = if (selectedRecurrence == Recurrence.NONE && deadlineTime >= 0) deadlineTime else null,
+                                scheduledDate = if (selectedRecurrence == Recurrence.NONE && scheduledDate > 0) scheduledDate else null,
+                                scheduledTime = if (selectedRecurrence == Recurrence.NONE && scheduledTime >= 0) scheduledTime else null,
                                 isScheduleLocked = isScheduleLocked,
                                 estimatedDurationMinutes = estimatedDuration,
                                 impactScore = impactScore.toInt(),
@@ -794,6 +815,27 @@ fun NewTaskSheet(
                 TextButton(onClick = { showTagDialog = false }) { Text("Cancel") }
             }
         )
+    }
+
+    // Habit date picker
+    if (showHabitDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = if (habitDate > 0) habitDate else System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showHabitDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis -> habitDate = millis }
+                    showHabitDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showHabitDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 
     // Date pickers
