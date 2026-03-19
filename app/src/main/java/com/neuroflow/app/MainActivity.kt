@@ -1,27 +1,41 @@
 package com.neuroflow.app
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.presentation.common.NeuroFlowApp
+import com.neuroflow.app.presentation.common.NewChapterCard
 import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
 import com.neuroflow.app.presentation.onboarding.OnboardingScreen
+import com.neuroflow.app.worker.AutonomyNudgeWorker
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -30,12 +44,45 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var preferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var taskRepository: TaskRepository
 
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val taskId = intent.getStringExtra("taskId") ?: return
+        when (intent.action) {
+            "RESCHEDULE_NUDGE" -> {
+                // Re-enqueue AutonomyNudgeWorker with 1-hour delay
+                val request = OneTimeWorkRequestBuilder<AutonomyNudgeWorker>()
+                    .setInitialDelay(1, TimeUnit.HOURS)
+                    .setInputData(workDataOf("taskId" to taskId))
+                    .addTag("autonomy_nudge_$taskId")
+                    .build()
+                WorkManager.getInstance(this).enqueue(request)
+            }
+            "SPLIT_TASK" -> {
+                // TaskSplitter is called from AutonomyNudgeWorker context; here we just navigate
+                // Navigation to the task is handled by NeuroFlowApp via deep link / intent extras
+                setIntent(intent)
+            }
+            "WOOP_REFLECT" -> {
+                // Navigate to MiniWoopReflectionScreen — handled by NeuroFlowApp nav
+                setIntent(intent)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         enableEdgeToEdge()
         setContent {
             val preferences by preferencesDataStore.preferencesFlow.collectAsState(initial = null)
             val scope = rememberCoroutineScope()
+            // Track whether fresh-start card has been handled this session
+            var freshStartHandled by remember { mutableStateOf(false) }
 
             val darkTheme = when (preferences?.theme) {
                 AppTheme.LIGHT -> false
@@ -84,8 +131,58 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
+                        // Fresh-start check — show NewChapterCard if applicable
+                        !freshStartHandled && FreshStartEngine.isFreshStart(
+                            nowMillis = System.currentTimeMillis(),
+                            lastOpenMillis = prefs.lastAppOpenMillis,
+                            dailyStreak = prefs.dailyStreak,
+                            lastActiveDate = prefs.lastActiveDate,
+                            lastFreshStartShownWeek = prefs.lastFreshStartShownWeek,
+                            lastFreshStartShownYear = prefs.lastFreshStartShownYear
+                        ) -> NewChapterCard(
+                            onConfirm = { intent ->
+                                freshStartHandled = true
+                                scope.launch {
+                                    val now = System.currentTimeMillis()
+                                    preferencesDataStore.updatePreferences { p ->
+                                        p.copy(
+                                            weeklyIntent = intent,
+                                            weeklyIntentIsoWeek = FreshStartEngine.isoWeekNumber(now),
+                                            weeklyIntentIsoYear = FreshStartEngine.isoYear(now),
+                                            lastFreshStartShownWeek = FreshStartEngine.isoWeekNumber(now),
+                                            lastFreshStartShownYear = FreshStartEngine.isoYear(now),
+                                            lastAppOpenMillis = now
+                                        )
+                                    }
+                                }
+                            },
+                            onDismiss = {
+                                freshStartHandled = true
+                                scope.launch {
+                                    val now = System.currentTimeMillis()
+                                    preferencesDataStore.updatePreferences { p ->
+                                        p.copy(
+                                            lastFreshStartShownWeek = FreshStartEngine.isoWeekNumber(now),
+                                            lastFreshStartShownYear = FreshStartEngine.isoYear(now),
+                                            lastAppOpenMillis = now
+                                        )
+                                    }
+                                }
+                            }
+                        )
                         // Normal app
-                        else -> NeuroFlowApp()
+                        else -> {
+                            // Update lastAppOpenMillis on normal launch
+                            if (!freshStartHandled) {
+                                scope.launch {
+                                    preferencesDataStore.updatePreferences { p ->
+                                        p.copy(lastAppOpenMillis = System.currentTimeMillis())
+                                    }
+                                }
+                                freshStartHandled = true
+                            }
+                            NeuroFlowApp()
+                        }
                     }
                 }
             }

@@ -79,5 +79,9 @@ data class TaskEntity(
 
     // Habit anchor date — for recurring tasks this is always set and shifts by the recurrence interval
     // on each completion. Independent of deadline/scheduledDate so habits work without a deadline.
-    val habitDate: Long? = null
+    val habitDate: Long? = null,
+
+    // Behavioral motivation engine fields
+    val affectiveForecastError: Float? = null,  // REAL nullable — difference between predicted and actual enjoyment
+    val woopPromptShown: Boolean = false         // INTEGER NOT NULL DEFAULT 0 — whether WOOP prompt has been shown
 )

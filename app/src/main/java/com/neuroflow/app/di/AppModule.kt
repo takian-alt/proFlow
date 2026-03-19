@@ -8,11 +8,16 @@ import com.neuroflow.app.data.local.MIGRATION_3_4
 import com.neuroflow.app.data.local.MIGRATION_4_5
 import com.neuroflow.app.data.local.MIGRATION_5_6
 import com.neuroflow.app.data.local.MIGRATION_6_7
+import com.neuroflow.app.data.local.MIGRATION_7_8
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
+import com.neuroflow.app.data.local.dao.UlyssesContractDao
+import com.neuroflow.app.data.local.dao.WoopDao
+import com.neuroflow.app.data.repository.UlyssesContractRepository
+import com.neuroflow.app.data.repository.WoopRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -32,7 +37,7 @@ object AppModule {
             NeuroFlowDatabase::class.java,
             "neuroflow_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .build()
     }
 
@@ -44,6 +49,20 @@ object AppModule {
 
     @Provides
     fun provideGoalDao(database: NeuroFlowDatabase): GoalDao = database.goalDao()
+
+    @Provides
+    fun provideWoopDao(database: NeuroFlowDatabase): WoopDao = database.woopDao()
+
+    @Provides
+    fun provideUlyssesContractDao(database: NeuroFlowDatabase): UlyssesContractDao = database.ulyssesContractDao()
+
+    @Provides
+    @Singleton
+    fun provideWoopRepository(dao: WoopDao): WoopRepository = WoopRepository(dao)
+
+    @Provides
+    @Singleton
+    fun provideUlyssesContractRepository(dao: UlyssesContractDao): UlyssesContractRepository = UlyssesContractRepository(dao)
 
     @Provides
     @Singleton

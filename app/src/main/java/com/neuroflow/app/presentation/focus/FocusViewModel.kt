@@ -8,10 +8,15 @@ import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.engine.TaskScoringEngine
+import com.neuroflow.app.domain.engine.WoopEngine
 import com.neuroflow.app.domain.model.Recurrence
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -50,7 +55,18 @@ data class FocusUiState(
     val urgencyLabel: String = "",
     val scoreBreakdown: List<Pair<String, Float>> = emptyList(),
     // All active tasks for dependency scoring
-    val allActiveTasks: List<TaskEntity> = emptyList()
+    val allActiveTasks: List<TaskEntity> = emptyList(),
+    // Behavioral motivation engine fields
+    val showWoopPrompt: Boolean = false,
+    val woopData: WoopEntity? = null,
+    val showLaunchCountdown: Boolean = false,
+    val launchCountdownValue: Int = 5,
+    val weeklyIntent: String = "",
+    val showAffordanceRating: Boolean = false,
+    val affectiveForecastError: Float? = null,
+    val showNavigationInterstitial: Boolean = false,
+    val navigationInterstitialSecondsLeft: Int = 3,
+    val dreadedTaskInsight: String? = null,
 )
 
 @HiltViewModel
@@ -59,6 +75,7 @@ class FocusViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
+    private val woopRepository: WoopRepository,
     private val application: Application
 ) : ViewModel() {
 
@@ -79,11 +96,13 @@ class FocusViewModel @Inject constructor(
     private var timerJob: Job? = null
     private var pomodoroJob: Job? = null
     private var scoreTickJob: Job? = null
+    private var launchCountdownJob: Job? = null
 
     init {
         loadTask()
         loadSessions()
         loadPreferences()
+        loadWoopData()
         startScoreTick()
         observeNextTask()
         restoreActiveSession()
@@ -93,6 +112,7 @@ class FocusViewModel @Inject constructor(
 
     private fun loadTask() {
         viewModelScope.launch {
+            var launchCountdownStarted = false
             taskRepository.observeById(taskId).collect { task ->
                 _uiState.update { it.copy(task = task) }
                 refreshScore()
@@ -100,6 +120,15 @@ class FocusViewModel @Inject constructor(
                 if (task != null && task.reminderFlags != 0 && task.reminderFlags != lastScheduledReminderFlags) {
                     lastScheduledReminderFlags = task.reminderFlags
                     scheduleReminders(task)
+                }
+                // Start launch countdown once after the first non-null task is received
+                if (task != null && !launchCountdownStarted) {
+                    launchCountdownStarted = true
+                    startLaunchCountdownIfNeeded()
+                    // Schedule autonomy nudge if task hasn't been started yet
+                    if (task.sessionCount == 0) {
+                        AutonomyNudgeEngine.scheduleNudge(applicationContext, task)
+                    }
                 }
             }
         }
@@ -116,11 +145,74 @@ class FocusViewModel @Inject constructor(
     private fun loadPreferences() {
         viewModelScope.launch {
             preferencesDataStore.preferencesFlow.collect { prefs ->
+                val now = System.currentTimeMillis()
+                val currentWeek = com.neuroflow.app.domain.engine.FreshStartEngine.isoWeekNumber(now)
+                val currentYear = com.neuroflow.app.domain.engine.FreshStartEngine.isoYear(now)
+                val weeklyIntent = if (
+                    prefs.weeklyIntentIsoWeek == currentWeek &&
+                    prefs.weeklyIntentIsoYear == currentYear
+                ) prefs.weeklyIntent else ""
                 _uiState.update {
-                    it.copy(preferences = prefs, pomodoroTotal = prefs.defaultPomodoroMinutes * 60)
+                    it.copy(
+                        preferences = prefs,
+                        pomodoroTotal = prefs.defaultPomodoroMinutes * 60,
+                        weeklyIntent = weeklyIntent
+                    )
                 }
                 refreshScore()
             }
+        }
+    }
+
+    private fun loadWoopData() {
+        viewModelScope.launch {
+            val woopData = woopRepository.getByTaskId(taskId)
+            val task = taskRepository.getById(taskId)
+            val showWoopPrompt = WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
+            val completedTasks = taskRepository.getCompletedTasks()
+            val dreadedTaskInsight = WoopEngine.dreadedTaskInsight(completedTasks)
+            _uiState.update {
+                it.copy(
+                    showWoopPrompt = showWoopPrompt,
+                    woopData = woopData,
+                    dreadedTaskInsight = dreadedTaskInsight,
+                    affectiveForecastError = task?.affectiveForecastError
+                )
+            }
+        }
+    }
+
+    fun submitWoop(wish: String, outcome: String, obstacle: String, plan: String) {
+        viewModelScope.launch {
+            val woop = WoopEntity(taskId = taskId, wish = wish, outcome = outcome, obstacle = obstacle, plan = plan)
+            woopRepository.upsert(woop)
+            val task = taskRepository.getById(taskId) ?: return@launch
+            taskRepository.update(task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis()))
+            _uiState.update { it.copy(showWoopPrompt = false, woopData = woop) }
+        }
+    }
+
+    fun dismissWoop() {
+        viewModelScope.launch {
+            val task = taskRepository.getById(taskId) ?: return@launch
+            taskRepository.update(task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis()))
+            _uiState.update { it.copy(showWoopPrompt = false) }
+        }
+    }
+
+    fun submitAffordanceRating(rating: Float) {
+        viewModelScope.launch {
+            val task = taskRepository.getById(taskId) ?: return@launch
+            taskRepository.update(task.copy(affectiveForecastError = rating, updatedAt = System.currentTimeMillis()))
+            _uiState.update { it.copy(showAffordanceRating = false, affectiveForecastError = rating) }
+        }
+    }
+
+    fun dismissAffordanceRating() {
+        viewModelScope.launch {
+            val task = taskRepository.getById(taskId) ?: return@launch
+            taskRepository.update(task.copy(affectiveForecastError = null, updatedAt = System.currentTimeMillis()))
+            _uiState.update { it.copy(showAffordanceRating = false, affectiveForecastError = null) }
         }
     }
 
@@ -194,6 +286,9 @@ class FocusViewModel @Inject constructor(
 
     fun startTracking() {
         if (_uiState.value.isTracking) return
+        launchCountdownJob?.cancel()
+        _uiState.update { it.copy(showLaunchCountdown = false) }
+        AutonomyNudgeEngine.cancelNudge(applicationContext, taskId)
         val now = System.currentTimeMillis()
 
         viewModelScope.launch {
@@ -370,6 +465,7 @@ class FocusViewModel @Inject constructor(
     fun completeTask() {
         if (_uiState.value.isTracking) finalizeSession()
         stopPomodoro()
+        AutonomyNudgeEngine.cancelNudge(applicationContext, taskId)
         viewModelScope.launch {
             val task = taskRepository.getById(taskId) ?: return@launch
             val sessions = sessionRepository.getByTaskId(taskId)
@@ -431,7 +527,7 @@ class FocusViewModel @Inject constructor(
                 )
             }
 
-            _uiState.update { it.copy(isCompleted = true, pointsEarned = points, showCompletionSheet = true, completedHabitStreak = newHabitStreak) }
+            _uiState.update { it.copy(isCompleted = true, pointsEarned = points, showCompletionSheet = true, completedHabitStreak = newHabitStreak, showAffordanceRating = true) }
         }
     }
 
@@ -502,6 +598,49 @@ class FocusViewModel @Inject constructor(
         scoreTickJob?.cancel()
         timerJob?.cancel()
         pomodoroJob?.cancel()
+        launchCountdownJob?.cancel()
+        navigationInterstitialJob?.cancel()
         // NOTE: open session stays in DB — timer resumes on next visit
+    }
+
+    private var navigationInterstitialJob: Job? = null
+
+    fun onNavigationAttempted() {
+        if (!_uiState.value.isTracking) return
+        navigationInterstitialJob?.cancel()
+        _uiState.update { it.copy(showNavigationInterstitial = true, navigationInterstitialSecondsLeft = 3) }
+        navigationInterstitialJob = viewModelScope.launch {
+            for (i in 2 downTo 0) {
+                delay(1_000)
+                _uiState.update { it.copy(navigationInterstitialSecondsLeft = i) }
+            }
+            onInterstitialExpired()
+        }
+    }
+
+    fun onInterstitialExpired() {
+        navigationInterstitialJob?.cancel()
+        _uiState.update { it.copy(showNavigationInterstitial = false) }
+    }
+
+    private fun startLaunchCountdownIfNeeded() {
+        if (_uiState.value.isTracking) return
+        launchCountdownJob = viewModelScope.launch {
+            delay(8_000) // wait 8 seconds
+            if (_uiState.value.isTracking) return@launch // user started manually
+            // Start 5→0 countdown
+            _uiState.update { it.copy(showLaunchCountdown = true, launchCountdownValue = 5) }
+            for (i in 4 downTo 0) {
+                delay(1_000)
+                if (_uiState.value.isTracking) {
+                    _uiState.update { it.copy(showLaunchCountdown = false) }
+                    return@launch
+                }
+                _uiState.update { it.copy(launchCountdownValue = i) }
+            }
+            // Countdown reached 0 — auto-start
+            _uiState.update { it.copy(showLaunchCountdown = false) }
+            startTracking()
+        }
     }
 }

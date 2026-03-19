@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neuroflow.app.data.local.entity.ContractOutcome
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
@@ -72,6 +73,9 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
             }
             NeuroBoostCard(summary)
             if (summary.topProcrastinatedTasks.isNotEmpty()) ProcrastinationCard(summary)
+            if (uiState.activeContracts.isNotEmpty() || uiState.archivedContracts.isNotEmpty()) {
+                CommitmentsCard(uiState.activeContracts, uiState.archivedContracts)
+            }
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
@@ -618,6 +622,45 @@ private fun NeuroBoostCard(s: AnalyticsEngine.AnalyticsSummary) {
 }
 
 // ── Shared composables ────────────────────────────────────────────────────────
+
+@Composable
+private fun CommitmentsCard(
+    active: List<com.neuroflow.app.data.local.entity.UlyssesContractEntity>,
+    archived: List<com.neuroflow.app.data.local.entity.UlyssesContractEntity>
+) {
+    val wins = archived.count { it.outcome == ContractOutcome.WIN }
+    val losses = archived.count { it.outcome == ContractOutcome.LOSS }
+    val sdf = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault())
+
+    AnalyticsCard("⚔️ Ulysses Contracts") {
+        if (active.isNotEmpty()) {
+            Text("Active", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Spacer(Modifier.height(4.dp))
+            active.forEach { contract ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(contract.consequence, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                    Text("Due ${sdf.format(java.util.Date(contract.deadlineAt))}", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        if (archived.isNotEmpty()) {
+            Text("Results", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
+                StatColumn("$wins ✅", "Wins")
+                StatColumn("$losses ❌", "Losses")
+            }
+        }
+        if (active.isEmpty() && archived.isEmpty()) {
+            Text("No contracts yet.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
 
 @Composable
 private fun AnalyticsCard(title: String, content: @Composable ColumnScope.() -> Unit) {

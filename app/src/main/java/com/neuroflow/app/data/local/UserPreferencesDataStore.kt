@@ -34,7 +34,13 @@ data class UserPreferences(
     val weightImpact: Float = 1.0f,
     val weightFocusMode: Float = 1.0f,
     val onboardingCompleted: Boolean = false,
-    val theme: AppTheme = AppTheme.SYSTEM
+    val theme: AppTheme = AppTheme.SYSTEM,
+    val weeklyIntent: String = "",
+    val weeklyIntentIsoWeek: Int = 0,
+    val weeklyIntentIsoYear: Int = 0,
+    val lastFreshStartShownWeek: Int = 0,
+    val lastFreshStartShownYear: Int = 0,
+    val lastAppOpenMillis: Long = 0L
 )
 
 @Singleton
@@ -64,6 +70,12 @@ class UserPreferencesDataStore @Inject constructor(
         val WEIGHT_FOCUS_MODE = floatPreferencesKey("weight_focus_mode")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val THEME = stringPreferencesKey("theme")
+        val WEEKLY_INTENT = stringPreferencesKey("weekly_intent")
+        val WEEKLY_INTENT_ISO_WEEK = intPreferencesKey("weekly_intent_iso_week")
+        val WEEKLY_INTENT_ISO_YEAR = intPreferencesKey("weekly_intent_iso_year")
+        val LAST_FRESH_START_SHOWN_WEEK = intPreferencesKey("last_fresh_start_shown_week")
+        val LAST_FRESH_START_SHOWN_YEAR = intPreferencesKey("last_fresh_start_shown_year")
+        val LAST_APP_OPEN_MILLIS = longPreferencesKey("last_app_open_millis")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -91,7 +103,13 @@ class UserPreferencesDataStore @Inject constructor(
             onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
             theme = try {
                 AppTheme.valueOf(prefs[Keys.THEME] ?: AppTheme.SYSTEM.name)
-            } catch (_: Exception) { AppTheme.SYSTEM }
+            } catch (_: Exception) { AppTheme.SYSTEM },
+            weeklyIntent = prefs[Keys.WEEKLY_INTENT] ?: "",
+            weeklyIntentIsoWeek = prefs[Keys.WEEKLY_INTENT_ISO_WEEK] ?: 0,
+            weeklyIntentIsoYear = prefs[Keys.WEEKLY_INTENT_ISO_YEAR] ?: 0,
+            lastFreshStartShownWeek = prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] ?: 0,
+            lastFreshStartShownYear = prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] ?: 0,
+            lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L
         )
     }
 
@@ -146,6 +164,12 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.WEIGHT_FOCUS_MODE] = updated.weightFocusMode
             prefs[Keys.ONBOARDING_COMPLETED] = updated.onboardingCompleted
             prefs[Keys.THEME] = updated.theme.name
+            prefs[Keys.WEEKLY_INTENT] = updated.weeklyIntent
+            prefs[Keys.WEEKLY_INTENT_ISO_WEEK] = updated.weeklyIntentIsoWeek
+            prefs[Keys.WEEKLY_INTENT_ISO_YEAR] = updated.weeklyIntentIsoYear
+            prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] = updated.lastFreshStartShownWeek
+            prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] = updated.lastFreshStartShownYear
+            prefs[Keys.LAST_APP_OPEN_MILLIS] = updated.lastAppOpenMillis
         }
     }
 }

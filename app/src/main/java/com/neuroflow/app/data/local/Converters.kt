@@ -1,6 +1,7 @@
 package com.neuroflow.app.data.local
 
 import androidx.room.TypeConverter
+import com.neuroflow.app.data.local.entity.ContractOutcome
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
@@ -27,4 +28,8 @@ class Converters {
     @TypeConverter fun fromTaskType(value: TaskType): String = value.name
     @TypeConverter fun toTaskType(value: String): TaskType =
         try { TaskType.valueOf(value) } catch (_: Exception) { TaskType.ANALYTICAL }
+
+    @TypeConverter fun fromContractOutcome(value: ContractOutcome?): String? = value?.name
+    @TypeConverter fun toContractOutcome(value: String?): ContractOutcome? =
+        value?.let { ContractOutcome.valueOf(it) }
 }

@@ -8,9 +8,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
+import com.neuroflow.app.data.local.dao.UlyssesContractDao
+import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.local.entity.UlyssesContractEntity
+import com.neuroflow.app.data.local.entity.WoopEntity
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -55,9 +59,37 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tasks ADD COLUMN affectiveForecastError REAL")
+        db.execSQL("ALTER TABLE tasks ADD COLUMN woopPromptShown INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS woop_data (
+                taskId TEXT NOT NULL PRIMARY KEY,
+                wish TEXT NOT NULL DEFAULT '',
+                outcome TEXT NOT NULL DEFAULT '',
+                obstacle TEXT NOT NULL DEFAULT '',
+                plan TEXT NOT NULL DEFAULT '',
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+        """)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS ulysses_contracts (
+                id TEXT NOT NULL PRIMARY KEY,
+                taskId TEXT NOT NULL,
+                deadlineAt INTEGER NOT NULL,
+                consequence TEXT NOT NULL,
+                outcome TEXT,
+                createdAt INTEGER NOT NULL
+            )
+        """)
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class],
-    version = 7,
+    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class],
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -65,4 +97,6 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun timeSessionDao(): TimeSessionDao
     abstract fun goalDao(): GoalDao
+    abstract fun woopDao(): WoopDao
+    abstract fun ulyssesContractDao(): UlyssesContractDao
 }

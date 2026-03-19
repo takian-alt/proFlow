@@ -35,7 +35,11 @@ fun createNotificationChannels(context: Context) {
         CHANNEL_DAILY, "Daily Plan", NotificationManager.IMPORTANCE_DEFAULT
     ).apply { description = "Morning planning notifications" }
 
-    manager.createNotificationChannels(listOf(taskChannel, focusChannel, dailyChannel))
+    val autonomyNudgeChannel = NotificationChannel(
+        "autonomy_nudge", "Autonomy Nudges", NotificationManager.IMPORTANCE_DEFAULT
+    ).apply { description = "Gentle nudges when a task hasn't been started" }
+
+    manager.createNotificationChannels(listOf(taskChannel, focusChannel, dailyChannel, autonomyNudgeChannel))
 }
 
 @HiltWorker

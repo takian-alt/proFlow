@@ -41,7 +41,34 @@ fun FocusScreen(
 
     // Intercept system back button while tracking
     BackHandler(enabled = uiState.isTracking) {
-        viewModel.showTrackingBlockDialog()
+        viewModel.onNavigationAttempted()
+    }
+
+    // Navigation interstitial dialog
+    if (uiState.showNavigationInterstitial) {
+        AlertDialog(
+            onDismissRequest = { viewModel.onInterstitialExpired() },
+            title = { Text("Still tracking time") },
+            text = {
+                Column {
+                    Text("You're actively tracking. Leaving in ${uiState.navigationInterstitialSecondsLeft}s...")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { uiState.navigationInterstitialSecondsLeft / 3f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.pauseAndLeave(onNavigateBack) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA726))
+                ) { Text("Pause & Leave") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.onInterstitialExpired() }) { Text("Stay") }
+            }
+        )
     }
 
     if (uiState.showTrackingBlockDialog) {
@@ -118,7 +145,7 @@ fun FocusScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            if (uiState.isTracking) viewModel.showTrackingBlockDialog()
+                            if (uiState.isTracking) viewModel.onNavigationAttempted()
                             else onNavigateBack()
                         }
                     ) {
@@ -197,6 +224,30 @@ fun FocusScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Weekly intent banner
+            if (uiState.weeklyIntent.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🎯", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "This week: ${uiState.weeklyIntent}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            maxLines = 2
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Row 1: Live score + urgency
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -366,6 +417,62 @@ fun FocusScreen(
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(12.dp))
+
+            // WOOP reminder card — shows obstacle + plan when WOOP data exists
+            val woop = uiState.woopData
+            if (woop != null && woop.obstacle.isNotBlank() && woop.plan.isNotBlank()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("🧠 WOOP REMINDER", fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 11.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Obstacle: ${woop.obstacle}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF0D47A1))
+                        Text("Plan: ${woop.plan}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF0D47A1))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Dreaded task insight
+            if (uiState.dreadedTaskInsight != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("💡 INSIGHT", fontWeight = FontWeight.Bold, color = Color(0xFFF57F17), fontSize = 11.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(uiState.dreadedTaskInsight!!, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Prior affective forecast error
+            if (uiState.affectiveForecastError != null) {
+                val errorVal = uiState.affectiveForecastError!!
+                val label = when {
+                    errorVal < -0.5f -> "You found this harder than expected last time"
+                    errorVal > 0.5f -> "You found this easier than expected last time"
+                    else -> "This matched your expectations last time"
+                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("📊 PAST EXPERIENCE", fontWeight = FontWeight.Bold, color = Color(0xFF6A1B9A), fontSize = 11.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = Color(0xFF4A148C))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // If-Then Plan card — shows the user's implementation intention while working
             if (task.ifThenPlan.isNotBlank()) {
@@ -759,6 +866,24 @@ fun FocusScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // WOOP prompt sheet
+    if (uiState.showWoopPrompt) {
+        WoopPromptSheet(
+            onSubmit = { wish, outcome, obstacle, plan ->
+                viewModel.submitWoop(wish, outcome, obstacle, plan)
+            },
+            onSkip = { viewModel.dismissWoop() }
+        )
+    }
+
+    // Affordance rating sheet
+    if (uiState.showAffordanceRating) {
+        AffordanceRatingSheet(
+            onSubmit = { rating -> viewModel.submitAffordanceRating(rating) },
+            onSkip = { viewModel.dismissAffordanceRating() }
+        )
     }
 
     // Completion bottom sheet

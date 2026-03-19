@@ -1,6 +1,7 @@
 package com.neuroflow.app
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
 import com.neuroflow.app.worker.DailyPlanWorker
 import com.neuroflow.app.worker.DeadlineEscalationWorker
@@ -9,9 +10,17 @@ import com.neuroflow.app.worker.createNotificationChannels
 import dagger.hilt.android.HiltAndroidApp
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
 @HiltAndroidApp
-class NeuroFlowApplication : Application() {
+class NeuroFlowApplication : Application(), Configuration.Provider {
+
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels(this)
@@ -51,6 +60,18 @@ class NeuroFlowApplication : Application() {
             "deadline_escalation",
             ExistingPeriodicWorkPolicy.KEEP,
             escalationRequest
+        )
+
+        // FocusWidgetUpdateWorker — runs every 15 minutes to keep the home screen widget fresh
+        val widgetUpdateRequest = PeriodicWorkRequestBuilder<com.neuroflow.app.worker.FocusWidgetUpdateWorker>(
+            15, TimeUnit.MINUTES
+        )
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_REQUIRED).build())
+            .build()
+        workManager.enqueueUniquePeriodicWork(
+            "focus_widget_update",
+            ExistingPeriodicWorkPolicy.KEEP,
+            widgetUpdateRequest
         )
     }
 
