@@ -136,6 +136,23 @@ fun SettingsScreen(
                 }
             }
 
+            // Focus Behaviour
+            SettingsSection("Focus Behaviour") {
+                SettingsToggleRow(
+                    label = "WOOP planning prompt",
+                    description = "Show the WOOP sheet when opening a task for the first time",
+                    checked = prefs.woopEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(woopEnabled = it) } }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsToggleRow(
+                    label = "Auto-start tracker",
+                    description = "Automatically starts tracking after 8 seconds on the focus screen",
+                    checked = prefs.autoTrackerEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
+                )
+            }
+
             // Priority Weights
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -187,7 +204,7 @@ fun SettingsScreen(
 
             // About
             SettingsSection("About") {
-                Text("proFlow v1.0.0", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("proFlow v3.0.0", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -254,4 +271,24 @@ private fun hourLabel(hour: Int) = when {
     hour < 12  -> "$hour am"
     hour == 12 -> "12 pm"
     else       -> "${hour - 12} pm"
+}
+
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }

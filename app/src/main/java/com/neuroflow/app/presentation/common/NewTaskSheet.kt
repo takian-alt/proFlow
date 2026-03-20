@@ -84,6 +84,12 @@ fun NewTaskSheet(
     var showSchedDatePicker by remember { mutableStateOf(false) }
     var showSchedTimePicker by remember { mutableStateOf(false) }
     var showHabitDatePicker by remember { mutableStateOf(false) }
+    var showHabitTimePicker by remember { mutableStateOf(false) }
+    var habitTime by remember { mutableLongStateOf(editTask?.habitDate?.let {
+        // extract time-of-day portion if already set
+        val cal = Calendar.getInstance().apply { timeInMillis = it }
+        (cal.get(Calendar.HOUR_OF_DAY) * 3600000L + cal.get(Calendar.MINUTE) * 60000L).takeIf { t -> t > 0L } ?: -1L
+    } ?: -1L) }
     var datePickerTarget by remember { mutableStateOf("deadline") }
 
     ModalBottomSheet(
@@ -278,14 +284,24 @@ fun NewTaskSheet(
 
             // HABIT DATE — shown only for recurring tasks; this is the anchor that shifts each cycle
             if (selectedRecurrence != Recurrence.NONE) {
-                SectionLabel("HABIT START DATE (first occurrence due date)")
-                OutlinedButton(onClick = { showHabitDatePicker = true }) {
-                    Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        if (habitDate > 0) formatDate(habitDate) else "Pick start date",
-                        color = if (habitDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                    )
+                SectionLabel("HABIT START DATE & TIME (first occurrence)")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { showHabitDatePicker = true }) {
+                        Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (habitDate > 0) formatDate(habitDate) else "Pick date",
+                            color = if (habitDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    OutlinedButton(onClick = { showHabitTimePicker = true }) {
+                        Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (habitTime >= 0) formatTime(habitTime) else "Pick time",
+                            color = if (habitTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -699,7 +715,12 @@ fun NewTaskSheet(
                                 priority = selectedPriority,
                                 recurrence = selectedRecurrence,
                                 recurrenceIntervalDays = customIntervalDays,
-                                habitDate = if (selectedRecurrence != Recurrence.NONE && habitDate > 0) habitDate else null,
+                                habitDate = if (selectedRecurrence != Recurrence.NONE && habitDate > 0) {
+                                    // Merge date + time into a single epoch millis
+                                    val datePart = habitDate
+                                    val timePart = if (habitTime >= 0) habitTime else 0L
+                                    datePart + timePart
+                                } else null,
                                 deadlineDate = if (selectedRecurrence == Recurrence.NONE && deadlineDate > 0) deadlineDate else null,
                                 deadlineTime = if (selectedRecurrence == Recurrence.NONE && deadlineTime >= 0) deadlineTime else null,
                                 scheduledDate = if (selectedRecurrence == Recurrence.NONE && scheduledDate > 0) scheduledDate else null,
@@ -836,6 +857,28 @@ fun NewTaskSheet(
         ) {
             DatePicker(state = datePickerState)
         }
+    }
+
+    // Habit time picker
+    if (showHabitTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = if (habitTime >= 0) (habitTime / 3600000).toInt() else 8,
+            initialMinute = if (habitTime >= 0) ((habitTime % 3600000) / 60000).toInt() else 0
+        )
+        AlertDialog(
+            onDismissRequest = { showHabitTimePicker = false },
+            title = { Text("Select Habit Time") },
+            text = { TimePicker(state = timePickerState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    habitTime = timePickerState.hour * 3600000L + timePickerState.minute * 60000L
+                    showHabitTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showHabitTimePicker = false }) { Text("Cancel") }
+            }
+        )
     }
 
     // Date pickers

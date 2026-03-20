@@ -16,6 +16,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.common.NewTaskSheet
 import com.neuroflow.app.presentation.common.TaskRow
 import com.neuroflow.app.presentation.common.getQuadrantLabel
@@ -37,6 +38,7 @@ fun QuadrantDetailScreen(
     }
     var showNewTaskSheet by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<com.neuroflow.app.data.local.entity.TaskEntity?>(null) }
+    var timeLogTask by remember { mutableStateOf<com.neuroflow.app.data.local.entity.TaskEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -92,7 +94,13 @@ fun QuadrantDetailScreen(
                     TaskRow(
                         task = task,
                         onTaskClick = { onNavigateToFocus(task.id) },
-                        onCompleteClick = { viewModel.completeTask(task) },
+                        onCompleteClick = {
+                            if (task.estimatedDurationMinutes > 0 && task.totalTimeTrackedMinutes == 0f) {
+                                timeLogTask = task
+                            } else {
+                                viewModel.completeTask(task)
+                            }
+                        },
                         onEditClick = { editingTask = task }
                     )
                 }
@@ -121,6 +129,21 @@ fun QuadrantDetailScreen(
             },
             editTask = task,
             availableTasks = uiState.allActiveTasks
+        )
+    }
+
+    timeLogTask?.let { task ->
+        ManualTimeLogSheet(
+            taskTitle = task.title,
+            prefillMinutes = task.estimatedDurationMinutes,
+            onConfirm = { minutes ->
+                viewModel.completeTaskWithTime(task, minutes)
+                timeLogTask = null
+            },
+            onSkip = {
+                viewModel.completeTask(task)
+                timeLogTask = null
+            }
         )
     }
 }

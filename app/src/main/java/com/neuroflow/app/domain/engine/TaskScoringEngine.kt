@@ -62,8 +62,16 @@ object TaskScoringEngine {
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
-        val isPeakHour = hour in prefs.peakEnergyStart..prefs.peakEnergyEnd
-        val isMorning = hour < prefs.peakEnergyStart
+
+        // Use dynamically detected peak if available, blended with manual setting
+        val (effectivePeakStart, effectivePeakEnd) = if (prefs.effectivePeakStart >= 0) {
+            prefs.effectivePeakStart to prefs.effectivePeakEnd
+        } else {
+            prefs.peakEnergyStart to prefs.peakEnergyEnd
+        }
+
+        val isPeakHour = hour in effectivePeakStart..effectivePeakEnd
+        val isMorning = hour < effectivePeakStart
         val isLowEnergySlot = hour in 13..15  // post-lunch dip
         val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
         val isWithinWorkDay = hour in prefs.workDayStart until prefs.workDayEnd

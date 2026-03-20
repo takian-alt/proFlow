@@ -28,6 +28,8 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.common.GoalPeriod
+import com.neuroflow.app.presentation.common.TopGoalsRefillCard
 import com.neuroflow.app.presentation.common.NeuroFlowApp
 import com.neuroflow.app.presentation.common.NewChapterCard
 import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
@@ -83,6 +85,9 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             // Track whether fresh-start card has been handled this session
             var freshStartHandled by remember { mutableStateOf(false) }
+            // Track whether goals refill has been handled this session (skip = session-only)
+            var yearlyGoalHandled by remember { mutableStateOf(false) }
+            var weeklyGoalHandled by remember { mutableStateOf(false) }
 
             val darkTheme = when (preferences?.theme) {
                 AppTheme.LIGHT -> false
@@ -172,16 +177,63 @@ class MainActivity : ComponentActivity() {
                         )
                         // Normal app
                         else -> {
-                            // Update lastAppOpenMillis on normal launch
+                            // Update lastAppOpenMillis on normal launch — set flag synchronously
+                            // to prevent repeated writes on every recompose
                             if (!freshStartHandled) {
+                                freshStartHandled = true
                                 scope.launch {
                                     preferencesDataStore.updatePreferences { p ->
                                         p.copy(lastAppOpenMillis = System.currentTimeMillis())
                                     }
                                 }
-                                freshStartHandled = true
                             }
-                            NeuroFlowApp()
+                            // Compute once per composition — stable within a session
+                            val nowMillis = remember { System.currentTimeMillis() }
+                            val currentYear = remember(nowMillis) { FreshStartEngine.isoYear(nowMillis) }
+                            val currentWeek = remember(nowMillis) { FreshStartEngine.isoWeekNumber(nowMillis) }
+                            val needsYearlyRefill = !yearlyGoalHandled &&
+                                (prefs.yearlyGoals.all { it.isBlank() } || prefs.lastYearlyGoalShownYear != currentYear)
+                            val needsWeeklyRefill = !weeklyGoalHandled && !needsYearlyRefill &&
+                                (prefs.weeklyGoals.all { it.isBlank() } ||
+                                    prefs.lastWeeklyGoalShownWeek != currentWeek ||
+                                    prefs.lastWeeklyGoalShownYear != currentYear)
+
+                            when {
+                                needsYearlyRefill -> TopGoalsRefillCard(
+                                    period = GoalPeriod.YEARLY,
+                                    existingGoals = prefs.yearlyGoals,
+                                    onConfirm = { goals ->
+                                        yearlyGoalHandled = true
+                                        scope.launch {
+                                            preferencesDataStore.updatePreferences { p ->
+                                                p.copy(
+                                                    yearlyGoals = goals,
+                                                    lastYearlyGoalShownYear = currentYear
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onSkip = { yearlyGoalHandled = true }
+                                )
+                                needsWeeklyRefill -> TopGoalsRefillCard(
+                                    period = GoalPeriod.WEEKLY,
+                                    existingGoals = prefs.weeklyGoals,
+                                    onConfirm = { goals ->
+                                        weeklyGoalHandled = true
+                                        scope.launch {
+                                            preferencesDataStore.updatePreferences { p ->
+                                                p.copy(
+                                                    weeklyGoals = goals,
+                                                    lastWeeklyGoalShownWeek = currentWeek,
+                                                    lastWeeklyGoalShownYear = currentYear
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onSkip = { weeklyGoalHandled = true }
+                                )
+                                else -> NeuroFlowApp()
+                            }
                         }
                     }
                 }

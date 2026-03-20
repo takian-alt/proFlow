@@ -15,6 +15,7 @@ import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
+import com.neuroflow.app.domain.engine.PeakEnergyDetector
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.engine.WoopEngine
 import com.neuroflow.app.domain.model.Recurrence
@@ -67,6 +68,9 @@ data class FocusUiState(
     val showNavigationInterstitial: Boolean = false,
     val navigationInterstitialSecondsLeft: Int = 3,
     val dreadedTaskInsight: String? = null,
+    // Manual time log sheet — shown when DONE is tapped with no tracked time
+    val showManualTimeLog: Boolean = false,
+    val completionAffirmation: String = "",
 )
 
 @HiltViewModel
@@ -168,7 +172,8 @@ class FocusViewModel @Inject constructor(
         viewModelScope.launch {
             val woopData = woopRepository.getByTaskId(taskId)
             val task = taskRepository.getById(taskId)
-            val showWoopPrompt = WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val showWoopPrompt = prefs.woopEnabled && WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
             val completedTasks = taskRepository.getCompletedTasks()
             val dreadedTaskInsight = WoopEngine.dreadedTaskInsight(completedTasks)
             _uiState.update {
@@ -200,6 +205,11 @@ class FocusViewModel @Inject constructor(
         }
     }
 
+    fun reopenWoop() {
+        if (!_uiState.value.preferences.woopEnabled) return
+        _uiState.update { it.copy(showWoopPrompt = true) }
+    }
+
     fun submitAffordanceRating(rating: Float) {
         viewModelScope.launch {
             val task = taskRepository.getById(taskId) ?: return@launch
@@ -209,11 +219,7 @@ class FocusViewModel @Inject constructor(
     }
 
     fun dismissAffordanceRating() {
-        viewModelScope.launch {
-            val task = taskRepository.getById(taskId) ?: return@launch
-            taskRepository.update(task.copy(affectiveForecastError = null, updatedAt = System.currentTimeMillis()))
-            _uiState.update { it.copy(showAffordanceRating = false, affectiveForecastError = null) }
-        }
+        _uiState.update { it.copy(showAffordanceRating = false) }
     }
 
     /**
@@ -438,6 +444,9 @@ class FocusViewModel @Inject constructor(
             _uiState.update {
                 it.copy(isTracking = false, isPaused = false, elapsedSeconds = 0, activeSessionId = null)
             }
+
+            // Re-run peak energy detection after every session
+            updateDynamicPeak()
         }
     }
 
@@ -463,18 +472,51 @@ class FocusViewModel @Inject constructor(
     // ── COMPLETE ──────────────────────────────────────────────────────────────
 
     fun completeTask() {
+        // Only prompt for manual time log if the task has an estimated duration and no time was tracked
+        val state = _uiState.value
+        val hasTrackedTime = state.sessions.any { it.endedAt != null && it.durationMinutes > 0f }
+        val hasEstimate = (state.task?.estimatedDurationMinutes ?: 0) > 0
+        if (!state.isTracking && !hasTrackedTime && hasEstimate) {
+            _uiState.update { it.copy(showManualTimeLog = true) }
+            return
+        }
+        doCompleteTask(manualMinutes = null)
+    }
+
+    fun completeWithManualTime(minutes: Float) {
+        _uiState.update { it.copy(showManualTimeLog = false) }
+        doCompleteTask(manualMinutes = minutes.takeIf { it > 0f })
+    }
+
+    fun dismissManualTimeLog() {
+        _uiState.update { it.copy(showManualTimeLog = false) }
+        doCompleteTask(manualMinutes = null)
+    }
+
+    private fun doCompleteTask(manualMinutes: Float?) {
         if (_uiState.value.isTracking) finalizeSession()
         stopPomodoro()
         AutonomyNudgeEngine.cancelNudge(applicationContext, taskId)
         viewModelScope.launch {
+            // If manual time was provided, insert a synthetic closed session
+            if (manualMinutes != null && manualMinutes > 0f) {
+                val now = System.currentTimeMillis()
+                val syntheticSession = com.neuroflow.app.data.local.entity.TimeSessionEntity(
+                    taskId = taskId,
+                    startedAt = now - (manualMinutes * 60_000f).toLong(),
+                    endedAt = now,
+                    durationMinutes = manualMinutes,
+                    sessionType = "MANUAL_LOG"
+                )
+                sessionRepository.insert(syntheticSession)
+            }
+
             val task = taskRepository.getById(taskId) ?: return@launch
             val sessions = sessionRepository.getByTaskId(taskId)
-            // Only count closed sessions with real duration — open/zero sessions skew MAPE
             val actualDuration = sessions
                 .filter { it.endedAt != null && it.durationMinutes > 0f }
                 .sumOf { it.durationMinutes.toDouble() }.toFloat()
 
-            // Only compute MAPE/SMAPE when we have both an estimate and actual tracked time
             val mape = if (task.estimatedDurationMinutes > 0 && actualDuration > 0f)
                 AnalyticsEngine.computeMape(task.estimatedDurationMinutes.toFloat(), actualDuration) else null
             val smape = if (task.estimatedDurationMinutes > 0 && actualDuration > 0f)
@@ -483,8 +525,6 @@ class FocusViewModel @Inject constructor(
             val points = task.impactScore / 10
             val now = System.currentTimeMillis()
 
-            // Update the completed task with focus-specific fields first, then delegate
-            // completion + recurrence to the shared repository helper.
             val taskWithFocusData = task.copy(
                 actualDurationMinutes = actualDuration,
                 estimationErrorMape = mape,
@@ -494,9 +534,6 @@ class FocusViewModel @Inject constructor(
             )
             taskRepository.completeAndRecur(taskWithFocusData, now)
 
-            // Compute the streak that should be shown in the completion sheet.
-            // completeAndRecur increments habitStreak on the completed task, so add 1 here
-            // for recurring tasks. Non-recurring tasks don't have a habit streak to show.
             val newHabitStreak = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE)
                 task.habitStreak + 1 else task.habitStreak
 
@@ -511,12 +548,10 @@ class FocusViewModel @Inject constructor(
                     cal.timeInMillis
                 }
                 val yesterdayStart = todayStart - 86_400_000L
-                // Increment streak if last active was yesterday (continuing) or today (already counted)
-                // Reset to 1 if last active was before yesterday (streak broken)
                 val newStreak = when {
-                    prefs.lastActiveDate >= todayStart -> prefs.dailyStreak  // already counted today
-                    prefs.lastActiveDate >= yesterdayStart -> prefs.dailyStreak + 1  // continuing streak
-                    else -> 1  // streak broken — restart
+                    prefs.lastActiveDate >= todayStart -> prefs.dailyStreak
+                    prefs.lastActiveDate >= yesterdayStart -> prefs.dailyStreak + 1
+                    else -> 1
                 }
                 prefs.copy(
                     totalTasksCompleted = prefs.totalTasksCompleted + 1,
@@ -527,12 +562,23 @@ class FocusViewModel @Inject constructor(
                 )
             }
 
-            _uiState.update { it.copy(isCompleted = true, pointsEarned = points, showCompletionSheet = true, completedHabitStreak = newHabitStreak, showAffordanceRating = true) }
+            _uiState.update {
+                val affirmations = it.preferences.affirmations
+                val affirmation = if (affirmations.isNotEmpty()) affirmations.random() else ""
+                it.copy(
+                    isCompleted = true,
+                    pointsEarned = points,
+                    showCompletionSheet = true,
+                    completedHabitStreak = newHabitStreak,
+                    showAffordanceRating = true,
+                    completionAffirmation = affirmation
+                )
+            }
         }
     }
 
     fun dismissCompletion() {
-        _uiState.update { it.copy(showCompletionSheet = false) }
+        _uiState.update { it.copy(showCompletionSheet = false, completionAffirmation = "") }
     }
 
     fun skipTask() {
@@ -555,12 +601,37 @@ class FocusViewModel @Inject constructor(
     }
 
     /**
+     * Runs PeakEnergyDetector over all closed sessions and updates DataStore
+     * with the detected peak window and confidence score.
+     * Called after every session finalization.
+     */
+    private suspend fun updateDynamicPeak() {
+        val allSessions = sessionRepository.getAllSessions()
+        val result = PeakEnergyDetector.detect(allSessions)
+        preferencesDataStore.updatePreferences { prefs ->
+            val (effStart, effEnd) = if (result.hasEnoughData) {
+                PeakEnergyDetector.effectivePeak(prefs.peakEnergyStart, prefs.peakEnergyEnd, result)
+            } else {
+                prefs.peakEnergyStart to prefs.peakEnergyEnd
+            }
+            prefs.copy(
+                detectedPeakStart = if (result.hasEnoughData) result.detectedStart else prefs.detectedPeakStart,
+                detectedPeakEnd = if (result.hasEnoughData) result.detectedEnd else prefs.detectedPeakEnd,
+                peakDetectionConfidence = result.confidence,
+                effectivePeakStart = effStart,
+                effectivePeakEnd = effEnd
+            )
+        }
+    }
+
+    /**
      * Schedules OneTimeWorkRequests for each reminder flag set on the task.
      * Flags: 15min=1, 30min=2, 1hr=4, 1day=8 — before deadline or scheduled time.
      */
     fun scheduleReminders(task: TaskEntity) {
         val targetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
             ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+            ?: task.habitDate  // recurring tasks use habitDate (already includes time)
             ?: return  // no time anchor — nothing to schedule against
 
         val now = System.currentTimeMillis()
@@ -626,6 +697,9 @@ class FocusViewModel @Inject constructor(
     private fun startLaunchCountdownIfNeeded() {
         if (_uiState.value.isTracking) return
         launchCountdownJob = viewModelScope.launch {
+            // Read prefs fresh — loadPreferences() may not have emitted yet when this is called
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            if (!prefs.autoTrackerEnabled) return@launch
             delay(8_000) // wait 8 seconds
             if (_uiState.value.isTracking) return@launch // user started manually
             // Start 5→0 countdown

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.neuroflow.app.domain.model.AppTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,7 +41,28 @@ data class UserPreferences(
     val weeklyIntentIsoYear: Int = 0,
     val lastFreshStartShownWeek: Int = 0,
     val lastFreshStartShownYear: Int = 0,
-    val lastAppOpenMillis: Long = 0L
+    val lastAppOpenMillis: Long = 0L,
+    // Dynamic peak energy detection
+    val detectedPeakStart: Int = -1,      // -1 = not yet detected
+    val detectedPeakEnd: Int = -1,
+    val peakDetectionConfidence: Float = 0f,  // 0.0–1.0
+    // Blended effective peak (manual lerp'd with detected, based on confidence)
+    val effectivePeakStart: Int = -1,     // -1 = use peakEnergyStart
+    val effectivePeakEnd: Int = -1,       // -1 = use peakEnergyEnd
+    // Subliminal affirmations — stored as JSON array string
+    val affirmations: List<String> = emptyList(),
+    // Top 3 goals for the year (JSON array)
+    val yearlyGoals: List<String> = emptyList(),
+    // Top 3 goals for the current week (JSON array)
+    val weeklyGoals: List<String> = emptyList(),
+    // Tracks when we last showed the yearly goals refill prompt
+    val lastYearlyGoalShownYear: Int = 0,
+    // Tracks when we last showed the weekly goals refill prompt (ISO week + year)
+    val lastWeeklyGoalShownWeek: Int = 0,
+    val lastWeeklyGoalShownYear: Int = 0,
+    // Focus behaviour toggles
+    val woopEnabled: Boolean = true,
+    val autoTrackerEnabled: Boolean = false
 )
 
 @Singleton
@@ -76,6 +98,19 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_FRESH_START_SHOWN_WEEK = intPreferencesKey("last_fresh_start_shown_week")
         val LAST_FRESH_START_SHOWN_YEAR = intPreferencesKey("last_fresh_start_shown_year")
         val LAST_APP_OPEN_MILLIS = longPreferencesKey("last_app_open_millis")
+        val DETECTED_PEAK_START = intPreferencesKey("detected_peak_start")
+        val DETECTED_PEAK_END = intPreferencesKey("detected_peak_end")
+        val PEAK_DETECTION_CONFIDENCE = floatPreferencesKey("peak_detection_confidence")
+        val EFFECTIVE_PEAK_START = intPreferencesKey("effective_peak_start")
+        val EFFECTIVE_PEAK_END = intPreferencesKey("effective_peak_end")
+        val AFFIRMATIONS = stringPreferencesKey("affirmations")
+        val YEARLY_GOALS = stringPreferencesKey("yearly_goals")
+        val WEEKLY_GOALS = stringPreferencesKey("weekly_goals")
+        val LAST_YEARLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_yearly_goal_shown_year")
+        val LAST_WEEKLY_GOAL_SHOWN_WEEK = intPreferencesKey("last_weekly_goal_shown_week")
+        val LAST_WEEKLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_weekly_goal_shown_year")
+        val WOOP_ENABLED = booleanPreferencesKey("woop_enabled")
+        val AUTO_TRACKER_ENABLED = booleanPreferencesKey("auto_tracker_enabled")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -109,8 +144,35 @@ class UserPreferencesDataStore @Inject constructor(
             weeklyIntentIsoYear = prefs[Keys.WEEKLY_INTENT_ISO_YEAR] ?: 0,
             lastFreshStartShownWeek = prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] ?: 0,
             lastFreshStartShownYear = prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] ?: 0,
-            lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L
+            lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L,
+            detectedPeakStart = prefs[Keys.DETECTED_PEAK_START] ?: -1,
+            detectedPeakEnd = prefs[Keys.DETECTED_PEAK_END] ?: -1,
+            peakDetectionConfidence = prefs[Keys.PEAK_DETECTION_CONFIDENCE] ?: 0f,
+            effectivePeakStart = prefs[Keys.EFFECTIVE_PEAK_START] ?: -1,
+            effectivePeakEnd = prefs[Keys.EFFECTIVE_PEAK_END] ?: -1,
+            affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
+            yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
+            weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
+            lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
+            lastWeeklyGoalShownWeek = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] ?: 0,
+            lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
+            woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
+            autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false
         )
+    }
+
+    private fun parseAffirmations(json: String?): List<String> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            List(arr.length()) { arr.getString(it) }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun encodeAffirmations(list: List<String>): String {
+        val arr = JSONArray()
+        list.forEach { arr.put(it) }
+        return arr.toString()
     }
 
     suspend fun updatePreferences(update: (UserPreferences) -> UserPreferences) {
@@ -139,7 +201,26 @@ class UserPreferencesDataStore @Inject constructor(
                 onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
                 theme = try {
                     AppTheme.valueOf(prefs[Keys.THEME] ?: AppTheme.SYSTEM.name)
-                } catch (_: Exception) { AppTheme.SYSTEM }
+                } catch (_: Exception) { AppTheme.SYSTEM },
+                weeklyIntent = prefs[Keys.WEEKLY_INTENT] ?: "",
+                weeklyIntentIsoWeek = prefs[Keys.WEEKLY_INTENT_ISO_WEEK] ?: 0,
+                weeklyIntentIsoYear = prefs[Keys.WEEKLY_INTENT_ISO_YEAR] ?: 0,
+                lastFreshStartShownWeek = prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] ?: 0,
+                lastFreshStartShownYear = prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] ?: 0,
+                lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L,
+                detectedPeakStart = prefs[Keys.DETECTED_PEAK_START] ?: -1,
+                detectedPeakEnd = prefs[Keys.DETECTED_PEAK_END] ?: -1,
+                peakDetectionConfidence = prefs[Keys.PEAK_DETECTION_CONFIDENCE] ?: 0f,
+                effectivePeakStart = prefs[Keys.EFFECTIVE_PEAK_START] ?: -1,
+                effectivePeakEnd = prefs[Keys.EFFECTIVE_PEAK_END] ?: -1,
+                affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
+                yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
+                weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
+                lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
+                lastWeeklyGoalShownWeek = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] ?: 0,
+                lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
+                woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
+                autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -170,6 +251,19 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] = updated.lastFreshStartShownWeek
             prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] = updated.lastFreshStartShownYear
             prefs[Keys.LAST_APP_OPEN_MILLIS] = updated.lastAppOpenMillis
+            prefs[Keys.DETECTED_PEAK_START] = updated.detectedPeakStart
+            prefs[Keys.DETECTED_PEAK_END] = updated.detectedPeakEnd
+            prefs[Keys.PEAK_DETECTION_CONFIDENCE] = updated.peakDetectionConfidence
+            prefs[Keys.EFFECTIVE_PEAK_START] = updated.effectivePeakStart
+            prefs[Keys.EFFECTIVE_PEAK_END] = updated.effectivePeakEnd
+            prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
+            prefs[Keys.YEARLY_GOALS] = encodeAffirmations(updated.yearlyGoals)
+            prefs[Keys.WEEKLY_GOALS] = encodeAffirmations(updated.weeklyGoals)
+            prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] = updated.lastYearlyGoalShownYear
+            prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] = updated.lastWeeklyGoalShownWeek
+            prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] = updated.lastWeeklyGoalShownYear
+            prefs[Keys.WOOP_ENABLED] = updated.woopEnabled
+            prefs[Keys.AUTO_TRACKER_ENABLED] = updated.autoTrackerEnabled
         }
     }
 }

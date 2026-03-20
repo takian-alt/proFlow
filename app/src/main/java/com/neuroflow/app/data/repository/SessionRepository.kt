@@ -24,6 +24,9 @@ class SessionRepository @Inject constructor(
     suspend fun getByTaskId(taskId: String): List<TimeSessionEntity> =
         timeSessionDao.getByTaskId(taskId)
 
+    suspend fun getAllSessions(): List<TimeSessionEntity> =
+        timeSessionDao.getAll()
+
     suspend fun getOpenSessionForTask(taskId: String): TimeSessionEntity? =
         timeSessionDao.getOpenSessionForTask(taskId)
 

@@ -46,6 +46,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- Handles snooze action from autonomy nudge notification (no app open needed) -->
+        <receiver
+            android:name=".receiver.NudgeSnoozeReceiver"
+            android:exported="false" />
+
         <!-- FocusWidget AppWidget provider -->
         <receiver
             android:name=".presentation.widget.FocusWidgetProvider"

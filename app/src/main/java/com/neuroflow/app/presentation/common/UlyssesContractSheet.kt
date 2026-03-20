@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -35,11 +36,10 @@ fun UlyssesContractSheet(
     var consequence by remember { mutableStateOf("") }
     var deadlineMillis by remember { mutableStateOf(System.currentTimeMillis() + 86_400_000L) }
     var showTaskPicker by remember { mutableStateOf(false) }
-    var activeTasks by remember { mutableStateOf(listOf<com.neuroflow.app.data.local.entity.TaskEntity>()) }
+    val activeTasks by taskRepository.observeActiveTasks().collectAsStateWithLifecycle(initialValue = emptyList())
 
-    LaunchedEffect(Unit) {
-        taskRepository.observeActiveTasks().collect { activeTasks = it }
-    }
+    val now = System.currentTimeMillis()
+    val deadlineIsValid = deadlineMillis > now
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -84,6 +84,13 @@ fun UlyssesContractSheet(
             // Deadline display (simplified — shows current deadline + +1 day / +1 week buttons)
             val sdf = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
             Text("Deadline: ${sdf.format(Date(deadlineMillis))}", style = MaterialTheme.typography.bodyMedium)
+            if (!deadlineIsValid) {
+                Text(
+                    "Deadline must be in the future.",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { deadlineMillis += 86_400_000L }) { Text("+1 day") }
                 OutlinedButton(onClick = { deadlineMillis += 7 * 86_400_000L }) { Text("+1 week") }
@@ -110,7 +117,7 @@ fun UlyssesContractSheet(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        if (selectedTaskId.isBlank() || consequence.isBlank()) return@Button
+                        if (selectedTaskId.isBlank() || consequence.isBlank() || !deadlineIsValid) return@Button
                         scope.launch {
                             val contract = UlyssesContractEntity(
                                 taskId = selectedTaskId,
@@ -128,7 +135,7 @@ fun UlyssesContractSheet(
                             onDismiss()
                         }
                     },
-                    enabled = selectedTaskId.isNotBlank() && consequence.isNotBlank()
+                    enabled = selectedTaskId.isNotBlank() && consequence.isNotBlank() && deadlineIsValid
                 ) {
                     Text("Commit")
                 }

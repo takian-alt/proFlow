@@ -33,6 +33,9 @@ interface TimeSessionDao {
     @Query("SELECT * FROM time_sessions ORDER BY startedAt DESC")
     fun observeAll(): Flow<List<TimeSessionEntity>>
 
+    @Query("SELECT * FROM time_sessions ORDER BY startedAt DESC")
+    suspend fun getAll(): List<TimeSessionEntity>
+
     @Query("SELECT * FROM time_sessions WHERE startedAt >= :startOfDay AND startedAt < :endOfDay")
     fun observeSessionsForDay(startOfDay: Long, endOfDay: Long): Flow<List<TimeSessionEntity>>
 

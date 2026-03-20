@@ -23,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.Recurrence
+import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.common.getQuadrantLabel
 import com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
@@ -434,6 +435,15 @@ fun FocusScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+            } else if (woop == null && !uiState.showWoopPrompt && uiState.preferences.woopEnabled) {
+                OutlinedButton(
+                    onClick = { viewModel.reopenWoop() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("🎯 Add WOOP plan", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Dreaded task insight
@@ -693,6 +703,33 @@ fun FocusScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
+                    // Auto-start countdown banner
+                    if (uiState.showLaunchCountdown) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = NeuroFlowColors.Purple.copy(alpha = 0.12f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Auto-starting in ${uiState.launchCountdownValue}s…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowColors.Purple
+                                )
+                                TextButton(
+                                    onClick = { viewModel.startTracking() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                ) {
+                                    Text("Start now", fontSize = 12.sp, color = NeuroFlowColors.Purple)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -868,6 +905,16 @@ fun FocusScreen(
         }
     }
 
+    // Manual time log sheet — shown when DONE is tapped with no tracked time
+    if (uiState.showManualTimeLog) {
+        ManualTimeLogSheet(
+            taskTitle = task?.title ?: "",
+            prefillMinutes = task?.estimatedDurationMinutes ?: 0,
+            onConfirm = { minutes -> viewModel.completeWithManualTime(minutes) },
+            onSkip = { viewModel.dismissManualTimeLog() }
+        )
+    }
+
     // WOOP prompt sheet
     if (uiState.showWoopPrompt) {
         WoopPromptSheet(
@@ -878,8 +925,8 @@ fun FocusScreen(
         )
     }
 
-    // Affordance rating sheet
-    if (uiState.showAffordanceRating) {
+    // Affordance rating sheet — shown AFTER completion sheet is dismissed
+    if (uiState.showAffordanceRating && !uiState.showCompletionSheet) {
         AffordanceRatingSheet(
             onSubmit = { rating -> viewModel.submitAffordanceRating(rating) },
             onSkip = { viewModel.dismissAffordanceRating() }
@@ -893,6 +940,7 @@ fun FocusScreen(
             pointsEarned = uiState.pointsEarned,
             habitStreak = uiState.completedHabitStreak,
             identityLabel = uiState.preferences.identityLabel,
+            affirmation = uiState.completionAffirmation,
             onNextTask = {
                 viewModel.dismissCompletion()
                 uiState.nextTaskId?.let { onNavigateToNextTask(it, viewModel.buildSkippedArg()) } ?: onNavigateBack()
@@ -912,11 +960,14 @@ private fun CompletionSheet(
     pointsEarned: Int,
     habitStreak: Int,
     identityLabel: String,
+    affirmation: String,
     onNextTask: () -> Unit,
     onHome: () -> Unit
 ) {
     ModalBottomSheet(
-        onDismissRequest = onHome,
+        onDismissRequest = {
+            onHome()
+        },
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
         Column(
@@ -951,6 +1002,16 @@ private fun CompletionSheet(
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Medium
+                )
+            }
+            if (affirmation.isNotBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "\"$affirmation\"",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                 )
             }
             Spacer(modifier = Modifier.height(24.dp))

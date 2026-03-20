@@ -1,23 +1,37 @@
 package com.neuroflow.app.presentation.common
 
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -30,13 +44,14 @@ import androidx.navigation.navArgument
 import com.neuroflow.app.presentation.analytics.AnalyticsScreen
 import com.neuroflow.app.presentation.focus.FocusScreen
 import com.neuroflow.app.presentation.history.HistoryScreen
+import com.neuroflow.app.presentation.identity.IdentityScreen
+import com.neuroflow.app.presentation.logtime.LogTimeScreen
 import com.neuroflow.app.presentation.matrix.MatrixScreen
 import com.neuroflow.app.presentation.matrix.QuadrantDetailScreen
 import com.neuroflow.app.presentation.onboarding.AppGuideScreen
 import com.neuroflow.app.presentation.schedule.ScheduleScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
-
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     data object Matrix : Screen("matrix", "Matrix", Icons.Filled.GridView)
     data object Schedule : Screen("schedule", "Schedule", Icons.Filled.CalendarMonth)
@@ -47,6 +62,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object Settings : Screen("settings", "Settings", null)
     data object PriorityWeights : Screen("priority_weights", "Priority Weights", null)
     data object AppGuide : Screen("app_guide", "App Guide", null)
+    data object LogTime : Screen("log_time", "Log Time", Icons.Filled.Timer)
+    data object Identity : Screen("identity", "Identity", Icons.Filled.Psychology)
 }
 
 val bottomNavItems = listOf(
@@ -64,15 +81,42 @@ fun NeuroFlowApp() {
     val currentDestination = navBackStackEntry?.destination
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val drawerViewModel: DrawerViewModel = hiltViewModel()
+    val prefs by drawerViewModel.preferences.collectAsState()
+
+    // Edit dialog state: null = closed, YEARLY/WEEKLY = open for that period
+    var editingPeriod by remember { mutableStateOf<GoalPeriod?>(null) }
 
     val showBottomBar = bottomNavItems.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true
+    }
+
+    // Edit goals dialog
+    editingPeriod?.let { period ->
+        val existing = if (period == GoalPeriod.YEARLY) prefs?.yearlyGoals ?: emptyList()
+                       else prefs?.weeklyGoals ?: emptyList()
+        AlertDialog(
+            onDismissRequest = { editingPeriod = null },
+            title = { Text(if (period == GoalPeriod.YEARLY) "Yearly Goals" else "Weekly Goals") },
+            text = {
+                GoalsEditContent(
+                    goals = existing,
+                    onSave = { goals ->
+                        if (period == GoalPeriod.YEARLY) drawerViewModel.saveYearlyGoals(goals)
+                        else drawerViewModel.saveWeeklyGoals(goals)
+                        editingPeriod = null
+                    }
+                )
+            },
+            confirmButton = {}
+        )
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
                     "proFlow",
@@ -82,6 +126,14 @@ fun NeuroFlowApp() {
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
+                // Top Goals section
+                DrawerGoalsSection(
+                    yearlyGoals = prefs?.yearlyGoals ?: emptyList(),
+                    weeklyGoals = prefs?.weeklyGoals ?: emptyList(),
+                    onEditYearly = { editingPeriod = GoalPeriod.YEARLY },
+                    onEditWeekly = { editingPeriod = GoalPeriod.WEEKLY }
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 bottomNavItems.forEach { screen ->
                     NavigationDrawerItem(
                         icon = { Icon(screen.icon!!, contentDescription = screen.title) },
@@ -112,6 +164,16 @@ fun NeuroFlowApp() {
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
                 NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.Timer, contentDescription = "Log Time") },
+                    label = { Text("Log Time") },
+                    selected = currentDestination?.route == Screen.LogTime.route,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate(Screen.LogTime.route)
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                NavigationDrawerItem(
                     icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "How it works") },
                     label = { Text("How it works") },
                     selected = currentDestination?.route == Screen.AppGuide.route,
@@ -121,6 +183,17 @@ fun NeuroFlowApp() {
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.Psychology, contentDescription = "Identity") },
+                    label = { Text("Identity") },
+                    selected = currentDestination?.route == Screen.Identity.route,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate(Screen.Identity.route)
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                } // end Column scroll
             }
         }
     ) {
@@ -237,6 +310,61 @@ fun NeuroFlowApp() {
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
+                composable(Screen.LogTime.route) {
+                    LogTimeScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.Identity.route) {
+                    IdentityScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoalsEditContent(
+    goals: List<String>,
+    onSave: (List<String>) -> Unit
+) {
+    // Capture initial values only — don't reset if parent recomposes with new prefs while editing
+    val edited = remember {
+        androidx.compose.runtime.mutableStateListOf(
+            goals.getOrElse(0) { "" },
+            goals.getOrElse(1) { "" },
+            goals.getOrElse(2) { "" }
+        )
+    }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    Column {
+        edited.forEachIndexed { index, value ->
+            OutlinedTextField(
+                value = value,
+                onValueChange = { edited[index] = it },
+                label = { Text("Goal ${index + 1}") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = if (index < 2) androidx.compose.ui.text.input.ImeAction.Next
+                                else androidx.compose.ui.text.input.ImeAction.Done
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onNext = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) },
+                    onDone = { focusManager.clearFocus() }
+                )
+            )
+            if (index < 2) Spacer(modifier = Modifier.height(8.dp))
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Button(onClick = { onSave(edited.map { it.trim() }) }) {
+                Text("Save")
             }
         }
     }

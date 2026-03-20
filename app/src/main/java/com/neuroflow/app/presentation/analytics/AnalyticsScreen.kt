@@ -69,7 +69,27 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
             HabitsCard(summary)
             StreakCard(summary, uiState.preferences.identityLabel, uiState.preferences.topGoal)
             if (uiState.preferences.peakEnergyStart < uiState.preferences.peakEnergyEnd) {
-                PeakHourCard(summary, uiState.preferences.peakEnergyStart, uiState.preferences.peakEnergyEnd)
+                // Use effective (blended) peak if available, otherwise fall back to manual
+                val displayPeakStart = if (uiState.preferences.effectivePeakStart >= 0)
+                    uiState.preferences.effectivePeakStart else uiState.preferences.peakEnergyStart
+                val displayPeakEnd = if (uiState.preferences.effectivePeakEnd >= 0)
+                    uiState.preferences.effectivePeakEnd else uiState.preferences.peakEnergyEnd
+                PeakHourCard(summary, displayPeakStart, displayPeakEnd)
+            }
+            // Dynamic peak insight — show when detected peak differs from manual by ≥2h
+            val detectedStart = uiState.preferences.detectedPeakStart
+            val detectedEnd = uiState.preferences.detectedPeakEnd
+            val confidence = uiState.preferences.peakDetectionConfidence
+            if (detectedStart >= 0 && confidence > 0f) {
+                DynamicPeakCard(
+                    manualStart = uiState.preferences.peakEnergyStart,
+                    manualEnd = uiState.preferences.peakEnergyEnd,
+                    detectedStart = detectedStart,
+                    detectedEnd = detectedEnd,
+                    effectiveStart = if (uiState.preferences.effectivePeakStart >= 0) uiState.preferences.effectivePeakStart else uiState.preferences.peakEnergyStart,
+                    effectiveEnd = if (uiState.preferences.effectivePeakEnd >= 0) uiState.preferences.effectivePeakEnd else uiState.preferences.peakEnergyEnd,
+                    confidence = confidence
+                )
             }
             NeuroBoostCard(summary)
             if (summary.topProcrastinatedTasks.isNotEmpty()) ProcrastinationCard(summary)
@@ -617,6 +637,69 @@ private fun NeuroBoostCard(s: AnalyticsEngine.AnalyticsSummary) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DynamicPeakCard(
+    manualStart: Int, manualEnd: Int,
+    detectedStart: Int, detectedEnd: Int,
+    effectiveStart: Int, effectiveEnd: Int,
+    confidence: Float
+) {
+    fun fmtHour(h: Int): String {
+        val amPm = if (h < 12) "am" else "pm"
+        val display = if (h == 0 || h == 12) 12 else h % 12
+        return "$display$amPm"
+    }
+    val pct = (confidence * 100).toInt()
+    val shifted = kotlin.math.abs(detectedStart - manualStart) >= 2
+
+    AnalyticsCard("⚡ Dynamic Peak Energy") {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            Text("Manual setting", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${fmtHour(manualStart)}–${fmtHour(manualEnd)}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            Text("Detected from sessions", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "${fmtHour(detectedStart)}–${fmtHour(detectedEnd)}",
+                fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                color = if (shifted) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            Text("Effective (scoring uses)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "${fmtHour(effectiveStart)}–${fmtHour(effectiveEnd)}",
+                fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                color = NeuroFlowColors.Purple
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text("Detection confidence", fontSize = 12.sp)
+            Text("$pct%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeuroFlowColors.Purple)
+        }
+        Spacer(Modifier.height(4.dp))
+        LinearProgressIndicator(
+            progress = { confidence.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+            color = NeuroFlowColors.Purple
+        )
+        Spacer(Modifier.height(8.dp))
+        if (shifted) {
+            Text(
+                "Your actual peak (${fmtHour(detectedStart)}–${fmtHour(detectedEnd)}) differs from your manual setting. " +
+                "Scoring is already blending both. Update your setting in Onboarding to fully align.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(
+                "Your focus sessions confirm your peak window. Scoring is aligned.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

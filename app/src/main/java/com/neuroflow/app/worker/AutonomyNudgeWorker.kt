@@ -10,6 +10,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.receiver.NudgeSnoozeReceiver
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -31,14 +32,12 @@ class AutonomyNudgeWorker @AssistedInject constructor(
 
             val notificationId = taskId.hashCode()
 
-            // "I'm not ready yet" — re-enqueue with 1-hour delay via MainActivity
-            val notReadyPendingIntent = PendingIntent.getActivity(
+            // "I'm not ready yet" — re-enqueue via BroadcastReceiver (no app open needed)
+            val notReadyPendingIntent = PendingIntent.getBroadcast(
                 appContext,
                 notificationId + 1,
-                Intent(appContext, MainActivity::class.java).apply {
-                    action = "RESCHEDULE_NUDGE"
+                Intent(appContext, NudgeSnoozeReceiver::class.java).apply {
                     putExtra("taskId", taskId)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -69,7 +68,8 @@ class AutonomyNudgeWorker @AssistedInject constructor(
 
             val notification = NotificationCompat.Builder(appContext, "autonomy_nudge")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("You haven't started ${task.title} yet. What's getting in the way?")
+                .setContentTitle("You haven't started \"${task.title}\" yet")
+                .setContentText("What's getting in the way? Tap an option below.")
                 .setAutoCancel(true)
                 .addAction(0, "I'm not ready yet", notReadyPendingIntent)
                 .addAction(0, "It feels too big", splitTaskPendingIntent)

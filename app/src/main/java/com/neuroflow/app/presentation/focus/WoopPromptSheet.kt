@@ -132,6 +132,7 @@ fun WoopPromptSheet(
                 Button(
                     onClick = { onSubmit(wish, outcome, obstacle, plan) },
                     modifier = Modifier.weight(1f),
+                    enabled = wish.isNotBlank() && obstacle.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
                 ) {
                     Text("Submit")
