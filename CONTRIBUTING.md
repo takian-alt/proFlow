@@ -171,6 +171,7 @@ The project uses the standard Android testing stack:
 When adding a new feature, please include matching unit tests for:
 
 - Any new scoring logic in `TaskScoringEngine`
+- Any new behavioral engine logic (`FreshStartEngine`, `WoopEngine`, `AutonomyNudgeEngine`, `PeakEnergyDetector`, `TaskSplitter`)
 - Any new ViewModel state transitions
 - Any new repository methods
 

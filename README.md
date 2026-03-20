@@ -12,12 +12,12 @@ proFlow is an advanced productivity and task management application for Android,
 - **Smart Scoring Engine** — composite priority scores (0–1000) driven by Temporal Motivation Theory, Cognitive Load Theory, Circadian Rhythm research, the Zeigarnik Effect, BJ Fogg's Tiny Habits, and more
 - **Focus Timer** — built-in Pomodoro-style focus sessions with per-task time tracking and post-session WOOP reflection
 - **Schedule View** — day and week timeline with locked-slot scheduling and work-hour awareness
-- **Analytics Dashboard** — completion rates, productivity streaks, goal progress, and Vico-powered charts
+- **Analytics Dashboard** — completion rates, productivity streaks, goal progress, Vico-powered 7-day trend charts, XP/gamification points, Neuro Boost Insights (frog tasks, anxiety tasks, public commitments), Procrastination Radar, and Dynamic Peak Energy detection
 - **Task History** — searchable archive of completed tasks with full audit trail
 - **Goal Linking** — attach tasks to long-term goals and track goal risk exposure; manage yearly and weekly goals from the navigation drawer
 - **Background Intelligence** — WorkManager workers for daily planning notifications (7 am), streak checks (9 pm), automatic deadline escalation (every 4 hours), autonomy nudges, Ulysses Contract evaluation, and home screen widget updates; all workers are rescheduled automatically on device reboot
 - **Onboarding Flow** — guided first-launch setup for identity, peak energy hours, and first task
-- **Identity Screen** — dedicated screen for configuring user identity and values that drive motivational framing
+- **Identity Affirmations** — dedicated screen for composing and managing personal identity statements (e.g. "I finish what I start"); affirmations are persisted and used as self-concept anchors throughout the app
 - **WOOP Framework** — structured Wish-Outcome-Obstacle-Plan prompts before focus sessions and a mini reflection screen after; affective forecasting tracks expectation vs. reality over time
 - **Ulysses Contracts** — create binding commitment contracts for critical tasks; outcome (win/loss) is automatically evaluated at the deadline
 - **Autonomy Nudge System** — if a task goes untouched for 2 hours a smart notification fires with action buttons: *Not ready yet* (snooze) and *It feels too big* (auto-split into subtasks)
@@ -26,7 +26,7 @@ proFlow is an advanced productivity and task management application for Android,
 - **Peak Energy Detector** — learns your personal focus windows from session history using exponential recency weighting; blends with manually configured peak hours
 - **Manual Time Logging** — log time spent on a task outside of timed focus sessions via a dedicated bottom sheet and log-time screen
 - **Affordance Rating** — after a focus session rate how difficult the task felt vs. your expectation; data feeds into WOOP calibration insights
-- **Home Screen Widget** — glanceable widget that always shows your current top-priority task, updated by a background worker
+- **Home Screen Widget** — RemoteViews AppWidget that always shows your current top-priority task; tapping the Start button launches the app; updated by a background worker on every task change
 - **Theming** — Material 3 dark/light theme with user-configurable priority weights
 
 ---
@@ -83,11 +83,11 @@ app/
     │   │                      #   MiniWoopReflectionScreen, AffordanceRatingSheet
     │   ├── analytics/         # Analytics screen
     │   ├── history/           # Completed tasks screen
-    │   ├── identity/          # Identity setup screen
+    │   ├── identity/          # Identity affirmations screen
     │   ├── logtime/           # Manual time log screen
     │   ├── settings/          # Settings & priority weights screens
     │   ├── onboarding/        # Onboarding & app guide screens
-    │   └── widget/            # Home screen widget (FocusWidgetProvider)
+    │   └── widget/            # Home screen widget (RemoteViews AppWidget)
     ├── worker/                # WorkManager background workers (incl.
     │                          #   AutonomyNudgeWorker, UlyssesEvaluatorWorker,
     │                          #   FocusWidgetUpdateWorker, NotificationWorker)

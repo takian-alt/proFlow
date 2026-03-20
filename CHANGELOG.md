@@ -23,9 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WoopEntity` / `WoopDao` / `WoopRepository` — persists WOOP entries (wish, outcome, obstacle, plan) and affective forecast results per task
 
 **Screens**
-- **Identity** — dedicated screen for configuring user identity and values that inform motivational framing throughout the app
+- **Identity** — dedicated screen for composing and managing personal identity affirmations (e.g. "I finish what I start"); duplicates are rejected; affirmations are persisted and used as self-concept anchors throughout the app
 - **Log Time** — manual time-logging screen for recording effort spent outside of timed focus sessions
 - **Mini WOOP Reflection** — post-focus reflection screen walking users through the four WOOP fields to close the loop on a completed session
+
+**Analytics additions**
+- **XP / Points card** — gamification layer surfacing total XP, today's XP, this-week's XP, and the top-5 point-earning tasks
+- **Neuro Boost Insights card** — completion breakdown for frog tasks, anxiety tasks, public commitments, and if-then plan usage rate
+- **Procrastination Radar card** — lists the top repeatedly-postponed active tasks as a motivational nudge
+- **Dynamic Peak Energy card** — shows the auto-detected peak window vs. the manually configured one and the detection confidence level
+- **Ulysses Contracts card** — live view of active contracts and a WIN/LOSS record for closed contracts
 
 **Background Workers**
 - `AutonomyNudgeWorker` — fires the autonomy nudge notification with smart action buttons; tagged per task so it can be cancelled if the task is touched before the 2-hour window
@@ -45,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `NewChapterCard` — card composable for creating a new goal or life chapter in the drawer goals section
 - `TopGoalsRefillCard` — card composable for surfacing and replenishing the top yearly/weekly goals in the drawer
 - `DrawerGoalsSection` / `DrawerViewModel` — navigation drawer section displaying yearly and weekly goals with inline editing
-- `FocusWidgetProvider` — Glance-based home screen widget showing the current top-priority task; falls back to a "No tasks" prompt when the task list is empty
+- `FocusWidgetProvider` — RemoteViews-based AppWidget (`AppWidgetProvider`) showing the current top-priority task; tapping the **Start** button launches MainActivity; update is triggered via `FocusWidgetUpdateWorker`
 
 **Project documentation**
 - README, CONTRIBUTING, LICENSE, CHANGELOG, CODE_OF_CONDUCT, SECURITY
