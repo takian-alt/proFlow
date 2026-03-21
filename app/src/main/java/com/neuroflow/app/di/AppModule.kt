@@ -1,6 +1,7 @@
 package com.neuroflow.app.di
 
 import android.content.Context
+import android.content.pm.LauncherApps
 import androidx.room.Room
 import com.neuroflow.app.data.local.MIGRATION_1_2
 import com.neuroflow.app.data.local.MIGRATION_2_3
@@ -69,4 +70,9 @@ object AppModule {
     fun provideUserPreferencesDataStore(
         @ApplicationContext context: Context
     ): UserPreferencesDataStore = UserPreferencesDataStore(context)
+
+    @Provides
+    @Singleton
+    fun provideLauncherApps(@ApplicationContext context: Context): LauncherApps =
+        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 }

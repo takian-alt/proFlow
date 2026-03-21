@@ -1,13 +1,19 @@
 package com.neuroflow.app
 
 import android.app.Application
+import android.os.StrictMode
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
+import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.worker.DailyPlanWorker
 import com.neuroflow.app.worker.DeadlineEscalationWorker
 import com.neuroflow.app.worker.StreakCheckWorker
 import com.neuroflow.app.worker.createNotificationChannels
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -16,6 +22,9 @@ import javax.inject.Inject
 class NeuroFlowApplication : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var appRepository: AppRepository
+
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -23,8 +32,34 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             .build()
     override fun onCreate() {
         super.onCreate()
+
+        // Enable StrictMode in debug builds to catch main-thread IO violations
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .penaltyLog()
+                    .penaltyDeath()  // Crash on violations to ensure they're fixed
+                    .build()
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectLeakedSqlLiteObjects()
+                    .detectLeakedClosableObjects()
+                    .penaltyLog()
+                    .build()
+            )
+        }
+
         createNotificationChannels(this)
         scheduleDailyWorkers()
+
+        // Pre-warm AppRepository on IO thread
+        applicationScope.launch {
+            appRepository.loadAll()
+        }
     }
 
     private fun scheduleDailyWorkers() {

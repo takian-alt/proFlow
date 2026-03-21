@@ -25,6 +25,7 @@ import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToPriorityWeights: () -> Unit,
+    onNavigateToLauncherSettings: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -169,6 +170,31 @@ fun SettingsScreen(
                     Column {
                         Text("Priority Weights", fontWeight = FontWeight.Bold)
                         Text("Customize task scoring weights", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, "Navigate")
+                }
+            }
+
+            // Launcher
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = onNavigateToLauncherSettings
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Launcher", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Home screen pages, icons, dock, distraction scoring",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     Icon(Icons.Filled.ChevronRight, "Navigate")
                 }
