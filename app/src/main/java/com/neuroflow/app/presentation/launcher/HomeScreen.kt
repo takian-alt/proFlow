@@ -214,18 +214,17 @@ private fun PortraitLayout(
             .padding(vertical = 16.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Only show clock/task/habits on the main page (pageData == null)
-            if (pageData == null) {
+        // Only show clock/task/habits on the main page (pageData == null)
+        if (pageData == null) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 DateTimeDisplay(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(with(gestureHandler) { Modifier.attachSwipeDown() })
                 )
-
                 FocusTaskCard(
                     topTask = topTask,
                     ulyssesContract = ulyssesContract,
@@ -244,54 +243,52 @@ private fun PortraitLayout(
                     onClearSkipped = { viewModel.clearSkippedTasks() },
                     modifier = Modifier.fillMaxWidth()
                 )
-
                 HabitQuickRow(
                     habitTasks = habitTasks,
                     onCompleteHabit = { task -> viewModel.completeHabit(task) },
                     modifier = Modifier.fillMaxWidth()
                 )
-            } else {
-                // Extra page: show page name as header
-                Text(
-                    text = pageData.name.ifBlank { "Page" },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                // App grid for this extra page
-                HomeScreenPageGrid(
-                    page = pageData,
-                    allApps = allApps,
-                    folders = folders,
-                    badgeCounts = badgeCounts,
-                    focusActive = focusActive,
-                    launcherApps = launcherApps,
-                    onAppTap = { app ->
-                        scope.launch { appRepository.launchApp(app.packageName, app.userHandle) }
-                    },
-                    onFolderTap = { folder ->
-                        selectedFolder = folder
-                        showFolderOverlay = true
-                    },
-                    onRemoveItem = { position ->
-                        viewModel.removeItemFromPage(pageData.id, position)
-                    },
-                    onMoveItem = { from, to ->
-                        viewModel.moveItemInPage(pageData.id, from, to)
-                    },
-                    isDraggingIcon = viewModel.isDraggingIcon,
+                WidgetSlotRow(
+                    widgets = emptyList<WidgetSlot>(),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            WidgetSlotRow(
-                widgets = emptyList<WidgetSlot>(),
-                modifier = Modifier.fillMaxWidth()
+            Spacer(modifier = Modifier.weight(1f))
+        } else {
+            // Extra page: header + grid fills all available space above dock
+            Text(
+                text = pageData.name.ifBlank { "Page" },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            HomeScreenPageGrid(
+                page = pageData,
+                allApps = allApps,
+                folders = folders,
+                badgeCounts = badgeCounts,
+                focusActive = focusActive,
+                launcherApps = launcherApps,
+                onAppTap = { app ->
+                    scope.launch { appRepository.launchApp(app.packageName, app.userHandle) }
+                },
+                onFolderTap = { folder ->
+                    selectedFolder = folder
+                    showFolderOverlay = true
+                },
+                onRemoveItem = { position ->
+                    viewModel.removeItemFromPage(pageData.id, position)
+                },
+                onMoveItem = { from, to ->
+                    viewModel.moveItemInPage(pageData.id, from, to)
+                },
+                isDraggingIcon = viewModel.isDraggingIcon,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
             )
         }
-
-        Spacer(modifier = Modifier.weight(1f))
 
         DockRow(
             viewModel = viewModel,

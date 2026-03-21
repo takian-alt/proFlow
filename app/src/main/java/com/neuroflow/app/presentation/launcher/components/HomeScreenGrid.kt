@@ -170,7 +170,7 @@ internal fun HomeScreenPageGrid(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(400.dp)
+            .fillMaxHeight()
             .padding(horizontal = 16.dp)
             .onGloballyPositioned { coords ->
                 val bounds = coords.boundsInWindow()
@@ -179,12 +179,14 @@ internal fun HomeScreenPageGrid(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.SpaceEvenly
         ) {
             for (row in 0 until rows) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     for (col in 0 until columns) {
                         val position = row * columns + col
@@ -197,7 +199,7 @@ internal fun HomeScreenPageGrid(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(80.dp)
+                                .fillMaxHeight()
                                 .onGloballyPositioned { coords ->
                                     slotBounds[position] = coords.boundsInWindow()
                                 }
