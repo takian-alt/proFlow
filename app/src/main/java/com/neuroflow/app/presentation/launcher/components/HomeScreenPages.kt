@@ -1,37 +1,35 @@
 package com.neuroflow.app.presentation.launcher.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.neuroflow.app.presentation.launcher.LauncherViewModel
-import com.neuroflow.app.presentation.launcher.data.AppInfo
-import com.neuroflow.app.presentation.launcher.data.FolderDefinition
-import com.neuroflow.app.presentation.launcher.folder.FolderIcon
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
+import com.neuroflow.app.domain.engine.AnalyticsEngine
+import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.launcher.LauncherViewModel
+import kotlin.math.roundToInt
 
 /**
- * Left page - Reserved for future feature (Phase 3).
- * Currently shows empty placeholder.
- *
- * @param modifier Modifier for the page container
+ * Left page - Reserved for future feature.
  */
 @Composable
-fun LeftPage(
-    modifier: Modifier = Modifier
-) {
+fun LeftPage(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -46,11 +44,9 @@ fun LeftPage(
 }
 
 /**
- * Right page - Quick stats panel (Phase 3).
- * Displays today's progress, streak, and task breakdown.
- *
- * @param viewModel LauncherViewModel for analytics data
- * @param modifier Modifier for the page container
+ * Right page — Quick Stats panel.
+ * Loads real data from AnalyticsEngine on each visit.
+ * Swipe right from the main page to reach it.
  */
 @Composable
 fun RightPage(
@@ -58,66 +54,65 @@ fun RightPage(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val allTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
+    var summary by remember { mutableStateOf<AnalyticsEngine.AnalyticsSummary?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    // Calculate stats from tasks
-    val completedToday = remember(allTasks) {
-        allTasks.count { it.status == com.neuroflow.app.domain.model.TaskStatus.COMPLETED }
-    }
-
-    val tasksByQuadrant = remember(allTasks) {
-        allTasks.groupBy { it.quadrant }
+    // Reload every time this composable enters composition (page visited)
+    LaunchedEffect(Unit) {
+        isLoading = true
+        summary = viewModel.loadAnalyticsSummary()
+        isLoading = false
     }
 
     Surface(
         modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+        color = MaterialTheme.colorScheme.background
     ) {
+        if (isLoading || summary == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Surface
+        }
+
+        val s = summary!!
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Header
             Text(
-                text = "Today's Progress",
-                style = MaterialTheme.typography.headlineMedium,
+                text = "Quick Stats",
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-        Divider()
+            // Today card
+            TodayCard(s)
 
-        // Stats
-        StatsRow(icon = "✅", label = "Tasks done", value = "$completedToday")
-        StatsRow(icon = "📋", label = "Active tasks", value = "${allTasks.size}")
-        StatsRow(icon = "⏱", label = "Minutes focused", value = "0") // TODO: Wire to session data
-        StatsRow(icon = "🔥", label = "Streak", value = "0 days") // TODO: Wire to analytics
+            // Focus time card
+            FocusCard(s)
 
-        Spacer(modifier = Modifier.height(16.dp))
+            // Streak card
+            StreakCard(s)
 
-        Text(
-            text = "Tasks by Quadrant",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+            // Quadrant breakdown
+            QuadrantCard(s)
 
-        // Quadrant breakdown
-        val doFirst = tasksByQuadrant[com.neuroflow.app.domain.model.Quadrant.DO_FIRST]?.size ?: 0
-        val schedule = tasksByQuadrant[com.neuroflow.app.domain.model.Quadrant.SCHEDULE]?.size ?: 0
-        val delegate = tasksByQuadrant[com.neuroflow.app.domain.model.Quadrant.DELEGATE]?.size ?: 0
+            // 7-day trend bar chart
+            TrendCard(s)
 
-        QuadrantRow(label = "DO FIRST", completed = 0, total = doFirst)
-        QuadrantRow(label = "SCHEDULE", completed = 0, total = schedule)
-        QuadrantRow(label = "DELEGATE", completed = 0, total = delegate)
-
-        Spacer(modifier = Modifier.weight(1f))
-
-            Button(
+            // Open full analytics button
+            OutlinedButton(
                 onClick = {
-                    // Open analytics in main app
-                    val intent = android.content.Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
+                    val intent = android.content.Intent(
+                        context, com.neuroflow.app.MainActivity::class.java
+                    ).apply {
                         action = "com.procus.ACTION_OPEN_ANALYTICS"
                         flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
                     }
@@ -125,77 +120,314 @@ fun RightPage(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Open Analytics")
+                Text("Full Analytics")
+            }
+
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun TodayCard(s: AnalyticsEngine.AnalyticsSummary) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Today",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                StatChip(
+                    value = "${s.completedToday}",
+                    label = "Done",
+                    color = MaterialTheme.colorScheme.primary
+                )
+                StatChip(
+                    value = "${s.remainingTasks}",
+                    label = "Left",
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                StatChip(
+                    value = "${s.completionRate.roundToInt()}%",
+                    label = "Rate",
+                    color = MaterialTheme.colorScheme.tertiary
+                )
             }
         }
     }
 }
 
 @Composable
-private fun StatsRow(
-    icon: String,
-    label: String,
-    value: String
-) {
-    Row(
+private fun FocusCard(s: AnalyticsEngine.AnalyticsSummary) {
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = icon,
-                style = MaterialTheme.typography.titleLarge
+                "Focus Time",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column {
+                    Text(
+                        text = formatMinutes(s.focusMinutesToday),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "today",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = formatMinutes(s.avgSessionMinutes),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "avg session",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (s.mostFocusedTaskTitle != null) {
+                Text(
+                    "Most focused: ${s.mostFocusedTaskTitle}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
         }
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
     }
 }
 
 @Composable
-private fun QuadrantRow(
-    label: String,
-    completed: Int,
-    total: Int
-) {
-    Column(
+private fun StreakCard(s: AnalyticsEngine.AnalyticsSummary) {
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    "🔥 Current Streak",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "${s.currentStreak} days",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "Best",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "${s.longestStreak}d",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuadrantCard(s: AnalyticsEngine.AnalyticsSummary) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "Tasks by Quadrant",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+            val total = s.tasksByQuadrant.values.sum().takeIf { it > 0 } ?: 1
+            listOf(
+                Triple("Do First", Quadrant.DO_FIRST, MaterialTheme.colorScheme.error),
+                Triple("Schedule", Quadrant.SCHEDULE, MaterialTheme.colorScheme.primary),
+                Triple("Delegate", Quadrant.DELEGATE, MaterialTheme.colorScheme.secondary),
+                Triple("Eliminate", Quadrant.ELIMINATE, MaterialTheme.colorScheme.outline)
+            ).forEach { (label, quadrant, color) ->
+                val count = s.tasksByQuadrant[quadrant] ?: 0
+                val fraction = count.toFloat() / total
+                QuadrantBar(label = label, count = count, fraction = fraction, color = color)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuadrantBar(label: String, count: Int, fraction: Float, color: Color) {
+    val animatedFraction by animateFloatAsState(
+        targetValue = fraction,
+        animationSpec = tween(600),
+        label = "bar"
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "$completed/$total",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("$count", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
         }
-        LinearProgressIndicator(
-            progress = if (total > 0) completed.toFloat() / total else 0f,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp)
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedFraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(color)
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrendCard(s: AnalyticsEngine.AnalyticsSummary) {
+    val trend = s.sevenDayTrend
+    if (trend.isEmpty()) return
+
+    val maxVal = trend.maxOfOrNull { it.second }?.takeIf { it > 0f } ?: 1f
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "7-Day Focus",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                trend.forEach { (day, minutes) ->
+                    val fraction = (minutes / maxVal).coerceIn(0f, 1f)
+                    val animatedFraction by animateFloatAsState(
+                        targetValue = fraction,
+                        animationSpec = tween(600),
+                        label = "trend_$day"
+                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier = Modifier.weight(1f).fillMaxHeight()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(16.dp)
+                                .fillMaxHeight(animatedFraction.coerceAtLeast(0.04f))
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(
+                                    if (fraction > 0f) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                )
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            day,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatChip(value: String, label: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            value,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
         )
     }
+}
+
+private fun formatMinutes(minutes: Float): String {
+    val m = minutes.roundToInt()
+    return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m"
 }

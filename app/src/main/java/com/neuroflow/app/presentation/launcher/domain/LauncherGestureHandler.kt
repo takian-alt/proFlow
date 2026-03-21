@@ -5,7 +5,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -14,12 +14,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 /**
@@ -71,7 +68,7 @@ class LauncherGestureHandler(
     }
 
     /**
-     * Get gesture exclusion rects based on navigation mode and manufacturer.
+     * Get gesture exclusion rects based on navigation mode.
      *
      * @param screenHeightPx Screen height in pixels
      * @param screenWidthPx Screen width in pixels
@@ -82,15 +79,10 @@ class LauncherGestureHandler(
             return emptyList()
         }
 
-        // Determine exclusion zone height based on manufacturer
-        val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
-        val exclusionDp = if (isSamsung) 280.dp else 200.dp
-
-        // Convert dp to pixels
+        val exclusionDp = 200.dp
         val density = context.resources.displayMetrics.density
         val exclusionPx = (exclusionDp.value * density).toInt()
 
-        // Bottom exclusion rect
         return listOf(
             Rect(
                 0,
@@ -103,110 +95,69 @@ class LauncherGestureHandler(
 
     /**
      * Attach gesture detection to a composable.
-     * Uses nestedScroll API to avoid conflicts with scrollable children.
+     * Only fires on deliberate, clearly directional swipes.
      */
     @Composable
     fun Modifier.attachGestures(): Modifier {
-        val configuration = LocalConfiguration.current
         val density = LocalDensity.current
 
-        // Calculate swipe threshold based on orientation
-        val swipeThreshold = with(density) {
-            if (configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                // Landscape: 30% of screen height
-                (configuration.screenHeightDp * 0.3f).dp.toPx()
-            } else {
-                // Portrait: fixed 200dp or above exclusion zone
-                val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
-                val exclusionDp = if (isSamsung) 280.dp else 200.dp
-                exclusionDp.toPx()
-            }
-        }
-
-        var dragStart by remember { mutableStateOf<Offset?>(null) }
-        var longPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Minimum distance in px before we consider it a swipe
+        val minSwipePx = with(density) { 80.dp.toPx() }
+        // Minimum ratio of primary axis to secondary axis (must be clearly directional)
+        val directionRatio = 2.5f
 
         return this
             .nestedScroll(object : NestedScrollConnection {
-                // Allow scrollable children to consume scroll first
-                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                    return Offset.Zero // Let children scroll first
-                }
-
-                override suspend fun onPreFling(available: Velocity): Velocity {
-                    return Velocity.Zero // Let children fling first
-                }
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset = Offset.Zero
+                override suspend fun onPreFling(available: Velocity): Velocity = Velocity.Zero
             })
             .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        dragStart = offset
-                    },
-                    onDragEnd = {
-                        val start = dragStart
-                        if (start != null) {
-                            // Gesture ended - dragStart was set but no onDrag called
-                            // This is handled in onDrag
-                        }
-                        dragStart = null
-                        longPressJob?.cancel()
-                        longPressJob = null
-                    },
-                    onDragCancel = {
-                        dragStart = null
-                        longPressJob?.cancel()
-                        longPressJob = null
-                    },
-                    onDrag = { change, dragAmount ->
-                        val start = dragStart
-                        if (start != null) {
-                            val current = change.position
-                            val delta = current - start
+                awaitPointerEventScope {
+                    while (true) {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val downPos = down.position
+                        var gestureHandled = false
 
-                            // Determine gesture direction
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+
+                            if (gestureHandled) continue
+
+                            val delta = change.position - downPos
                             val absX = abs(delta.x)
                             val absY = abs(delta.y)
 
-                            // Require minimum drag distance
-                            val minDragDistance = 50f
+                            // Must travel minimum distance
+                            if (absX < minSwipePx && absY < minSwipePx) continue
 
-                            if (absX > minDragDistance || absY > minDragDistance) {
-                                if (absY > absX) {
-                                    // Vertical gesture
-                                    if (delta.y < 0) {
-                                        // Swipe up
-                                        if (start.y > swipeThreshold) {
-                                            onSwipeUp()
-                                            dragStart = null
-                                        }
-                                    } else {
-                                        // Swipe down
-                                        onSwipeDown()
-                                        dragStart = null
-                                    }
+                            // Must be clearly directional — not a diagonal
+                            if (absY > absX) {
+                                // Vertical — only if Y dominates strongly
+                                if (absY < absX * directionRatio) continue
+                                if (delta.y < 0) {
+                                    onSwipeUp()
                                 } else {
-                                    // Horizontal gesture
-                                    if (delta.x < 0) {
-                                        // Swipe left
-                                        onSwipeLeft()
-                                        dragStart = null
-                                    } else {
-                                        // Swipe right
-                                        onSwipeRight()
-                                        dragStart = null
-                                    }
+                                    onSwipeDown()
                                 }
+                                gestureHandled = true
+                            } else {
+                                // Horizontal — only if X dominates strongly
+                                if (absX < absY * directionRatio) continue
+                                if (delta.x < 0) {
+                                    onSwipeLeft()
+                                } else {
+                                    onSwipeRight()
+                                }
+                                gestureHandled = true
                             }
                         }
                     }
-                )
+                }
             }
             .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = { offset ->
-                        onLongPress()
-                    }
-                )
+                detectTapGestures(onLongPress = { onLongPress() })
             }
     }
 }

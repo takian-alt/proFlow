@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -85,7 +86,8 @@ fun AppIcon(
     onPinToDock: () -> Unit,
     onHide: () -> Unit,
     onLock: () -> Unit = {},
-    onAddToHome: (() -> Unit)? = null
+    onAddToHome: (() -> Unit)? = null,
+    enableLongPress: Boolean = true
 ) {
     val context = LocalContext.current
     val theme = LocalLauncherTheme.current
@@ -126,11 +128,17 @@ fun AppIcon(
                     DpOffset(position.x.toDp(), position.y.toDp())
                 }
             }
-            .combinedClickable(
-                onClick = onTap,
-                onLongClick = {
-                    // Show ShortcutPopup on long-press (Requirement 5.1)
-                    showShortcutPopup = true
+            .then(
+                if (enableLongPress) {
+                    Modifier.combinedClickable(
+                        onClick = onTap,
+                        onLongClick = {
+                            // Show ShortcutPopup on long-press (Requirement 5.1)
+                            showShortcutPopup = true
+                        }
+                    )
+                } else {
+                    Modifier.clickable(onClick = onTap)
                 }
             )
     ) {

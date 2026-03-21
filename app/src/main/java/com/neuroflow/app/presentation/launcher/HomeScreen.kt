@@ -269,6 +269,9 @@ private fun PortraitLayout(
                     onRemoveItem = { position ->
                         viewModel.removeItemFromPage(pageData.id, position)
                     },
+                    onMoveItem = { from, to ->
+                        viewModel.moveItemInPage(pageData.id, from, to)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }

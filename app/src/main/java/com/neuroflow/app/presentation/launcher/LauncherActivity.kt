@@ -73,7 +73,6 @@ class LauncherActivity : FragmentActivity() {
 
     // State for drawer and panels
     private var isAppDrawerOpen by mutableStateOf(false)
-    private var isQuickStatsPanelOpen by mutableStateOf(false)
     private var isLauncherSettingsOpen by mutableStateOf(false)
 
     // FreshStart overlay state
@@ -115,8 +114,8 @@ class LauncherActivity : FragmentActivity() {
             context = this,
             onSwipeUp = { isAppDrawerOpen = true },
             onSwipeDown = { attemptNotificationShadeExpansion() },
-            onSwipeLeft = { isQuickStatsPanelOpen = true },
-            onSwipeRight = { /* Soft bounce animation - TODO */ },
+            onSwipeLeft = { /* Stats page is page 2 in the pager — swipe handled by HorizontalPager */ },
+            onSwipeRight = { /* Left page is page 0 — swipe handled by HorizontalPager */ },
             onLongPress = { isLauncherSettingsOpen = true }
         )
 
@@ -203,33 +202,6 @@ class LauncherActivity : FragmentActivity() {
                     launcherApps = launcherApps
                 )
 
-                // QuickStatsPanel overlay
-                if (isQuickStatsPanelOpen) {
-                    val analyticsSummary = remember { mutableStateOf<AnalyticsEngine.AnalyticsSummary?>(null) }
-
-                    // Load analytics summary on IO dispatcher when panel opens
-                    LaunchedEffect(isQuickStatsPanelOpen) {
-                        if (isQuickStatsPanelOpen) {
-                            analyticsSummary.value = viewModel.loadAnalyticsSummary()
-                        }
-                    }
-
-                    QuickStatsPanel(
-                        visible = isQuickStatsPanelOpen,
-                        summary = analyticsSummary.value,
-                        onDismiss = { isQuickStatsPanelOpen = false },
-                        onOpenFullAnalytics = {
-                            // Send Intent to MainActivity to navigate to AnalyticsScreen
-                            val intent = Intent(context, MainActivity::class.java).apply {
-                                action = "com.procus.ACTION_OPEN_ANALYTICS"
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                            isQuickStatsPanelOpen = false
-                        }
-                    )
-                }
-
                 // LauncherSettings overlay
                 LauncherSettings(
                     isOpen = isLauncherSettingsOpen,
@@ -282,18 +254,16 @@ class LauncherActivity : FragmentActivity() {
     private fun handleBackPressed() {
         when {
             isAppDrawerOpen -> isAppDrawerOpen = false
-            isQuickStatsPanelOpen -> isQuickStatsPanelOpen = false
             isLauncherSettingsOpen -> isLauncherSettingsOpen = false
             else -> {
                 // Do nothing - never finish the launcher activity
-                // This keeps the launcher as the home screen
             }
         }
     }
 
     /**
      * Attempt to expand notification shade via StatusBarManager reflection.
-     * Fails silently on Samsung One UI 3+ where this is blocked.
+     * May fail on some devices/ROMs where this is restricted.
      */
     private fun attemptNotificationShadeExpansion() {
         try {
@@ -303,8 +273,8 @@ class LauncherActivity : FragmentActivity() {
             val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
             expandMethod.invoke(statusBarService)
         } catch (e: Exception) {
-            // Fail silently - Samsung One UI 3+ blocks this
-            Log.w("LauncherActivity", "Failed to expand notification shade (expected on Samsung One UI 3+)", e)
+            // Fail silently - some devices/ROMs restrict this
+            Log.w("LauncherActivity", "Failed to expand notification shade", e)
         }
     }
 
