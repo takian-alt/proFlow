@@ -116,7 +116,8 @@ class LauncherActivity : FragmentActivity() {
             onSwipeDown = { attemptNotificationShadeExpansion() },
             onSwipeLeft = { /* Stats page is page 2 in the pager — swipe handled by HorizontalPager */ },
             onSwipeRight = { /* Left page is page 0 — swipe handled by HorizontalPager */ },
-            onLongPress = { isLauncherSettingsOpen = true }
+            onLongPress = { isLauncherSettingsOpen = true },
+            isDraggingIcon = { viewModel.isDraggingIcon.value }
         )
 
         // Set content with crash recovery fallback

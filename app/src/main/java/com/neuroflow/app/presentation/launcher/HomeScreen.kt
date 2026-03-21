@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -90,6 +91,10 @@ fun HomeScreen(
     Box(modifier = modifier.fillMaxSize()) {
         HorizontalPager(
             state = pagerState,
+            flingBehavior = PagerDefaults.flingBehavior(
+                state = pagerState,
+                snapPositionalThreshold = 0.45f
+            ),
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("home_screen")
@@ -97,12 +102,11 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> LeftPage()
-                1 -> ActiveHomePage(layoutMode, viewModel, pageData = null) // Main page (no extra grid)
+                1 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null)
                 2 -> RightPage(viewModel = viewModel)
                 else -> {
-                    // Extra user page (index 3+ maps to extraPages[page-3])
                     val extraPage = extraPages.getOrNull(page - 3)
-                    ActiveHomePage(layoutMode, viewModel, pageData = extraPage)
+                    ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = extraPage)
                 }
             }
         }
@@ -151,17 +155,16 @@ private enum class LayoutMode {
 private fun ActiveHomePage(
     layoutMode: LayoutMode,
     viewModel: LauncherViewModel,
+    gestureHandler: LauncherGestureHandler,
     pageData: com.neuroflow.app.presentation.launcher.data.HomeScreenPage?
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-
     val launcherApps = remember {
         context.getSystemService(android.content.Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
     }
-
     when (layoutMode) {
-        LayoutMode.PORTRAIT -> PortraitLayout(viewModel, launcherApps, snackbarHostState, pageData)
+        LayoutMode.PORTRAIT -> PortraitLayout(viewModel, gestureHandler, launcherApps, snackbarHostState, pageData)
         LayoutMode.LANDSCAPE -> LandscapeLayout(viewModel, launcherApps, snackbarHostState)
         LayoutMode.TWO_COLUMN -> TwoColumnLayout(viewModel, launcherApps, snackbarHostState)
     }
@@ -182,6 +185,7 @@ private fun ActiveHomePage(
 @Composable
 private fun PortraitLayout(
     viewModel: LauncherViewModel,
+    gestureHandler: LauncherGestureHandler,
     launcherApps: android.content.pm.LauncherApps,
     snackbarHostState: SnackbarHostState,
     pageData: com.neuroflow.app.presentation.launcher.data.HomeScreenPage?
@@ -216,7 +220,11 @@ private fun PortraitLayout(
         ) {
             // Only show clock/task/habits on the main page (pageData == null)
             if (pageData == null) {
-                DateTimeDisplay(modifier = Modifier.fillMaxWidth())
+                DateTimeDisplay(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(with(gestureHandler) { Modifier.attachSwipeDown() })
+                )
 
                 FocusTaskCard(
                     topTask = topTask,
@@ -272,6 +280,7 @@ private fun PortraitLayout(
                     onMoveItem = { from, to ->
                         viewModel.moveItemInPage(pageData.id, from, to)
                     },
+                    isDraggingIcon = viewModel.isDraggingIcon,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -289,7 +298,9 @@ private fun PortraitLayout(
             appRepository = appRepository,
             launcherApps = launcherApps,
             snackbarHostState = snackbarHostState,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(with(gestureHandler) { Modifier.attachSwipeUp() })
         )
     }
 

@@ -85,7 +85,8 @@ fun HomeScreenGrid(
                     onAppTap = { app -> scope.launch { appRepository.launchApp(app.packageName, app.userHandle) } },
                     onFolderTap = { folder -> selectedFolder = folder; showFolderOverlay = true },
                     onRemoveItem = { position -> viewModel.removeItemFromPage(pages[pageIndex].id, position) },
-                    onMoveItem = { from, to -> viewModel.moveItemInPage(pages[pageIndex].id, from, to) }
+                    onMoveItem = { from, to -> viewModel.moveItemInPage(pages[pageIndex].id, from, to) },
+                    isDraggingIcon = viewModel.isDraggingIcon
                 )
             }
         }
@@ -138,6 +139,7 @@ internal fun HomeScreenPageGrid(
     onFolderTap: (com.neuroflow.app.presentation.launcher.data.FolderDefinition) -> Unit,
     onRemoveItem: (Int) -> Unit,
     onMoveItem: ((Int, Int) -> Unit)? = null,
+    isDraggingIcon: androidx.compose.runtime.MutableState<Boolean>? = null,
     modifier: Modifier = Modifier
 ) {
     val columns = 4
@@ -236,6 +238,7 @@ internal fun HomeScreenPageGrid(
                                                     onDragStart = { localOffset ->
                                                         draggingFrom = position
                                                         draggingOver = position
+                                                        isDraggingIcon?.value = true
                                                         val bounds = slotBounds[position]
                                                         if (bounds != null) {
                                                             fingerWindowPos = Offset(
@@ -258,10 +261,12 @@ internal fun HomeScreenPageGrid(
                                                         }
                                                         draggingFrom = null
                                                         draggingOver = null
+                                                        isDraggingIcon?.value = false
                                                     },
                                                     onDragCancel = {
                                                         draggingFrom = null
                                                         draggingOver = null
+                                                        isDraggingIcon?.value = false
                                                     }
                                                 )
                                             }

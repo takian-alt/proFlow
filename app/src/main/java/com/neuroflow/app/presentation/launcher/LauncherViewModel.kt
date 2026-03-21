@@ -20,6 +20,7 @@ import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.data.FolderDefinition
 import com.neuroflow.app.presentation.launcher.data.NotificationBadgeManager
 import com.neuroflow.app.presentation.launcher.data.PinnedAppsDataStore
+import androidx.compose.runtime.mutableStateOf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
@@ -923,4 +924,9 @@ class LauncherViewModel @Inject constructor(
      * Exposed to allow HomeScreen to pass it to DockRow.
      */
     fun getAppRepository(): AppRepository = appRepository
+
+    // ── Drag state (shared between grid and gesture handler) ────────────────
+
+    /** True while the user is dragging an icon on the home screen grid. */
+    val isDraggingIcon = mutableStateOf(false)
 }
