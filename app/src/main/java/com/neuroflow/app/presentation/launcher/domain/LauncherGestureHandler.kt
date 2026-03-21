@@ -47,21 +47,27 @@ class LauncherGestureHandler(
 
     /**
      * Attach to the top zone (clock/date area) — swipe down opens notification shade.
-     * Uses detectVerticalDragGestures: fires after 40dp downward drag.
+     * Uses detectVerticalDragGestures: fires after 60dp downward drag.
+     * Suppressed entirely if icon drag is active at gesture start.
      */
     @Composable
     fun Modifier.attachSwipeDown(): Modifier {
         val density = LocalDensity.current
-        val threshold = with(density) { 40.dp.toPx() }
+        val threshold = with(density) { 60.dp.toPx() }
         return this.pointerInput(Unit) {
             var total = 0f
             var fired = false
+            var suppressed = false
             detectVerticalDragGestures(
-                onDragStart = { total = 0f; fired = false },
-                onDragEnd = { total = 0f; fired = false },
-                onDragCancel = { total = 0f; fired = false },
+                onDragStart = {
+                    total = 0f
+                    fired = false
+                    suppressed = isDraggingIcon()
+                },
+                onDragEnd = { total = 0f; fired = false; suppressed = false },
+                onDragCancel = { total = 0f; fired = false; suppressed = false },
                 onVerticalDrag = { change, dragAmount ->
-                    if (!fired && !isDraggingIcon()) {
+                    if (!fired && !suppressed) {
                         total += dragAmount
                         if (total > threshold) {
                             fired = true
@@ -76,21 +82,27 @@ class LauncherGestureHandler(
 
     /**
      * Attach to the bottom zone (dock area) — swipe up opens app drawer.
-     * Uses detectVerticalDragGestures: fires after 40dp upward drag.
+     * Uses detectVerticalDragGestures: fires after 60dp upward drag.
+     * Suppressed entirely if icon drag is active at gesture start.
      */
     @Composable
     fun Modifier.attachSwipeUp(): Modifier {
         val density = LocalDensity.current
-        val threshold = with(density) { 40.dp.toPx() }
+        val threshold = with(density) { 60.dp.toPx() }
         return this.pointerInput(Unit) {
             var total = 0f
             var fired = false
+            var suppressed = false
             detectVerticalDragGestures(
-                onDragStart = { total = 0f; fired = false },
-                onDragEnd = { total = 0f; fired = false },
-                onDragCancel = { total = 0f; fired = false },
+                onDragStart = {
+                    total = 0f
+                    fired = false
+                    suppressed = isDraggingIcon()
+                },
+                onDragEnd = { total = 0f; fired = false; suppressed = false },
+                onDragCancel = { total = 0f; fired = false; suppressed = false },
                 onVerticalDrag = { change, dragAmount ->
-                    if (!fired && !isDraggingIcon()) {
+                    if (!fired && !suppressed) {
                         total += dragAmount
                         if (total < -threshold) { // negative = upward
                             fired = true

@@ -28,11 +28,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.presentation.launcher.components.*
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 
 /**
  * HomeScreen - Root composable for the launcher home screen.
@@ -70,17 +76,35 @@ fun HomeScreen(
     windowSizeClass: WindowSizeClass,
     viewModel: LauncherViewModel,
     gestureHandler: LauncherGestureHandler,
+    onRegisterNavigateHome: ((() -> Unit)) -> Unit = {},
+    onPageChanged: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
     val extraPages by viewModel.homeScreenPages.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
-    // 3 fixed + extra user pages
     val totalPages = 3 + extraPages.size
     val pagerState = rememberPagerState(
-        initialPage = 1, // start on Main page
+        initialPage = 1,
         pageCount = { totalPages }
     )
+
+    // Register navigate-home callback so activity can trigger it on back/home press
+    LaunchedEffect(Unit) {
+        onRegisterNavigateHome {
+            scope.launch {
+                if (pagerState.currentPage != 1) {
+                    pagerState.animateScrollToPage(1)
+                }
+            }
+        }
+    }
+
+    // Report page changes to activity so back callback can be toggled
+    LaunchedEffect(pagerState.currentPage) {
+        onPageChanged(pagerState.currentPage)
+    }
 
     val layoutMode = when {
         windowSizeClass.widthSizeClass == WindowWidthSizeClass.Expanded -> LayoutMode.TWO_COLUMN
@@ -88,7 +112,11 @@ fun HomeScreen(
         else -> LayoutMode.PORTRAIT
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars)
+    ) {
         HorizontalPager(
             state = pagerState,
             flingBehavior = PagerDefaults.flingBehavior(
@@ -111,11 +139,11 @@ fun HomeScreen(
             }
         }
 
-        // Page indicators at bottom (above dock)
+        // Page indicators — above dock, below nav bar
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 80.dp),
+                .padding(bottom = 88.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -211,7 +239,7 @@ private fun PortraitLayout(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 16.dp),
+            .padding(top = 8.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         // Only show clock/task/habits on the main page (pageData == null)

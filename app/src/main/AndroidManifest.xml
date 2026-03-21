@@ -60,8 +60,10 @@
             android:launchMode="singleTask"
             android:taskAffinity=""
             android:stateNotNeeded="true"
-            android:clearTaskOnLaunch="true"
             android:resumeWhilePausing="true"
+            android:excludeFromRecents="true"
+            android:alwaysRetainTaskState="true"
+            android:enableOnBackInvokedCallback="false"
             android:theme="@style/Theme.Launcher.Transparent">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

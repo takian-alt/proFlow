@@ -14,6 +14,7 @@ import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSiz
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.AndroidEntryPoint
@@ -75,6 +76,22 @@ class LauncherActivity : FragmentActivity() {
     private var isAppDrawerOpen by mutableStateOf(false)
     private var isLauncherSettingsOpen by mutableStateOf(false)
 
+    // Tracks whether the pager is on the main page (index 1)
+    private var isPagerOnMainPage by mutableStateOf(true)
+
+    // Callback set by HomeScreen to navigate pager to main page (index 1)
+    private var navigateToMainPage: (() -> Unit)? = null
+
+    // Back callback — always enabled so back never leaves the launcher
+    private val backCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            handleBackPressed()
+        }
+    }
+
+    // Debounce rapid home button presses
+    private var lastNewIntentMs = 0L
+
     // FreshStart overlay state
     private var freshStartHandled by mutableStateOf(false)
 
@@ -82,7 +99,24 @@ class LauncherActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Clear skipped tasks on launcher start (reset skip list for new session)
+        // Edge-to-edge: let content draw behind system bars
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Make nav bar and status bar fully transparent so wallpaper shows through
+        // Nav bar button appearance is controlled by WindowInsetsController
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let { controller ->
+                // Start with light appearance (dark buttons) — adapts to wallpaper color
+                controller.setSystemBarsAppearance(
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                )
+            }
+        }
+
+        // Clear skipped tasks on launcher start
         viewModel.clearSkippedTasks()
 
         // Initialize LauncherApps system service
@@ -93,29 +127,16 @@ class LauncherActivity : FragmentActivity() {
             DynamicColors.applyToActivityIfAvailable(this)
         }
 
-        // Register OnBackInvokedCallback for Android 14+ predictive back
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            onBackInvokedDispatcher.registerOnBackInvokedCallback(
-                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
-            ) {
-                handleBackPressed()
-            }
-        }
-
-        // Register OnBackPressedCallback for older Android versions
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                handleBackPressed()
-            }
-        })
+        // Register back callback — enabled only when there's something to dismiss
+        onBackPressedDispatcher.addCallback(this, backCallback)
 
         // Create gesture handler
         val gestureHandler = LauncherGestureHandler(
             context = this,
             onSwipeUp = { isAppDrawerOpen = true },
             onSwipeDown = { attemptNotificationShadeExpansion() },
-            onSwipeLeft = { /* Stats page is page 2 in the pager — swipe handled by HorizontalPager */ },
-            onSwipeRight = { /* Left page is page 0 — swipe handled by HorizontalPager */ },
+            onSwipeLeft = { },
+            onSwipeRight = { },
             onLongPress = { isLauncherSettingsOpen = true },
             isDraggingIcon = { viewModel.isDraggingIcon.value }
         )
@@ -145,7 +166,11 @@ class LauncherActivity : FragmentActivity() {
                 HomeScreen(
                     windowSizeClass = windowSizeClass,
                     viewModel = viewModel,
-                    gestureHandler = gestureHandler
+                    gestureHandler = gestureHandler,
+                    onRegisterNavigateHome = { navigateToMainPage = it },
+                    onPageChanged = { page ->
+                        isPagerOnMainPage = (page == 1)
+                    }
                 )
 
                 // FreshStart overlay (Requirement 25.1, 25.4)
@@ -215,9 +240,14 @@ class LauncherActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Close any open overlays when returning to home
+        // Debounce rapid home presses (300ms window)
+        val now = System.currentTimeMillis()
+        if (now - lastNewIntentMs < 300L) return
+        lastNewIntentMs = now
+        // Close overlays and snap back to main page when home button pressed
         isAppDrawerOpen = false
         isLauncherSettingsOpen = false
+        navigateToMainPage?.invoke()
     }
 
     override fun onStart() {
@@ -257,17 +287,20 @@ class LauncherActivity : FragmentActivity() {
 
     /**
      * Handle back button press.
-     * Close AppDrawer/QuickStatsPanel if open, never finish activity.
+     * Close AppDrawer/Settings if open, navigate to main page if on another page.
+     * Always consumed — a launcher never backs out to another launcher.
      */
     private fun handleBackPressed() {
         when {
             isAppDrawerOpen -> isAppDrawerOpen = false
             isLauncherSettingsOpen -> isLauncherSettingsOpen = false
-            else -> {
-                // Do nothing - never finish the launcher activity
-            }
+            !isPagerOnMainPage -> navigateToMainPage?.invoke()
+            // else: on main page with nothing open — swallow the event, do nothing
         }
     }
+
+    // updateBackCallback kept as no-op for safety (callback is always enabled now)
+    private fun updateBackCallback() = Unit
 
     /**
      * Attempt to expand notification shade via StatusBarManager reflection.
