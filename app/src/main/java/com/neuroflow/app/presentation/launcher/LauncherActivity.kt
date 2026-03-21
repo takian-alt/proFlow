@@ -213,6 +213,13 @@ class LauncherActivity : FragmentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Close any open overlays when returning to home
+        isAppDrawerOpen = false
+        isLauncherSettingsOpen = false
+    }
+
     override fun onStart() {
         super.onStart()
         // Register PackageChangeReceiver for package install/uninstall events

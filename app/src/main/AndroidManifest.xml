@@ -59,6 +59,9 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:resumeWhilePausing="true"
             android:theme="@style/Theme.Launcher.Transparent">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
