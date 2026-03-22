@@ -305,12 +305,31 @@ class LauncherViewModel @Inject constructor(
     private val _top3DistractingApps = MutableStateFlow<List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>>(emptyList())
     val top3DistractingApps: StateFlow<List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>> = _top3DistractingApps.asStateFlow()
 
+    private val _isLoadingDistraction = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private val _distractionLoading = MutableStateFlow(false)
+    val distractionLoading: StateFlow<Boolean> = _distractionLoading.asStateFlow()
+
+    fun resetTop3DistractingApps() {
+        _top3DistractingApps.value = emptyList()
+    }
+
     fun loadTop3DistractingApps() {
+        if (!_isLoadingDistraction.compareAndSet(false, true)) return
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (!com.neuroflow.app.domain.engine.DistractionEngine.hasUsagePermission(context)) return@launch
-            val sessions = sessionRepository.getAllSessions()
-            _top3DistractingApps.value = com.neuroflow.app.domain.engine.DistractionEngine
-                .rankAppsByDistraction(sessions = sessions, context = context)
+            try {
+                _distractionLoading.value = true
+                val blockEnabled = pinnedAppsDataStore.launcherPrefsFlow.first()
+                    .leftPageBlocks["distraction_top3"] != false
+                if (!blockEnabled) return@launch
+                if (!com.neuroflow.app.domain.engine.DistractionEngine.hasUsagePermission(context)) return@launch
+                val sessions = sessionRepository.getAllSessions()
+                _top3DistractingApps.value = com.neuroflow.app.domain.engine.DistractionEngine
+                    .rankAppsByDistraction(sessions = sessions, context = context)
+            } finally {
+                _distractionLoading.value = false
+                _isLoadingDistraction.set(false)
+            }
         }
     }
 
@@ -342,6 +361,9 @@ class LauncherViewModel @Inject constructor(
      * Elapsed seconds for the active focus session.
      * Ticks every second from the real session startedAt, accounting for paused time.
      * Survives page swipes because it lives in the ViewModel, not in a composable.
+     *
+     * Re-evaluates on every tick so pause/resume changes are reflected immediately
+     * without capturing a stale session snapshot.
      */
     val focusElapsedSeconds: StateFlow<Int> = sessionRepository.observeOpenSessions()
         .flatMapLatest { sessions ->
@@ -349,13 +371,25 @@ class LauncherViewModel @Inject constructor(
             if (session == null) {
                 flowOf(0)
             } else {
+                // Use the session ID as the stable key; re-query live data each tick
+                // so pausedAt / totalPausedMs changes are always fresh.
                 flow {
                     while (true) {
-                        val now = System.currentTimeMillis()
-                        val pausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
-                        val elapsed = ((now - session.startedAt) - session.totalPausedMs - pausedMs)
-                            .coerceAtLeast(0L)
-                        emit((elapsed / 1000L).toInt())
+                        // Re-read the latest session state from the DB on each tick
+                        val live = sessionRepository.getOpenSessions()
+                            .firstOrNull { it.id == session.id }
+                            ?: sessionRepository.getOpenSessions().firstOrNull() // fallback if session was replaced
+                        if (live == null) {
+                            emit(0)
+                        } else {
+                            val now = System.currentTimeMillis()
+                            // If currently paused, freeze the counter at the moment of pause
+                            val pausedAt = live.pausedAt
+                            val pausedMs = if (pausedAt != null) now - pausedAt else 0L
+                            val elapsed = ((now - live.startedAt) - live.totalPausedMs - pausedMs)
+                                .coerceAtLeast(0L)
+                            emit((elapsed / 1000L).toInt())
+                        }
                         kotlinx.coroutines.delay(1000)
                     }
                 }
@@ -365,22 +399,49 @@ class LauncherViewModel @Inject constructor(
 
     /**
      * Default launcher detection (Requirement 23.5).
+     * Re-checks on every subscription so the settings screen always shows the current state.
      * Uses RoleManager on API 29+ with ResolveInfo fallback.
      */
     val isDefaultLauncher: StateFlow<Boolean> = flow {
-        val isDefault = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
-            roleManager?.isRoleHeld(RoleManager.ROLE_HOME) ?: false
-        } else {
-            // API 28 fallback: check via ResolveInfo
-            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
-            resolveInfo?.activityInfo?.packageName == context.packageName
+        while (true) {
+            val isDefault = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+                roleManager?.isRoleHeld(RoleManager.ROLE_HOME) ?: false
+            } else {
+                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+                resolveInfo?.activityInfo?.packageName == context.packageName
+            }
+            emit(isDefault)
+            kotlinx.coroutines.delay(2_000)
         }
-        emit(isDefault)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // ── Actions ─────────────────────────────────────────────────────────────
+
+    /**
+     * Stop the currently active focus session immediately.
+     * Sets endedAt to now and clears pausedAt so the timer resets.
+     * Called from the launcher's "Stop Session" button — no need to open MainActivity.
+     */
+    fun stopFocusSession() {
+        viewModelScope.launch {
+            val openSessions = sessionRepository.getOpenSessions()
+            val now = System.currentTimeMillis()
+            openSessions.forEach { session ->
+                // If paused, account for the paused time before closing
+                val extraPausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
+                sessionRepository.update(
+                    session.copy(
+                        endedAt = now,
+                        pausedAt = null,
+                        totalPausedMs = session.totalPausedMs + extraPausedMs
+                    )
+                )
+            }
+        }
+    }
 
     /**
      * Skip task: add to skippedTaskIds in PinnedAppsDataStore.

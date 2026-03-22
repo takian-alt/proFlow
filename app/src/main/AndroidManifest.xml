@@ -63,13 +63,11 @@
         <activity
             android:name=".presentation.launcher.LauncherActivity"
             android:exported="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleInstance"
             android:taskAffinity=""
             android:stateNotNeeded="true"
-            android:resumeWhilePausing="true"
             android:excludeFromRecents="true"
             android:clearTaskOnLaunch="true"
-            android:alwaysRetainTaskState="true"
             android:enableOnBackInvokedCallback="false"
             android:theme="@style/Theme.Launcher.Transparent">
             <intent-filter>

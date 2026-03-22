@@ -270,6 +270,7 @@ private fun PortraitLayout(
                         }
                         context.startActivity(intent)
                     },
+                    onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -417,6 +418,7 @@ private fun LandscapeLayout(
                         }
                         context.startActivity(intent)
                     },
+                    onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -502,6 +504,7 @@ private fun TwoColumnLayout(
                     }
                     context.startActivity(intent)
                 },
+                onStopFocus = { viewModel.stopFocusSession() },
                 onClearSkipped = { viewModel.clearSkippedTasks() },
                 modifier = Modifier.fillMaxWidth()
             )

@@ -192,6 +192,7 @@ object DistractionEngine {
 
     fun hasUsagePermission(context: Context): Boolean {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        @Suppress("DEPRECATION")
         val mode = appOps.checkOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS,
             Process.myUid(),
@@ -207,7 +208,8 @@ object DistractionEngine {
         )
     }
 
-    // ── Core algorithm ────────────────────────────────────────────────────────
+    // Shared local event type used in both ranking functions
+    private data class FgEvent(val pkg: String, val timeMs: Long)
 
     /**
      * Returns tasks ranked by distraction score (most distracted first).
@@ -223,8 +225,17 @@ object DistractionEngine {
     ): List<TaskDistractionResult> {
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val lookbackStart = nowMillis - LOOKBACK_MS
-        // Reuse a single Calendar instance to avoid per-event allocation in the hot loop
-        val cal = Calendar.getInstance()
+
+        // Cache launcher packages once — queryIntentActivities is expensive
+        val launcherPackages = getLauncherPackages(context)
+
+        // Overall usage for dynamic weight of unknown apps (same logic as rankAppsByDistraction)
+        val overallUsage: Map<String, Long> = usm
+            .queryUsageStats(UsageStatsManager.INTERVAL_BEST, lookbackStart, nowMillis)
+            ?.filter { it.packageName != context.packageName && !isSystemPackage(it.packageName) }
+            ?.associate { it.packageName to it.totalTimeInForeground }
+            ?: emptyMap()
+        val maxOverallMs = overallUsage.values.maxOrNull()?.takeIf { it > 0 } ?: 1L
 
         return tasks.mapNotNull { task ->
             val taskSessions = sessions.filter {
@@ -241,78 +252,86 @@ object DistractionEngine {
                 val rawEvents = usm.queryEvents(session.startedAt, sessionEnd)
                 val buf = UsageEvents.Event()
 
-                // Reset per-session so a distraction at the end of one session
-                // doesn't bleed into the next session's recovery measurement
-                var lastDistractionEndMs = 0L
-
+                // Collect all foreground events first so we can compute accurate durations
+                val fgEvents = mutableListOf<FgEvent>()
                 while (rawEvents.hasNextEvent()) {
                     rawEvents.getNextEvent(buf)
+                    @Suppress("DEPRECATION")
                     if (buf.eventType != UsageEvents.Event.MOVE_TO_FOREGROUND) continue
+                    fgEvents += FgEvent(buf.packageName, buf.timeStamp)
+                }
 
-                    val pkg = buf.packageName
-                    val time = buf.timeStamp
+                fgEvents.forEachIndexed { i, event ->
+                    val pkg = event.pkg
+                    val time = event.timeMs
 
                     if (pkg == context.packageName) {
-                        // User returned to our app — measure recovery
-                        if (lastDistractionEndMs > 0L) {
-                            totalRecoveryMs += time - lastDistractionEndMs
+                        // Measure recovery: time from last distraction end until we returned to our app
+                        val lastEnd = distractionEvents.lastOrNull()?.let { it.second + it.third } ?: 0L
+                        if (lastEnd > 0L && time > lastEnd) {
+                            totalRecoveryMs += time - lastEnd
                             recoveryCount++
-                            lastDistractionEndMs = 0L
                         }
-                        continue
+                        return@forEachIndexed
                     }
 
-                    // Skip the system launcher — it appears on every home press, not a real distraction
-                    if (isLauncherPackage(context, pkg)) continue
-                    if (isSystemPackage(pkg)) continue
+                    if (pkg in launcherPackages) return@forEachIndexed
+                    // Known apps always pass; unknown apps skip only if system package
+                    if (DISTRACTION_WEIGHTS[pkg] == null && isSystemPackage(pkg)) return@forEachIndexed
 
-                    val weight = DISTRACTION_WEIGHTS[pkg] ?: continue // skip unknown apps
-                    if (weight <= 0.1f) continue
+                    // Duration = time until next foreground event (or session end), capped at 5 min
+                    val nextEventTime = fgEvents.getOrNull(i + 1)?.timeMs ?: sessionEnd
+                    val duration = maxOf(0L, minOf(nextEventTime - time, 5 * 60_000L))
+                    if (duration < MIN_DISTRACTION_MS) return@forEachIndexed
 
-                    // Estimate duration: cap at 5 min; guard against negative if event is at session boundary
-                    val estimatedDuration = maxOf(0L, minOf(sessionEnd - time, 5 * 60_000L))
-                    if (estimatedDuration < MIN_DISTRACTION_MS) continue
-
-                    distractionEvents += Triple(pkg, time, estimatedDuration)
-                    lastDistractionEndMs = time + estimatedDuration
+                    distractionEvents += Triple(pkg, time, duration)
                 }
             }
 
             if (distractionEvents.isEmpty()) return@mapNotNull null
 
-            // Layer 1: frequency — logarithmic diminishing returns
-            val frequencyScore = ln(1f + distractionEvents.size) * 15f  // ~0–60
+            // Build session-based weight fallback (same as rankAppsByDistraction)
+            val sessionMsPerPkg = distractionEvents.groupBy { it.first }
+                .mapValues { (_, evts) -> evts.sumOf { it.third } }
+            val maxSessionMs = sessionMsPerPkg.values.maxOrNull()?.takeIf { it > 0L } ?: 1L
 
-            // Layer 2: weighted depth (duration × app weight)
+            fun effectiveWeight(pkg: String): Float {
+                DISTRACTION_WEIGHTS[pkg]?.let { return it }
+                val fromOverall = ((overallUsage[pkg] ?: 0L).toFloat() / maxOverallMs * 0.6f)
+                if (fromOverall >= 0.1f) return fromOverall
+                return ((sessionMsPerPkg[pkg] ?: 0L).toFloat() / maxSessionMs * 0.5f)
+                    .coerceAtLeast(0.1f)
+            }
+
+            val frequencyScore = ln(1f + distractionEvents.size) * 15f
+
             val depthScore = minOf(
                 distractionEvents.sumOf { (pkg, _, durationMs) ->
-                    val w = DISTRACTION_WEIGHTS[pkg] ?: 0f
+                    val w = effectiveWeight(pkg)
                     val mins = durationMs / 60_000f
                     minOf(mins * w * 10f, 30f).toDouble()
                 }.toFloat(),
                 40f
             )
 
-            // Layer 3: circadian penalty — peak-hour distractions cost more
+            // Use a local Calendar per-task to avoid shared-state mutation bugs
+            val cal = Calendar.getInstance()
             val peakCount = distractionEvents.count { (_, startMs, _) ->
                 cal.timeInMillis = startMs
                 cal.get(Calendar.HOUR_OF_DAY) in peakHourStart..peakHourEnd
             }
             val circadianPenalty = (peakCount.toFloat() / distractionEvents.size) * 20f
 
-            // Layer 4: recovery time penalty
             val avgRecoveryMinutes = if (recoveryCount > 0)
                 (totalRecoveryMs / recoveryCount) / 60_000f else 0f
             val recoveryPenalty = minOf(avgRecoveryMinutes * 2f, 15f)
 
             val score = minOf(frequencyScore + depthScore + circadianPenalty + recoveryPenalty, 100f)
 
-            // Top distracting app: ranked by total weighted distraction time (not just event count)
             val topApp = distractionEvents
                 .groupBy { it.first }
                 .maxByOrNull { (pkg, evts) ->
-                    val w = DISTRACTION_WEIGHTS[pkg] ?: 0f
-                    evts.sumOf { it.third * w.toDouble() }
+                    evts.sumOf { it.third * effectiveWeight(pkg).toDouble() }
                 }?.key
 
             TaskDistractionResult(
@@ -354,11 +373,16 @@ object DistractionEngine {
         // Include both completed and still-open sessions (endedAt == null → use now as end)
         val relevantSessions = sessions.filter { it.startedAt >= lookbackStart }
 
+        // Cache launcher packages once — queryIntentActivities is expensive
+        val launcherPackages = getLauncherPackages(context)
+
         // Also get overall usage stats for the same window so we can compute
         // a dynamic weight for apps not in DISTRACTION_WEIGHTS (e.g. Chrome).
-        // totalUsageMs is used to normalise: apps used a lot get a higher base weight.
+        // Exclude our own package and system packages from the max so they don't
+        // suppress the dynamic weights of real user apps.
         val overallUsage: Map<String, Long> = usm
             .queryUsageStats(UsageStatsManager.INTERVAL_BEST, lookbackStart, nowMillis)
+            ?.filter { it.packageName != context.packageName && !isSystemPackage(it.packageName) }
             ?.associate { it.packageName to it.totalTimeInForeground }
             ?: emptyMap()
         val maxOverallMs = overallUsage.values.maxOrNull()?.takeIf { it > 0 } ?: 1L
@@ -368,43 +392,62 @@ object DistractionEngine {
             val rawEvents = usm.queryEvents(session.startedAt, sessionEnd)
             val buf = UsageEvents.Event()
 
+            // Collect all FOREGROUND events first, then compute durations between them
+            val fgEvents = mutableListOf<FgEvent>()
+
             while (rawEvents.hasNextEvent()) {
                 rawEvents.getNextEvent(buf)
+                @Suppress("DEPRECATION")
                 if (buf.eventType != UsageEvents.Event.MOVE_TO_FOREGROUND) continue
+                fgEvents += FgEvent(buf.packageName, buf.timeStamp)
+            }
 
-                val pkg = buf.packageName
-                if (pkg == context.packageName) continue
-                if (isLauncherPackage(context, pkg)) continue
-                if (isSystemPackage(pkg)) continue
+            // Compute per-app duration: time until next foreground event (or session end), capped at 5 min
+            fgEvents.forEachIndexed { i, event ->
+                val pkg = event.pkg
+                if (pkg == context.packageName) return@forEachIndexed
+                if (pkg in launcherPackages) return@forEachIndexed
 
-                // Known apps use their hardcoded weight.
-                // Unknown apps get a dynamic weight: (their total usage / max usage) * 0.6
-                // so a heavily-used unknown app can score up to 0.6 — below social media
-                // but above noise. Minimum threshold 0.1 to filter truly idle background apps.
-                val weight = DISTRACTION_WEIGHTS[pkg]
-                    ?: ((overallUsage[pkg] ?: 0L).toFloat() / maxOverallMs * 0.6f)
-                        .takeIf { it >= 0.1f } ?: continue
+                val knownWeight = DISTRACTION_WEIGHTS[pkg]
+                if (knownWeight == null && isSystemPackage(pkg)) return@forEachIndexed
+                // For unknown apps, accept them into appStats with a placeholder weight of 0.1f minimum.
+                // The real weight is computed after appStats is fully built (dynamicWeight uses maxSessionMs).
 
-                val estimatedDuration = maxOf(0L, minOf(sessionEnd - buf.timeStamp, 5 * 60_000L))
-                if (estimatedDuration < MIN_DISTRACTION_MS) continue
+                // Duration = time until next event (or session end), capped at 5 min
+                val nextEventTime = fgEvents.getOrNull(i + 1)?.timeMs ?: sessionEnd
+                val duration = maxOf(0L, minOf(nextEventTime - event.timeMs, 5 * 60_000L))
+                if (duration < MIN_DISTRACTION_MS) return@forEachIndexed
 
                 val current = appStats[pkg] ?: (0L to 0)
-                appStats[pkg] = (current.first + estimatedDuration) to (current.second + 1)
+                appStats[pkg] = (current.first + duration) to (current.second + 1)
             }
         }
 
         if (appStats.isEmpty()) return emptyList()
 
+        // If overallUsage is sparse/empty (throttled on some ROMs), fall back to
+        // session-derived time as the weight signal for unknown apps.
+        // maxSessionMs = longest total session time across all tracked apps.
+        val maxSessionMs = appStats.values.maxOf { it.first }.takeIf { it > 0L } ?: 1L
+
+        fun dynamicWeight(pkg: String): Float {
+            val fromOverall = ((overallUsage[pkg] ?: 0L).toFloat() / maxOverallMs * 0.6f)
+            return if (fromOverall >= 0.1f) fromOverall
+            else {
+                // Fallback: derive weight from how much session time this app consumed
+                val fromSession = (appStats[pkg]?.first ?: 0L).toFloat() / maxSessionMs * 0.5f
+                fromSession.coerceAtLeast(0.1f)
+            }
+        }
+
         val maxWeighted = appStats.maxOf { (pkg, stats) ->
-            val w = DISTRACTION_WEIGHTS[pkg]
-                ?: ((overallUsage[pkg] ?: 0L).toFloat() / maxOverallMs * 0.6f)
+            val w = DISTRACTION_WEIGHTS[pkg] ?: dynamicWeight(pkg)
             stats.first * w
         }.takeIf { it > 0f } ?: 1f
 
         return appStats
             .map { (pkg, stats) ->
-                val w = DISTRACTION_WEIGHTS[pkg]
-                    ?: ((overallUsage[pkg] ?: 0L).toFloat() / maxOverallMs * 0.6f)
+                val w = DISTRACTION_WEIGHTS[pkg] ?: dynamicWeight(pkg)
                 val weightedMs = stats.first * w
                 val score = minOf((weightedMs / maxWeighted) * 100f, 100f)
                 val name = try {
@@ -435,15 +478,16 @@ object DistractionEngine {
     }
 
     /**
-     * Returns true if [pkg] is a home screen launcher.
-     * Checks via CATEGORY_HOME intent resolution — covers any launcher, not just ours.
+     * Returns the set of all launcher package names on this device.
+     * Cached per-call — call once at the top of each ranking function.
      */
-    private fun isLauncherPackage(context: Context, pkg: String): Boolean {
+    private fun getLauncherPackages(context: Context): Set<String> {
         val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
             .addCategory(android.content.Intent.CATEGORY_HOME)
         return context.packageManager
             .queryIntentActivities(intent, 0)
-            .any { it.activityInfo.packageName == pkg }
+            .map { it.activityInfo.packageName }
+            .toSet()
     }
 
     fun label(score: Float): String = when {

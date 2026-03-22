@@ -27,27 +27,31 @@ class DistractionSyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         if (!DistractionEngine.hasUsagePermission(applicationContext)) return Result.success()
 
-        val tasks = taskDao.getActiveTasks()
-        val sessions = sessionDao.getAll()
+        return try {
+            val tasks = taskDao.getActiveTasks()
+            val sessions = sessionDao.getAll()
 
-        val results = DistractionEngine.rankByDistraction(
-            tasks = tasks,
-            sessions = sessions,
-            context = applicationContext
-        )
+            val results = DistractionEngine.rankByDistraction(
+                tasks = tasks,
+                sessions = sessions,
+                context = applicationContext
+            )
 
-        // Build a map for O(1) lookup
-        val scoreMap = results.associate { it.task.id to it.distractionScore }
+            val scoreMap = results.associate { it.task.id to it.distractionScore }
 
-        // Persist updated scores — only touch tasks that have a new score
-        tasks.forEach { task ->
-            val newScore = scoreMap[task.id] ?: return@forEach
-            if (newScore != task.distractionScore) {
-                taskDao.update(task.copy(distractionScore = newScore))
+            tasks.forEach { task ->
+                val newScore = scoreMap[task.id] ?: return@forEach
+                if (newScore != task.distractionScore) {
+                    taskDao.update(task.copy(distractionScore = newScore))
+                }
             }
-        }
 
-        return Result.success()
+            Result.success()
+        } catch (e: Exception) {
+            // Retry on transient errors (DB locked, OOM, etc.)
+            // After WorkManager's max attempts the job is abandoned gracefully
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
+        }
     }
 
     companion object {

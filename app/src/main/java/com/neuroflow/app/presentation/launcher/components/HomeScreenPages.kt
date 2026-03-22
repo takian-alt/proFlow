@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,11 +51,15 @@ fun LeftPage(
     val userPrefs by viewModel.userPreferences.collectAsStateWithLifecycle()
     val topTaskWoop by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val top3Distracted by viewModel.top3DistractingApps.collectAsStateWithLifecycle()
+    val distractionLoading by viewModel.distractionLoading.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
 
-    // Load app distraction data whenever this page is visible, and re-load on resume
-    // (covers the case where the user just granted Usage Access permission)
+    // Load immediately on first composition, and reload on every resume
+    // (covers permission grant: user returns from Settings → ON_RESUME fires)
     val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(Unit) {
+        viewModel.loadTop3DistractingApps()
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -122,7 +128,12 @@ fun LeftPage(
 
             // Distraction Top 3 block
             if (blocks["distraction_top3"] == true) {
-                DistractionTop3Block(tasks = top3Distracted)
+                DistractionTop3Block(
+                    tasks = top3Distracted,
+                    isLoading = distractionLoading,
+                    onRefresh = { viewModel.loadTop3DistractingApps() },
+                    onReset = { viewModel.resetTop3DistractingApps() }
+                )
             }
         }
 
@@ -141,7 +152,6 @@ fun LeftPage(
 
 @Composable
 private fun SubliminalBlock(affirmations: List<String>) {
-    // Rotate through messages every 3 minutes (or use defaults if empty)
     val messages = affirmations.ifEmpty {
         listOf(
             "You are capable of achieving your goals.",
@@ -152,11 +162,13 @@ private fun SubliminalBlock(affirmations: List<String>) {
         )
     }
     var index by remember { mutableIntStateOf(0) }
+    // rememberUpdatedState so the loop always sees the latest messages without restarting
+    val currentMessages by rememberUpdatedState(messages)
 
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(Unit) {
         while (true) {
-            delay(3 * 60 * 1000L) // 3 minutes
-            index = (index + 1) % messages.size
+            delay(3 * 60 * 1000L)
+            index = (index + 1) % currentMessages.size
         }
     }
 
@@ -181,7 +193,7 @@ private fun SubliminalBlock(affirmations: List<String>) {
                 label = "affirmation"
             ) { i ->
                 Text(
-                    text = messages[i % messages.size],
+                    text = currentMessages[i % currentMessages.size],
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF1F2937),
@@ -318,7 +330,10 @@ private fun WoopRow(label: String, value: String) {
 
 @Composable
 private fun DistractionTop3Block(
-    tasks: List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>
+    tasks: List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>,
+    isLoading: Boolean = false,
+    onRefresh: () -> Unit = {},
+    onReset: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -347,11 +362,55 @@ private fun DistractionTop3Block(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                "📵 Most Distracting Apps",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF6B7280)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "📵 Most Distracting Apps",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF6B7280)
+                )
+                if (hasPermission) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFF9CA3AF)
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Reset button — clears data back to empty state
+                            if (tasks.isNotEmpty()) {
+                                IconButton(
+                                    onClick = onReset,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Clear,
+                                        contentDescription = "Reset",
+                                        tint = Color(0xFF9CA3AF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            // Refresh button
+                            IconButton(
+                                onClick = onRefresh,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Refresh",
+                                    tint = Color(0xFF9CA3AF),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             when {
                 !hasPermission -> {
@@ -375,6 +434,18 @@ private fun DistractionTop3Block(
                             "Grant Access",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                isLoading && tasks.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFF6366F1)
                         )
                     }
                 }

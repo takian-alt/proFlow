@@ -98,6 +98,7 @@ fun FocusTaskCard(
     hasActiveTasks: Boolean = true,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
+    onStopFocus: () -> Unit = {},
     onClearSkipped: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -167,7 +168,8 @@ fun FocusTaskCard(
                     showTaskScore = theme.showTaskScore,
                     prefs = prefs,
                     onSkip = { onSkip(topTask.id) },
-                    onStartFocus = { onStartFocus(topTask.id) }
+                    onStartFocus = { onStartFocus(topTask.id) },
+                    onStopFocus = onStopFocus
                 )
             }
         }
@@ -269,7 +271,8 @@ private fun TaskContent(
     showTaskScore: Boolean,
     prefs: com.neuroflow.app.data.local.UserPreferences?,
     onSkip: () -> Unit,
-    onStartFocus: () -> Unit
+    onStartFocus: () -> Unit,
+    onStopFocus: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -342,7 +345,11 @@ private fun TaskContent(
         // Action buttons
         if (focusActive) {
             // In progress state with elapsed timer from real session
-            InProgressState(elapsedSeconds = focusElapsedSeconds, onOpenFocus = onStartFocus)
+            InProgressState(
+                elapsedSeconds = focusElapsedSeconds,
+                onOpenFocus = onStartFocus,
+                onStopFocus = onStopFocus
+            )
         } else {
             // Start Focus and Skip buttons
             ActionButtons(
@@ -545,9 +552,14 @@ private fun EnergyLevelIndicator(energyLevel: EnergyLevel) {
 /**
  * In progress state showing elapsed timer from the real open session.
  * elapsedSeconds comes from LauncherViewModel.focusElapsedSeconds — survives swipes.
+ * Provides both "Stop" (ends session immediately) and "Open Focus" (navigates to focus screen).
  */
 @Composable
-private fun InProgressState(elapsedSeconds: Int, onOpenFocus: () -> Unit) {
+private fun InProgressState(
+    elapsedSeconds: Int,
+    onOpenFocus: () -> Unit,
+    onStopFocus: () -> Unit = {}
+) {
     val hours = elapsedSeconds / 3600
     val minutes = (elapsedSeconds % 3600) / 60
     val seconds = elapsedSeconds % 60
@@ -562,32 +574,51 @@ private fun InProgressState(elapsedSeconds: Int, onOpenFocus: () -> Unit) {
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column {
-                Text(
-                    text = "In progress",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
-                Text(
-                    text = timeText,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Button(
-                onClick = onOpenFocus,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                ),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Open Focus", style = MaterialTheme.typography.labelMedium)
+                Column {
+                    Text(
+                        text = "In progress",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = timeText,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Button(
+                    onClick = onOpenFocus,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("Open Focus", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            // Stop button — ends the session without opening MainActivity
+            OutlinedButton(
+                onClick = onStopFocus,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Stop Session", style = MaterialTheme.typography.labelMedium)
             }
         }
     }
