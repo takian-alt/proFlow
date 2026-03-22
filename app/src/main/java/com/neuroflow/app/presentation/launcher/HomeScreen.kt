@@ -129,7 +129,7 @@ fun HomeScreen(
                 .then(with(gestureHandler) { Modifier.attachGestures() })
         ) { page ->
             when (page) {
-                0 -> LeftPage()
+                0 -> LeftPage(viewModel = viewModel)
                 1 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null)
                 2 -> RightPage(viewModel = viewModel)
                 else -> {

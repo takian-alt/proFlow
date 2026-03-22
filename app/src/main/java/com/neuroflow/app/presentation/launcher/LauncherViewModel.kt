@@ -291,6 +291,27 @@ class LauncherViewModel @Inject constructor(
     val userPreferences = userPreferencesDataStore.preferencesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /**
+     * Left page block visibility map.
+     */
+    val leftPageBlocks: StateFlow<Map<String, Boolean>> = pinnedAppsDataStore.launcherPrefsFlow
+        .map { it.leftPageBlocks }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    fun setLeftPageBlockVisible(blockId: String, visible: Boolean) {
+        viewModelScope.launch {
+            pinnedAppsDataStore.updatePreferences { prefs ->
+                prefs.copy(leftPageBlocks = prefs.leftPageBlocks + (blockId to visible))
+            }
+        }
+    }
+
+    fun saveQuickNote(note: String) {
+        viewModelScope.launch {
+            userPreferencesDataStore.updatePreferences { it.copy(leftPageQuickNote = note) }
+        }
+    }
+
     // ── Phase 1 Scaffolding ─────────────────────────────────────────────────
 
     /**

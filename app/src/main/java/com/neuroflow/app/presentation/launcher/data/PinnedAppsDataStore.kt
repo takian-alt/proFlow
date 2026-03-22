@@ -84,7 +84,13 @@ data class LauncherPreferences(
     val taskCardStyle: CardStyle = CardStyle.ELEVATED,
     val distractionDimmingEnabled: Boolean = true,
     val homeScreenPages: List<HomeScreenPage> = emptyList(),
-    val homeScreenGridEnabled: Boolean = true  // Enable by default
+    val homeScreenGridEnabled: Boolean = true,  // Enable by default
+    // Left page block visibility: key = block id, value = visible
+    val leftPageBlocks: Map<String, Boolean> = mapOf(
+        "subliminal" to true,
+        "quick_note" to true,
+        "woop" to true
+    )
 )
 
 @Singleton
@@ -111,6 +117,7 @@ class PinnedAppsDataStore @Inject constructor(
         val DISTRACTION_DIMMING_ENABLED = booleanPreferencesKey("distraction_dimming_enabled")
         val HOME_SCREEN_PAGES = stringPreferencesKey("home_screen_pages")
         val HOME_SCREEN_GRID_ENABLED = booleanPreferencesKey("home_screen_grid_enabled")
+        val LEFT_PAGE_BLOCKS = stringPreferencesKey("left_page_blocks")
     }
 
     val launcherPrefsFlow: Flow<LauncherPreferences> = context.launcherDataStore.data.map { prefs ->
@@ -139,7 +146,8 @@ class PinnedAppsDataStore @Inject constructor(
             } catch (_: Exception) { CardStyle.ELEVATED },
             distractionDimmingEnabled = prefs[Keys.DISTRACTION_DIMMING_ENABLED] ?: true,
             homeScreenPages = parseHomeScreenPages(prefs[Keys.HOME_SCREEN_PAGES]),
-            homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true
+            homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true,
+            leftPageBlocks = parseLeftPageBlocks(prefs[Keys.LEFT_PAGE_BLOCKS])
         )
     }
 
@@ -263,7 +271,8 @@ class PinnedAppsDataStore @Inject constructor(
                 } catch (_: Exception) { CardStyle.ELEVATED },
                 distractionDimmingEnabled = prefs[Keys.DISTRACTION_DIMMING_ENABLED] ?: true,
                 homeScreenPages = parseHomeScreenPages(prefs[Keys.HOME_SCREEN_PAGES]),
-                homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true
+                homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true,
+                leftPageBlocks = parseLeftPageBlocks(prefs[Keys.LEFT_PAGE_BLOCKS])
             )
             val updated = update(current)
             prefs[Keys.DOCK_PACKAGES] = encodeStringList(updated.dockPackages)
@@ -285,6 +294,7 @@ class PinnedAppsDataStore @Inject constructor(
             prefs[Keys.DISTRACTION_DIMMING_ENABLED] = updated.distractionDimmingEnabled
             prefs[Keys.HOME_SCREEN_PAGES] = encodeHomeScreenPages(updated.homeScreenPages)
             prefs[Keys.HOME_SCREEN_GRID_ENABLED] = updated.homeScreenGridEnabled
+            prefs[Keys.LEFT_PAGE_BLOCKS] = encodeLeftPageBlocks(updated.leftPageBlocks)
         }
     }
 
@@ -347,5 +357,22 @@ class PinnedAppsDataStore @Inject constructor(
             jsonArray.put(pageJson)
         }
         return jsonArray.toString()
+    }
+
+    private fun parseLeftPageBlocks(json: String?): Map<String, Boolean> {
+        val defaults = mapOf("subliminal" to true, "quick_note" to true, "woop" to true)
+        if (json.isNullOrBlank()) return defaults
+        return try {
+            val obj = JSONObject(json)
+            defaults.mapValues { (key, default) ->
+                if (obj.has(key)) obj.getBoolean(key) else default
+            }
+        } catch (_: Exception) { defaults }
+    }
+
+    private fun encodeLeftPageBlocks(map: Map<String, Boolean>): String {
+        val obj = JSONObject()
+        map.forEach { (k, v) -> obj.put(k, v) }
+        return obj.toString()
     }
 }
