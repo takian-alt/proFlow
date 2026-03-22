@@ -7,6 +7,7 @@ import androidx.work.*
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.worker.DailyPlanWorker
 import com.neuroflow.app.worker.DeadlineEscalationWorker
+import com.neuroflow.app.worker.DistractionSyncWorker
 import com.neuroflow.app.worker.StreakCheckWorker
 import com.neuroflow.app.worker.createNotificationChannels
 import dagger.hilt.android.HiltAndroidApp
@@ -108,6 +109,10 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             ExistingPeriodicWorkPolicy.KEEP,
             widgetUpdateRequest
         )
+
+        // DistractionSyncWorker — runs once daily to refresh per-task distraction scores
+        // Silently skips if PACKAGE_USAGE_STATS permission is not granted
+        DistractionSyncWorker.schedulePeriodic(this)
     }
 
     /** Returns milliseconds until the next occurrence of the given hour (0-23) */

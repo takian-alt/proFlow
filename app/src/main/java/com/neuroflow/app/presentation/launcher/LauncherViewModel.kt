@@ -298,6 +298,22 @@ class LauncherViewModel @Inject constructor(
         .map { it.leftPageBlocks }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    /**
+     * Top 3 most distracting apps during focus sessions, computed on demand.
+     * Loaded via loadTop3DistractingApps() — returns empty until called.
+     */
+    private val _top3DistractingApps = MutableStateFlow<List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>>(emptyList())
+    val top3DistractingApps: StateFlow<List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>> = _top3DistractingApps.asStateFlow()
+
+    fun loadTop3DistractingApps() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (!com.neuroflow.app.domain.engine.DistractionEngine.hasUsagePermission(context)) return@launch
+            val sessions = sessionRepository.getAllSessions()
+            _top3DistractingApps.value = com.neuroflow.app.domain.engine.DistractionEngine
+                .rankAppsByDistraction(sessions = sessions, context = context)
+        }
+    }
+
     fun setLeftPageBlockVisible(blockId: String, visible: Boolean) {
         viewModelScope.launch {
             pinnedAppsDataStore.updatePreferences { prefs ->
@@ -321,6 +337,31 @@ class LauncherViewModel @Inject constructor(
     val focusActive: StateFlow<Boolean> = sessionRepository.observeOpenSessions()
         .map { sessions -> sessions.isNotEmpty() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
+     * Elapsed seconds for the active focus session.
+     * Ticks every second from the real session startedAt, accounting for paused time.
+     * Survives page swipes because it lives in the ViewModel, not in a composable.
+     */
+    val focusElapsedSeconds: StateFlow<Int> = sessionRepository.observeOpenSessions()
+        .flatMapLatest { sessions ->
+            val session = sessions.firstOrNull()
+            if (session == null) {
+                flowOf(0)
+            } else {
+                flow {
+                    while (true) {
+                        val now = System.currentTimeMillis()
+                        val pausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
+                        val elapsed = ((now - session.startedAt) - session.totalPausedMs - pausedMs)
+                            .coerceAtLeast(0L)
+                        emit((elapsed / 1000L).toInt())
+                        kotlinx.coroutines.delay(1000)
+                    }
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /**
      * Default launcher detection (Requirement 23.5).

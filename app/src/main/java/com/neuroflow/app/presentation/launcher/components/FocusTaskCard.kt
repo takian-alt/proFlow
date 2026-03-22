@@ -94,6 +94,7 @@ fun FocusTaskCard(
     ulyssesContract: UlyssesContractEntity?,
     woopEntity: WoopEntity?,
     focusActive: Boolean,
+    focusElapsedSeconds: Int = 0,
     hasActiveTasks: Boolean = true,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
@@ -162,6 +163,7 @@ fun FocusTaskCard(
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
                     focusActive = focusActive,
+                    focusElapsedSeconds = focusElapsedSeconds,
                     showTaskScore = theme.showTaskScore,
                     prefs = prefs,
                     onSkip = { onSkip(topTask.id) },
@@ -263,6 +265,7 @@ private fun TaskContent(
     ulyssesContract: UlyssesContractEntity?,
     woopEntity: WoopEntity?,
     focusActive: Boolean,
+    focusElapsedSeconds: Int,
     showTaskScore: Boolean,
     prefs: com.neuroflow.app.data.local.UserPreferences?,
     onSkip: () -> Unit,
@@ -338,8 +341,8 @@ private fun TaskContent(
 
         // Action buttons
         if (focusActive) {
-            // In progress state with elapsed timer
-            InProgressState()
+            // In progress state with elapsed timer from real session
+            InProgressState(elapsedSeconds = focusElapsedSeconds, onOpenFocus = onStartFocus)
         } else {
             // Start Focus and Skip buttons
             ActionButtons(
@@ -540,20 +543,11 @@ private fun EnergyLevelIndicator(energyLevel: EnergyLevel) {
 }
 
 /**
- * In progress state showing elapsed timer.
+ * In progress state showing elapsed timer from the real open session.
+ * elapsedSeconds comes from LauncherViewModel.focusElapsedSeconds — survives swipes.
  */
 @Composable
-private fun InProgressState() {
-    // Phase 1: focusActive is always false, but we scaffold the UI
-    var elapsedSeconds by remember { mutableStateOf(0) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(1000)
-            elapsedSeconds++
-        }
-    }
-
+private fun InProgressState(elapsedSeconds: Int, onOpenFocus: () -> Unit) {
     val hours = elapsedSeconds / 3600
     val minutes = (elapsedSeconds % 3600) / 60
     val seconds = elapsedSeconds % 60
@@ -569,22 +563,32 @@ private fun InProgressState() {
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "In progress",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = timeText,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
+            Column {
+                Text(
+                    text = "In progress",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                )
+                Text(
+                    text = timeText,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Button(
+                onClick = onOpenFocus,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("Open Focus", style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }

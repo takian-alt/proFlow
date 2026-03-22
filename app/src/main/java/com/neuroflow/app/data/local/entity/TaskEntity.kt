@@ -83,5 +83,9 @@ data class TaskEntity(
 
     // Behavioral motivation engine fields
     val affectiveForecastError: Float? = null,  // REAL nullable — difference between predicted and actual enjoyment
-    val woopPromptShown: Boolean = false         // INTEGER NOT NULL DEFAULT 0 — whether WOOP prompt has been shown
+    val woopPromptShown: Boolean = false,        // INTEGER NOT NULL DEFAULT 0 — whether WOOP prompt has been shown
+
+    // Digital Wellbeing distraction score (0–100), refreshed by DistractionSyncWorker
+    // -1 = not yet computed (no usage data / permission not granted)
+    val distractionScore: Float = -1f
 )

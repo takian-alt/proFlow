@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -45,7 +48,21 @@ fun LeftPage(
     val blocks by viewModel.leftPageBlocks.collectAsStateWithLifecycle()
     val userPrefs by viewModel.userPreferences.collectAsStateWithLifecycle()
     val topTaskWoop by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
+    val top3Distracted by viewModel.top3DistractingApps.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+
+    // Load app distraction data whenever this page is visible, and re-load on resume
+    // (covers the case where the user just granted Usage Access permission)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.loadTop3DistractingApps()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Soft gray background
     Box(
@@ -101,6 +118,11 @@ fun LeftPage(
             // WOOP block
             if (blocks["woop"] == true) {
                 WoopBlock(woop = topTaskWoop)
+            }
+
+            // Distraction Top 3 block
+            if (blocks["distraction_top3"] == true) {
+                DistractionTop3Block(tasks = top3Distracted)
             }
         }
 
@@ -292,6 +314,169 @@ private fun WoopRow(label: String, value: String) {
     }
 }
 
+// ── Distraction Top 3 Block ─────────────────────────────────────────────────
+
+@Composable
+private fun DistractionTop3Block(
+    tasks: List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var hasPermission by remember {
+        mutableStateOf(com.neuroflow.app.domain.engine.DistractionEngine.hasUsagePermission(context))
+    }
+    // Re-check permission on resume — fires when user returns from Settings
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasPermission = com.neuroflow.app.domain.engine.DistractionEngine.hasUsagePermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "📵 Most Distracting Apps",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF6B7280)
+            )
+
+            when {
+                !hasPermission -> {
+                    Text(
+                        "Enable Usage Access so NeuroFlow can detect which apps interrupt your focus most.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF6B7280)
+                    )
+                    Button(
+                        onClick = {
+                            com.neuroflow.app.domain.engine.DistractionEngine
+                                .openUsagePermissionSettings(context)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF6366F1)
+                        )
+                    ) {
+                        Text(
+                            "Grant Access",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                tasks.isEmpty() -> {
+                    Text(
+                        "No data yet — start a focus session to begin tracking.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFD1D5DB)
+                    )
+                }
+                else -> {
+                    tasks.forEachIndexed { index, app ->
+                        DistractionAppRow(rank = index + 1, app = app)
+                        if (index < tasks.lastIndex) {
+                            HorizontalDivider(color = Color(0xFFF3F4F6), thickness = 1.dp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DistractionAppRow(
+    rank: Int,
+    app: com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult
+) {
+    val barColor = when {
+        app.score >= 75f -> Color(0xFFEF4444)
+        app.score >= 50f -> Color(0xFFF97316)
+        app.score >= 25f -> Color(0xFFEAB308)
+        else             -> Color(0xFF22C55E)
+    }
+    val animatedFraction by animateFloatAsState(
+        targetValue = (app.score / 100f).coerceIn(0f, 1f),
+        animationSpec = tween(600),
+        label = "distraction_bar_$rank"
+    )
+    val minutes = (app.totalDistractedMs / 60_000L).toInt()
+    val timeLabel = if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "${minutes}m"
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Rank badge
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(barColor.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "$rank",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = barColor
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = app.appLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF1F2937),
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "$timeLabel · ${app.openCount}×",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF9CA3AF)
+                )
+            }
+            // Score bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color(0xFFF3F4F6))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedFraction)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(barColor)
+                )
+            }
+        }
+    }
+}
+
 // ── Left Page Settings Sheet ────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -323,7 +508,8 @@ private fun LeftPageSettingsSheet(
             listOf(
                 "subliminal" to "✨ Affirmations",
                 "quick_note" to "📝 Quick Note",
-                "woop" to "🎯 WOOP"
+                "woop" to "🎯 WOOP",
+                "distraction_top3" to "📵 Most Distracting Apps"
             ).forEach { (id, label) ->
                 Row(
                     modifier = Modifier

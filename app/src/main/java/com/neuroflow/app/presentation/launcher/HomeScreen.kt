@@ -227,6 +227,7 @@ private fun PortraitLayout(
     val woopEntity by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val habitTasks by viewModel.habitTasks.collectAsStateWithLifecycle()
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
+    val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
     val allApps by viewModel.allApps.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
@@ -258,6 +259,7 @@ private fun PortraitLayout(
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
                     focusActive = focusActive,
+                    focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
@@ -371,6 +373,7 @@ private fun LandscapeLayout(
     val woopEntity by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val habitTasks by viewModel.habitTasks.collectAsStateWithLifecycle()
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
+    val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
 
     Column(
@@ -403,6 +406,7 @@ private fun LandscapeLayout(
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
                     focusActive = focusActive,
+                    focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
@@ -466,6 +470,7 @@ private fun TwoColumnLayout(
     val woopEntity by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val habitTasks by viewModel.habitTasks.collectAsStateWithLifecycle()
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
+    val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
 
     Row(
@@ -486,6 +491,7 @@ private fun TwoColumnLayout(
                 ulyssesContract = ulyssesContract,
                 woopEntity = woopEntity,
                 focusActive = focusActive,
+                focusElapsedSeconds = focusElapsedSeconds,
                 hasActiveTasks = allActiveTasks.isNotEmpty(),
                 onSkip = { taskId -> viewModel.skipTask(taskId) },
                 onStartFocus = { taskId ->

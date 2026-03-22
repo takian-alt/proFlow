@@ -89,7 +89,8 @@ data class LauncherPreferences(
     val leftPageBlocks: Map<String, Boolean> = mapOf(
         "subliminal" to true,
         "quick_note" to true,
-        "woop" to true
+        "woop" to true,
+        "distraction_top3" to true
     )
 )
 
@@ -360,10 +361,16 @@ class PinnedAppsDataStore @Inject constructor(
     }
 
     private fun parseLeftPageBlocks(json: String?): Map<String, Boolean> {
-        val defaults = mapOf("subliminal" to true, "quick_note" to true, "woop" to true)
+        val defaults = mapOf(
+            "subliminal" to true,
+            "quick_note" to true,
+            "woop" to true,
+            "distraction_top3" to true
+        )
         if (json.isNullOrBlank()) return defaults
         return try {
             val obj = JSONObject(json)
+            // Merge: existing keys from JSON, new keys get their default value
             defaults.mapValues { (key, default) ->
                 if (obj.has(key)) obj.getBoolean(key) else default
             }

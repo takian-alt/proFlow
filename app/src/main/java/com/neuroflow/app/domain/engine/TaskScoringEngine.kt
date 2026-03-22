@@ -41,7 +41,7 @@ object TaskScoringEngine {
 
     // Calibrated max — sum of all components at theoretical maximum
     // Recalibrated so scores spread across 0–1000 meaningfully
-    private const val THEORETICAL_MAX = 1800f
+    private const val THEORETICAL_MAX = 1880f
 
     fun score(
         task: TaskEntity,
@@ -334,6 +334,13 @@ object TaskScoringEngine {
             s += anxietyBoost
         }
 
+        // ── 22. DISTRACTION-AWARE BOOST ───────────────────────────────────────
+        // Tasks that historically get interrupted need intentional scheduling
+        // in protected time slots — surface them so the user can plan better
+        if (task.distractionScore >= 0f) {
+            s += DistractionEngine.priorityBoost(task.distractionScore)
+        }
+
         return max(0f, s)
     }
 
@@ -457,6 +464,10 @@ object TaskScoringEngine {
         if (task.goalRiskLevel > 0) result += "⚠ Goal risk" to if (task.goalRiskLevel == 2) 130f else 60f
         if (task.waitingFor.isNotBlank()) result += "⏳ Waiting for (blocked)" to -999f
         if (task.postponeCount > 0) result += "↩ Postponed ${task.postponeCount}x" to min(task.postponeCount * 30f, 180f)
+        if (task.distractionScore >= 0f) {
+            val boost = DistractionEngine.priorityBoost(task.distractionScore)
+            if (boost > 0f) result += "📵 ${DistractionEngine.label(task.distractionScore)}" to boost
+        }
 
         return result.sortedByDescending { it.second }
     }
