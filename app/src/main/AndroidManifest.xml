@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -117,6 +119,44 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
+        </service>
+
+        <!-- Hyper Focus: blocking overlay activity -->
+        <activity
+            android:name=".presentation.launcher.hyperfocus.HyperFocusActivity"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.neuroflow.app.hyperfocus"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.NeuroFlow" />
+
+        <!-- Hyper Focus: accessibility service for app blocking -->
+        <service
+            android:name=".presentation.launcher.hyperfocus.service.AppBlockingService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Hyper Focus: foreground timer service for unlock countdowns -->
+        <service
+            android:name=".presentation.launcher.hyperfocus.service.UnlockTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
+        <!-- Hyper Focus: foreground monitor service to keep session active -->
+        <service
+            android:name=".presentation.launcher.hyperfocus.service.HyperFocusMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Focus session monitoring" />
         </service>
 
     </application>

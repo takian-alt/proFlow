@@ -12,6 +12,8 @@ import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
@@ -45,6 +47,7 @@ class LauncherViewModel @Inject constructor(
     private val sessionRepository: com.neuroflow.app.data.repository.SessionRepository,
     private val launcherBackupManager: com.neuroflow.app.presentation.launcher.data.LauncherBackupManager,
     private val iconPackManager: com.neuroflow.app.presentation.launcher.data.IconPackManager,
+    private val hyperFocusDataStore: HyperFocusDataStore,
 ) : ViewModel() {
 
     init {
@@ -350,11 +353,20 @@ class LauncherViewModel @Inject constructor(
     // ── Phase 1 Scaffolding ─────────────────────────────────────────────────
 
     /**
-     * Focus mode active state (Phase 5: wired to session repository).
-     * Tracks whether a focus session is currently active.
+     * Hyper Focus preferences from HyperFocusDataStore.
+     * Exposes the full HyperFocusPreferences state for UI and AppIcon blocking checks.
      */
-    val focusActive: StateFlow<Boolean> = sessionRepository.observeOpenSessions()
-        .map { sessions -> sessions.isNotEmpty() }
+    val hyperFocusPrefs: StateFlow<HyperFocusPreferences> = hyperFocusDataStore.flow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HyperFocusPreferences())
+
+    /**
+     * Focus mode active state (Phase 5: wired to session repository).
+     * Tracks whether a focus session is currently active OR hyper focus is active.
+     */
+    val focusActive: StateFlow<Boolean> = combine(
+        sessionRepository.observeOpenSessions().map { sessions -> sessions.isNotEmpty() },
+        hyperFocusPrefs.map { it.isActive }
+    ) { sessionActive, hyperActive -> sessionActive || hyperActive }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**

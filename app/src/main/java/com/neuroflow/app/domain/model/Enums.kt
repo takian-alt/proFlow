@@ -50,3 +50,21 @@ enum class TaskType {
     ADMIN,
     PHYSICAL
 }
+
+enum class HyperFocusState {
+    INACTIVE,
+    ACTIVE,
+    MICRO_UNLOCKED,
+    PARTIAL_UNLOCKED,
+    EARNED_UNLOCKED,
+    FULLY_UNLOCKED,
+    PLANNING
+}
+
+enum class RewardTier(val unlockMinutes: Int, val taskThreshold: Int) {
+    NONE(0, 0),
+    MICRO(2, 1),
+    PARTIAL(10, 3),
+    EARNED(30, 5),
+    FULL(Int.MAX_VALUE, Int.MAX_VALUE)
+}

@@ -30,9 +30,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.presentation.launcher.components.*
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
+import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.presentation.launcher.hyperfocus.components.HyperFocusStatusBar
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
@@ -234,6 +237,12 @@ private fun PortraitLayout(
     val badgeCounts by viewModel.badgeCounts.collectAsStateWithLifecycle()
     val appRepository = viewModel.getAppRepository()
 
+    // HyperFocus state — Requirements: 6.2
+    val hyperFocusViewModel: HyperFocusViewModel = hiltViewModel()
+    val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
+    val hyperFocusProgress by hyperFocusViewModel.progress.collectAsStateWithLifecycle()
+    val unlockSecondsRemaining by hyperFocusViewModel.unlockSecondsRemaining.collectAsStateWithLifecycle()
+
     var selectedFolder by remember { mutableStateOf<com.neuroflow.app.presentation.launcher.data.FolderDefinition?>(null) }
     var showFolderOverlay by remember { mutableStateOf(false) }
 
@@ -253,6 +262,13 @@ private fun PortraitLayout(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(with(gestureHandler) { Modifier.attachSwipeDown() })
+                )
+                HyperFocusStatusBar(
+                    prefs = hyperFocusPrefs,
+                    progress = hyperFocusProgress,
+                    unlockSecondsRemaining = unlockSecondsRemaining,
+                    onRewardsClick = { /* no-op: rewards navigation not yet wired */ },
+                    onPlanningClick = { /* no-op: planning navigation not yet wired */ }
                 )
                 FocusTaskCard(
                     topTask = topTask,

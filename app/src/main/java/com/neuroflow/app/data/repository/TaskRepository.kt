@@ -5,6 +5,8 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
+import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
 import java.util.UUID
@@ -22,7 +24,8 @@ private fun Long.toDayStart(): Long {
 
 @Singleton
 class TaskRepository @Inject constructor(
-    private val taskDao: TaskDao
+    private val taskDao: TaskDao,
+    private val hyperFocusManager: Lazy<HyperFocusManager>
 ) {
     fun observeAll(): Flow<List<TaskEntity>> = taskDao.observeAll()
     fun observeActiveTasks(): Flow<List<TaskEntity>> = taskDao.observeActiveTasks()
@@ -67,6 +70,7 @@ class TaskRepository @Inject constructor(
                 updatedAt = now
             )
         )
+        hyperFocusManager.get().onTaskCompleted()
 
         if (task.recurrence == Recurrence.NONE) return null
 

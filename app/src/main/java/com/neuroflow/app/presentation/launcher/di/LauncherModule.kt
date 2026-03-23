@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.launcher.di
 import android.content.Context
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.data.IconPackManager
 import com.neuroflow.app.presentation.launcher.data.LauncherBackupManager
@@ -11,6 +12,14 @@ import com.neuroflow.app.presentation.launcher.data.PinnedAppsDataStore
 import com.neuroflow.app.presentation.launcher.domain.AppWidgetHostWrapper
 import com.neuroflow.app.presentation.launcher.domain.LauncherSearchEngine
 import com.neuroflow.app.presentation.launcher.domain.LauncherSearchEngineImpl
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStoreImpl
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionDao
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.UnlockCodeDao
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManagerImpl
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.UnlockCodeRepository
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.UnlockCodeRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -42,6 +51,20 @@ abstract class LauncherModule {
     abstract fun bindLauncherSearchEngine(
         impl: LauncherSearchEngineImpl
     ): LauncherSearchEngine
+
+    /**
+     * Binds UnlockCodeRepository interface to implementation.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindUnlockCodeRepository(impl: UnlockCodeRepositoryImpl): UnlockCodeRepository
+
+    /**
+     * Binds HyperFocusManager interface to implementation.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindHyperFocusManager(impl: HyperFocusManagerImpl): HyperFocusManager
 
     companion object {
         /**
@@ -124,5 +147,25 @@ abstract class LauncherModule {
         ): LauncherBackupManager {
             return LauncherBackupManager(pinnedAppsDataStore, appRepository)
         }
+
+        /**
+         * Provides HyperFocusDataStore singleton.
+         */
+        @Provides
+        @Singleton
+        fun provideHyperFocusDataStore(@ApplicationContext context: Context): HyperFocusDataStore =
+            HyperFocusDataStoreImpl(context)
+
+        /**
+         * Provides UnlockCodeDao from NeuroFlowDatabase.
+         */
+        @Provides
+        fun provideUnlockCodeDao(database: NeuroFlowDatabase): UnlockCodeDao = database.unlockCodeDao()
+
+        /**
+         * Provides HyperFocusSessionDao from NeuroFlowDatabase.
+         */
+        @Provides
+        fun provideHyperFocusSessionDao(database: NeuroFlowDatabase): HyperFocusSessionDao = database.hyperFocusSessionDao()
     }
 }

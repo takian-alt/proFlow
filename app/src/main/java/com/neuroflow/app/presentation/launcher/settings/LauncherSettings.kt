@@ -15,12 +15,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.provider.Settings
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.neuroflow.app.presentation.launcher.LauncherViewModel
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.ClockStyle
 import com.neuroflow.app.presentation.launcher.data.IconShape
 import com.neuroflow.app.presentation.launcher.data.ImportResult
+import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.HyperFocusActivationSheet
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PermissionSetupScreen
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardSection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,9 +63,16 @@ fun LauncherSettings(
     onDismiss: () -> Unit,
     viewModel: LauncherViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     // Collect state from ViewModel
     val allApps by viewModel.allApps.collectAsState()
     val distractionScores by viewModel.distractionScores.collectAsState()
+
+    // HyperFocus ViewModel and state (Requirements: 6.3)
+    val hyperFocusViewModel: HyperFocusViewModel = hiltViewModel()
+    val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
+    var showActivationSheet by remember { mutableStateOf(false) }
+    var showPermissionSetup by remember { mutableStateOf(false) }
 
     // Track which section is expanded
     var expandedSection by remember { mutableStateOf<SettingsSection?>(null) }
@@ -173,6 +187,31 @@ fun LauncherSettings(
                         )
                     }
 
+                    // Hyper Focus Section (Task 7.3, Requirements: 6.3)
+                    item {
+                        HyperFocusSettingsSection(
+                            isActive = hyperFocusPrefs.isActive,
+                            onSetup = {
+                                val accessibilityEnabled = Settings.Secure.getString(
+                                    context.contentResolver,
+                                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                                )?.let { enabled ->
+                                    enabled.contains(
+                                        "${context.packageName}/.presentation.launcher.hyperfocus.service.AppBlockingService",
+                                        ignoreCase = true
+                                    ) || enabled.contains("AppBlockingService", ignoreCase = true)
+                                } == true
+                                if (!accessibilityEnabled) {
+                                    showPermissionSetup = true
+                                } else {
+                                    showActivationSheet = true
+                                }
+                            },
+                            onViewProgress = { showActivationSheet = false },
+                            hyperFocusViewModel = hyperFocusViewModel
+                        )
+                    }
+
                     // Backup/Restore Section (Task 21.3)
                     item {
                         BackupRestoreSection(
@@ -180,6 +219,34 @@ fun LauncherSettings(
                         )
                     }
                 }
+            }
+        }
+
+        // HyperFocusActivationSheet (Requirements: 6.3)
+        if (showActivationSheet) {
+            HyperFocusActivationSheet(
+                viewModel = hyperFocusViewModel,
+                distractionScores = distractionScores,
+                onDismiss = { showActivationSheet = false }
+            )
+        }
+
+        // PermissionSetupScreen shown as full-screen dialog (Requirements: 6.3)
+        if (showPermissionSetup) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showPermissionSetup = false },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = false
+                )
+            ) {
+                PermissionSetupScreen(
+                    onBothGranted = {
+                        showPermissionSetup = false
+                        showActivationSheet = true
+                    }
+                )
             }
         }
     }
@@ -193,6 +260,167 @@ private enum class SettingsSection {
     DOCK_EDITOR,
     VISUAL_CUSTOMIZATION,
     FEATURE_SETTINGS
+}
+
+/**
+ * Hyper Focus Settings Section (Task 7.3).
+ *
+ * Shows:
+ * - Section header "Hyper Focus"
+ * - Current status (active/inactive)
+ * - "Setup / Activate" button (checks permissions, shows sheet or permission setup)
+ * - "View Progress" row (only when isActive == true)
+ *
+ * Requirements: 6.3
+ */
+@Composable
+private fun HyperFocusSettingsSection(
+    isActive: Boolean,
+    onSetup: () -> Unit,
+    onViewProgress: () -> Unit,
+    hyperFocusViewModel: HyperFocusViewModel
+) {
+    val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
+    val hyperFocusProgress by hyperFocusViewModel.progress.collectAsStateWithLifecycle()
+    val claimedCode by hyperFocusViewModel.claimedCodeToShow.collectAsStateWithLifecycle()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Section header
+            Text(
+                text = "Hyper Focus",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Status row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Status",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isActive) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    }
+                ) {
+                    Text(
+                        text = if (isActive) "Active" else "Inactive",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isActive) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Setup / Activate button — or Stop when already active
+            if (isActive) {
+                val isConditionFulfilled = hyperFocusProgress.completedSinceActivation >= hyperFocusProgress.totalTarget
+                Button(
+                    onClick = { if (isConditionFulfilled) hyperFocusViewModel.deactivate() },
+                    enabled = isConditionFulfilled,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        disabledContainerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                    )
+                ) {
+                    if (isConditionFulfilled) {
+                        Text("Stop Session")
+                    } else {
+                        Text("🔒 Complete ${hyperFocusProgress.tasksToNextTier} more task(s) to stop")
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onSetup,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Setup / Activate")
+                }
+            }
+
+            // View Progress row — only visible when active
+            if (isActive) {
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "View Progress",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = onViewProgress) {
+                        Text("Open")
+                    }
+                }
+
+                // Inline rewards/progress view
+                RewardSection(
+                    prefs = hyperFocusPrefs,
+                    progress = hyperFocusProgress,
+                    claimedCode = claimedCode,
+                    onClaimReward = { hyperFocusViewModel.claimReward() },
+                    onDismissCode = { hyperFocusViewModel.dismissClaimedCode() }
+                )
+
+                // Debug: Show blocked packages
+                HorizontalDivider()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Blocked Apps (${hyperFocusPrefs.blockedPackages.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    hyperFocusPrefs.blockedPackages.take(5).forEach { pkg ->
+                        Text(
+                            text = "• $pkg",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (hyperFocusPrefs.blockedPackages.size > 5) {
+                        Text(
+                            text = "... and ${hyperFocusPrefs.blockedPackages.size - 5} more",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
