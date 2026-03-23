@@ -58,22 +58,44 @@ object AESUtil {
             if (existingKey != null) {
                 return existingKey as SecretKey
             }
-            val keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES,
-                "AndroidKeyStore"
-            )
-            val spec = KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .build()
-            keyGenerator.init(spec)
-            keyGenerator.generateKey()
+            generateNewKey(keyStore)
+        } catch (e: EncryptionException) {
+            throw e
         } catch (e: Exception) {
             throw EncryptionException("Failed to get or create key", e)
         }
+    }
+
+    /**
+     * Deletes the existing key (if any) and generates a fresh one.
+     * Called when the existing key is invalidated (e.g. new biometric enrolled).
+     * After this, all previously encrypted codes are unrecoverable — callers must regenerate the pool.
+     */
+    fun resetKey() {
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                keyStore.deleteEntry(KEY_ALIAS)
+            }
+            generateNewKey(keyStore)
+        } catch (_: Exception) { /* best effort */ }
+    }
+
+    private fun generateNewKey(keyStore: KeyStore): SecretKey {
+        val keyGenerator = KeyGenerator.getInstance(
+            KeyProperties.KEY_ALGORITHM_AES,
+            "AndroidKeyStore"
+        )
+        val spec = KeyGenParameterSpec.Builder(
+            KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .build()
+        keyGenerator.init(spec)
+        return keyGenerator.generateKey()
     }
 }

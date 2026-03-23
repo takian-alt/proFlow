@@ -43,16 +43,16 @@ class UnlockCodeRepositoryTest : StringSpec({
         unmockkObject(AESUtil)
     }
 
-    "generateCodePool inserts exactly poolSize rows all with isUsed = false" {
+    "generateCodePool inserts exactly 4 rows (one per tier) all with isUsed = false" {
         runTest {
             val dao = mockk<UnlockCodeDao>()
             val capturedList = slot<List<UnlockCodeEntity>>()
             coEvery { dao.insertAll(capture(capturedList)) } returns Unit
 
             val repo = UnlockCodeRepositoryImpl(dao)
-            repo.generateCodePool("session1", 10)
+            repo.generateCodePool("session1")
 
-            capturedList.captured.size shouldBe 10
+            capturedList.captured.size shouldBe 4
             capturedList.captured.all { !it.isUsed } shouldBe true
         }
     }
@@ -64,7 +64,7 @@ class UnlockCodeRepositoryTest : StringSpec({
             coEvery { dao.insertAll(capture(capturedList)) } returns Unit
 
             val repo = UnlockCodeRepositoryImpl(dao)
-            repo.generateCodePool("session1", 10)
+            repo.generateCodePool("session1")
 
             capturedList.captured.forEach { entity ->
                 // Encrypted + IV + Base64 encoding will always produce a string much longer than 6 chars

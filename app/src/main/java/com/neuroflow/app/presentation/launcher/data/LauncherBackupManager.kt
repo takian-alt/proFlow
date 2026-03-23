@@ -217,7 +217,7 @@ class LauncherBackupManager @Inject constructor(
             }
 
             // Parse icon pack (validate if specified)
-            val iconPackPackageName = migratedJson.optString("iconPackPackageName", null)
+            val iconPackPackageName = migratedJson.optString("iconPackPackageName", "").takeIf { it.isNotEmpty() }
             val validatedIconPack = if (iconPackPackageName != null && iconPackPackageName.isNotEmpty()) {
                 if (validatePackage(iconPackPackageName)) {
                     iconPackPackageName

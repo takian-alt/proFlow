@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
@@ -34,6 +35,7 @@ import javax.inject.Inject
  * Central ViewModel for the Focus Launcher.
  * All state is StateFlow with SharingStarted.WhileSubscribed(5000).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LauncherViewModel @Inject constructor(
     @ApplicationContext private val context: Context,

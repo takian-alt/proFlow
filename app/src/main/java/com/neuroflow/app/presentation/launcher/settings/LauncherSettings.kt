@@ -27,7 +27,6 @@ import com.neuroflow.app.presentation.launcher.data.ImportResult
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.HyperFocusActivationSheet
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PermissionSetupScreen
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardSection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,6 +60,7 @@ import java.util.Locale
 fun LauncherSettings(
     isOpen: Boolean,
     onDismiss: () -> Unit,
+    onNavigateToRewards: () -> Unit = {},
     viewModel: LauncherViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -192,22 +192,25 @@ fun LauncherSettings(
                         HyperFocusSettingsSection(
                             isActive = hyperFocusPrefs.isActive,
                             onSetup = {
-                                val accessibilityEnabled = Settings.Secure.getString(
-                                    context.contentResolver,
-                                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-                                )?.let { enabled ->
-                                    enabled.contains(
-                                        "${context.packageName}/.presentation.launcher.hyperfocus.service.AppBlockingService",
-                                        ignoreCase = true
-                                    ) || enabled.contains("AppBlockingService", ignoreCase = true)
-                                } == true
-                                if (!accessibilityEnabled) {
+                                val accessibilityEnabled = com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+                                    .isAppBlockingServiceEnabled(context)
+                                val usageStatsEnabled = try {
+                                    val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
+                                    appOps.unsafeCheckOpNoThrow(
+                                        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                                        android.os.Process.myUid(),
+                                        context.packageName
+                                    ) == android.app.AppOpsManager.MODE_ALLOWED
+                                } catch (e: Exception) { false }
+
+                                if (!accessibilityEnabled || !usageStatsEnabled) {
                                     showPermissionSetup = true
                                 } else {
                                     showActivationSheet = true
                                 }
                             },
                             onViewProgress = { showActivationSheet = false },
+                            onNavigateToRewards = onNavigateToRewards,
                             hyperFocusViewModel = hyperFocusViewModel
                         )
                     }
@@ -278,11 +281,10 @@ private fun HyperFocusSettingsSection(
     isActive: Boolean,
     onSetup: () -> Unit,
     onViewProgress: () -> Unit,
+    onNavigateToRewards: () -> Unit,
     hyperFocusViewModel: HyperFocusViewModel
 ) {
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
-    val hyperFocusProgress by hyperFocusViewModel.progress.collectAsStateWithLifecycle()
-    val claimedCode by hyperFocusViewModel.claimedCodeToShow.collectAsStateWithLifecycle()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -335,23 +337,19 @@ private fun HyperFocusSettingsSection(
                 }
             }
 
-            // Setup / Activate button — or Stop when already active
+            // Show active status only — session cannot be manually stopped
             if (isActive) {
-                val isConditionFulfilled = hyperFocusProgress.completedSinceActivation >= hyperFocusProgress.totalTarget
-                Button(
-                    onClick = { if (isConditionFulfilled) hyperFocusViewModel.deactivate() },
-                    enabled = isConditionFulfilled,
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        disabledContainerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
-                    )
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.errorContainer
                 ) {
-                    if (isConditionFulfilled) {
-                        Text("Stop Session")
-                    } else {
-                        Text("🔒 Complete ${hyperFocusProgress.tasksToNextTier} more task(s) to stop")
-                    }
+                    Text(
+                        text = "🔒 Session active — complete your tasks to finish.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
                 }
             } else {
                 Button(
@@ -382,13 +380,22 @@ private fun HyperFocusSettingsSection(
                 }
 
                 // Inline rewards/progress view
-                RewardSection(
-                    prefs = hyperFocusPrefs,
-                    progress = hyperFocusProgress,
-                    claimedCode = claimedCode,
-                    onClaimReward = { hyperFocusViewModel.claimReward() },
-                    onDismissCode = { hyperFocusViewModel.dismissClaimedCode() }
-                )
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Rewards",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = onNavigateToRewards) {
+                        Text("View →")
+                    }
+                }
 
                 // Debug: Show blocked packages
                 HorizontalDivider()

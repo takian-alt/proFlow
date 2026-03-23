@@ -9,9 +9,13 @@ import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
-import com.neuroflow.app.presentation.launcher.hyperfocus.service.UnlockTimerService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
+import com.neuroflow.app.presentation.launcher.hyperfocus.service.UnlockTimerService
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.neuroflow.app.worker.AccessibilityWatchdogWorker
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,12 +26,12 @@ sealed class UnlockResult {
 }
 
 interface HyperFocusManager {
-    suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int)
+    suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>)
     suspend fun deactivate()
     suspend fun onTaskCompleted()
     suspend fun submitCode(enteredCode: String): UnlockResult
     suspend fun completePlanning()
-    fun updateHeartbeat()
+    suspend fun updateHeartbeat()
 }
 
 @Singleton
@@ -54,18 +58,19 @@ class HyperFocusManagerImpl @Inject constructor(
         context.stopService(
             Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
         )
+        WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
     }
 
-    override suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int) {
+    override suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>) {
         val sessionId = UUID.randomUUID().toString()
-        val snapshot = taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED }
 
         Log.d(TAG, "Activating Hyper Focus - Session: $sessionId")
         Log.d(TAG, "Blocked packages (${blockedPackages.size}): ${blockedPackages.joinToString()}")
         Log.d(TAG, "Daily task target: $dailyTaskTarget")
 
-        // Generate code pool BEFORE marking active (Rule 8)
-        unlockCodeRepository.generateCodePool(sessionId, 50)
+        // Clean up expired codes from previous sessions, then generate fresh pool
+        unlockCodeRepository.deleteExpiredCodes()
+        unlockCodeRepository.generateCodePool(sessionId)
 
         hyperFocusDataStore.update {
             HyperFocusPreferences(
@@ -74,11 +79,12 @@ class HyperFocusManagerImpl @Inject constructor(
                 state = HyperFocusState.ACTIVE,
                 blockedPackages = blockedPackages,
                 dailyTaskTarget = dailyTaskTarget,
-                tasksCompletedAtActivation = snapshot,
+                tasksCompletedAtActivation = 0,
                 currentTier = RewardTier.NONE,
                 activeUnlockExpiresAt = null,
                 wrongCodeAttempts = 0,
-                lockoutExpiresAt = null
+                lockoutExpiresAt = null,
+                lockedTaskIds = lockedTaskIds
             )
         }
 
@@ -86,22 +92,43 @@ class HyperFocusManagerImpl @Inject constructor(
         context.startForegroundService(
             Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
         )
+
+        // Schedule periodic accessibility watchdog (every 15 min)
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            AccessibilityWatchdogWorker.WORK_NAME,
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<AccessibilityWatchdogWorker>(15, TimeUnit.MINUTES).build()
+        )
     }
 
     override suspend fun onTaskCompleted() {
         val prefs = hyperFocusDataStore.current()
         if (!prefs.isActive) return
 
-        val totalCompleted = taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED }
-        val completedSinceActivation = totalCompleted - prefs.tasksCompletedAtActivation
+        // Only count tasks that were active when the session started
+        val completedLockedTasks = if (prefs.lockedTaskIds.isNotEmpty()) {
+            taskRepository.getAllTasks()
+                .count { it.id in prefs.lockedTaskIds && it.status == TaskStatus.COMPLETED }
+        } else {
+            // Fallback for sessions started before this fix (no lockedTaskIds stored)
+            taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED } - prefs.tasksCompletedAtActivation
+        }
+        val completedSinceActivation = completedLockedTasks.coerceAtLeast(0)
         val newTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
 
-        if (newTier.ordinal > prefs.currentTier.ordinal) {
-            hyperFocusDataStore.update { it.copy(currentTier = newTier) }
-        }
-
-        if (completedSinceActivation >= prefs.dailyTaskTarget) {
-            hyperFocusDataStore.update { it.copy(state = HyperFocusState.FULLY_UNLOCKED) }
+        if (newTier.ordinal > prefs.currentTier.ordinal ||
+            (completedSinceActivation >= prefs.dailyTaskTarget &&
+             prefs.state != HyperFocusState.FULL_REWARD_PENDING &&
+             prefs.state != HyperFocusState.FULLY_UNLOCKED)
+        ) {
+            hyperFocusDataStore.update {
+                val updatedTier = if (newTier.ordinal > it.currentTier.ordinal) newTier else it.currentTier
+                val updatedState = if (completedSinceActivation >= prefs.dailyTaskTarget &&
+                    it.state != HyperFocusState.FULL_REWARD_PENDING &&
+                    it.state != HyperFocusState.FULLY_UNLOCKED
+                ) HyperFocusState.FULL_REWARD_PENDING else it.state
+                it.copy(currentTier = updatedTier, state = updatedState)
+            }
         }
     }
 
@@ -110,11 +137,12 @@ class HyperFocusManagerImpl @Inject constructor(
         val now = System.currentTimeMillis()
 
         if (prefs.lockoutExpiresAt != null && prefs.lockoutExpiresAt > now) {
-return UnlockResult.Lockout((prefs.lockoutExpiresAt - now) / 1000)
+            return UnlockResult.Lockout((prefs.lockoutExpiresAt - now) / 1000)
         }
 
         val normalized = enteredCode.trim().uppercase()
-        val match = unlockCodeRepository.validateAndClaim(prefs.sessionId!!, normalized)
+        val sessionId = prefs.sessionId ?: return UnlockResult.InvalidCode
+        val match = unlockCodeRepository.validateAndClaim(sessionId, normalized)
 
         if (match == null) {
             val newAttempts = prefs.wrongCodeAttempts + 1
@@ -132,7 +160,16 @@ return UnlockResult.Lockout((prefs.lockoutExpiresAt - now) / 1000)
                         else now + match.tier.unlockMinutes * 60_000L
         unlockCodeRepository.markUsed(match.id, expiresAt)
         hyperFocusDataStore.update {
-            it.copy(activeUnlockExpiresAt = expiresAt, wrongCodeAttempts = 0)
+            val newState = if (match.tier == RewardTier.FULL)
+                com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
+            else
+                it.state
+            it.copy(
+                activeUnlockExpiresAt = expiresAt,
+                wrongCodeAttempts = 0,
+                pendingCodeId = null,
+                state = newState
+            )
         }
 
         // Start the foreground timer service for timed unlocks (FULL tier = permanent, no timer needed)
@@ -144,15 +181,37 @@ return UnlockResult.Lockout((prefs.lockoutExpiresAt - now) / 1000)
     }
 
     override suspend fun completePlanning() {
+        // Read sessionId first, then update state atomically
         val sessionId = hyperFocusDataStore.current().sessionId
-        hyperFocusDataStore.update { HyperFocusPreferences() }
-        if (sessionId != null) {
-            unlockCodeRepository.deleteSessionCodes(sessionId)
+        // Grant the full unlock now that tomorrow's tasks are planned
+        hyperFocusDataStore.update {
+            HyperFocusPreferences(
+                isActive = true,
+                sessionId = it.sessionId,
+                state = HyperFocusState.FULLY_UNLOCKED,
+                blockedPackages = it.blockedPackages,
+                dailyTaskTarget = it.dailyTaskTarget,
+                tasksCompletedAtActivation = it.tasksCompletedAtActivation,
+                currentTier = it.currentTier,
+                activeUnlockExpiresAt = null,
+                wrongCodeAttempts = 0,
+                lockoutExpiresAt = null,
+                lockedTaskIds = it.lockedTaskIds
+            )
         }
+        sessionId?.let { unlockCodeRepository.deleteSessionCodes(it) }
+        // Stop timer service — full unlock has no timer
+        context.stopService(Intent(context, UnlockTimerService::class.java))
+        // Stop monitor service — session is effectively over (apps are unlocked)
+        context.stopService(
+            Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
+        )
+        // Cancel the accessibility watchdog — session is over
+        WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
     }
 
-    override fun updateHeartbeat() {
-        hyperFocusDataStore.updateHeartbeatSync(System.currentTimeMillis())
+    override suspend fun updateHeartbeat() {
+        hyperFocusDataStore.updateHeartbeat(System.currentTimeMillis())
     }
 }
 

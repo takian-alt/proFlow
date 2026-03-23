@@ -8,11 +8,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 interface UnlockCodeRepository {
-    suspend fun generateCodePool(sessionId: String, poolSize: Int = 50)
-    suspend fun getClaimableCode(sessionId: String, tier: RewardTier): String?
+    suspend fun generateCodePool(sessionId: String)
+    suspend fun getClaimableCode(sessionId: String, tier: RewardTier): Pair<String, String>?
+    suspend fun getCodeById(codeId: String): String?
+    suspend fun countUnusedByTier(sessionId: String, tier: RewardTier): Int
     suspend fun validateAndClaim(sessionId: String, enteredCode: String): UnlockCodeEntity?
     suspend fun markUsed(codeId: String, unlockedUntil: Long?)
     suspend fun deleteSessionCodes(sessionId: String)
+    suspend fun deleteExpiredCodes()
 }
 
 @Singleton
@@ -26,57 +29,60 @@ class UnlockCodeRepositoryImpl @Inject constructor(
     private fun generateCode(): String =
         (1..6).map { CODE_CHARS.random() }.joinToString("")
 
-    override suspend fun generateCodePool(sessionId: String, poolSize: Int) {
-        // Distribute tiers: first 20 MICRO, next 15 PARTIAL, next 10 EARNED, last 5 FULL
-        // For poolSize != 50, scale proportionally using the same ratios
-        val tierDistribution = buildTierDistribution(poolSize)
-
-        val entities = tierDistribution.map { tier ->
+    override suspend fun generateCodePool(sessionId: String) {
+        // One code per tier — user earns exactly one unlock per tier per session
+        val entities = listOf(RewardTier.MICRO, RewardTier.PARTIAL, RewardTier.EARNED, RewardTier.FULL).map { tier ->
             val plaintext = generateCode()
             val encrypted = AESUtil.encrypt(plaintext)
             UnlockCodeEntity(
                 id = UUID.randomUUID().toString(),
                 encryptedCode = encrypted,
                 tier = tier,
-                sessionId = sessionId
+                sessionId = sessionId,
+                createdAt = System.currentTimeMillis()
             )
         }
-
         dao.insertAll(entities)
     }
 
-    private fun buildTierDistribution(poolSize: Int): List<RewardTier> {
-        if (poolSize == 50) {
-            return List(20) { RewardTier.MICRO } +
-                    List(15) { RewardTier.PARTIAL } +
-                    List(10) { RewardTier.EARNED } +
-                    List(5) { RewardTier.FULL }
-        }
-        // Scale proportionally: 40% MICRO, 30% PARTIAL, 20% EARNED, 10% FULL
-        val micro = (poolSize * 0.4).toInt()
-        val partial = (poolSize * 0.3).toInt()
-        val earned = (poolSize * 0.2).toInt()
-        val full = poolSize - micro - partial - earned
-        return List(micro) { RewardTier.MICRO } +
-                List(partial) { RewardTier.PARTIAL } +
-                List(earned) { RewardTier.EARNED } +
-                List(full) { RewardTier.FULL }
+    override suspend fun getClaimableCode(sessionId: String, tier: RewardTier): Pair<String, String>? {
+        val unused = dao.getUnusedBySession(sessionId)
+        val picked = unused.firstOrNull { it.tier == tier } ?: return null
+        val plaintext = AESUtil.decrypt(picked.encryptedCode)
+        return picked.id to plaintext
     }
 
-    override suspend fun getClaimableCode(sessionId: String, tier: RewardTier): String? {
-        val unused = dao.getUnusedBySession(sessionId)
-        // Use first (not random) so repeated calls return the same code until it's claimed
-        val picked = unused.firstOrNull { it.tier == tier } ?: return null
-        return AESUtil.decrypt(picked.encryptedCode)
+    override suspend fun countUnusedByTier(sessionId: String, tier: RewardTier): Int {
+        return dao.countUnusedByTier(sessionId, tier)
+    }
+
+    override suspend fun getCodeById(codeId: String): String? {
+        val entity = dao.getById(codeId) ?: return null
+        return runCatching { AESUtil.decrypt(entity.encryptedCode) }.getOrNull()
     }
 
     override suspend fun validateAndClaim(sessionId: String, enteredCode: String): UnlockCodeEntity? {
         val normalized = enteredCode.trim().uppercase()
         val unused = dao.getUnusedBySession(sessionId)
-        return unused.firstOrNull { entity ->
+
+        // Try to match against existing codes
+        val match = unused.firstOrNull { entity ->
             runCatching { AESUtil.decrypt(entity.encryptedCode) }
                 .getOrNull() == normalized
         }
+        if (match != null) return match
+
+        // If no match AND all decryptions failed (key was invalidated), regenerate pool
+        val allDecryptFailed = unused.isNotEmpty() && unused.all { entity ->
+            runCatching { AESUtil.decrypt(entity.encryptedCode) }.isFailure
+        }
+        if (allDecryptFailed) {
+            AESUtil.resetKey()
+            dao.deleteBySession(sessionId)
+            generateCodePool(sessionId)
+        }
+
+        return null
     }
 
     override suspend fun markUsed(codeId: String, unlockedUntil: Long?) {
@@ -85,5 +91,10 @@ class UnlockCodeRepositoryImpl @Inject constructor(
 
     override suspend fun deleteSessionCodes(sessionId: String) {
         dao.deleteBySession(sessionId)
+    }
+
+    override suspend fun deleteExpiredCodes() {
+        val expiry = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+        dao.deleteExpiredCodes(expiry)
     }
 }

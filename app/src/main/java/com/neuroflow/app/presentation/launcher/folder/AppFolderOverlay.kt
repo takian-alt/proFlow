@@ -150,7 +150,7 @@ fun AppFolderOverlay(
                         )
                     }
 
-                    Divider(modifier = Modifier.padding(bottom = 16.dp))
+                    HorizontalDivider(modifier = Modifier.padding(bottom = 16.dp))
 
                     // Scrollable grid of apps (Requirement 4.1, 4.3)
                     LazyVerticalGrid(

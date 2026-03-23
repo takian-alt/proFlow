@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -42,25 +41,36 @@ class HyperFocusViewModel @Inject constructor(
     val hyperFocusPrefs: StateFlow<HyperFocusPreferences> = hyperFocusDataStore.flow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HyperFocusPreferences())
 
-    val progress: StateFlow<HyperFocusProgress> = hyperFocusDataStore.flow
-        .flatMapLatest { prefs ->
-            flow {
-                val totalCompleted = taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED }
-                val completedSinceActivation = totalCompleted - prefs.tasksCompletedAtActivation
-                val fraction = completedSinceActivation.toFloat() / prefs.dailyTaskTarget.coerceAtLeast(1)
-                val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
-                val tasksToNextTier = RewardEngine.tasksToNextTier(completedSinceActivation, prefs.dailyTaskTarget)
-                emit(
-                    HyperFocusProgress(
-                        completedSinceActivation = completedSinceActivation,
-                        totalTarget = prefs.dailyTaskTarget,
-                        currentTier = currentTier,
-                        fraction = fraction.coerceIn(0f, 1f),
-                        tasksToNextTier = tasksToNextTier
-                    )
-                )
-            }
+    private val tickerFlow = flow {
+        while (true) {
+            emit(Unit)
+            delay(1000)
         }
+    }
+
+    val progress: StateFlow<HyperFocusProgress> = combine(
+        hyperFocusDataStore.flow,
+        tickerFlow
+    ) { prefs, _ ->
+        val completedSinceActivation = if (prefs.lockedTaskIds.isNotEmpty()) {
+            taskRepository.getAllTasks()
+                .count { it.id in prefs.lockedTaskIds && it.status == TaskStatus.COMPLETED }
+                .coerceAtLeast(0)
+        } else {
+            val totalCompleted = taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED }
+            (totalCompleted - prefs.tasksCompletedAtActivation).coerceAtLeast(0)
+        }
+        val fraction = completedSinceActivation.toFloat() / prefs.dailyTaskTarget.coerceAtLeast(1)
+        val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
+        val tasksToNextTier = RewardEngine.tasksToNextTier(completedSinceActivation, prefs.dailyTaskTarget)
+        HyperFocusProgress(
+            completedSinceActivation = completedSinceActivation,
+            totalTarget = prefs.dailyTaskTarget,
+            currentTier = currentTier,
+            fraction = fraction.coerceIn(0f, 1f),
+            tasksToNextTier = tasksToNextTier
+        )
+    }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
@@ -71,23 +81,35 @@ class HyperFocusViewModel @Inject constructor(
         .map { RewardEngine.isUnlockActive(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val tickerFlow = flow {
-        while (true) {
-            emit(Unit)
-            delay(1000)
-        }
-    }
-
     val unlockSecondsRemaining: StateFlow<Long?> = combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs ->
         RewardEngine.secondsRemaining(prefs)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val claimedCodeToShow: MutableStateFlow<String?> = MutableStateFlow(null)
+    // Which tier the currently shown code belongs to
+    val claimedCodeTier: MutableStateFlow<RewardTier?> = MutableStateFlow(null)
 
     // Emits the result of the last submitCode call so the UI can react
     val submitCodeResult: MutableStateFlow<com.neuroflow.app.presentation.launcher.hyperfocus.domain.UnlockResult?> =
         MutableStateFlow(null)
+
+    // Count of unused codes per tier — refreshed whenever prefs change
+    val rewardCounts: MutableStateFlow<Map<RewardTier, Int>> = MutableStateFlow(emptyMap())
+
+    init {
+        viewModelScope.launch {
+            hyperFocusDataStore.flow.collect { prefs ->
+                val sessionId = prefs.sessionId ?: return@collect
+                val counts = RewardTier.entries
+                    .filter { it != RewardTier.NONE }
+                    .associateWith { tier ->
+                        unlockCodeRepository.countUnusedByTier(sessionId, tier)
+                    }
+                rewardCounts.value = counts
+            }
+        }
+    }
 
     val lockoutSecondsRemaining: StateFlow<Long?> = combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs ->
         val expiresAt = prefs.lockoutExpiresAt ?: return@combine null
@@ -96,36 +118,54 @@ class HyperFocusViewModel @Inject constructor(
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val activeTaskCount: StateFlow<Int> = flow {
+        while (true) {
+            emit(taskRepository.getActiveTasks().size)
+            delay(2000)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     fun activate(blockedPackages: Set<String>) {
         viewModelScope.launch {
-            val dailyTaskTarget = taskRepository.getActiveTasks().size
-            hyperFocusManager.activate(blockedPackages, dailyTaskTarget)
+            // Single DB read — pass the list to the manager so both target count
+            // and lockedTaskIds snapshot come from the exact same query result
+            val activeTasks = taskRepository.getActiveTasks()
+            if (activeTasks.isEmpty()) return@launch
+            hyperFocusManager.activate(blockedPackages, activeTasks.size, activeTasks.map { it.id }.toSet())
         }
     }
 
-    fun deactivate() {
-        viewModelScope.launch {
-            val current = progress.value
-            // Only allow deactivation when the daily task target has been met
-            if (current.completedSinceActivation >= current.totalTarget) {
-                hyperFocusManager.deactivate()
-            }
-        }
-    }
-
-    fun claimReward() {
+    fun claimRewardForTier(tier: RewardTier) {
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()
             val sessionId = prefs.sessionId ?: return@launch
-            // Use the live-computed tier from progress, not the potentially-stale prefs.currentTier
-            val liveTier = progress.value.currentTier
-            val code = unlockCodeRepository.getClaimableCode(sessionId, liveTier)
-            claimedCodeToShow.value = code
+
+            // If there's already a pending code for this same tier, just show it again
+            if (prefs.pendingCodeId != null && claimedCodeTier.value == tier) {
+                val existing = unlockCodeRepository.getCodeById(prefs.pendingCodeId)
+                claimedCodeToShow.value = existing
+                return@launch
+            }
+
+            // Issue a new code for the requested tier
+            val result = unlockCodeRepository.getClaimableCode(sessionId, tier) ?: return@launch
+            val (codeId, plaintext) = result
+
+            hyperFocusDataStore.update { it.copy(pendingCodeId = codeId) }
+            claimedCodeTier.value = tier
+            claimedCodeToShow.value = plaintext
+
+            // Refresh counts
+            val counts = RewardTier.entries
+                .filter { it != RewardTier.NONE }
+                .associateWith { t -> unlockCodeRepository.countUnusedByTier(sessionId, t) }
+            rewardCounts.value = counts
         }
     }
 
     fun dismissClaimedCode() {
         claimedCodeToShow.value = null
+        claimedCodeTier.value = null
     }
 
     fun submitCode(entered: String) {
@@ -141,6 +181,18 @@ class HyperFocusViewModel @Inject constructor(
 
     fun completePlanning(tomorrowTaskTitles: List<String>) {
         viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val tomorrow = now + 24 * 60 * 60 * 1000L
+            tomorrowTaskTitles.filter { it.isNotBlank() }.forEach { title ->
+                taskRepository.insert(
+                    com.neuroflow.app.data.local.entity.TaskEntity(
+                        title = title.trim(),
+                        scheduledDate = tomorrow,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            }
             hyperFocusManager.completePlanning()
         }
     }

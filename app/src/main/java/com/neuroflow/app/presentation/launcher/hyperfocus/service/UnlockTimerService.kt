@@ -30,6 +30,7 @@ class UnlockTimerService : Service() {
     }
 
     companion object {
+        const val ACTION_UNLOCK_EXPIRED = "com.neuroflow.app.UNLOCK_EXPIRED"
         private const val CHANNEL_ID = "hyperfocus_timer"
         private const val CHANNEL_NAME = "Hyper Focus Timer"
         private const val NOTIFICATION_ID = 2001
@@ -38,18 +39,19 @@ class UnlockTimerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        val notification = buildNotification("Apps unlocked")
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, buildNotification("Apps unlocked"))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         pollingJob = serviceScope.launch {
             while (true) {
-                delay(10_000L)
+                delay(1_000L) // Check every second for accurate expiry
                 val prefs = hyperFocusDataStore.current()
                 val expiresAt = prefs.activeUnlockExpiresAt
                 if (expiresAt == null || expiresAt <= System.currentTimeMillis()) {
+                    // Clear the unlock and broadcast expiry so AppBlockingService re-blocks immediately
                     hyperFocusDataStore.update { it.copy(activeUnlockExpiresAt = null) }
+                    sendBroadcast(Intent(ACTION_UNLOCK_EXPIRED).setPackage(packageName))
                     stopSelf()
                     break
                 } else {
@@ -72,11 +74,7 @@ class UnlockTimerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
-        )
+        val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW)
         notificationManager.createNotificationChannel(channel)
     }
 

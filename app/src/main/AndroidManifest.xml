@@ -65,7 +65,7 @@
         <activity
             android:name=".presentation.launcher.LauncherActivity"
             android:exported="true"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:stateNotNeeded="true"
             android:excludeFromRecents="true"
@@ -128,6 +128,7 @@
             android:taskAffinity="com.neuroflow.app.hyperfocus"
             android:excludeFromRecents="true"
             android:exported="false"
+            android:enableOnBackInvokedCallback="false"
             android:theme="@style/Theme.NeuroFlow" />
 
         <!-- Hyper Focus: accessibility service for app blocking -->
@@ -147,7 +148,11 @@
         <service
             android:name=".presentation.launcher.hyperfocus.service.UnlockTimerService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Unlock countdown timer for focus session" />
+        </service>
 
         <!-- Hyper Focus: foreground monitor service to keep session active -->
         <service

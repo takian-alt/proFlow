@@ -53,6 +53,7 @@ import com.neuroflow.app.presentation.schedule.ScheduleScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     data object Matrix : Screen("matrix", "Matrix", Icons.Filled.GridView)
     data object Schedule : Screen("schedule", "Schedule", Icons.Filled.CalendarMonth)
@@ -66,6 +67,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object LogTime : Screen("log_time", "Log Time", Icons.Filled.Timer)
     data object Identity : Screen("identity", "Identity", Icons.Filled.Psychology)
     data object LauncherSettingsScreen : Screen("launcher_settings", "Launcher Settings", null)
+    data object Rewards : Screen("rewards", "Rewards", null)
 }
 
 val bottomNavItems = listOf(
@@ -324,6 +326,12 @@ fun NeuroFlowApp(
                 }
                 composable(Screen.LauncherSettingsScreen.route) {
                     LauncherSettingsRoute(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToRewards = { navController.navigate(Screen.Rewards.route) }
+                    )
+                }
+                composable(Screen.Rewards.route) {
+                    RewardsScreen(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
@@ -397,13 +405,12 @@ private fun GoalsEditContent(
  * Shows the full launcher settings screen with a back button.
  */
 @Composable
-private fun LauncherSettingsRoute(onNavigateBack: () -> Unit) {
-    // LauncherSettings expects isOpen=true and an onDismiss callback
-    // We use a LauncherViewModel scoped to this composable via hiltViewModel
+private fun LauncherSettingsRoute(onNavigateBack: () -> Unit, onNavigateToRewards: () -> Unit = {}) {
     val viewModel: com.neuroflow.app.presentation.launcher.LauncherViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     LauncherSettings(
         isOpen = true,
         onDismiss = onNavigateBack,
+        onNavigateToRewards = onNavigateToRewards,
         viewModel = viewModel
     )
 }

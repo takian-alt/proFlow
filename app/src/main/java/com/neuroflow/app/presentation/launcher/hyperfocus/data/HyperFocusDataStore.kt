@@ -11,7 +11,6 @@ import com.neuroflow.app.domain.model.RewardTier
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
@@ -30,13 +29,19 @@ data class HyperFocusPreferences(
     val dailyTaskTarget: Int = 0,
     val lastServiceHeartbeat: Long = 0L,
     val wrongCodeAttempts: Int = 0,
-    val lockoutExpiresAt: Long? = null
+    val lockoutExpiresAt: Long? = null,
+    // ID of the code currently shown to the user but not yet used.
+    // Prevents claiming a new code while one is already pending.
+    val pendingCodeId: String? = null,
+    // Snapshot of task IDs that were active when the session started.
+    // Only completions of these tasks count toward rewards — prevents spam-adding new tasks.
+    val lockedTaskIds: Set<String> = emptySet()
 )
 
 interface HyperFocusDataStore {
     val flow: Flow<HyperFocusPreferences>
     suspend fun update(transform: (HyperFocusPreferences) -> HyperFocusPreferences)
-    fun updateHeartbeatSync(timestamp: Long)
+    suspend fun updateHeartbeat(timestamp: Long)
     suspend fun current(): HyperFocusPreferences
 }
 
@@ -61,10 +66,8 @@ class HyperFocusDataStoreImpl @Inject constructor(
         }
     }
 
-    override fun updateHeartbeatSync(timestamp: Long) {
-        runBlocking {
-            update { it.copy(lastServiceHeartbeat = timestamp) }
-        }
+    override suspend fun updateHeartbeat(timestamp: Long) {
+        update { it.copy(lastServiceHeartbeat = timestamp) }
     }
 
     override suspend fun current(): HyperFocusPreferences {
@@ -86,6 +89,10 @@ class HyperFocusDataStoreImpl @Inject constructor(
         json.put("lastServiceHeartbeat", prefs.lastServiceHeartbeat)
         json.put("wrongCodeAttempts", prefs.wrongCodeAttempts)
         json.put("lockoutExpiresAt", prefs.lockoutExpiresAt ?: JSONObject.NULL)
+        json.put("pendingCodeId", prefs.pendingCodeId ?: JSONObject.NULL)
+        val lockedTasksArray = JSONArray()
+        prefs.lockedTaskIds.forEach { lockedTasksArray.put(it) }
+        json.put("lockedTaskIds", lockedTasksArray)
         return json.toString()
     }
 
@@ -111,7 +118,12 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 dailyTaskTarget = obj.optInt("dailyTaskTarget", 0),
                 lastServiceHeartbeat = obj.optLong("lastServiceHeartbeat", 0L),
                 wrongCodeAttempts = obj.optInt("wrongCodeAttempts", 0),
-                lockoutExpiresAt = if (obj.isNull("lockoutExpiresAt")) null else obj.optLong("lockoutExpiresAt")
+                lockoutExpiresAt = if (obj.isNull("lockoutExpiresAt")) null else obj.optLong("lockoutExpiresAt"),
+                pendingCodeId = if (obj.isNull("pendingCodeId")) null else obj.optString("pendingCodeId").takeIf { it != "null" },
+                lockedTaskIds = buildSet {
+                    val arr = obj.optJSONArray("lockedTaskIds")
+                    if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
+                }
             )
         } catch (_: Exception) {
             HyperFocusPreferences()

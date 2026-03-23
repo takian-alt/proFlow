@@ -47,7 +47,7 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.domain.UnlockResult
 import kotlin.math.roundToInt
 
 @Composable
-fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController) {
+fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController, blockedPackage: String = "") {
     val prefs by viewModel.hyperFocusPrefs.collectAsState()
     val lockoutSecondsRemaining by viewModel.lockoutSecondsRemaining.collectAsState()
     val submitResult by viewModel.submitCodeResult.collectAsState()
@@ -60,14 +60,17 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
 
     val isLocked = lockoutSecondsRemaining != null
     val allFilled = chars.all { it.isNotEmpty() }
-    val attemptsRemaining = 3 - prefs.wrongCodeAttempts
+    val attemptsRemaining = (3 - prefs.wrongCodeAttempts).coerceAtLeast(0)
 
     // React to submit result
     LaunchedEffect(submitResult) {
         when (submitResult) {
             is UnlockResult.Success -> {
                 viewModel.clearSubmitCodeResult()
-                navController.popBackStack()
+                // Launch the blocked app now that unlock is active, then close this activity
+                navController.navigate("launch_app") {
+                    popUpTo("blocking_overlay") { inclusive = true }
+                }
             }
             is UnlockResult.InvalidCode -> {
                 viewModel.clearSubmitCodeResult()

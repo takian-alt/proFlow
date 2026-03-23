@@ -173,8 +173,6 @@ private fun QuickStatsPanelContent(
     val scrollState = rememberScrollState()
 
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
-    val hyperFocusProgress by hyperFocusViewModel.progress.collectAsStateWithLifecycle()
-    val claimedCode by hyperFocusViewModel.claimedCodeToShow.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -221,13 +219,7 @@ private fun QuickStatsPanelContent(
 
         // Reward section — shown only when Hyper Focus is active
         if (hyperFocusPrefs.isActive) {
-            RewardSection(
-                prefs = hyperFocusPrefs,
-                progress = hyperFocusProgress,
-                claimedCode = claimedCode,
-                onClaimReward = { hyperFocusViewModel.claimReward() },
-                onDismissCode = { hyperFocusViewModel.dismissClaimedCode() }
-            )
+            RewardSection(viewModel = hyperFocusViewModel)
         }
 
         Spacer(modifier = Modifier.height(16.dp))

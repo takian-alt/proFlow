@@ -267,8 +267,12 @@ private fun PortraitLayout(
                     prefs = hyperFocusPrefs,
                     progress = hyperFocusProgress,
                     unlockSecondsRemaining = unlockSecondsRemaining,
-                    onRewardsClick = { /* no-op: rewards navigation not yet wired */ },
-                    onPlanningClick = { /* no-op: planning navigation not yet wired */ }
+                    onRewardsClick = {
+                        (context as? LauncherActivity)?.let { it.isRewardsOpen = true }
+                    },
+                    onPlanningClick = {
+                        (context as? LauncherActivity)?.let { it.isPlanningOpen = true }
+                    }
                 )
                 FocusTaskCard(
                     topTask = topTask,

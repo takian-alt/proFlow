@@ -54,13 +54,6 @@ fun BlockingOverlayScreen(
         }
     }
 
-    // Compute next tier unlock minutes
-    val nextTierUnlockMinutes = remember(progress.currentTier) {
-        val tiers = RewardTier.entries
-        val nextIndex = tiers.indexOf(progress.currentTier) + 1
-        if (nextIndex < tiers.size) tiers[nextIndex].unlockMinutes else 0
-    }
-
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color(0xFF0A0A0A)
@@ -131,8 +124,15 @@ fun BlockingOverlayScreen(
 
             // 7. Next tier hint (hidden when FULL)
             if (progress.currentTier != RewardTier.FULL) {
+                val tiers = RewardTier.entries
+                val nextIndex = tiers.indexOf(progress.currentTier) + 1
+                val nextTier = if (nextIndex < tiers.size) tiers[nextIndex] else null
+                val unlockLabel = when {
+                    nextTier == null || nextTier == RewardTier.FULL -> "full unlock"
+                    else -> "${nextTier.unlockMinutes}min unlock"
+                }
                 Text(
-                    text = "${progress.tasksToNextTier} more task(s) → unlock for ${nextTierUnlockMinutes}min",
+                    text = "${progress.tasksToNextTier} more task(s) → $unlockLabel",
                     color = Color.Gray,
                     fontSize = 13.sp
                 )
@@ -140,7 +140,7 @@ fun BlockingOverlayScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 8. Unlock active banner
+            // 8. Unlock active banner + open app button
             if (isUnlockActive) {
                 val timeLabel = unlockSecondsRemaining?.let { secs ->
                     "${secs / 60}m ${secs % 60}s"
@@ -157,6 +157,25 @@ fun BlockingOverlayScreen(
                         modifier = Modifier.padding(12.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Open the blocked app directly
+                Button(
+                    onClick = { navController.navigate("launch_app") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open $appName →")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = { (context as? Activity)?.finish() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Go back to launcher", color = Color.White)
+                }
             } else {
                 // 9 & 10. Action buttons
                 Button(
@@ -165,10 +184,17 @@ fun BlockingOverlayScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Go to Focus Mode")
+                    Text(
+                        if (prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING)
+                            "Plan tomorrow's tasks to unlock →"
+                        else
+                            "Go to Focus Mode"
+                    )
                 }
 
-                if (progress.currentTier > RewardTier.NONE) {
+                if (prefs.currentTier > RewardTier.NONE &&
+                    prefs.state != com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
+                ) {
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { navController.navigate("code_entry") },

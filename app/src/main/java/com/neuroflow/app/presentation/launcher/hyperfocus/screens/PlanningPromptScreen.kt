@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 
 @Composable
-fun PlanningPromptScreen(viewModel: HyperFocusViewModel) {
+fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit = {}) {
     val taskTitles = remember { mutableStateListOf("", "", "") }
     val extraTitles = remember { mutableStateListOf<String>() }
 
@@ -38,12 +38,12 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Plan Tomorrow's Tasks",
+                text = "🎉 All Tasks Complete!",
                 style = MaterialTheme.typography.headlineMedium
             )
 
             Text(
-                text = "Complete 3 tasks to unlock your apps tomorrow.",
+                text = "Add at least 3 tasks for tomorrow to claim your full reward and unlock your apps.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -79,11 +79,12 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel) {
             Button(
                 onClick = {
                     viewModel.completePlanning(taskTitles + extraTitles.filter { it.isNotBlank() })
+                    onDismiss()
                 },
                 enabled = allMandatoryFilled,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Save & Unlock Apps")
+                Text("Claim Reward & Unlock Apps")
             }
         }
     }

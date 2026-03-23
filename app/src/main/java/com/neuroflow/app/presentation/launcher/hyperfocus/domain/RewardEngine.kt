@@ -6,31 +6,41 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPrefere
 object RewardEngine {
 
     fun computeTier(completedSinceActivation: Int, totalTarget: Int): RewardTier {
+        if (completedSinceActivation <= 0) return RewardTier.NONE
+        val target = totalTarget.coerceAtLeast(1)
+        if (completedSinceActivation >= target) return RewardTier.FULL
+        // Scale thresholds proportionally: MICRO=25%, PARTIAL=50%, EARNED=75%
         return when {
-            completedSinceActivation >= totalTarget -> RewardTier.FULL
-            completedSinceActivation >= 5 -> RewardTier.EARNED
-            completedSinceActivation >= 3 -> RewardTier.PARTIAL
-            completedSinceActivation >= 1 -> RewardTier.MICRO
-            else -> RewardTier.NONE
+            completedSinceActivation >= (target * 0.75f).toInt().coerceAtLeast(1) -> RewardTier.EARNED
+            completedSinceActivation >= (target * 0.50f).toInt().coerceAtLeast(1) -> RewardTier.PARTIAL
+            else -> RewardTier.MICRO
         }
     }
 
     fun tasksToNextTier(completed: Int, target: Int): Int {
+        if (completed <= 0) return 1
+        val t = target.coerceAtLeast(1)
+        if (completed >= t) return 0
+        val earnedThreshold  = (t * 0.75f).toInt().coerceAtLeast(1)
+        val partialThreshold = (t * 0.50f).toInt().coerceAtLeast(1)
         return when {
-            completed >= target -> 0
-            completed >= 5 -> target - completed
-            completed >= 3 -> 5 - completed
-            completed >= 1 -> 3 - completed
-            else -> 1
+            completed >= earnedThreshold  -> t - completed
+            completed >= partialThreshold -> earnedThreshold - completed
+            else                          -> partialThreshold - completed
         }
     }
 
     fun isUnlockActive(prefs: HyperFocusPreferences): Boolean {
+        // FULL tier unlock has no expiry (null = permanent until deactivation)
+        if (prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULLY_UNLOCKED) return true
+        // FULL_REWARD_PENDING: tasks done but planning not yet complete — not unlocked yet
         return prefs.activeUnlockExpiresAt != null && prefs.activeUnlockExpiresAt > System.currentTimeMillis()
     }
 
     fun secondsRemaining(prefs: HyperFocusPreferences): Long? {
         if (!isUnlockActive(prefs)) return null
-        return (prefs.activeUnlockExpiresAt!! - System.currentTimeMillis()) / 1000
+        // FULLY_UNLOCKED has no expiry timer — return null (UI shows permanent unlock)
+        val expiresAt = prefs.activeUnlockExpiresAt ?: return null
+        return (expiresAt - System.currentTimeMillis()) / 1000
     }
 }

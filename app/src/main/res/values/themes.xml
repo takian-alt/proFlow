@@ -8,7 +8,8 @@
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowAnimationStyle">@null</item>
         <item name="android:windowDisablePreview">true</item>
-        <item name="android:windowIsTranslucent">true</item>
+        <!-- windowIsTranslucent removed: causes BadTokenException on MIUI/HyperOS when
+             set as default launcher. Wallpaper is shown via windowShowWallpaper instead. -->
         <!-- Transparent nav bar so wallpaper shows through -->
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

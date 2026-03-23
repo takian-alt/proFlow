@@ -1,7 +1,10 @@
 package com.neuroflow.app.presentation.launcher.hyperfocus.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.neuroflow.app.BuildConfig
@@ -15,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -30,51 +32,31 @@ class AppBlockingService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AppBlockingService"
-        private const val BLOCK_DEBOUNCE_MS = 1000L // Prevent rapid re-blocking
+        private const val BLOCK_DEBOUNCE_MS = 1000L
+    }
+
+    // When the unlock timer expires, reset debounce so the polling immediately re-blocks
+    private val unlockExpiredReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == UnlockTimerService.ACTION_UNLOCK_EXPIRED) {
+                Log.d(TAG, "Unlock expired — resetting debounce to re-block current app")
+                lastBlockedPackage = null
+                lastBlockTime = 0
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // Only process window state changes and window changes (app switches)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-            event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
-            return
-        }
+            event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
 
-        val pkg = event.packageName?.toString() ?: return
+        // Prefer rootInActiveWindow package — more reliable than event.packageName
+        // event.packageName can be system UI or launcher on some ROMs
+        val pkg = rootInActiveWindow?.packageName?.toString()
+            ?: event.packageName?.toString()
+            ?: return
 
-        // Always allow our own app
-        if (pkg == BuildConfig.APPLICATION_ID) return
-
-        val prefs = runBlocking { hyperFocusDataStore.current() }
-
-        // If Hyper Focus is not active, service is idle (this is normal)
-        if (!prefs.isActive) return
-
-        // If this app is not in the blocked list, allow it
-        if (pkg !in prefs.blockedPackages) return
-
-        // If user has an active unlock, allow the app
-        if (RewardEngine.isUnlockActive(prefs)) return
-
-        // Debounce: prevent blocking the same app multiple times in quick succession
-        val now = System.currentTimeMillis()
-        if (pkg == lastBlockedPackage && (now - lastBlockTime) < BLOCK_DEBOUNCE_MS) {
-            return
-        }
-
-        lastBlockedPackage = pkg
-        lastBlockTime = now
-
-        Log.d(TAG, "Blocking app: $pkg")
-
-        // Launch the blocking overlay
-        val intent = Intent(this, HyperFocusActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("blocked_package", pkg)
-        }
-        startActivity(intent)
+        checkAndBlockApp(pkg)
     }
 
     override fun onInterrupt() {
@@ -85,27 +67,34 @@ class AppBlockingService : AccessibilityService() {
         super.onServiceConnected()
         Log.d(TAG, "AppBlockingService connected")
 
-        // Provide service info for better Android Settings display
         serviceInfo?.let { info ->
             info.flags = info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
 
+        registerReceiver(
+            unlockExpiredReceiver,
+            IntentFilter(UnlockTimerService.ACTION_UNLOCK_EXPIRED),
+            RECEIVER_NOT_EXPORTED
+        )
+
+        // Heartbeat
         heartbeatScope.launch {
             while (true) {
                 delay(30_000L)
-                hyperFocusManager.updateHeartbeat()
+                hyperFocusManager.updateHeartbeat()  // now suspend, safe to call here
             }
         }
 
-        // Polling as backup detection method (in case accessibility events are missed)
+        // Polling backup — handles kicking user out when timer expires
+        // Uses rootInActiveWindow as primary (no permission needed), UsageStats as secondary
         heartbeatScope.launch {
             while (true) {
-                delay(500L) // Poll every 500ms
+                delay(500L)
                 val prefs = hyperFocusDataStore.current()
                 if (prefs.isActive) {
-                    // Check current foreground app using UsageStats as backup
-                    val currentApp = getForegroundAppFromUsageStats()
-                    if (currentApp != null && currentApp != lastBlockedPackage) {
+                    val currentApp = rootInActiveWindow?.packageName?.toString()
+                        ?: getForegroundAppFromUsageStats()
+                    if (currentApp != null) {
                         checkAndBlockApp(currentApp)
                     }
                 }
@@ -116,40 +105,34 @@ class AppBlockingService : AccessibilityService() {
     private fun checkAndBlockApp(pkg: String) {
         if (pkg == BuildConfig.APPLICATION_ID) return
 
-        val prefs = runBlocking { hyperFocusDataStore.current() }
-        if (!prefs.isActive) return
-        if (pkg !in prefs.blockedPackages) return
-        if (RewardEngine.isUnlockActive(prefs)) return
+        heartbeatScope.launch {
+            val prefs = hyperFocusDataStore.current()
+            if (!prefs.isActive) return@launch
+            if (pkg !in prefs.blockedPackages) return@launch
+            if (RewardEngine.isUnlockActive(prefs)) return@launch
 
-        val now = System.currentTimeMillis()
-        if (pkg == lastBlockedPackage && (now - lastBlockTime) < BLOCK_DEBOUNCE_MS) {
-            return
+            val now = System.currentTimeMillis()
+            if (pkg == lastBlockedPackage && (now - lastBlockTime) < BLOCK_DEBOUNCE_MS) return@launch
+
+            lastBlockedPackage = pkg
+            lastBlockTime = now
+            Log.d(TAG, "Blocking app: $pkg")
+
+            startActivity(Intent(this@AppBlockingService, HyperFocusActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("blocked_package", pkg)
+            })
         }
-
-        lastBlockedPackage = pkg
-        lastBlockTime = now
-        Log.d(TAG, "Blocking app (polling): $pkg")
-
-        val intent = Intent(this, HyperFocusActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("blocked_package", pkg)
-        }
-        startActivity(intent)
     }
 
     private fun getForegroundAppFromUsageStats(): String? {
         return try {
-            val usageStatsManager = getSystemService(android.content.Context.USAGE_STATS_SERVICE)
-                as? android.app.usage.UsageStatsManager
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? android.app.usage.UsageStatsManager
             val now = System.currentTimeMillis()
-            val stats = usageStatsManager?.queryUsageStats(
-                android.app.usage.UsageStatsManager.INTERVAL_BEST,
-                now - 2000L,
-                now
-            )
-            stats?.maxByOrNull { it.lastTimeUsed }?.packageName
+            usm?.queryUsageStats(android.app.usage.UsageStatsManager.INTERVAL_BEST, now - 2000L, now)
+                ?.maxByOrNull { it.lastTimeUsed }?.packageName
         } catch (e: Exception) {
             null
         }
@@ -158,6 +141,7 @@ class AppBlockingService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "AppBlockingService destroyed")
+        runCatching { unregisterReceiver(unlockExpiredReceiver) }
         heartbeatScope.cancel()
     }
 }

@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,23 +48,18 @@ fun HyperFocusActivationSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    fun isAccessibilityEnabled(): Boolean {
-        val enabled = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabled.contains(
-            "${context.packageName}/.presentation.launcher.hyperfocus.service.AppBlockingService",
-            ignoreCase = true
-        ) || enabled.contains("AppBlockingService", ignoreCase = true)
+    var accessibilityEnabled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        accessibilityEnabled = com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+            .isAppBlockingServiceEnabled(context)
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
-        if (!isAccessibilityEnabled()) {
-            PermissionSetupScreen(onBothGranted = { /* re-render on next recomposition */ })
+        if (!accessibilityEnabled) {
+            PermissionSetupScreen(onBothGranted = { accessibilityEnabled = true })
         } else {
             ActivationSheetContent(
                 viewModel = viewModel,
@@ -81,7 +77,8 @@ private fun ActivationSheetContent(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val progress by viewModel.progress.collectAsState()
+    val activeTaskCount by viewModel.activeTaskCount.collectAsState()
+    val hasActiveTasks = activeTaskCount > 0
 
     // Build full app list with labels, sorted alphabetically
     val allApps = remember {
@@ -150,7 +147,7 @@ private fun ActivationSheetContent(
             shape = MaterialTheme.shapes.small
         ) {
             Text(
-                text = "Daily task target: ${progress.totalTarget} tasks",
+                text = "Daily task target: $activeTaskCount task(s)",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(12.dp)
             )
@@ -231,6 +228,22 @@ private fun ActivationSheetContent(
             modifier = Modifier.fillMaxWidth()
         )
 
+        // No tasks warning
+        if (!hasActiveTasks) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = "⚠️ You need at least one active task before activating Hyper Focus.",
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+
         // Activate button
         Button(
             onClick = {
@@ -238,7 +251,7 @@ private fun ActivationSheetContent(
                 viewModel.activate(selected)
                 onDismiss()
             },
-            enabled = confirmText == "FOCUS" && selectedCount > 0,
+            enabled = confirmText == "FOCUS" && selectedCount > 0 && hasActiveTasks,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Activate Hyper Focus 🔒")

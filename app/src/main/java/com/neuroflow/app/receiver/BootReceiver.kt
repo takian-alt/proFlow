@@ -14,7 +14,9 @@ import com.neuroflow.app.worker.DeadlineEscalationWorker
 import com.neuroflow.app.worker.FocusWidgetUpdateWorker
 import com.neuroflow.app.worker.StreakCheckWorker
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -61,24 +63,26 @@ class BootReceiver : BroadcastReceiver() {
         )
 
         // HyperFocus watchdog: alert user if blocking service is compromised
-        val hfPrefs = runBlocking { hyperFocusDataStore.current() }
-        if (hfPrefs.isActive) {
-            val serviceEnabled = isAccessibilityServiceEnabled(context)
-            val heartbeatStale = (System.currentTimeMillis() - hfPrefs.lastServiceHeartbeat) > 60_000L
-            if (!serviceEnabled || heartbeatStale) {
-                showHyperFocusWatchdogNotification(context)
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val hfPrefs = hyperFocusDataStore.current()
+                if (hfPrefs.isActive) {
+                    val serviceEnabled = isAccessibilityServiceEnabled(context)
+                    val heartbeatStale = (System.currentTimeMillis() - hfPrefs.lastServiceHeartbeat) > 60_000L
+                    if (!serviceEnabled || heartbeatStale) {
+                        showHyperFocusWatchdogNotification(context)
+                    }
+                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }
 
     private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        val enabledServices = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabledServices.contains(
-            "com.neuroflow.app.presentation.launcher.hyperfocus.service.AppBlockingService"
-        )
+        return com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+            .isAppBlockingServiceEnabled(context)
     }
 
     private fun showHyperFocusWatchdogNotification(context: Context) {

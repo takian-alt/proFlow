@@ -32,12 +32,15 @@ class HyperFocusManagerTest : StringSpec({
     beforeTest {
         clearAllMocks()
         coEvery { hyperFocusDataStore.update(any()) } just Runs
-        coEvery { unlockCodeRepository.generateCodePool(any(), any()) } just Runs
+        coEvery { hyperFocusDataStore.updateHeartbeat(any()) } just Runs
+        coEvery { unlockCodeRepository.generateCodePool(any()) } just Runs
+        coEvery { unlockCodeRepository.deleteExpiredCodes() } just Runs
+        coEvery { unlockCodeRepository.deleteSessionCodes(any()) } just Runs
         coEvery { taskRepository.getAllTasks() } returns emptyList()
     }
 
     val manager by lazy {
-        HyperFocusManagerImpl(hyperFocusDataStore, unlockCodeRepository, taskRepository)
+        HyperFocusManagerImpl(mockk(relaxed = true), hyperFocusDataStore, unlockCodeRepository, taskRepository)
     }
 
     "submitCode with lockout active returns UnlockResult.Lockout without DB writes" {
@@ -120,12 +123,13 @@ class HyperFocusManagerTest : StringSpec({
 
     "activate calls generateCodePool before writing isActive = true" {
         runTest {
+            coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences()
             coEvery { taskRepository.getAllTasks() } returns emptyList()
 
-            manager.activate(setOf("com.example.app"), 5)
+            manager.activate(setOf("com.example.app"), 5, emptySet())
 
             coVerifyOrder {
-                unlockCodeRepository.generateCodePool(any(), any())
+                unlockCodeRepository.generateCodePool(any())
                 hyperFocusDataStore.update(any())
             }
         }
