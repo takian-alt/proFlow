@@ -98,7 +98,7 @@ class ScheduleViewModel @Inject constructor(
             val slotMillis = cal.timeInMillis
             taskRepository.update(
                 task.copy(
-                    scheduledDate = slotMillis,
+                    scheduledDate = _uiState.value.selectedDate,
                     scheduledTime = (hour * 3_600_000L),
                     updatedAt = System.currentTimeMillis()
                 )

@@ -235,6 +235,7 @@ private fun PortraitLayout(
     val allApps by viewModel.allApps.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val badgeCounts by viewModel.badgeCounts.collectAsStateWithLifecycle()
+    val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
     val appRepository = viewModel.getAppRepository()
 
     // HyperFocus state — Requirements: 6.2
@@ -281,6 +282,7 @@ private fun PortraitLayout(
                     focusActive = focusActive,
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
+                    prefs = userPreferences,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
                         val intent = Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
@@ -396,6 +398,7 @@ private fun LandscapeLayout(
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
+    val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
 
     Column(
         modifier = Modifier
@@ -429,6 +432,7 @@ private fun LandscapeLayout(
                     focusActive = focusActive,
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
+                    prefs = userPreferences,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
                         val intent = Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
@@ -494,6 +498,7 @@ private fun TwoColumnLayout(
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
+    val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
 
     Row(
         modifier = Modifier
@@ -515,6 +520,7 @@ private fun TwoColumnLayout(
                 focusActive = focusActive,
                 focusElapsedSeconds = focusElapsedSeconds,
                 hasActiveTasks = allActiveTasks.isNotEmpty(),
+                prefs = userPreferences,
                 onSkip = { taskId -> viewModel.skipTask(taskId) },
                 onStartFocus = { taskId ->
                     val intent = Intent(context, com.neuroflow.app.MainActivity::class.java).apply {

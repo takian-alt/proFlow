@@ -24,10 +24,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
+import com.neuroflow.app.presentation.common.formatFullDate
+import com.neuroflow.app.presentation.common.formatRelativeTime
 import com.neuroflow.app.presentation.common.getQuadrantLabel
 import com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
-import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -610,12 +611,12 @@ fun FocusScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         val deadlineMillis = task.deadlineDate + (task.deadlineTime ?: 0)
                         Text(
-                            text = relativeTimeString(deadlineMillis),
+                            text = formatRelativeTime(deadlineMillis, task.deadlineTime != null),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = formatFullDate(deadlineMillis),
+                            text = formatFullDate(deadlineMillis, task.deadlineTime != null),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -636,12 +637,12 @@ fun FocusScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         val schedMillis = task.scheduledDate + (task.scheduledTime ?: 0)
                         Text(
-                            text = relativeTimeString(schedMillis),
+                            text = formatRelativeTime(schedMillis, task.scheduledTime != null),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = formatFullDate(schedMillis),
+                            text = formatFullDate(schedMillis, task.scheduledTime != null),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -998,7 +999,7 @@ private fun CompletionSheet(
             if (identityLabel.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "That's what ${identityLabel}s do.",
+                    buildIdentityMessage(identityLabel),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Medium
@@ -1037,31 +1038,32 @@ private fun formatTimer(seconds: Long): String {
     return String.format(Locale.US, "%d : %02d", mins, secs)
 }
 
-private fun relativeTimeString(millis: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = millis - now
-    val absDiff = kotlin.math.abs(diff)
-    val isPast = diff < 0
+/**
+ * Builds a natural identity reinforcement message from the user's identity label.
+ * Handles labels that already start with "a/an", are already plural, or are bare nouns.
+ * Examples:
+ *   "Deep Worker"          → "That's what Deep Workers do."
+ *   "a focused professional" → "That's what a focused professional does."
+ *   "builder"              → "That's what builders do."
+ *   "I am a creator"       → "That's what creators do."
+ */
+private fun buildIdentityMessage(label: String): String {
+    // Strip common prefixes the user might type
+    val cleaned = label.trim()
+        .removePrefix("I am a ")
+        .removePrefix("I am an ")
+        .removePrefix("I am ")
+        .removePrefix("a ")
+        .removePrefix("an ")
+        .trim()
 
-    val minutes = absDiff / 60_000
-    val hours = absDiff / 3_600_000
-    val days = absDiff / 86_400_000
-
-    val timeStr = when {
-        days > 0 -> "$days day${if (days > 1) "s" else ""}"
-        hours > 0 -> "$hours hour${if (hours > 1) "s" else ""}"
-        minutes > 0 -> "$minutes minute${if (minutes > 1) "s" else ""}"
-        else -> "now"
+    // Pluralise: if already ends in s/ers/ors/ists etc, use as-is; otherwise append s
+    val plural = when {
+        cleaned.endsWith("s", ignoreCase = true) -> cleaned
+        cleaned.endsWith("man", ignoreCase = true) -> cleaned.dropLast(3) + "men"
+        cleaned.endsWith("person", ignoreCase = true) -> cleaned.dropLast(6) + "people"
+        else -> "${cleaned}s"
     }
 
-    return when {
-        timeStr == "now" -> "Right now"
-        isPast -> "Started $timeStr ago"
-        else -> "Due in $timeStr"
-    }
-}
-
-private fun formatFullDate(millis: Long): String {
-    val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-    return sdf.format(Date(millis))
+    return "That's what ${plural} do."
 }

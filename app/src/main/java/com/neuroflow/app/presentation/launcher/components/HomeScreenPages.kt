@@ -54,8 +54,8 @@ fun LeftPage(
     val distractionLoading by viewModel.distractionLoading.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
 
-    // Load immediately on first composition, and reload on every resume
-    // (covers permission grant: user returns from Settings → ON_RESUME fires)
+    // Load on first composition and reload on every resume.
+    // The ViewModel checks blockEnabled internally, so we don't need to gate it here.
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) {
         viewModel.loadTop3DistractingApps()

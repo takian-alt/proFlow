@@ -301,7 +301,16 @@ class LauncherViewModel @Inject constructor(
      */
     val leftPageBlocks: StateFlow<Map<String, Boolean>> = pinnedAppsDataStore.launcherPrefsFlow
         .map { it.leftPageBlocks }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            mapOf(
+                "subliminal" to true,
+                "quick_note" to true,
+                "woop" to true,
+                "distraction_top3" to true
+            )
+        )
 
     /**
      * Top 3 most distracting apps during focus sessions, computed on demand.

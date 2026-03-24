@@ -189,7 +189,7 @@ fun ScheduleScreen(
                         set(Calendar.MILLISECOND, 0)
                     }
                     task.copy(
-                        scheduledDate = cal.timeInMillis,
+                        scheduledDate = uiState.selectedDate,
                         scheduledTime = hour * 3_600_000L
                     )
                 } else task

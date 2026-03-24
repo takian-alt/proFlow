@@ -36,10 +36,6 @@ package com.neuroflow.app.presentation.launcher.components
  */
 
 import android.content.Intent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -59,10 +55,10 @@ import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.common.formatFullDate
+import com.neuroflow.app.presentation.common.formatRelativeTime
 import com.neuroflow.app.presentation.launcher.theme.LocalLauncherTheme
-import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.TimeUnit
 
 /**
  * Focus Task Card - displays the highest-priority task on the launcher home screen.
@@ -96,6 +92,7 @@ fun FocusTaskCard(
     focusActive: Boolean,
     focusElapsedSeconds: Int = 0,
     hasActiveTasks: Boolean = true,
+    prefs: com.neuroflow.app.data.local.UserPreferences? = null,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
     onStopFocus: () -> Unit = {},
@@ -103,28 +100,6 @@ fun FocusTaskCard(
     modifier: Modifier = Modifier
 ) {
     val theme = LocalLauncherTheme.current
-    val context = LocalContext.current
-
-    // Track current task ID for animation
-    var currentTaskId by remember { mutableStateOf(topTask?.id) }
-    var visible by remember { mutableStateOf(true) }
-
-    // Update visibility when task changes
-    LaunchedEffect(topTask?.id) {
-        if (topTask?.id != currentTaskId) {
-            visible = false
-            kotlinx.coroutines.delay(300) // Wait for slide-out animation
-            currentTaskId = topTask?.id
-            visible = true
-        }
-    }
-
-    // Get user preferences for score calculation
-    val prefs = remember {
-        // This is a simplified approach - ideally we'd inject this via ViewModel
-        // For now, we'll pass null and handle it in TaskScoreBadge
-        null as com.neuroflow.app.data.local.UserPreferences?
-    }
 
     Card(
         modifier = modifier
@@ -140,38 +115,24 @@ fun FocusTaskCard(
             com.neuroflow.app.presentation.launcher.domain.CardStyle.OUTLINED -> CardDefaults.cardElevation(defaultElevation = 0.dp)
         }
     ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = tween(300)
-            ),
-            exit = slideOutHorizontally(
-                targetOffsetX = { -it },
-                animationSpec = tween(300)
+        if (topTask == null) {
+            EmptyTaskState(
+                hasActiveTasks = hasActiveTasks,
+                onClearSkipped = onClearSkipped
             )
-        ) {
-            if (topTask == null) {
-                // Empty state - check if it's because all tasks are skipped
-                EmptyTaskState(
-                    hasActiveTasks = hasActiveTasks,
-                    onClearSkipped = onClearSkipped
-                )
-            } else {
-                // Task content
-                TaskContent(
-                    task = topTask,
-                    ulyssesContract = ulyssesContract,
-                    woopEntity = woopEntity,
-                    focusActive = focusActive,
-                    focusElapsedSeconds = focusElapsedSeconds,
-                    showTaskScore = theme.showTaskScore,
-                    prefs = prefs,
-                    onSkip = { onSkip(topTask.id) },
-                    onStartFocus = { onStartFocus(topTask.id) },
-                    onStopFocus = onStopFocus
-                )
-            }
+        } else {
+            TaskContent(
+                task = topTask,
+                ulyssesContract = ulyssesContract,
+                woopEntity = woopEntity,
+                focusActive = focusActive,
+                focusElapsedSeconds = focusElapsedSeconds,
+                showTaskScore = theme.showTaskScore,
+                prefs = prefs,
+                onSkip = { onSkip(topTask.id) },
+                onStartFocus = { onStartFocus(topTask.id) },
+                onStopFocus = onStopFocus
+            )
         }
     }
 }
@@ -429,18 +390,16 @@ private fun TaskScoreBadge(
     task: TaskEntity,
     prefs: com.neuroflow.app.data.local.UserPreferences?
 ) {
-    // Calculate actual score using TaskScoringEngine
-    val score = remember(task, prefs) {
-        if (prefs != null) {
-            com.neuroflow.app.domain.engine.TaskScoringEngine.score(
-                task = task,
-                prefs = prefs,
-                allActiveTasks = emptyList(), // Simplified - not passing all tasks
-                nowMillis = System.currentTimeMillis()
-            ).toInt()
-        } else {
-            0
-        }
+    // Calculate actual score using TaskScoringEngine — recompute on task/prefs change
+    val score = if (prefs != null) {
+        com.neuroflow.app.domain.engine.TaskScoringEngine.score(
+            task = task,
+            prefs = prefs,
+            allActiveTasks = emptyList(),
+            nowMillis = System.currentTimeMillis()
+        ).toInt()
+    } else {
+        0
     }
 
     Surface(
@@ -493,10 +452,10 @@ private fun WoopReminder(woopEntity: WoopEntity) {
  */
 @Composable
 private fun DeadlineInfo(deadlineDate: Long, deadlineTime: Long?) {
-    val now = System.currentTimeMillis()
-    val deadline = deadlineTime ?: deadlineDate
-    val relativeTime = formatRelativeTime(deadline, now)
-    val absoluteTime = formatAbsoluteTime(deadline)
+    // deadlineDate is start-of-day millis; deadlineTime is ms offset within the day
+    val deadline = deadlineDate + (deadlineTime ?: 0L)
+    val relativeTime = formatRelativeTime(deadline, deadlineTime != null)
+    val absoluteTime = formatFullDate(deadline, deadlineTime != null)
 
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
@@ -656,44 +615,4 @@ private fun ActionButtons(
     }
 }
 
-/**
- * Format relative time (e.g., "in 2 hours", "tomorrow", "overdue by 3 days").
- */
-private fun formatRelativeTime(deadline: Long, now: Long): String {
-    val diff = deadline - now
-    val absDiff = kotlin.math.abs(diff)
 
-    return when {
-        diff < 0 -> {
-            // Overdue
-            val days = TimeUnit.MILLISECONDS.toDays(absDiff)
-            val hours = TimeUnit.MILLISECONDS.toHours(absDiff)
-            when {
-                days > 0 -> "Overdue by $days day${if (days > 1) "s" else ""}"
-                hours > 0 -> "Overdue by $hours hour${if (hours > 1) "s" else ""}"
-                else -> "Overdue"
-            }
-        }
-        diff < TimeUnit.HOURS.toMillis(1) -> {
-            val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
-            "in $minutes minute${if (minutes > 1) "s" else ""}"
-        }
-        diff < TimeUnit.DAYS.toMillis(1) -> {
-            val hours = TimeUnit.MILLISECONDS.toHours(diff)
-            "in $hours hour${if (hours > 1) "s" else ""}"
-        }
-        diff < TimeUnit.DAYS.toMillis(2) -> "tomorrow"
-        else -> {
-            val days = TimeUnit.MILLISECONDS.toDays(diff)
-            "in $days day${if (days > 1) "s" else ""}"
-        }
-    }
-}
-
-/**
- * Format absolute time (e.g., "Mon, Jan 15 at 2:30 PM").
- */
-private fun formatAbsoluteTime(timestamp: Long): String {
-    val formatter = SimpleDateFormat("EEE, MMM d 'at' h:mm a", Locale.getDefault())
-    return formatter.format(Date(timestamp))
-}

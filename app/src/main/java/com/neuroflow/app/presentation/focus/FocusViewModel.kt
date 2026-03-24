@@ -246,6 +246,8 @@ class FocusViewModel @Inject constructor(
                 )
             }
 
+            // Always restart the tick job — ViewModel may have been recreated while timer ran
+            timerJob?.cancel()
             if (!isPaused) startTimerTick()
         }
     }
@@ -335,6 +337,7 @@ class FocusViewModel @Inject constructor(
         viewModelScope.launch {
             val session = sessionRepository.getOpenSessionForTask(taskId) ?: return@launch
             if (!state.isPaused) {
+                timerJob?.cancel()
                 sessionRepository.update(session.copy(pausedAt = now))
                 _uiState.update { it.copy(isPaused = true) }
             } else {
@@ -346,12 +349,14 @@ class FocusViewModel @Inject constructor(
                     )
                 )
                 _uiState.update { it.copy(isPaused = false) }
+                startTimerTick()
             }
         }
     }
 
     /** Pauses ALL open sessions across all tasks — called when leaving the app/focus screen */
     fun pauseAllTracking() {
+        timerJob?.cancel()
         val now = System.currentTimeMillis()
         viewModelScope.launch {
             val openSessions = sessionRepository.getOpenSessions()
@@ -404,50 +409,58 @@ class FocusViewModel @Inject constructor(
 
     private fun finalizeSession() {
         timerJob?.cancel()
+        if (_uiState.value.activeSessionId == null) {
+            _uiState.update { it.copy(isTracking = false, isPaused = false, elapsedSeconds = 0) }
+            return
+        }
+        viewModelScope.launch {
+            finalizeSessionSuspend()
+        }
+    }
+
+    /** Suspending version — call this from within a coroutine to ensure DB write completes before proceeding. */
+    private suspend fun finalizeSessionSuspend() {
+        timerJob?.cancel()
         val state = _uiState.value
-        val sessionId = state.activeSessionId ?: run {
+        state.activeSessionId ?: run {
             _uiState.update { it.copy(isTracking = false, isPaused = false, elapsedSeconds = 0) }
             return
         }
 
-        viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            val session = sessionRepository.getOpenSessionForTask(taskId)
-            if (session != null) {
-                // If still paused when stopped, finalize pause duration
-                val extraPausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
-                val totalPaused = session.totalPausedMs + extraPausedMs
-                val elapsedMs = (now - session.startedAt) - totalPaused
-                val durationMinutes = maxOf(0f, elapsedMs / 60_000f)
+        val now = System.currentTimeMillis()
+        val session = sessionRepository.getOpenSessionForTask(taskId)
+        if (session != null) {
+            val extraPausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
+            val totalPaused = session.totalPausedMs + extraPausedMs
+            val elapsedMs = (now - session.startedAt) - totalPaused
+            val durationMinutes = maxOf(0f, elapsedMs / 60_000f)
 
-                sessionRepository.update(
-                    session.copy(
-                        endedAt = now,
-                        pausedAt = null,
-                        totalPausedMs = totalPaused,
-                        durationMinutes = durationMinutes
+            sessionRepository.update(
+                session.copy(
+                    endedAt = now,
+                    pausedAt = null,
+                    totalPausedMs = totalPaused,
+                    durationMinutes = durationMinutes
+                )
+            )
+
+            val task = taskRepository.getById(taskId)
+            task?.let {
+                taskRepository.update(
+                    it.copy(
+                        totalTimeTrackedMinutes = it.totalTimeTrackedMinutes + durationMinutes,
+                        sessionCount = it.sessionCount + 1,
+                        lastSessionDurationMinutes = durationMinutes,
+                        updatedAt = now
                     )
                 )
-
-                val task = taskRepository.getById(taskId)
-                task?.let {
-                    taskRepository.update(
-                        it.copy(
-                            totalTimeTrackedMinutes = it.totalTimeTrackedMinutes + durationMinutes,
-                            sessionCount = it.sessionCount + 1,
-                            lastSessionDurationMinutes = durationMinutes,
-                            updatedAt = now
-                        )
-                    )
-                }
             }
-            _uiState.update {
-                it.copy(isTracking = false, isPaused = false, elapsedSeconds = 0, activeSessionId = null)
-            }
-
-            // Re-run peak energy detection after every session
-            updateDynamicPeak()
         }
+        _uiState.update {
+            it.copy(isTracking = false, isPaused = false, elapsedSeconds = 0, activeSessionId = null)
+        }
+
+        updateDynamicPeak()
     }
 
     // ── POMODORO ──────────────────────────────────────────────────────────────
@@ -494,10 +507,15 @@ class FocusViewModel @Inject constructor(
     }
 
     private fun doCompleteTask(manualMinutes: Float?) {
-        if (_uiState.value.isTracking) finalizeSession()
+        val wasTracking = _uiState.value.isTracking
         stopPomodoro()
         AutonomyNudgeEngine.cancelNudge(applicationContext, taskId)
         viewModelScope.launch {
+            // Finalize session first and await DB write before reading sessions
+            if (wasTracking) {
+                finalizeSessionSuspend()
+            }
+
             // If manual time was provided, insert a synthetic closed session
             if (manualMinutes != null && manualMinutes > 0f) {
                 val now = System.currentTimeMillis()
@@ -563,15 +581,16 @@ class FocusViewModel @Inject constructor(
             }
 
             _uiState.update {
-                val affirmations = it.preferences.affirmations
-                val affirmation = if (affirmations.isNotEmpty()) affirmations.random() else ""
                 it.copy(
                     isCompleted = true,
                     pointsEarned = points,
                     showCompletionSheet = true,
                     completedHabitStreak = newHabitStreak,
                     showAffordanceRating = true,
-                    completionAffirmation = affirmation
+                    completionAffirmation = it.preferences.affirmations
+                        .takeIf { list -> list.isNotEmpty() }
+                        ?.random()
+                        ?: defaultAffirmations.random()
                 )
             }
         }
@@ -664,8 +683,17 @@ class FocusViewModel @Inject constructor(
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
+    companion object {
+        val defaultAffirmations = listOf(
+            "Every task completed is a step forward.",
+            "You showed up. That's what matters.",
+            "Progress over perfection.",
+            "Small wins build big momentum.",
+            "You are building the habit of finishing."
+        )
+    }
+
+    override fun onCleared() {        super.onCleared()
         scoreTickJob?.cancel()
         timerJob?.cancel()
         pomodoroJob?.cancel()
