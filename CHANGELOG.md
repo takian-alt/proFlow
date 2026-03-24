@@ -11,6 +11,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Focus Launcher (PR #6 — feature/launcher)**
+
+The app can now be set as the Android home screen. The launcher is intentionally minimal — every pixel is either helping you focus or getting out of your way.
+
+*Core launcher*
+- `LauncherActivity` — `FragmentActivity` registered with `MAIN / HOME` intent filters; `singleTask` + empty task affinity; transparent theme to show system wallpaper; Dynamic Color on API 31+; crash-recovery fallback via `SafeHomeScreen`
+- `LauncherViewModel` — central `StateFlow`-based state holder for all launcher state: top task, apps, dock, folders, distraction scores, HyperFocus preferences, widget slots, notification badges, and user preferences
+- `HomeScreen` / `HomeScreenPages` — paged app grid (configurable columns × rows) with drag-and-drop reordering, page-dot indicator, and per-page widget slots
+- `FocusTaskCard` — always-visible card showing the top-scored task (score badge, quadrant badge, *Start Focus* and *Skip* buttons); integrated with `TaskScoringEngine`
+- `HabitQuickRow` — horizontal row of today's due habits for one-tap check-in without leaving the home screen
+- `DockRow` — configurable 5-slot bottom dock; supports individual apps and folders; long-press context menu (open / lock / hide / move to folder / app info); auto-populates with common apps on first launch
+- `AppIcon` — unified app icon composable with adaptive icon support, notification badge overlay, and configurable `IconShape` masking
+- `DateTimeDisplay` — clock and date header with Digital and Minimal styles
+- `ShortcutPopup` — long-press popup for per-icon actions (open, move, lock, hide, add to folder, app info)
+- `WidgetHost` / `WidgetSlotRow` — embed Android `AppWidget`s in home screen page slots using `AppWidgetHostWrapper`
+- `HomeScreenGrid` — virtual grid layout managing item positions and drag-drop state
+- `QuickStatsPanel` — swipe-right overlay showing today's completed tasks, active streak, XP, and recent session totals
+
+*App Drawer*
+- `AppDrawer` — full-screen searchable app drawer; locale-aware alphabetical section headers; swipe-up gesture trigger; powered by `LauncherSearchEngineImpl`
+
+*App Folders*
+- `AppFolderOverlay` — animated full-screen folder overlay; long-press any icon to create / edit a folder; folder definitions persisted in `PinnedAppsDataStore`
+
+*HyperFocus distraction-blocking subsystem*
+- `HyperFocusManager` (`HyperFocusManagerImpl`) — activates / deactivates HyperFocus sessions: generates an AES-256 code pool via `AESUtil`, persists session state in `HyperFocusDataStore`, starts `AppBlockingService` + `HyperFocusMonitorService` + `UnlockTimerService`, and cancels `AccessibilityWatchdogWorker` on deactivation
+- `AppBlockingService` — `AccessibilityService` that intercepts `TYPE_WINDOW_STATE_CHANGED` events; redirects blocked apps to `BlockingOverlayScreen`; exempts the launcher itself and system UI
+- `HyperFocusMonitorService` — foreground service that periodically checks HyperFocus state and re-arms the block if the session is tampered with
+- `UnlockTimerService` — foreground service that counts down time-limited unlock windows and auto-reactivates blocking when the window expires
+- `HyperFocusActivity` — dedicated activity hosting HyperFocus screens; handles biometric re-authentication on resume
+- `HyperFocusViewModel` — manages activation, code submission, heartbeat, tamper detection, and reward state
+- `HyperFocusStatusBar` — persistent status bar composable shown on all launcher screens during an active HyperFocus session
+- `HyperFocusActivationSheet` — bottom sheet for selecting blocked apps, daily task target, and locked task IDs before activating HyperFocus
+- `PermissionSetupScreen` — guides the user through granting Accessibility and Usage Stats permissions required for app blocking
+- `BlockingOverlayScreen` — full-screen overlay shown when a blocked app is launched; displays motivational messaging and a *Get back to work* action
+- `CodeEntryScreen` — AES-256 code entry screen that gates time-limited unlock windows; enforces lockout after repeated failures
+- `PlanningPromptScreen` — pre-session planning prompt (WOOP-style) surfaced before activating HyperFocus
+- `RewardsScreen` / `RewardSection` — displays earned reward tiers and streak progress; `RewardEngine` assigns Bronze / Silver / Gold / Platinum tiers based on completed tasks and focus time
+- `UnlockCodeRepository` — manages the AES-encrypted unlock code pool in Room; enforces per-session code rotation and expiry
+
+*Distraction Engine*
+- `DistractionEngine` — correlates `UsageStatsManager` data with focus sessions via five scoring layers: (1) app-switch frequency (logarithmic), (2) per-app distraction weight (social media → messaging → video → email), (3) interruption depth, (4) recovery-time penalty, (5) circadian multiplier; exposes `computeDistractionScore(task, sessions, peakHours)` returning a normalised 0–100 score
+
+*Data*
+- `AppRepository` — loads installed apps via `LauncherApps`, resolves labels and icons with memory/disk caching, exposes a `StateFlow<List<AppInfo>>`; forwards `onTrimMemory` from `LauncherActivity`
+- `PinnedAppsDataStore` — Proto DataStore holding the full launcher configuration: dock packages, home screen pages (items + positions), folder definitions, hidden/locked packages, distraction scores, clock style, icon shape, grid size, and HyperFocus package selections
+- `IconPackManager` — queries installed icon packs via `PackageManager`; resolves drawable resources for a given package name; caches results
+- `LauncherBackupManager` — serialises / deserialises the full launcher state to JSON for export and import; versioned with `BackupMetadata`
+- `NotificationBadgeManager` — exposes unread badge counts as `StateFlow<Map<String, Int>>`
+- `NotificationBadgeService` — `NotificationListenerService` that maintains a live count of unread notifications per package
+- `PackageChangeReceiver` — `BroadcastReceiver` for `PACKAGE_ADDED` / `PACKAGE_REMOVED` / `PACKAGE_CHANGED`; triggers `AppRepository` refresh
+- `HyperFocusDataStore` / `HyperFocusSessionEntity` / `HyperFocusSessionDao` — persists HyperFocus session history
+- `UnlockCodeEntity` / `UnlockCodeDao` — Room table for the AES-encrypted unlock code pool
+
+*Domain*
+- `AdaptiveIconProcessor` — renders adaptive icons into a masked `Bitmap` for any `IconShape`
+- `AppWidgetHostWrapper` — thin wrapper around `AppWidgetHost` exposing lifecycle-safe `startListening` / `stopListening`
+- `BiometricAppLock` — wraps `BiometricPrompt` to authenticate before forwarding a blocked-app launch intent
+- `LauncherGestureHandler` — detects swipe-up (open drawer), swipe-down (expand notifications), and long-press (enter edit mode) gestures on the home screen
+- `LauncherSearchEngineImpl` — `Trie`-backed fuzzy search over app names and package names; updated on every `AppRepository` emission
+
+*Settings*
+- `LauncherSettings` — full-screen settings sheet:
+  - Per-app distraction score sliders (0–100 integer, default 50, persisted immediately)
+  - *Quick Categorize* flow that bulk-assigns sensible defaults by category
+  - Dock editor, hidden apps management, locked apps (biometric) management
+  - Clock style selector (Digital / Minimal)
+  - Card transparency slider
+  - Icon pack picker
+  - Icon shape selector (Circle / Squircle / Rounded-Square / Teardrop / System Default)
+  - Home-screen grid size (3 × 5 to 6 × 8)
+  - Notification badges toggle
+  - Show task score toggle
+  - Web search URL configuration
+  - Backup export and import buttons
+  - HyperFocus activation entry point
+  - Rewards navigation link
+
+*Background workers (new)*
+- `AccessibilityWatchdogWorker` — periodic WorkManager task that verifies the `AppBlockingService` accessibility service is still enabled; re-prompts the user if it was revoked
+- `DistractionSyncWorker` — periodic WorkManager task that runs `DistractionEngine` over recent sessions and writes updated distraction scores back to `PinnedAppsDataStore`
+
+*Theme*
+- `LauncherTheme` — Material 3 `ColorScheme` tailored for the dark, minimal launcher aesthetic; respects system Dynamic Color on API 31+
+
+*Database*
+- Schema versions 9–11: added `HyperFocusSessionEntity` and `UnlockCodeEntity` tables with full Room migrations
+
+*Tests*
+- `LauncherSearchEngineTest` — 282-line property-based test suite covering prefix matching, special-character handling, empty queries, and concurrent search calls
+- `LauncherBackupManagerTest` — round-trip serialisation tests for backup / restore
+- `PinnedAppsDataStoreBugExplorationTest` — regression tests for concurrent write races
+- `HomeScreenGridRenderingBugTest` — rendering edge-case coverage (empty pages, single item, max-capacity grid)
+- `ShortcutPopupTest` — composable interaction tests for the long-press context menu
+- `AESUtilTest` — encryption / decryption correctness and tamper-detection tests
+- `HyperFocusManagerTest` — unit tests for activate / deactivate / submit-code lifecycle
+- `RewardEngineTest` — tier assignment boundary tests
+- `UnlockCodeRepositoryTest` — code generation, expiry, and lockout enforcement tests
+- `LauncherIntegrationTest` — 477-line end-to-end integration test suite
+- `WorkProfileIntegrationTest` — work-profile app enumeration and launch tests
+- `LauncherBaselineProfileGenerator` — Macrobenchmark baseline profile for launcher startup and scrolling
+- `TimeUtilsTest` — unit tests for the new `TimeUtils` helpers added to support the launcher
+
+*Scripts*
+- `scripts/check-launcher-isolation.sh` — verifies the launcher module does not leak imports into the main app module
+- `scripts/generate-baseline-profile.sh` — automates baseline profile generation via Macrobenchmark
+
 **Neuroscience & Behavioral Psychology Engines**
 - `AutonomyNudgeEngine` — detects tasks that have been untouched for 2+ hours and triggers a smart notification with "Not ready yet" (snooze) and "It feels too big" (auto-split) action buttons
 - `FreshStartEngine` — identifies motivational fresh-start moments (Monday, month start, streak break, 3-day+ absence) and surfaces an encouraging prompt, capped at once per ISO week to avoid repetition
