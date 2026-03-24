@@ -28,8 +28,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -156,14 +160,19 @@ fun QuickStatsPanel(
 
 /**
  * QuickStatsPanel content - scrollable stats display.
+ *
+ * Requirements: 6.4
  */
 @Composable
 private fun QuickStatsPanelContent(
     summary: AnalyticsEngine.AnalyticsSummary,
     onDismiss: () -> Unit,
-    onOpenFullAnalytics: () -> Unit
+    onOpenFullAnalytics: () -> Unit,
+    hyperFocusViewModel: HyperFocusViewModel = hiltViewModel()
 ) {
     val scrollState = rememberScrollState()
+
+    val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -206,6 +215,11 @@ private fun QuickStatsPanelContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Open Full Analytics")
+        }
+
+        // Reward section — shown only when Hyper Focus is active
+        if (hyperFocusPrefs.isActive) {
+            RewardSection(viewModel = hyperFocusViewModel)
         }
 
         Spacer(modifier = Modifier.height(16.dp))

@@ -847,7 +847,7 @@ fun NewTaskSheet(
             onDismissRequest = { showHabitDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis -> habitDate = millis }
+                    datePickerState.selectedDateMillis?.let { millis -> habitDate = utcMidnightToLocalMidnight(millis) }
                     showHabitDatePicker = false
                 }) { Text("OK") }
             },
@@ -889,7 +889,7 @@ fun NewTaskSheet(
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        deadlineDate = millis
+                        deadlineDate = utcMidnightToLocalMidnight(millis)
                     }
                     showDatePicker = false
                 }) { Text("OK") }
@@ -909,7 +909,7 @@ fun NewTaskSheet(
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        scheduledDate = millis
+                        scheduledDate = utcMidnightToLocalMidnight(millis)
                     }
                     showSchedDatePicker = false
                 }) { Text("OK") }
@@ -1032,4 +1032,19 @@ private fun formatTime(millis: Long): String {
     val amPm = if (hours < 12) "AM" else "PM"
     val displayHour = if (hours == 0) 12 else if (hours > 12) hours - 12 else hours
     return String.format("%d:%02d %s", displayHour, minutes, amPm)
+}
+
+private fun utcMidnightToLocalMidnight(utcMillis: Long): Long {
+    val utcCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+    utcCal.timeInMillis = utcMillis
+    
+    val localCal = java.util.Calendar.getInstance()
+    localCal.set(java.util.Calendar.YEAR, utcCal.get(java.util.Calendar.YEAR))
+    localCal.set(java.util.Calendar.MONTH, utcCal.get(java.util.Calendar.MONTH))
+    localCal.set(java.util.Calendar.DAY_OF_MONTH, utcCal.get(java.util.Calendar.DAY_OF_MONTH))
+    localCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    localCal.set(java.util.Calendar.MINUTE, 0)
+    localCal.set(java.util.Calendar.SECOND, 0)
+    localCal.set(java.util.Calendar.MILLISECOND, 0)
+    return localCal.timeInMillis
 }

@@ -6,12 +6,15 @@ import android.content.Intent
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
@@ -32,6 +35,7 @@ import javax.inject.Inject
  * Central ViewModel for the Focus Launcher.
  * All state is StateFlow with SharingStarted.WhileSubscribed(5000).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LauncherViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -45,6 +49,7 @@ class LauncherViewModel @Inject constructor(
     private val sessionRepository: com.neuroflow.app.data.repository.SessionRepository,
     private val launcherBackupManager: com.neuroflow.app.presentation.launcher.data.LauncherBackupManager,
     private val iconPackManager: com.neuroflow.app.presentation.launcher.data.IconPackManager,
+    private val hyperFocusDataStore: HyperFocusDataStore,
 ) : ViewModel() {
 
     init {
@@ -296,7 +301,16 @@ class LauncherViewModel @Inject constructor(
      */
     val leftPageBlocks: StateFlow<Map<String, Boolean>> = pinnedAppsDataStore.launcherPrefsFlow
         .map { it.leftPageBlocks }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            mapOf(
+                "subliminal" to true,
+                "quick_note" to true,
+                "woop" to true,
+                "distraction_top3" to true
+            )
+        )
 
     /**
      * Top 3 most distracting apps during focus sessions, computed on demand.
@@ -350,11 +364,20 @@ class LauncherViewModel @Inject constructor(
     // ── Phase 1 Scaffolding ─────────────────────────────────────────────────
 
     /**
-     * Focus mode active state (Phase 5: wired to session repository).
-     * Tracks whether a focus session is currently active.
+     * Hyper Focus preferences from HyperFocusDataStore.
+     * Exposes the full HyperFocusPreferences state for UI and AppIcon blocking checks.
      */
-    val focusActive: StateFlow<Boolean> = sessionRepository.observeOpenSessions()
-        .map { sessions -> sessions.isNotEmpty() }
+    val hyperFocusPrefs: StateFlow<HyperFocusPreferences> = hyperFocusDataStore.flow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HyperFocusPreferences())
+
+    /**
+     * Focus mode active state (Phase 5: wired to session repository).
+     * Tracks whether a focus session is currently active OR hyper focus is active.
+     */
+    val focusActive: StateFlow<Boolean> = combine(
+        sessionRepository.observeOpenSessions().map { sessions -> sessions.isNotEmpty() },
+        hyperFocusPrefs.map { it.isActive }
+    ) { sessionActive, hyperActive -> sessionActive || hyperActive }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /**

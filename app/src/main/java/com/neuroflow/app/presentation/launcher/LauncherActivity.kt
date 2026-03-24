@@ -27,6 +27,9 @@ import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
 import com.neuroflow.app.presentation.launcher.drawer.AppDrawer
 import com.neuroflow.app.presentation.launcher.stats.QuickStatsPanel
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
+import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PlanningPromptScreen
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
 import com.neuroflow.app.presentation.launcher.theme.ProvideLauncherTheme
 import com.neuroflow.app.presentation.launcher.theme.mapPreferencesToTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,6 +78,8 @@ class LauncherActivity : FragmentActivity() {
     // State for drawer and panels
     private var isAppDrawerOpen by mutableStateOf(false)
     private var isLauncherSettingsOpen by mutableStateOf(false)
+    internal var isRewardsOpen by mutableStateOf(false)
+    internal var isPlanningOpen by mutableStateOf(false)
 
     // Tracks whether the pager is on the main page (index 1)
     private var isPagerOnMainPage by mutableStateOf(true)
@@ -123,8 +128,13 @@ class LauncherActivity : FragmentActivity() {
         launcherApps = getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 
         // Apply Dynamic Color on API 31+ (Material You)
+        // Wrapped in try-catch: MIUI/HyperOS theming engine can conflict with Material You
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            DynamicColors.applyToActivityIfAvailable(this)
+            try {
+                DynamicColors.applyToActivityIfAvailable(this)
+            } catch (e: Exception) {
+                Log.w("LauncherActivity", "DynamicColors failed (MIUI/HyperOS?)", e)
+            }
         }
 
         // Register back callback — enabled only when there's something to dismiss
@@ -232,8 +242,27 @@ class LauncherActivity : FragmentActivity() {
                 LauncherSettings(
                     isOpen = isLauncherSettingsOpen,
                     onDismiss = { isLauncherSettingsOpen = false },
+                    onNavigateToRewards = { isRewardsOpen = true },
                     viewModel = viewModel
                 )
+
+                // Rewards overlay
+                if (isRewardsOpen) {
+                    val hyperFocusViewModel: HyperFocusViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+                    RewardsScreen(
+                        onNavigateBack = { isRewardsOpen = false },
+                        viewModel = hyperFocusViewModel
+                    )
+                }
+
+                // Planning prompt overlay
+                if (isPlanningOpen) {
+                    val hyperFocusViewModel: HyperFocusViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+                    PlanningPromptScreen(
+                        viewModel = hyperFocusViewModel,
+                        onDismiss = { isPlanningOpen = false }
+                    )
+                }
             }
         }
     }
@@ -247,6 +276,8 @@ class LauncherActivity : FragmentActivity() {
         // Close overlays and snap back to main page when home button pressed
         isAppDrawerOpen = false
         isLauncherSettingsOpen = false
+        isRewardsOpen = false
+        isPlanningOpen = false
         navigateToMainPage?.invoke()
     }
 
@@ -294,8 +325,9 @@ class LauncherActivity : FragmentActivity() {
         when {
             isAppDrawerOpen -> isAppDrawerOpen = false
             isLauncherSettingsOpen -> isLauncherSettingsOpen = false
+            isRewardsOpen -> isRewardsOpen = false
+            isPlanningOpen -> isPlanningOpen = false
             !isPagerOnMainPage -> navigateToMainPage?.invoke()
-            // else: on main page with nothing open — swallow the event, do nothing
         }
     }
 

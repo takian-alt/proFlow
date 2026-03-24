@@ -15,12 +15,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.provider.Settings
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.neuroflow.app.presentation.launcher.LauncherViewModel
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.ClockStyle
 import com.neuroflow.app.presentation.launcher.data.IconShape
 import com.neuroflow.app.presentation.launcher.data.ImportResult
+import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.HyperFocusActivationSheet
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PermissionSetupScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,11 +60,19 @@ import java.util.Locale
 fun LauncherSettings(
     isOpen: Boolean,
     onDismiss: () -> Unit,
+    onNavigateToRewards: () -> Unit = {},
     viewModel: LauncherViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     // Collect state from ViewModel
     val allApps by viewModel.allApps.collectAsState()
     val distractionScores by viewModel.distractionScores.collectAsState()
+
+    // HyperFocus ViewModel and state (Requirements: 6.3)
+    val hyperFocusViewModel: HyperFocusViewModel = hiltViewModel()
+    val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
+    var showActivationSheet by remember { mutableStateOf(false) }
+    var showPermissionSetup by remember { mutableStateOf(false) }
 
     // Track which section is expanded
     var expandedSection by remember { mutableStateOf<SettingsSection?>(null) }
@@ -173,6 +187,34 @@ fun LauncherSettings(
                         )
                     }
 
+                    // Hyper Focus Section (Task 7.3, Requirements: 6.3)
+                    item {
+                        HyperFocusSettingsSection(
+                            isActive = hyperFocusPrefs.isActive,
+                            onSetup = {
+                                val accessibilityEnabled = com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+                                    .isAppBlockingServiceEnabled(context)
+                                val usageStatsEnabled = try {
+                                    val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
+                                    appOps.unsafeCheckOpNoThrow(
+                                        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                                        android.os.Process.myUid(),
+                                        context.packageName
+                                    ) == android.app.AppOpsManager.MODE_ALLOWED
+                                } catch (e: Exception) { false }
+
+                                if (!accessibilityEnabled || !usageStatsEnabled) {
+                                    showPermissionSetup = true
+                                } else {
+                                    showActivationSheet = true
+                                }
+                            },
+                            onViewProgress = { showActivationSheet = false },
+                            onNavigateToRewards = onNavigateToRewards,
+                            hyperFocusViewModel = hyperFocusViewModel
+                        )
+                    }
+
                     // Backup/Restore Section (Task 21.3)
                     item {
                         BackupRestoreSection(
@@ -180,6 +222,34 @@ fun LauncherSettings(
                         )
                     }
                 }
+            }
+        }
+
+        // HyperFocusActivationSheet (Requirements: 6.3)
+        if (showActivationSheet) {
+            HyperFocusActivationSheet(
+                viewModel = hyperFocusViewModel,
+                distractionScores = distractionScores,
+                onDismiss = { showActivationSheet = false }
+            )
+        }
+
+        // PermissionSetupScreen shown as full-screen dialog (Requirements: 6.3)
+        if (showPermissionSetup) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showPermissionSetup = false },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = false
+                )
+            ) {
+                PermissionSetupScreen(
+                    onBothGranted = {
+                        showPermissionSetup = false
+                        showActivationSheet = true
+                    }
+                )
             }
         }
     }
@@ -193,6 +263,171 @@ private enum class SettingsSection {
     DOCK_EDITOR,
     VISUAL_CUSTOMIZATION,
     FEATURE_SETTINGS
+}
+
+/**
+ * Hyper Focus Settings Section (Task 7.3).
+ *
+ * Shows:
+ * - Section header "Hyper Focus"
+ * - Current status (active/inactive)
+ * - "Setup / Activate" button (checks permissions, shows sheet or permission setup)
+ * - "View Progress" row (only when isActive == true)
+ *
+ * Requirements: 6.3
+ */
+@Composable
+private fun HyperFocusSettingsSection(
+    isActive: Boolean,
+    onSetup: () -> Unit,
+    onViewProgress: () -> Unit,
+    onNavigateToRewards: () -> Unit,
+    hyperFocusViewModel: HyperFocusViewModel
+) {
+    val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Section header
+            Text(
+                text = "Hyper Focus",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Status row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Status",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isActive) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    }
+                ) {
+                    Text(
+                        text = if (isActive) "Active" else "Inactive",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isActive) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Show active status only — session cannot be manually stopped
+            if (isActive) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Text(
+                        text = "🔒 Session active — complete your tasks to finish.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            } else {
+                Button(
+                    onClick = onSetup,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Setup / Activate")
+                }
+            }
+
+            // View Progress row — only visible when active
+            if (isActive) {
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "View Progress",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = onViewProgress) {
+                        Text("Open")
+                    }
+                }
+
+                // Inline rewards/progress view
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Rewards",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = onNavigateToRewards) {
+                        Text("View →")
+                    }
+                }
+
+                // Debug: Show blocked packages
+                HorizontalDivider()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Blocked Apps (${hyperFocusPrefs.blockedPackages.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    hyperFocusPrefs.blockedPackages.take(5).forEach { pkg ->
+                        Text(
+                            text = "• $pkg",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (hyperFocusPrefs.blockedPackages.size > 5) {
+                        Text(
+                            text = "... and ${hyperFocusPrefs.blockedPackages.size - 5} more",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**

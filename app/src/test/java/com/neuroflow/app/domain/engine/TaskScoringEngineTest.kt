@@ -98,4 +98,35 @@ class TaskScoringEngineTest {
         val quadrant = TaskScoringEngine.autoAssignQuadrant(task, now)
         assertEquals(Quadrant.ELIMINATE, quadrant)
     }
+
+    @Test
+    fun `blocked task returns low score`() {
+        val task = makeTask(deadlineDate = now + 3_600_000).copy(dependsOnTaskIds = "other123")
+        val dep = makeTask(deadlineDate = now + 72_000_000).copy(id = "other123")
+
+        val score = TaskScoringEngine.score(task, defaultPrefs, listOf(task, dep), now)
+        assertTrue(score < 25f)
+    }
+
+    @Test
+    fun `near-deadline task scores higher than far-future`() {
+        val urgent = makeTask(deadlineDate = now + 3_600_000)
+        val distant = makeTask(deadlineDate = now + 7 * 86_400_000L)
+
+        val urgentScore = TaskScoringEngine.score(urgent, defaultPrefs, listOf(urgent,distant), now)
+        val distantScore = TaskScoringEngine.score(distant, defaultPrefs, listOf(urgent,distant), now)
+
+        assertTrue(urgentScore > distantScore)
+    }
+
+    @Test
+    fun `scheduled soon task boosts score relative to schedule far away`() {
+        val soon = makeTask(scheduledDate = now + 30 * 60_000L, scheduledTime = 0L)
+        val later = makeTask(scheduledDate = now + 24 * 86_400_000L, scheduledTime = 0L)
+
+        val soonScore = TaskScoringEngine.score(soon, defaultPrefs, listOf(soon,later), now)
+        val laterScore = TaskScoringEngine.score(later, defaultPrefs, listOf(soon,later), now)
+
+        assertTrue(soonScore > laterScore)
+    }
 }

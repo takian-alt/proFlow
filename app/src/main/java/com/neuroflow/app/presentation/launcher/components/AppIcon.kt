@@ -5,6 +5,9 @@ import android.content.pm.LauncherApps
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.provider.Settings
+import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusActivity
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.RewardEngine
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -67,8 +70,9 @@ import com.neuroflow.app.presentation.launcher.theme.LocalLauncherTheme
  * @param badgeCount Notification badge count (0 = no badge)
  * @param isLocked Whether app requires biometric authentication
  * @param focusActive Whether focus mode is currently active
+ * @param hyperFocusPrefs Current hyper focus preferences for blocking check (Requirement 6.1)
  * @param modifier Modifier for the icon container
- * @param onTap Callback when icon is tapped
+ * @param onTap Callback when icon is tapped (intercepted if app is blocked)
  * @param onPinToDock Callback to pin app to dock
  * @param onHide Callback to hide app from drawer
  * @param onLock Callback to lock app with biometric authentication
@@ -81,6 +85,7 @@ fun AppIcon(
     badgeCount: Int = 0,
     isLocked: Boolean = false,
     focusActive: Boolean = false,
+    hyperFocusPrefs: HyperFocusPreferences? = null,
     modifier: Modifier = Modifier,
     onTap: () -> Unit,
     onPinToDock: () -> Unit,
@@ -93,6 +98,24 @@ fun AppIcon(
     val theme = LocalLauncherTheme.current
     val layoutDirection = LocalLayoutDirection.current
     val density = LocalDensity.current
+
+    // Hyper Focus blocking redirect (Requirement 6.1)
+    val handleTap: () -> Unit = {
+        val prefs = hyperFocusPrefs
+        if (prefs != null &&
+            prefs.isActive &&
+            appInfo.packageName in prefs.blockedPackages &&
+            !RewardEngine.isUnlockActive(prefs)
+        ) {
+            val intent = Intent(context, HyperFocusActivity::class.java).apply {
+                putExtra("blocked_package", appInfo.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            context.startActivity(intent)
+        } else {
+            onTap()
+        }
+    }
 
     // State for ShortcutPopup
     var showShortcutPopup by remember { mutableStateOf(false) }
@@ -131,14 +154,14 @@ fun AppIcon(
             .then(
                 if (enableLongPress) {
                     Modifier.combinedClickable(
-                        onClick = onTap,
+                        onClick = handleTap,
                         onLongClick = {
                             // Show ShortcutPopup on long-press (Requirement 5.1)
                             showShortcutPopup = true
                         }
                     )
                 } else {
-                    Modifier.clickable(onClick = onTap)
+                    Modifier.clickable(onClick = handleTap)
                 }
             )
     ) {
@@ -216,7 +239,7 @@ fun AppIcon(
             launcherApps = launcherApps,
             offset = iconPosition,
             onDismiss = { showShortcutPopup = false },
-            onOpen = onTap,
+            onOpen = handleTap,
             onPinToDock = onPinToDock,
             onHide = onHide,
             onLock = onLock,
