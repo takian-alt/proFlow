@@ -4,13 +4,16 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.role.RoleManager
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,9 @@ class HyperFocusMonitorService : Service() {
 
     @Inject
     lateinit var hyperFocusDataStore: HyperFocusDataStore
+
+    @Inject
+    lateinit var hyperFocusManager: HyperFocusManager
 
     private val serviceScope = CoroutineScope(Dispatchers.IO)
     private var monitorJob: Job? = null
@@ -62,10 +68,15 @@ class HyperFocusMonitorService : Service() {
                 }
 
                 val accessibilityEnabled = isAccessibilityServiceEnabled()
+                val isDefaultLauncher = isLauncherDefault()
                 val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+
                 if (!accessibilityEnabled) {
-                    // High priority, ongoing — can't be dismissed, taps straight to settings
-                    notificationManager.notify(NOTIFICATION_ID, buildWarningNotification())
+                    hyperFocusManager.reportTamper("Accessibility service disabled")
+                    notificationManager.notify(NOTIFICATION_ID, buildTamperNotification("Accessibility service disabled"))
+                } else if (!isDefaultLauncher) {
+                    hyperFocusManager.reportTamper("Default launcher changed")
+                    notificationManager.notify(NOTIFICATION_ID, buildTamperNotification("Default launcher changed"))
                 } else {
                     notificationManager.notify(NOTIFICATION_ID, buildNotification())
                 }
@@ -101,6 +112,7 @@ class HyperFocusMonitorService : Service() {
             description = "Alerts when Hyper Focus accessibility service is disabled"
             enableVibration(true)
             setBypassDnd(true)
+            setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI, null)
         }
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(channel)
@@ -130,6 +142,7 @@ class HyperFocusMonitorService : Service() {
         .setPriority(NotificationCompat.PRIORITY_MAX)
         .setCategory(NotificationCompat.CATEGORY_ALARM)
         .setAutoCancel(false)
+        .setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
         .setContentIntent(
             PendingIntent.getActivity(
                 this, 1,
@@ -149,6 +162,36 @@ class HyperFocusMonitorService : Service() {
             )
         )
         .build()
+
+    private fun buildTamperNotification(reason: String) = NotificationCompat.Builder(this, "${CHANNEL_ID}_warning")
+        .setContentTitle("⚠️ Hyper Focus Tamper Detected")
+        .setContentText(reason)
+        .setSmallIcon(R.drawable.ic_launcher_foreground)
+        .setOngoing(true)
+        .setPriority(NotificationCompat.PRIORITY_MAX)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setAutoCancel(false)
+        .setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
+        .setContentIntent(
+            PendingIntent.getActivity(
+                this, 2,
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+        )
+        .build()
+
+    private fun isLauncherDefault(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            roleManager?.isRoleHeld(RoleManager.ROLE_HOME) ?: false
+        } else {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val resolveInfo = packageManager.resolveActivity(intent, 0)
+            resolveInfo?.activityInfo?.packageName == packageName
+        }
+    }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
         return com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil

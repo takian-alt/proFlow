@@ -32,6 +32,7 @@ interface HyperFocusManager {
     suspend fun submitCode(enteredCode: String): UnlockResult
     suspend fun completePlanning()
     suspend fun updateHeartbeat()
+    suspend fun reportTamper(reason: String)
 }
 
 @Singleton
@@ -212,6 +213,18 @@ class HyperFocusManagerImpl @Inject constructor(
 
     override suspend fun updateHeartbeat() {
         hyperFocusDataStore.updateHeartbeat(System.currentTimeMillis())
+    }
+
+    override suspend fun reportTamper(reason: String) {
+        val timestamp = System.currentTimeMillis()
+        Log.w(TAG, "HyperFocus tamper detected: $reason")
+        hyperFocusDataStore.update {
+            it.copy(
+                isTamperDetected = true,
+                tamperReason = reason,
+                tamperDetectedAt = timestamp
+            )
+        }
     }
 }
 

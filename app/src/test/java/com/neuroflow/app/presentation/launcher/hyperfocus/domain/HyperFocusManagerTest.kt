@@ -7,6 +7,7 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPrefere
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.UnlockCodeEntity
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
@@ -132,6 +133,23 @@ class HyperFocusManagerTest : StringSpec({
                 unlockCodeRepository.generateCodePool(any())
                 hyperFocusDataStore.update(any())
             }
+        }
+    }
+
+    "reportTamper sets tamper fields in data store" {
+        runTest {
+            val prefs = HyperFocusPreferences(isActive = true)
+            coEvery { hyperFocusDataStore.current() } returns prefs
+
+            manager.reportTamper("Test tamper event")
+
+            val updateSlot = slot<(HyperFocusPreferences) -> HyperFocusPreferences>()
+            coVerify { hyperFocusDataStore.update(capture(updateSlot)) }
+            val updated = updateSlot.captured(prefs)
+
+            updated.isTamperDetected shouldBe true
+            updated.tamperReason shouldBe "Test tamper event"
+            updated.tamperDetectedAt shouldNotBe null
         }
     }
 })

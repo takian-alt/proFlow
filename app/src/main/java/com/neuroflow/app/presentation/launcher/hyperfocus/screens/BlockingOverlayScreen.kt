@@ -101,6 +101,21 @@ fun BlockingOverlayScreen(
                 fontSize = 13.sp
             )
 
+            if (prefs.isTamperDetected) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFFB71C1C)
+                ) {
+                    Text(
+                        text = "⚠️ Tamper detected: ${prefs.tamperReason ?: "unknown"}",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // 5. Progress bar

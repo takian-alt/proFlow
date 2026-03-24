@@ -30,6 +30,10 @@ data class HyperFocusPreferences(
     val lastServiceHeartbeat: Long = 0L,
     val wrongCodeAttempts: Int = 0,
     val lockoutExpiresAt: Long? = null,
+    // Whether tamper condition was observed (accessibility toggled, launcher changed, uninstall attempt, etc.)
+    val isTamperDetected: Boolean = false,
+    val tamperReason: String? = null,
+    val tamperDetectedAt: Long? = null,
     // ID of the code currently shown to the user but not yet used.
     // Prevents claiming a new code while one is already pending.
     val pendingCodeId: String? = null,
@@ -89,6 +93,9 @@ class HyperFocusDataStoreImpl @Inject constructor(
         json.put("lastServiceHeartbeat", prefs.lastServiceHeartbeat)
         json.put("wrongCodeAttempts", prefs.wrongCodeAttempts)
         json.put("lockoutExpiresAt", prefs.lockoutExpiresAt ?: JSONObject.NULL)
+        json.put("isTamperDetected", prefs.isTamperDetected)
+        json.put("tamperReason", prefs.tamperReason ?: JSONObject.NULL)
+        json.put("tamperDetectedAt", prefs.tamperDetectedAt ?: JSONObject.NULL)
         json.put("pendingCodeId", prefs.pendingCodeId ?: JSONObject.NULL)
         val lockedTasksArray = JSONArray()
         prefs.lockedTaskIds.forEach { lockedTasksArray.put(it) }
@@ -119,6 +126,9 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 lastServiceHeartbeat = obj.optLong("lastServiceHeartbeat", 0L),
                 wrongCodeAttempts = obj.optInt("wrongCodeAttempts", 0),
                 lockoutExpiresAt = if (obj.isNull("lockoutExpiresAt")) null else obj.optLong("lockoutExpiresAt"),
+                isTamperDetected = obj.optBoolean("isTamperDetected", false),
+                tamperReason = if (obj.isNull("tamperReason")) null else obj.optString("tamperReason"),
+                tamperDetectedAt = if (obj.isNull("tamperDetectedAt")) null else obj.optLong("tamperDetectedAt"),
                 pendingCodeId = if (obj.isNull("pendingCodeId")) null else obj.optString("pendingCodeId").takeIf { it != "null" },
                 lockedTaskIds = buildSet {
                     val arr = obj.optJSONArray("lockedTaskIds")

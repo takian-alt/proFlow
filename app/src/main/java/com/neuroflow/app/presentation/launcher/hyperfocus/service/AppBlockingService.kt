@@ -46,6 +46,28 @@ class AppBlockingService : AccessibilityService() {
         }
     }
 
+    private val packageTamperReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val action = intent.action ?: return
+            val packageName = intent.data?.schemeSpecificPart ?: return
+
+            heartbeatScope.launch {
+                val prefs = hyperFocusDataStore.current()
+                if (!prefs.isActive) return@launch
+
+                if (packageName == BuildConfig.APPLICATION_ID) {
+                    Log.w(TAG, "Tamper: own package event detected ($action).")
+                    hyperFocusManager.reportTamper("App package event: $action")
+                }
+
+                if (packageName in prefs.blockedPackages) {
+                    Log.w(TAG, "Tamper: blocked package event detected ($action) for $packageName")
+                    hyperFocusManager.reportTamper("Blocked app package event: $action for $packageName")
+                }
+            }
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
@@ -74,6 +96,18 @@ class AppBlockingService : AccessibilityService() {
         registerReceiver(
             unlockExpiredReceiver,
             IntentFilter(UnlockTimerService.ACTION_UNLOCK_EXPIRED),
+            RECEIVER_NOT_EXPORTED
+        )
+
+        registerReceiver(
+            packageTamperReceiver,
+            IntentFilter().apply {
+                addDataScheme("package")
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_CHANGED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addAction(Intent.ACTION_PACKAGE_RESTARTED)
+            },
             RECEIVER_NOT_EXPORTED
         )
 
@@ -142,6 +176,7 @@ class AppBlockingService : AccessibilityService() {
         super.onDestroy()
         Log.d(TAG, "AppBlockingService destroyed")
         runCatching { unregisterReceiver(unlockExpiredReceiver) }
+        runCatching { unregisterReceiver(packageTamperReceiver) }
         heartbeatScope.cancel()
     }
 }
