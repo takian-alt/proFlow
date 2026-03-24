@@ -14,7 +14,7 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * NeuroFlow Priority Scoring Engine v2
+ * NeuroFlow Priority Scoring Engine v3
  *
  * A composite, science-backed prioritization formula that scores tasks on a
  * continuous scale. Higher score = do this task next.
@@ -36,12 +36,29 @@ import kotlin.math.sqrt
  * 14. Stress Inoculation          — anxiety task anti-avoidance surfacing
  * 15. Critical Path Method        — dependency unblocking priority
  * 16. Self-Determination Theory   — intrinsic value as sustained motivator
+ *
+ * v3 changes:
+ *  - THEORETICAL_MAX recalibrated to actual component sum (~2445) so displayScore
+ *    spreads meaningfully across 0–999 instead of saturating at 999 for most tasks
+ *  - scoreBreakdown now uses effectivePeakStart/End (same as score()) — was using
+ *    raw peakEnergyStart/End, causing breakdown to show different values than actual score
+ *  - distractionScore sentinel corrected: only boost when score > 0f (not >= 0f),
+ *    so tasks with no usage data (-1f) and untracked tasks (0f) are correctly excluded
+ *  - Frog boost now multiplied by weightFocusMode for consistency — weightFocusMode
+ *    governs all focus-related boosts (effort + frog), not just effort
+ *  - autoAssignQuadrant importance check now uses the same impact+value composite
+ *    (0.55/0.45 split) as score(), so quadrant auto-assignment is consistent with
+ *    how the engine actually ranks tasks
  */
 object TaskScoringEngine {
 
-    // Calibrated max — sum of all components at theoretical maximum
-    // Recalibrated so scores spread across 0–1000 meaningfully
-    private const val THEORETICAL_MAX = 1800f
+    // Recalibrated: sum of all components at theoretical maximum with all weights = 1.0
+    // Quadrant(300) + Deadline(500) + Scheduled(170) + Priority(150) + Impact(100) +
+    // Effort(60) + Duration(40) + Energy(70) + Circadian(60) + Frog(120) +
+    // Postpone(180) + Habit(100) + Unblock(113) + Context(30) + Recency(40) +
+    // Progress(72) + IfThen(80) + Enjoyment(40) + Commitment(70) + ScheduleLock(80) +
+    // LossAversion(130) + Anxiety(60) + Distraction(80) = ~2445
+    private const val THEORETICAL_MAX = 2445f
 
     fun score(
         task: TaskEntity,
@@ -52,7 +69,6 @@ object TaskScoringEngine {
         if (task.status != TaskStatus.ACTIVE) return 0f
 
         // Hard block: if task has unresolved dependencies, score near-zero
-        // (can't do it yet — don't surface it)
         val blockedByCount = if (task.dependsOnTaskIds.isNotBlank() && allActiveTasks.isNotEmpty()) {
             val depIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
             depIds.count { depId -> allActiveTasks.any { it.id == depId && it.status == TaskStatus.ACTIVE } }
@@ -72,14 +88,13 @@ object TaskScoringEngine {
 
         val isPeakHour = hour in effectivePeakStart..effectivePeakEnd
         val isMorning = hour < effectivePeakStart
-        val isLowEnergySlot = hour in 13..15  // post-lunch dip
+        val isLowEnergySlot = hour in 13..15
         val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
         val isWithinWorkDay = hour in prefs.workDayStart until prefs.workDayEnd
 
         var s = 0f
 
         // ── 1. QUADRANT BASE (Eisenhower Matrix) ─────────────────────────────
-        // Foundation of the score — quadrant is the user's explicit importance signal
         s += when (task.quadrant) {
             Quadrant.DO_FIRST  -> 300f
             Quadrant.SCHEDULE  -> 180f
@@ -88,13 +103,11 @@ object TaskScoringEngine {
         } * prefs.weightQuadrant
 
         // ── 2. DEADLINE PRESSURE (Temporal Motivation Theory) ────────────────
-        // Hyperbolic discounting: value = importance / (1 + k * delay)
-        // Exponential urgency curve as deadline approaches
         if (task.deadlineDate != null) {
             val deadlineMs = task.deadlineDate + (task.deadlineTime ?: 0L)
             val hoursLeft = (deadlineMs - nowMillis) / 3_600_000f
             val deadlineScore = when {
-                hoursLeft < 0    -> 500f  // overdue — maximum urgency
+                hoursLeft < 0    -> 500f
                 hoursLeft < 1    -> 420f
                 hoursLeft < 4    -> 340f
                 hoursLeft < 12   -> 260f
@@ -110,15 +123,14 @@ object TaskScoringEngine {
         }
 
         // ── 3. SCHEDULED TIME PROXIMITY (GTD next-action window) ─────────────
-        // Tasks scheduled for right now get a strong boost
         if (task.scheduledDate != null) {
             val schedMs = task.scheduledDate + (task.scheduledTime ?: 0L)
             val minutesUntil = (schedMs - nowMillis) / 60_000f
             val schedScore = when {
-                minutesUntil < -120 -> 5f   // long past — probably missed
+                minutesUntil < -120 -> 5f
                 minutesUntil < -30  -> 40f
-                minutesUntil < 0    -> 130f  // happening now
-                minutesUntil < 15   -> 170f  // imminent
+                minutesUntil < 0    -> 130f
+                minutesUntil < 15   -> 170f
                 minutesUntil < 60   -> 110f
                 minutesUntil < 240  -> 65f
                 minutesUntil < 1440 -> 35f
@@ -135,47 +147,40 @@ object TaskScoringEngine {
         } * prefs.weightPriorityLevel
 
         // ── 5. STRATEGIC IMPACT + INTRINSIC VALUE (Self-Determination Theory) ─
-        // Impact = external/strategic value. Value = intrinsic motivation.
-        // Both matter — pure impact with no intrinsic value leads to burnout.
         // Weighted composite: impact slightly more important for prioritization.
         val importanceScore = (task.impactScore * 0.55f + task.valueScore * 0.45f)
         s += importanceScore * prefs.weightImpact
 
         // ── 6. EFFORT × CONTEXT (BJ Fogg + Eat the Frog) ────────────────────
-        // Low effort = quick win → boost anytime (dopamine momentum)
-        // High effort = frog → boost only in peak/morning (cognitive resources)
-        // Medium effort = neutral
-        val effortNorm = task.effortScore / 100f  // 0.0 to 1.0
+        // weightFocusMode governs all focus-related boosts (effort + frog below)
+        val effortNorm = task.effortScore / 100f
         val effortBoost = when {
-            effortNorm < 0.3f -> (1f - effortNorm) * 60f  // quick win: up to +60
-            effortNorm > 0.7f && (isPeakHour || isMorning) -> effortNorm * 55f  // hard task in good slot
-            effortNorm > 0.7f -> -(effortNorm * 20f)  // hard task in wrong slot — slight penalty
+            effortNorm < 0.3f -> (1f - effortNorm) * 60f
+            effortNorm > 0.7f && (isPeakHour || isMorning) -> effortNorm * 55f
+            effortNorm > 0.7f -> -(effortNorm * 20f)
             else -> 0f
         }
         s += effortBoost * prefs.weightFocusMode
 
         // ── 7. DURATION MOMENTUM ─────────────────────────────────────────────
-        // Shorter tasks get a small boost — faster dopamine hit, clears the list
-        // But very long tasks aren't penalized heavily — just not boosted
         if (task.estimatedDurationMinutes in 1..90) {
             s += max(0f, 40f - task.estimatedDurationMinutes * 0.3f) * prefs.weightDuration
         }
 
         // ── 8. ENERGY MATCHING (Cognitive Load Theory) ───────────────────────
-        // Continuous penalty/boost based on energy mismatch, not just binary
         val energyBonus = when {
             isPeakHour -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  70f   // perfect match
+                EnergyLevel.HIGH   ->  70f
                 EnergyLevel.MEDIUM ->  20f
-                EnergyLevel.LOW    -> -35f   // wasting peak time on low-energy task
+                EnergyLevel.LOW    -> -35f
             }
             isLowEnergySlot -> when (task.energyLevel) {
-                EnergyLevel.LOW    ->  70f   // perfect match
+                EnergyLevel.LOW    ->  70f
                 EnergyLevel.MEDIUM ->  15f
-                EnergyLevel.HIGH   -> -35f   // can't do high-energy work when drained
+                EnergyLevel.HIGH   -> -35f
             }
             isMorning -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  30f   // morning ramp-up
+                EnergyLevel.HIGH   ->  30f
                 EnergyLevel.MEDIUM ->  10f
                 EnergyLevel.LOW    ->   0f
             }
@@ -187,151 +192,126 @@ object TaskScoringEngine {
         s += energyBonus
 
         // ── 9. CIRCADIAN TASK-TYPE MATCHING ──────────────────────────────────
-        // Research: analytical peaks in morning, creative in late morning/afternoon,
-        // admin best in post-lunch dip, physical flexible
         val circadianBonus = when (task.taskType) {
             TaskType.ANALYTICAL -> when {
-                isPeakHour   ->  60f
-                isMorning    ->  30f
+                isPeakHour      ->  60f
+                isMorning       ->  30f
                 isLowEnergySlot -> -25f
-                else         ->   5f
+                else            ->   5f
             }
             TaskType.CREATIVE -> when {
-                hour in 10..11 ->  55f
-                hour in 16..18 ->  45f
-                isPeakHour     ->  20f
+                hour in 10..11  ->  55f
+                hour in 16..18  ->  45f
+                isPeakHour      ->  20f
                 isLowEnergySlot -> -10f
-                else           ->   0f
+                else            ->   0f
             }
             TaskType.ADMIN -> when {
                 isLowEnergySlot ->  50f
-                isPeakHour      -> -15f  // don't waste peak on admin
+                isPeakHour      -> -15f
                 else            ->  10f
             }
             TaskType.PHYSICAL -> when {
-                isMorning    ->  30f
-                isPeakHour   ->  20f
+                isMorning       ->  30f
+                isPeakHour      ->  20f
                 isLowEnergySlot -> -10f
-                else         ->  10f
+                else            ->  10f
             }
         }
         s += circadianBonus
 
         // ── 10. FROG BOOST (Eat the Frog — Brian Tracy) ──────────────────────
-        // The hardest, most-dreaded task should be done FIRST.
-        // Massive boost before peak hours, strong during peak, minimal after.
-        // Combined with effort score for accuracy — a "frog" that's actually easy
-        // gets a smaller boost.
+        // weightFocusMode applied here too — frog is a focus-mode concept
         if (task.isFrog) {
             val frogBase = when {
-                isMorning    -> 120f  // pre-peak: ideal frog time
-                isPeakHour   ->  90f  // still good
-                isLowEnergySlot ->  20f  // too late, but still surface it
-                else         ->  50f
+                isMorning       -> 120f
+                isPeakHour      ->  90f
+                isLowEnergySlot ->  20f
+                else            ->  50f
             }
-            // Scale by effort — a hard frog deserves more boost than an easy one
-            val effortMultiplier = 0.5f + (task.effortScore / 100f) * 0.5f  // 0.5x to 1.0x
-            s += frogBase * effortMultiplier
+            val effortMultiplier = 0.5f + (task.effortScore / 100f) * 0.5f
+            s += frogBase * effortMultiplier * prefs.weightFocusMode
         }
 
         // ── 11. POSTPONE PENALTY → URGENCY ESCALATION (Zeigarnik Effect) ─────
-        // Each skip increases the psychological nag. Capped to prevent runaway.
         s += min(task.postponeCount * 30f, 180f)
 
         // ── 12. HABIT STREAK PROTECTION ──────────────────────────────────────
-        // Streaks have compounding value — protect them
         if (task.isHabitual && task.habitStreak > 0) {
             s += min(task.habitStreak * 12f, 100f)
         }
 
         // ── 13. DEPENDENCY UNBLOCKING (Critical Path Method) ─────────────────
-        // If finishing THIS task unblocks N other tasks, it's a force multiplier.
-        // Do it first to unlock the critical path.
         val unblockCount = allActiveTasks.count { other ->
             other.id != task.id &&
             other.dependsOnTaskIds.split(",").any { it.trim() == task.id }
         }
         if (unblockCount > 0) {
-            // Diminishing returns: sqrt so 4 blocked tasks isn't 4x as important as 1
             s += sqrt(unblockCount.toFloat()) * 80f
         }
 
-        // ── 14. WEEKEND CONTEXT ADJUSTMENT ───────────────────────────────────
+        // ── 14. WEEKEND / WORK-HOURS CONTEXT ADJUSTMENT ──────────────────────
         if (isWeekend && task.contextTag == "@work") s -= 50f
         if (!isWeekend && task.contextTag == "@home") s -= 15f
-        // Bonus for context match (e.g., @phone tasks when you have time to call)
         if (task.contextTag == "@computer" && !isWeekend) s += 10f
-
-        // ── 14b. WORK HOURS ADJUSTMENT ────────────────────────────────────────
-        // Penalize work-tagged tasks outside the user's configured work window
         if (!isWithinWorkDay && task.contextTag == "@work") s -= 60f
-        // Boost work tasks during work hours
         if (isWithinWorkDay && task.contextTag == "@work") s += 20f
 
         // ── 15. RECENCY BIAS CORRECTION ──────────────────────────────────────
-        // Old tasks that haven't been started yet get a nudge
         val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f
         if (daysSinceCreated > 7 && task.sessionCount == 0) {
-            s += min(daysSinceCreated * 2f, 40f)  // grows with age, capped at 40
+            s += min(daysSinceCreated * 2f, 40f)
         }
 
         // ── 16. PROGRESS PRINCIPLE (Teresa Amabile) ──────────────────────────
-        // Started tasks have momentum — finishing them feels good
-        // Also: partially done tasks have sunk cost that motivates completion
         if (task.sessionCount > 0) {
             s += min(task.sessionCount * 18f, 72f)
         }
 
         // ── 17. IMPLEMENTATION INTENTIONS (Peter Gollwitzer) ─────────────────
-        // "When X happens, I will do Y" — 2-3x completion rate improvement.
-        // Scale boost by effort: a hard task with a concrete plan deserves more
-        // boost than an easy task (which you'd do anyway).
         if (task.ifThenPlan.isNotBlank()) {
-            val planBoost = 25f + (task.effortScore / 100f) * 55f  // 25 to 80 pts
+            val planBoost = 25f + (task.effortScore / 100f) * 55f
             s += planBoost
         }
 
         // ── 18. ENJOYMENT AS CONTINUOUS MODIFIER (Temptation Bundling) ───────
-        // Enjoyment affects activation energy — how hard it is to START.
-        // Low enjoyment + high effort = procrastination trap → surface it more
-        // High enjoyment = easier to start → slight boost (you'll actually do it)
-        // This is continuous, not just at extremes
-        val enjoyNorm = task.enjoymentScore / 100f  // 0.0 to 1.0
+        val enjoyNorm = task.enjoymentScore / 100f
         val effortN = task.effortScore / 100f
         val enjoymentModifier = when {
-            enjoyNorm < 0.3f && effortN > 0.6f -> 40f   // dread + hard = procrastination trap
-            enjoyNorm < 0.3f -> 20f                       // dread alone — surface it
-            enjoyNorm > 0.7f && effortN > 0.6f -> 25f   // love it + hard = temptation bundle
-            enjoyNorm > 0.7f -> 15f                       // love it — slight boost
+            enjoyNorm < 0.3f && effortN > 0.6f -> 40f
+            enjoyNorm < 0.3f -> 20f
+            enjoyNorm > 0.7f && effortN > 0.6f -> 25f
+            enjoyNorm > 0.7f -> 15f
             else -> 0f
         }
         s += enjoymentModifier
 
         // ── 19. COMMITMENT DEVICE (Social Accountability) ────────────────────
-        // Told someone you'd do this — social cost of failure is real
         if (task.isPublicCommitment) s += 70f
 
-        // Schedule lock = explicit commitment to a time slot — surface it when that time comes
         if (task.isScheduleLocked && task.scheduledDate != null) {
             val minutesUntil = (task.scheduledDate - nowMillis) / 60_000f
-            if (minutesUntil in -30f..60f) s += 80f  // strong boost when the locked slot is now/imminent
+            if (minutesUntil in -30f..60f) s += 80f
             else if (minutesUntil in -120f..240f) s += 30f
         }
 
         // ── 20. LOSS AVERSION (Kahneman & Tversky) ───────────────────────────
-        // Fear of losing > hope of gaining. Goal at risk = strong motivator.
         s += when (task.goalRiskLevel) {
-            1 -> 60f    // goal at risk
-            2 -> 130f   // goal critical — loss aversion at maximum
+            1 -> 60f
+            2 -> 130f
             else -> 0f
         }
 
         // ── 21. STRESS INOCULATION (Anxiety Task Anti-Avoidance) ─────────────
-        // Anxiety tasks are avoided → they spiral → surface them early
-        // Combined with enjoyment: an anxiety task you also dread gets extra push
         if (task.isAnxietyTask) {
-            val anxietyBoost = 40f + if (enjoyNorm < 0.4f) 20f else 0f
-            s += anxietyBoost
+            s += 40f + if (enjoyNorm < 0.4f) 20f else 0f
+        }
+
+        // ── 22. DISTRACTION-AWARE BOOST ───────────────────────────────────────
+        // Only boost when a real score has been computed (> 0f).
+        // distractionScore = -1f means not yet computed; 0f means no distractions recorded.
+        if (task.distractionScore > 0f) {
+            s += DistractionEngine.priorityBoost(task.distractionScore)
         }
 
         return max(0f, s)
@@ -415,6 +395,9 @@ object TaskScoringEngine {
     /**
      * Returns a human-readable explanation of why this task scored the way it did.
      * Displayed in FocusScreen as an expandable "Why this score?" card.
+     *
+     * Uses effectivePeakStart/End (same as score()) so the breakdown always
+     * reflects the actual score components — not the raw manual preference.
      */
     fun scoreBreakdown(
         task: TaskEntity,
@@ -423,10 +406,19 @@ object TaskScoringEngine {
         nowMillis: Long = System.currentTimeMillis()
     ): List<Pair<String, Float>> {
         if (task.status != TaskStatus.ACTIVE) return emptyList()
+
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
-        val isPeakHour = hour in prefs.peakEnergyStart..prefs.peakEnergyEnd
-        val isMorning = hour < prefs.peakEnergyStart
+
+        // Mirror score()'s effective peak resolution exactly
+        val (effectivePeakStart, effectivePeakEnd) = if (prefs.effectivePeakStart >= 0) {
+            prefs.effectivePeakStart to prefs.effectivePeakEnd
+        } else {
+            prefs.peakEnergyStart to prefs.peakEnergyEnd
+        }
+
+        val isPeakHour = hour in effectivePeakStart..effectivePeakEnd
+        val isMorning = hour < effectivePeakStart
         val isLowEnergySlot = hour in 13..15
 
         val result = mutableListOf<Pair<String, Float>>()
@@ -442,11 +434,11 @@ object TaskScoringEngine {
         if (task.isFrog) {
             val base = when {
                 isMorning       -> 120f
-                isPeakHour      -> 90f
-                isLowEnergySlot -> 20f
-                else            -> 50f
+                isPeakHour      ->  90f
+                isLowEnergySlot ->  20f
+                else            ->  50f
             }
-            result += "🐸 Frog task" to base * (0.5f + task.effortScore / 200f)
+            result += "🐸 Frog task" to base * (0.5f + task.effortScore / 200f) * prefs.weightFocusMode
         }
         if (task.ifThenPlan.isNotBlank()) {
             result += "🎯 If-then plan" to (25f + task.effortScore / 100f * 55f)
@@ -457,17 +449,31 @@ object TaskScoringEngine {
         if (task.goalRiskLevel > 0) result += "⚠ Goal risk" to if (task.goalRiskLevel == 2) 130f else 60f
         if (task.waitingFor.isNotBlank()) result += "⏳ Waiting for (blocked)" to -999f
         if (task.postponeCount > 0) result += "↩ Postponed ${task.postponeCount}x" to min(task.postponeCount * 30f, 180f)
+        if (task.distractionScore > 0f) {
+            val boost = DistractionEngine.priorityBoost(task.distractionScore)
+            if (boost > 0f) result += "📵 ${DistractionEngine.label(task.distractionScore)}" to boost
+        }
 
         return result.sortedByDescending { it.second }
     }
 
+    /**
+     * Auto-assigns an Eisenhower quadrant based on urgency and importance.
+     *
+     * Importance uses the same 0.55/0.45 impact+value composite as score() so
+     * auto-assigned quadrants are consistent with how the engine actually ranks tasks.
+     * Threshold: composite score >= 50 (out of 100) = important.
+     */
     fun autoAssignQuadrant(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Quadrant {
         val hoursLeft = if (task.deadlineDate != null)
             (task.deadlineDate + (task.deadlineTime ?: 0L) - nowMillis) / 3_600_000f
         else Float.MAX_VALUE
 
         val isUrgent = hoursLeft < 72 || task.priority == Priority.HIGH
-        val isImportant = task.impactScore >= 50 || task.valueScore >= 50 ||
+
+        // Mirror the score() composite so quadrant assignment stays consistent
+        val importanceComposite = task.impactScore * 0.55f + task.valueScore * 0.45f
+        val isImportant = importanceComposite >= 50f ||
             task.goalId != null || task.isFrog || task.isPublicCommitment || task.goalRiskLevel > 0
 
         return when {

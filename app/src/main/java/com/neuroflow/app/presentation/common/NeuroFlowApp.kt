@@ -52,6 +52,8 @@ import com.neuroflow.app.presentation.onboarding.AppGuideScreen
 import com.neuroflow.app.presentation.schedule.ScheduleScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
+import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     data object Matrix : Screen("matrix", "Matrix", Icons.Filled.GridView)
     data object Schedule : Screen("schedule", "Schedule", Icons.Filled.CalendarMonth)
@@ -64,6 +66,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object AppGuide : Screen("app_guide", "App Guide", null)
     data object LogTime : Screen("log_time", "Log Time", Icons.Filled.Timer)
     data object Identity : Screen("identity", "Identity", Icons.Filled.Psychology)
+    data object LauncherSettingsScreen : Screen("launcher_settings", "Launcher Settings", null)
+    data object Rewards : Screen("rewards", "Rewards", null)
 }
 
 val bottomNavItems = listOf(
@@ -75,7 +79,9 @@ val bottomNavItems = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NeuroFlowApp() {
+fun NeuroFlowApp(
+    initialTaskId: String? = null
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -86,6 +92,16 @@ fun NeuroFlowApp() {
 
     // Edit dialog state: null = closed, YEARLY/WEEKLY = open for that period
     var editingPeriod by remember { mutableStateOf<GoalPeriod?>(null) }
+
+    // Handle initial navigation to FocusScreen if taskId is provided
+    androidx.compose.runtime.LaunchedEffect(initialTaskId) {
+        if (initialTaskId != null) {
+            navController.navigate("focus/$initialTaskId") {
+                // Don't add to back stack if we're already on the start destination
+                launchSingleTop = true
+            }
+        }
+    }
 
     val showBottomBar = bottomNavItems.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true
@@ -297,11 +313,25 @@ fun NeuroFlowApp() {
                         onNavigateBack = { navController.popBackStack() },
                         onNavigateToPriorityWeights = {
                             navController.navigate(Screen.PriorityWeights.route)
+                        },
+                        onNavigateToLauncherSettings = {
+                            navController.navigate(Screen.LauncherSettingsScreen.route)
                         }
                     )
                 }
                 composable(Screen.PriorityWeights.route) {
                     PriorityWeightsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.LauncherSettingsScreen.route) {
+                    LauncherSettingsRoute(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToRewards = { navController.navigate(Screen.Rewards.route) }
+                    )
+                }
+                composable(Screen.Rewards.route) {
+                    RewardsScreen(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
@@ -368,4 +398,19 @@ private fun GoalsEditContent(
             }
         }
     }
+}
+
+/**
+ * Wraps LauncherSettings as a standalone nav destination within the main app.
+ * Shows the full launcher settings screen with a back button.
+ */
+@Composable
+private fun LauncherSettingsRoute(onNavigateBack: () -> Unit, onNavigateToRewards: () -> Unit = {}) {
+    val viewModel: com.neuroflow.app.presentation.launcher.LauncherViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    LauncherSettings(
+        isOpen = true,
+        onDismiss = onNavigateBack,
+        onNavigateToRewards = onNavigateToRewards,
+        viewModel = viewModel
+    )
 }

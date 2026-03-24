@@ -62,7 +62,9 @@ data class UserPreferences(
     val lastWeeklyGoalShownYear: Int = 0,
     // Focus behaviour toggles
     val woopEnabled: Boolean = true,
-    val autoTrackerEnabled: Boolean = false
+    val autoTrackerEnabled: Boolean = false,
+    // Left page quick note
+    val leftPageQuickNote: String = ""
 )
 
 @Singleton
@@ -111,6 +113,7 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_WEEKLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_weekly_goal_shown_year")
         val WOOP_ENABLED = booleanPreferencesKey("woop_enabled")
         val AUTO_TRACKER_ENABLED = booleanPreferencesKey("auto_tracker_enabled")
+        val LEFT_PAGE_QUICK_NOTE = stringPreferencesKey("left_page_quick_note")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -157,7 +160,8 @@ class UserPreferencesDataStore @Inject constructor(
             lastWeeklyGoalShownWeek = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] ?: 0,
             lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
             woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
-            autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false
+            autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
+            leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
         )
     }
 
@@ -220,7 +224,8 @@ class UserPreferencesDataStore @Inject constructor(
                 lastWeeklyGoalShownWeek = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] ?: 0,
                 lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
                 woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
-                autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false
+                autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
+                leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -264,6 +269,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] = updated.lastWeeklyGoalShownYear
             prefs[Keys.WOOP_ENABLED] = updated.woopEnabled
             prefs[Keys.AUTO_TRACKER_ENABLED] = updated.autoTrackerEnabled
+            prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
         }
     }
 }

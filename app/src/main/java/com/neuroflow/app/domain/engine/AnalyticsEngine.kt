@@ -256,13 +256,30 @@ object AnalyticsEngine {
             .map { it.title to it.focusModePoints }
 
         // ── Peak-hour productivity ────────────────────────────────────────────
-        // Sessions that started during the user's configured peak energy window
-        val peakSessions = closedSessions.filter { session ->
-            val cal = Calendar.getInstance().apply { timeInMillis = session.startedAt }
-            val h = cal.get(Calendar.HOUR_OF_DAY)
-            h in prefs.peakEnergyStart..prefs.peakEnergyEnd
+        // Split each session's duration at peak window boundaries so only the
+        // portion that actually fell within peak hours is counted.
+        var peakHourFocusMinutes = 0f
+        for (session in closedSessions) {
+            val sessionStart = session.startedAt
+            val sessionEnd = session.endedAt ?: continue
+            if (sessionEnd <= sessionStart) continue
+
+            // Build peak windows for the days this session spans (handles overnight sessions)
+            val startDay = startOfDay(sessionStart)
+            val endDay = startOfDay(sessionEnd)
+            var day = startDay
+            while (day <= endDay) {
+                val peakWindowStart = day + prefs.peakEnergyStart * 3_600_000L
+                val peakWindowEnd = day + (prefs.peakEnergyEnd + 1) * 3_600_000L // end hour is inclusive
+
+                val overlapStart = maxOf(sessionStart, peakWindowStart)
+                val overlapEnd = minOf(sessionEnd, peakWindowEnd)
+                if (overlapEnd > overlapStart) {
+                    peakHourFocusMinutes += (overlapEnd - overlapStart) / 60_000f
+                }
+                day += 86_400_000L
+            }
         }
-        val peakHourFocusMinutes = peakSessions.sumOf { it.durationMinutes.toDouble() }.toFloat()
         val offPeakFocusMinutes = (focusMinutesTotal - peakHourFocusMinutes).coerceAtLeast(0f)
         val peakHourTasksCompleted = completed.count { task ->
             val completedMs = task.completedAt ?: return@count false

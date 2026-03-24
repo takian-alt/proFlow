@@ -1,6 +1,7 @@
 package com.neuroflow.app.di
 
 import android.content.Context
+import android.content.pm.LauncherApps
 import androidx.room.Room
 import com.neuroflow.app.data.local.MIGRATION_1_2
 import com.neuroflow.app.data.local.MIGRATION_2_3
@@ -9,6 +10,9 @@ import com.neuroflow.app.data.local.MIGRATION_4_5
 import com.neuroflow.app.data.local.MIGRATION_5_6
 import com.neuroflow.app.data.local.MIGRATION_6_7
 import com.neuroflow.app.data.local.MIGRATION_7_8
+import com.neuroflow.app.data.local.MIGRATION_8_9
+import com.neuroflow.app.data.local.MIGRATION_9_10
+import com.neuroflow.app.data.local.MIGRATION_10_11
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.GoalDao
@@ -37,7 +41,7 @@ object AppModule {
             NeuroFlowDatabase::class.java,
             "neuroflow_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .build()
     }
 
@@ -69,4 +73,9 @@ object AppModule {
     fun provideUserPreferencesDataStore(
         @ApplicationContext context: Context
     ): UserPreferencesDataStore = UserPreferencesDataStore(context)
+
+    @Provides
+    @Singleton
+    fun provideLauncherApps(@ApplicationContext context: Context): LauncherApps =
+        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
 }

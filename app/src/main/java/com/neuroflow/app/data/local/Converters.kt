@@ -7,6 +7,7 @@ import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskType
 
 class Converters {
@@ -32,4 +33,7 @@ class Converters {
     @TypeConverter fun fromContractOutcome(value: ContractOutcome?): String? = value?.name
     @TypeConverter fun toContractOutcome(value: String?): ContractOutcome? =
         value?.let { ContractOutcome.valueOf(it) }
+
+    @TypeConverter fun fromRewardTier(value: RewardTier): String = value.name
+    @TypeConverter fun toRewardTier(value: String): RewardTier = RewardTier.valueOf(value)
 }

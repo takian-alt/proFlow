@@ -51,9 +51,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val taskId = intent.getStringExtra("taskId") ?: return
+        setIntent(intent)  // Update the intent so onCreate can also handle it
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent) {
+        val taskId = intent.getStringExtra("taskId") ?: intent.getStringExtra("task_id")
         when (intent.action) {
+            "com.procus.ACTION_OPEN_FOCUS" -> {
+                // Handle ACTION_OPEN_FOCUS from launcher
+                // Navigation is handled by NeuroFlowApp via deep link
+                // The intent is already set, so NeuroFlowApp will pick it up
+                return
+            }
             "RESCHEDULE_NUDGE" -> {
+                if (taskId == null) return
                 // Re-enqueue AutonomyNudgeWorker with 1-hour delay
                 val request = OneTimeWorkRequestBuilder<AutonomyNudgeWorker>()
                     .setInitialDelay(1, TimeUnit.HOURS)
@@ -65,11 +77,9 @@ class MainActivity : ComponentActivity() {
             "SPLIT_TASK" -> {
                 // TaskSplitter is called from AutonomyNudgeWorker context; here we just navigate
                 // Navigation to the task is handled by NeuroFlowApp via deep link / intent extras
-                setIntent(intent)
             }
             "WOOP_REFLECT" -> {
                 // Navigate to MiniWoopReflectionScreen — handled by NeuroFlowApp nav
-                setIntent(intent)
             }
         }
     }
@@ -80,6 +90,10 @@ class MainActivity : ComponentActivity() {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         enableEdgeToEdge()
+
+        // Handle ACTION_OPEN_FOCUS intent
+        handleIntent(intent)
+
         setContent {
             val preferences by preferencesDataStore.preferencesFlow.collectAsState(initial = null)
             val scope = rememberCoroutineScope()
@@ -88,6 +102,13 @@ class MainActivity : ComponentActivity() {
             // Track whether goals refill has been handled this session (skip = session-only)
             var yearlyGoalHandled by remember { mutableStateOf(false) }
             var weeklyGoalHandled by remember { mutableStateOf(false) }
+
+            // Extract task_id from intent for ACTION_OPEN_FOCUS
+            val initialTaskId = remember(intent) {
+                if (intent.action == "com.procus.ACTION_OPEN_FOCUS") {
+                    intent.getStringExtra("task_id")
+                } else null
+            }
 
             val darkTheme = when (preferences?.theme) {
                 AppTheme.LIGHT -> false
@@ -232,7 +253,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onSkip = { weeklyGoalHandled = true }
                                 )
-                                else -> NeuroFlowApp()
+                                else -> NeuroFlowApp(initialTaskId = initialTaskId)
                             }
                         }
                     }
