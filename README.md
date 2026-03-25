@@ -6,6 +6,16 @@ proFlow is an advanced productivity and task management application for Android,
 
 ---
 
+## Download
+
+| Version | Min Android | File |
+|---------|-------------|------|
+| **v3.0.0** (latest) | Android 8.0 (API 26) | [⬇ app-release.apk](documents/app-release.apk) |
+
+> **Install tip:** You will need to enable *Install from unknown sources* in your Android settings before side-loading the APK.
+
+---
+
 ## Features
 
 - **Focus Launcher** — a full Android home-screen replacement purpose-built for deep work; surfaces your top-priority task front and centre, integrates with the neuroscience scoring engine, and removes friction between intention and action
