@@ -129,6 +129,10 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    
+    // Hilt Testing
+    androidTestImplementation("com.google.dagger:hilt-android-testing:2.51.1")
+    kspAndroidTest("com.google.dagger:hilt-android-compiler:2.51.1")
 
     // Baseline Profile generation
     androidTestImplementation("androidx.benchmark:benchmark-macro-junit4:1.2.4")
