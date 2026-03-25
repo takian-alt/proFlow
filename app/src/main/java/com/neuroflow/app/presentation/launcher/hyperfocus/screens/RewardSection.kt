@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.presentation.launcher.hyperfocus.domain.RewardEngine
 
 @Composable
 fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier) {
@@ -67,11 +68,21 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
         )
 
         displayTiers.forEach { (tier, label) ->
-            val isEarned = progress.currentTier >= tier && tier != RewardTier.NONE
+            val isEarned = RewardEngine.isTierEarned(
+                tier = tier,
+                completedSinceActivation = progress.completedSinceActivation,
+                totalTarget = progress.totalTarget,
+                emergencyUsed = prefs.emergencyUsed
+            )
+            val isReachable = RewardEngine.isTierReachable(
+                tier = tier,
+                totalTarget = progress.totalTarget,
+                emergencyUsed = prefs.emergencyUsed
+            )
             val hasUnclaimedCode = (rewardCounts[tier] ?: 0) > 0
             // Hide the FULL tier claim button once planning is pending (code already claimed)
             val isPlanningPending = prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
-            val isAvailable = isEarned && hasUnclaimedCode && !(tier == RewardTier.FULL && isPlanningPending)
+            val isAvailable = isReachable && isEarned && hasUnclaimedCode && !(tier == RewardTier.FULL && isPlanningPending)
             val isPendingThisTier = claimedCode != null && claimedTier == tier
 
             Surface(
@@ -104,6 +115,7 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                             )
                             Text(
                                 text = when {
+                                    !isReachable -> "Not available for current target"
                                     !isEarned -> "Not yet earned"
                                     !hasUnclaimedCode -> "Already used"
                                     else -> "Earned — ready to claim"

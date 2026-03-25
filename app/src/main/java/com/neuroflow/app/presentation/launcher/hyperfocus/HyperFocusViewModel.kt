@@ -145,6 +145,15 @@ class HyperFocusViewModel @Inject constructor(
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()
             val sessionId = prefs.sessionId ?: return@launch
+            val currentProgress = progress.value
+
+            val canClaimTier = RewardEngine.isTierEarned(
+                tier = tier,
+                completedSinceActivation = currentProgress.completedSinceActivation,
+                totalTarget = currentProgress.totalTarget,
+                emergencyUsed = prefs.emergencyUsed
+            )
+            if (!canClaimTier) return@launch
 
             // If there's already a pending code for this same tier, just show it again
             if (prefs.pendingCodeId != null && claimedCodeTier.value == tier) {

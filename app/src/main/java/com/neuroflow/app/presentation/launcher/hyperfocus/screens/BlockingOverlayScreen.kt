@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.launcher.hyperfocus.screens
 
 import android.app.Activity
+import android.content.Intent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.neuroflow.app.domain.model.RewardTier
+import com.neuroflow.app.presentation.launcher.LauncherActivity
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -101,6 +103,7 @@ fun BlockingOverlayScreen(
 
     // Motivational quotes
     val blockedAppQuotes = listOf(
+        "Lol. Don't say, (you lost your motivation).",
         "Your goals are more important than this distraction.",
         "This moment defines your discipline. Stay strong.",
         "Your focus is worth more than this.",
@@ -115,7 +118,9 @@ fun BlockingOverlayScreen(
         "Control the urge, control your destiny.",
         "Success requires saying 'no' to distractions.",
         "The harder it is to resist, the more you need to.",
-        "Your mind is more powerful than this impulse."
+        "Your mind is more powerful than this impulse.",
+        "Is this really worth it? Do you really want to become dumber?",
+        "Look! who we have here!! Lamao,lol.. I thought ,you have finally became smarter. Ig, you are still stupid"
     )
 
     val selectedQuote = remember(blockedPackage) {
@@ -486,6 +491,20 @@ fun BlockingOverlayScreen(
                 // ============ ACTION BUTTONS (LOCKED) ============
                 Button(
                     onClick = {
+                        val shouldOpenPlanning =
+                            prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
+
+                        val launcherIntent = Intent(context, LauncherActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+
+                            if (shouldOpenPlanning) {
+                                putExtra(LauncherActivity.EXTRA_OPEN_PLANNING, true)
+                            }
+                        }
+
+                        context.startActivity(launcherIntent)
                         (context as? Activity)?.finish()
                     },
                     modifier = Modifier
