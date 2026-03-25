@@ -143,7 +143,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> LeftPage(viewModel = viewModel)
-                1 -> QuotePage(viewModel = viewModel, launcherApps = launcherApps, snackbarHostState = snackbarHostState)
+                1 -> QuotePage(viewModel = viewModel, launcherApps = launcherApps, snackbarHostState = snackbarHostState, gestureHandler = gestureHandler)
                 2 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null, showDateTime = false)
                 else -> {
                     val extraPage = extraPages.getOrNull(page - 3)
@@ -220,6 +220,7 @@ private fun QuotePage(
     viewModel: LauncherViewModel,
     launcherApps: android.content.pm.LauncherApps,
     snackbarHostState: SnackbarHostState,
+    gestureHandler: LauncherGestureHandler,
     modifier: Modifier = Modifier
 ) {
     val quotes = listOf(
@@ -229,7 +230,9 @@ private fun QuotePage(
         "People with clear goals and consistent focus get more done than people with more talent. — Cal Newport",
         "The best time to plant a tree was 20 years ago. The second best time is now. — Chinese Proverb"
     )
-    val index = remember { Random.nextInt(quotes.size) }
+    val customQuotesList by viewModel.customQuotes.collectAsStateWithLifecycle()
+    val allQuotes = quotes + customQuotesList
+    val index = remember { Random.nextInt(maxOf(1, allQuotes.size)) }
 
     Column(
         modifier = Modifier
@@ -269,7 +272,7 @@ private fun QuotePage(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = quotes[index],
+                        text = allQuotes.getOrNull(index) ?: "Focus on what matters most today.",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center
@@ -283,7 +286,9 @@ private fun QuotePage(
             appRepository = viewModel.getAppRepository(),
             launcherApps = launcherApps,
             snackbarHostState = snackbarHostState,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(with(gestureHandler) { Modifier.attachSwipeUp() })
         )
     }
 }

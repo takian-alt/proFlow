@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,6 +117,21 @@ fun LauncherSettings(
                     // Home Screen Pages Section
                     item {
                         HomeScreenPagesSection(viewModel = viewModel)
+                    }
+
+                    // Custom Quotes Section
+                    item {
+                        CustomQuotesSection(
+                            viewModel = viewModel,
+                            isExpanded = expandedSection == SettingsSection.CUSTOM_QUOTES,
+                            onToggleExpanded = {
+                                expandedSection = if (expandedSection == SettingsSection.CUSTOM_QUOTES) {
+                                    null
+                                } else {
+                                    SettingsSection.CUSTOM_QUOTES
+                                }
+                            }
+                        )
                     }
 
                     // Distraction Scoring Section (Task 20.1, 20.2)
@@ -262,7 +279,8 @@ private enum class SettingsSection {
     DISTRACTION_SCORING,
     DOCK_EDITOR,
     VISUAL_CUSTOMIZATION,
-    FEATURE_SETTINGS
+    FEATURE_SETTINGS,
+    CUSTOM_QUOTES
 }
 
 /**
@@ -524,6 +542,144 @@ private fun HomeScreenPagesSection(viewModel: LauncherViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Custom Quotes Section.
+ *
+ * Allows users to add and manage custom quotes that will appear
+ * on the central quote page alongside default quotes.
+ */
+@Composable
+private fun CustomQuotesSection(
+    viewModel: LauncherViewModel,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit
+) {
+    val customQuotes by viewModel.customQuotes.collectAsState()
+    var newQuote by remember { mutableStateOf("") }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Section header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Quotes for Central Page",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Add custom quotes to inspire your daily focus",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onToggleExpanded) {
+                    Icon(
+                        imageVector = if (isExpanded) 
+                            Icons.Filled.KeyboardArrowUp
+                        else 
+                            Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Toggle"
+                    )
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Add new quote input
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newQuote,
+                        onValueChange = { newQuote = it },
+                        label = { Text("Add a new quote") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 3
+                    )
+                    Button(
+                        onClick = {
+                            if (newQuote.isNotBlank()) {
+                                viewModel.addCustomQuote(newQuote)
+                                newQuote = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = newQuote.isNotBlank()
+                    ) {
+                        Text("Add Quote")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Display custom quotes
+                if (customQuotes.isEmpty()) {
+                    Text(
+                        "No custom quotes yet. Add one above!",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text(
+                        "Your quotes (${customQuotes.size}):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    customQuotes.forEachIndexed { index, quote ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = quote,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            IconButton(
+                                onClick = { viewModel.removeCustomQuote(index) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Delete quote",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
