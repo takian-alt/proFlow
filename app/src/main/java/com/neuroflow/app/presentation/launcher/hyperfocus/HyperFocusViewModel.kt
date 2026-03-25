@@ -61,8 +61,8 @@ class HyperFocusViewModel @Inject constructor(
             (totalCompleted - prefs.tasksCompletedAtActivation).coerceAtLeast(0)
         }
         val fraction = completedSinceActivation.toFloat() / prefs.dailyTaskTarget.coerceAtLeast(1)
-        val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
-        val tasksToNextTier = RewardEngine.tasksToNextTier(completedSinceActivation, prefs.dailyTaskTarget)
+        val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
+        val tasksToNextTier = RewardEngine.tasksToNextTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
         HyperFocusProgress(
             completedSinceActivation = completedSinceActivation,
             totalTarget = prefs.dailyTaskTarget,
@@ -135,10 +135,25 @@ class HyperFocusViewModel @Inject constructor(
         }
     }
 
+    fun activateEmergencyBypass() {
+        viewModelScope.launch {
+            hyperFocusManager.triggerEmergencyBypass()
+        }
+    }
+
     fun claimRewardForTier(tier: RewardTier) {
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()
             val sessionId = prefs.sessionId ?: return@launch
+            val currentProgress = progress.value
+
+            val canClaimTier = RewardEngine.isTierEarned(
+                tier = tier,
+                completedSinceActivation = currentProgress.completedSinceActivation,
+                totalTarget = currentProgress.totalTarget,
+                emergencyUsed = prefs.emergencyUsed
+            )
+            if (!canClaimTier) return@launch
 
             // If there's already a pending code for this same tier, just show it again
             if (prefs.pendingCodeId != null && claimedCodeTier.value == tier) {

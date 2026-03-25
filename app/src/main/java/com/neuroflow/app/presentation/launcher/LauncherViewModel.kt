@@ -65,6 +65,8 @@ class LauncherViewModel @Inject constructor(
             // Only auto-populate if dock is empty (first launch)
             if (currentPrefs.dockPackages.isEmpty()) {
                 val apps = appRepository.apps.first()
+                // ProFlow itself is always available (it's the launcher), pin it first
+                pinToDock("com.neuroflow.app")
                 val commonDock = listOf(
                     "com.android.chrome",
                     "com.google.android.gm",
@@ -313,6 +315,17 @@ class LauncherViewModel @Inject constructor(
         )
 
     /**
+     * Custom quotes for the quote page.
+     */
+    val customQuotes: StateFlow<List<String>> = pinnedAppsDataStore.launcherPrefsFlow
+        .map { it.customQuotes }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+    /**
      * Top 3 most distracting apps during focus sessions, computed on demand.
      * Loaded via loadTop3DistractingApps() — returns empty until called.
      */
@@ -358,6 +371,23 @@ class LauncherViewModel @Inject constructor(
     fun saveQuickNote(note: String) {
         viewModelScope.launch {
             userPreferencesDataStore.updatePreferences { it.copy(leftPageQuickNote = note) }
+        }
+    }
+
+    fun addCustomQuote(quote: String) {
+        if (quote.isBlank()) return
+        viewModelScope.launch {
+            pinnedAppsDataStore.updatePreferences { prefs ->
+                prefs.copy(customQuotes = prefs.customQuotes + quote)
+            }
+        }
+    }
+
+    fun removeCustomQuote(index: Int) {
+        viewModelScope.launch {
+            pinnedAppsDataStore.updatePreferences { prefs ->
+                prefs.copy(customQuotes = prefs.customQuotes.filterIndexed { i, _ -> i != index })
+            }
         }
     }
 

@@ -12,6 +12,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsCompat
@@ -36,7 +39,9 @@ import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 import com.neuroflow.app.presentation.launcher.hyperfocus.components.HyperFocusStatusBar
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -52,9 +57,9 @@ import androidx.compose.foundation.layout.statusBars
  * - TwoColumnLayout: Foldable unfolded / tablet layout
  *
  * Implements HorizontalPager with 3 pages:
- * - Left (index 0): FutureLeftPage placeholder
- * - Center (index 1): Active home screen
- * - Right (index 2): FutureRightPage placeholder
+ * - Left (index 0): Focus Space (left panel)
+ * - Center (index 1): Quotes panel (inspirational, science-based)
+ * - Right (index 2): Main launcher page (app grid + task/clock)
  *
  * Requirements: 2.1, 2.2, 2.3, 2.12, 2.13, 2.14, 26.1
  *
@@ -66,8 +71,8 @@ import androidx.compose.foundation.layout.statusBars
 /**
  * Page indices:
  *   0 = Left (fixed)
- *   1 = Main/Center (fixed)
- *   2 = Stats/Right (fixed)
+ *   1 = Quotes/Center (fixed)
+ *   2 = Main content/Right (fixed)
  *   3..N = Extra pages from homeScreenPages datastore (user-created, deletable)
  *
  * homeScreenPages in the datastore holds ONLY the extra pages (index 3+).
@@ -86,6 +91,11 @@ fun HomeScreen(
     val configuration = LocalConfiguration.current
     val extraPages by viewModel.homeScreenPages.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val launcherApps = remember {
+        context.getSystemService(android.content.Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+    }
 
     val totalPages = 3 + extraPages.size
     val pagerState = rememberPagerState(
@@ -133,11 +143,11 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> LeftPage(viewModel = viewModel)
-                1 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null)
-                2 -> RightPage(viewModel = viewModel)
+                1 -> QuotePage(viewModel = viewModel, launcherApps = launcherApps, snackbarHostState = snackbarHostState, gestureHandler = gestureHandler)
+                2 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null, showDateTime = false)
                 else -> {
                     val extraPage = extraPages.getOrNull(page - 3)
-                    ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = extraPage)
+                    ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = extraPage, showDateTime = false)
                 }
             }
         }
@@ -187,7 +197,8 @@ private fun ActiveHomePage(
     layoutMode: LayoutMode,
     viewModel: LauncherViewModel,
     gestureHandler: LauncherGestureHandler,
-    pageData: com.neuroflow.app.presentation.launcher.data.HomeScreenPage?
+    pageData: com.neuroflow.app.presentation.launcher.data.HomeScreenPage?,
+    showDateTime: Boolean = true
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -195,9 +206,90 @@ private fun ActiveHomePage(
         context.getSystemService(android.content.Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
     }
     when (layoutMode) {
-        LayoutMode.PORTRAIT -> PortraitLayout(viewModel, gestureHandler, launcherApps, snackbarHostState, pageData)
+        LayoutMode.PORTRAIT -> PortraitLayout(viewModel, gestureHandler, launcherApps, snackbarHostState, pageData, showDateTime)
         LayoutMode.LANDSCAPE -> LandscapeLayout(viewModel, launcherApps, snackbarHostState)
         LayoutMode.TWO_COLUMN -> TwoColumnLayout(viewModel, launcherApps, snackbarHostState)
+    }
+}
+
+/**
+ * Center (quote) page — quick science-backed influence quotes.
+ */
+@Composable
+private fun QuotePage(
+    viewModel: LauncherViewModel,
+    launcherApps: android.content.pm.LauncherApps,
+    snackbarHostState: SnackbarHostState,
+    gestureHandler: LauncherGestureHandler,
+    modifier: Modifier = Modifier
+) {
+    val quotes = listOf(
+        "A small daily improvement leads to huge long-term results. — James Clear",
+        "Attention is the rarest and purest form of generosity. — Simone Weil",
+        "When you want to change your habits, focus not on what you want to achieve, but on who you wish to become. — James Clear",
+        "People with clear goals and consistent focus get more done than people with more talent. — Cal Newport",
+        "The best time to plant a tree was 20 years ago. The second best time is now. — Chinese Proverb"
+    )
+    val customQuotesList by viewModel.customQuotes.collectAsStateWithLifecycle()
+    val allQuotes = quotes + customQuotesList
+    val index = remember { Random.nextInt(maxOf(1, allQuotes.size)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DateTimeDisplay(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "🔥 Daily Focus Quote",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = allQuotes.getOrNull(index) ?: "Focus on what matters most today.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        DockRow(
+            viewModel = viewModel,
+            appRepository = viewModel.getAppRepository(),
+            launcherApps = launcherApps,
+            snackbarHostState = snackbarHostState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(with(gestureHandler) { Modifier.attachSwipeUp() })
+        )
     }
 }
 
@@ -219,7 +311,8 @@ private fun PortraitLayout(
     gestureHandler: LauncherGestureHandler,
     launcherApps: android.content.pm.LauncherApps,
     snackbarHostState: SnackbarHostState,
-    pageData: com.neuroflow.app.presentation.launcher.data.HomeScreenPage?
+    pageData: com.neuroflow.app.presentation.launcher.data.HomeScreenPage?,
+    showDateTime: Boolean = true
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -259,11 +352,13 @@ private fun PortraitLayout(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                DateTimeDisplay(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(with(gestureHandler) { Modifier.attachSwipeDown() })
-                )
+                if (showDateTime) {
+                    DateTimeDisplay(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(with(gestureHandler) { Modifier.attachSwipeDown() })
+                    )
+                }
                 HyperFocusStatusBar(
                     prefs = hyperFocusPrefs,
                     progress = hyperFocusProgress,

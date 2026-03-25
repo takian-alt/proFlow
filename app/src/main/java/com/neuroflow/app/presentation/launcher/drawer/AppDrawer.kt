@@ -263,8 +263,8 @@ fun AppDrawer(
     val offsetY by animateDpAsState(
         targetValue = if (isOpen) 0.dp else 1000.dp,
         animationSpec = spring(
-            dampingRatio = 0.8f,
-            stiffness = 400f
+            dampingRatio = 0.85f,
+            stiffness = 600f
         ),
         label = "drawerOffset"
     )

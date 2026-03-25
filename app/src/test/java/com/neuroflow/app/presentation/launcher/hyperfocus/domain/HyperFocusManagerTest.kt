@@ -152,5 +152,23 @@ class HyperFocusManagerTest : StringSpec({
             updated.tamperDetectedAt shouldNotBe null
         }
     }
+
+    "completePlanning deactivates session so a new one can be started" {
+        runTest {
+            val prefs = HyperFocusPreferences(
+                isActive = true,
+                sessionId = "session1"
+            )
+            coEvery { hyperFocusDataStore.current() } returns prefs
+
+            manager.completePlanning()
+
+            val updateSlot = slot<(HyperFocusPreferences) -> HyperFocusPreferences>()
+            coVerify { hyperFocusDataStore.update(capture(updateSlot)) }
+
+            val updated = updateSlot.captured(prefs)
+            updated.isActive shouldBe false
+        }
+    }
 })
 

@@ -62,6 +62,10 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class LauncherActivity : FragmentActivity() {
 
+    companion object {
+        const val EXTRA_OPEN_PLANNING = "extra_open_planning"
+    }
+
     @Inject
     lateinit var packageChangeReceiver: PackageChangeReceiver
 
@@ -265,6 +269,8 @@ class LauncherActivity : FragmentActivity() {
                 }
             }
         }
+
+        handleIncomingNavigationIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -273,11 +279,18 @@ class LauncherActivity : FragmentActivity() {
         val now = System.currentTimeMillis()
         if (now - lastNewIntentMs < 300L) return
         lastNewIntentMs = now
+
+        handleIncomingNavigationIntent(intent)
+    }
+
+    private fun handleIncomingNavigationIntent(intent: Intent?) {
+        val shouldOpenPlanning = intent?.getBooleanExtra(EXTRA_OPEN_PLANNING, false) == true
+
         // Close overlays and snap back to main page when home button pressed
         isAppDrawerOpen = false
         isLauncherSettingsOpen = false
         isRewardsOpen = false
-        isPlanningOpen = false
+        isPlanningOpen = shouldOpenPlanning
         navigateToMainPage?.invoke()
     }
 

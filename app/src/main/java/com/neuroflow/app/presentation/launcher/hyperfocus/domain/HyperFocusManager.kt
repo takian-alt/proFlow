@@ -33,6 +33,7 @@ interface HyperFocusManager {
     suspend fun completePlanning()
     suspend fun updateHeartbeat()
     suspend fun reportTamper(reason: String)
+    suspend fun triggerEmergencyBypass()
 }
 
 @Singleton
@@ -115,7 +116,7 @@ class HyperFocusManagerImpl @Inject constructor(
             taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED } - prefs.tasksCompletedAtActivation
         }
         val completedSinceActivation = completedLockedTasks.coerceAtLeast(0)
-        val newTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
+        val newTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
 
         if (newTier.ordinal > prefs.currentTier.ordinal ||
             (completedSinceActivation >= prefs.dailyTaskTarget &&
@@ -182,33 +183,9 @@ class HyperFocusManagerImpl @Inject constructor(
     }
 
     override suspend fun completePlanning() {
-        // Read sessionId first, then update state atomically
-        val sessionId = hyperFocusDataStore.current().sessionId
-        // Grant the full unlock now that tomorrow's tasks are planned
-        hyperFocusDataStore.update {
-            HyperFocusPreferences(
-                isActive = true,
-                sessionId = it.sessionId,
-                state = HyperFocusState.FULLY_UNLOCKED,
-                blockedPackages = it.blockedPackages,
-                dailyTaskTarget = it.dailyTaskTarget,
-                tasksCompletedAtActivation = it.tasksCompletedAtActivation,
-                currentTier = it.currentTier,
-                activeUnlockExpiresAt = null,
-                wrongCodeAttempts = 0,
-                lockoutExpiresAt = null,
-                lockedTaskIds = it.lockedTaskIds
-            )
-        }
-        sessionId?.let { unlockCodeRepository.deleteSessionCodes(it) }
-        // Stop timer service — full unlock has no timer
-        context.stopService(Intent(context, UnlockTimerService::class.java))
-        // Stop monitor service — session is effectively over (apps are unlocked)
-        context.stopService(
-            Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
-        )
-        // Cancel the accessibility watchdog — session is over
-        WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
+        // Planning completion marks the end of a Hyper Focus session.
+        // Deactivate so the user can immediately start a new session.
+        deactivate()
     }
 
     override suspend fun updateHeartbeat() {
@@ -225,6 +202,24 @@ class HyperFocusManagerImpl @Inject constructor(
                 tamperDetectedAt = timestamp
             )
         }
+    }
+
+    override suspend fun triggerEmergencyBypass() {
+        val prefs = hyperFocusDataStore.current()
+        if (!prefs.isActive) return
+
+        val now = System.currentTimeMillis()
+        val expiresAt = now + 3 * 60 * 1000L // 3 minutes unlock
+
+        hyperFocusDataStore.update {
+            it.copy(
+                activeUnlockExpiresAt = expiresAt,
+                emergencyUsed = true,
+                currentTier = RewardTier.NONE
+            )
+        }
+
+        context.startForegroundService(Intent(context, UnlockTimerService::class.java))
     }
 }
 

@@ -39,7 +39,9 @@ data class HyperFocusPreferences(
     val pendingCodeId: String? = null,
     // Snapshot of task IDs that were active when the session started.
     // Only completions of these tasks count toward rewards — prevents spam-adding new tasks.
-    val lockedTaskIds: Set<String> = emptySet()
+    val lockedTaskIds: Set<String> = emptySet(),
+    // Tracks if an emergency bypass was used this session, canceling intermediate rewards
+    val emergencyUsed: Boolean = false
 )
 
 interface HyperFocusDataStore {
@@ -100,6 +102,7 @@ class HyperFocusDataStoreImpl @Inject constructor(
         val lockedTasksArray = JSONArray()
         prefs.lockedTaskIds.forEach { lockedTasksArray.put(it) }
         json.put("lockedTaskIds", lockedTasksArray)
+        json.put("emergencyUsed", prefs.emergencyUsed)
         return json.toString()
     }
 
@@ -133,7 +136,8 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 lockedTaskIds = buildSet {
                     val arr = obj.optJSONArray("lockedTaskIds")
                     if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
-                }
+                },
+                emergencyUsed = obj.optBoolean("emergencyUsed", false)
             )
         } catch (_: Exception) {
             HyperFocusPreferences()

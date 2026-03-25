@@ -91,7 +91,9 @@ data class LauncherPreferences(
         "quick_note" to true,
         "woop" to true,
         "distraction_top3" to true
-    )
+    ),
+    // Custom quotes for central quote page
+    val customQuotes: List<String> = emptyList()
 )
 
 @Singleton
@@ -119,6 +121,7 @@ class PinnedAppsDataStore @Inject constructor(
         val HOME_SCREEN_PAGES = stringPreferencesKey("home_screen_pages")
         val HOME_SCREEN_GRID_ENABLED = booleanPreferencesKey("home_screen_grid_enabled")
         val LEFT_PAGE_BLOCKS = stringPreferencesKey("left_page_blocks")
+        val CUSTOM_QUOTES = stringPreferencesKey("custom_quotes")
     }
 
     val launcherPrefsFlow: Flow<LauncherPreferences> = context.launcherDataStore.data.map { prefs ->
@@ -148,7 +151,8 @@ class PinnedAppsDataStore @Inject constructor(
             distractionDimmingEnabled = prefs[Keys.DISTRACTION_DIMMING_ENABLED] ?: true,
             homeScreenPages = parseHomeScreenPages(prefs[Keys.HOME_SCREEN_PAGES]),
             homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true,
-            leftPageBlocks = parseLeftPageBlocks(prefs[Keys.LEFT_PAGE_BLOCKS])
+            leftPageBlocks = parseLeftPageBlocks(prefs[Keys.LEFT_PAGE_BLOCKS]),
+            customQuotes = parseStringList(prefs[Keys.CUSTOM_QUOTES])
         )
     }
 
@@ -296,6 +300,7 @@ class PinnedAppsDataStore @Inject constructor(
             prefs[Keys.HOME_SCREEN_PAGES] = encodeHomeScreenPages(updated.homeScreenPages)
             prefs[Keys.HOME_SCREEN_GRID_ENABLED] = updated.homeScreenGridEnabled
             prefs[Keys.LEFT_PAGE_BLOCKS] = encodeLeftPageBlocks(updated.leftPageBlocks)
+            prefs[Keys.CUSTOM_QUOTES] = encodeStringList(updated.customQuotes)
         }
     }
 

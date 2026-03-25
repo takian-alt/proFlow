@@ -7,6 +7,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,6 +118,21 @@ fun LauncherSettings(
                     // Home Screen Pages Section
                     item {
                         HomeScreenPagesSection(viewModel = viewModel)
+                    }
+
+                    // Custom Quotes Section
+                    item {
+                        CustomQuotesSection(
+                            viewModel = viewModel,
+                            isExpanded = expandedSection == SettingsSection.CUSTOM_QUOTES,
+                            onToggleExpanded = {
+                                expandedSection = if (expandedSection == SettingsSection.CUSTOM_QUOTES) {
+                                    null
+                                } else {
+                                    SettingsSection.CUSTOM_QUOTES
+                                }
+                            }
+                        )
                     }
 
                     // Distraction Scoring Section (Task 20.1, 20.2)
@@ -262,7 +280,8 @@ private enum class SettingsSection {
     DISTRACTION_SCORING,
     DOCK_EDITOR,
     VISUAL_CUSTOMIZATION,
-    FEATURE_SETTINGS
+    FEATURE_SETTINGS,
+    CUSTOM_QUOTES
 }
 
 /**
@@ -530,6 +549,144 @@ private fun HomeScreenPagesSection(viewModel: LauncherViewModel) {
 }
 
 /**
+ * Custom Quotes Section.
+ *
+ * Allows users to add and manage custom quotes that will appear
+ * on the central quote page alongside default quotes.
+ */
+@Composable
+private fun CustomQuotesSection(
+    viewModel: LauncherViewModel,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit
+) {
+    val customQuotes by viewModel.customQuotes.collectAsState()
+    var newQuote by remember { mutableStateOf("") }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Section header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Quotes for Central Page",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Add custom quotes to inspire your daily focus",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onToggleExpanded) {
+                    Icon(
+                        imageVector = if (isExpanded) 
+                            Icons.Filled.KeyboardArrowUp
+                        else 
+                            Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Toggle"
+                    )
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Add new quote input
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newQuote,
+                        onValueChange = { newQuote = it },
+                        label = { Text("Add a new quote") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 3
+                    )
+                    Button(
+                        onClick = {
+                            if (newQuote.isNotBlank()) {
+                                viewModel.addCustomQuote(newQuote)
+                                newQuote = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = newQuote.isNotBlank()
+                    ) {
+                        Text("Add Quote")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Display custom quotes
+                if (customQuotes.isEmpty()) {
+                    Text(
+                        "No custom quotes yet. Add one above!",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text(
+                        "Your quotes (${customQuotes.size}):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    customQuotes.forEachIndexed { index, quote ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = quote,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            IconButton(
+                                onClick = { viewModel.removeCustomQuote(index) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Delete quote",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Distraction Scoring Section (Task 20.1, 20.2).
  *
  * Allows users to:
@@ -626,10 +783,30 @@ private fun DistractionScoringSection(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Sort apps alphabetically using locale-aware Collator
-                val sortedApps = remember(allApps) {
+                var searchQuery by remember { mutableStateOf("") }
+                
+                // Search field for distraction scoring apps
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search apps to score...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Sort and filter apps
+                val filteredAndSortedApps = remember(allApps, searchQuery) {
                     val collator = Collator.getInstance(Locale.getDefault())
-                    allApps.sortedWith(compareBy(collator) { it.label })
+                    allApps
+                        .filter { 
+                            searchQuery.isBlank() || 
+                            it.label.contains(searchQuery, ignoreCase = true) || 
+                            it.packageName.contains(searchQuery, ignoreCase = true)
+                        }
+                        .sortedWith(compareBy(collator) { it.label })
                 }
 
                 // App list with sliders
@@ -640,7 +817,7 @@ private fun DistractionScoringSection(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                sortedApps.forEach { app ->
+                filteredAndSortedApps.forEach { app ->
                     // Get current score, default to 50 if not set (Requirement 20.2)
                     val currentScore = distractionScores[app.packageName] ?: 50
 
@@ -737,58 +914,86 @@ private fun categorizeApps(apps: List<AppInfo>): Map<String, Int> {
 
         // Categorize based on package name and label patterns
         val score = when {
-            // Social apps (85)
-            packageName.contains("facebook") ||
-            packageName.contains("instagram") ||
-            packageName.contains("twitter") ||
-            packageName.contains("tiktok") ||
-            packageName.contains("snapchat") ||
-            packageName.contains("whatsapp") ||
-            packageName.contains("telegram") ||
-            packageName.contains("messenger") ||
-            packageName.contains("discord") ||
-            packageName.contains("reddit") ||
-            packageName.contains("linkedin") ||
-            label.contains("social") -> 85
+            // Streaming & Video (95) - highly engaging, passive consumption
+            packageName.contains("netflix") || packageName.contains("youtube") || 
+            packageName.contains("twitch") || packageName.contains("disney") ||
+            packageName.contains("hulu") || packageName.contains("primevideo") ||
+            packageName.contains("max") || packageName.contains("hbo") ||
+            label.contains("video") || label.contains("streaming") || 
+            label.contains("movie") || label.contains("tv") -> 95
+            
+            // Games (90) - active high engagement loop
+            packageName.contains("game") || packageName.contains("play.") ||
+            label.contains("game") || packageName.contains("roblox") ||
+            packageName.contains("minecraft") || packageName.contains("epic") -> 90
 
-            // Games (90)
-            packageName.contains("game") ||
-            packageName.contains("play.") ||
-            label.contains("game") -> 90
+            // Social & Shopping (85) - endless scrolling, high impulse
+            packageName.contains("facebook") || packageName.contains("instagram") ||
+            packageName.contains("twitter") || packageName.contains("tiktok") ||
+            packageName.contains("snapchat") || packageName.contains("reddit") ||
+            packageName.contains("pinterest") || packageName.contains("tumblr") ||
+            packageName.contains("amazon") || packageName.contains("ebay") ||
+            packageName.contains("shein") || packageName.contains("temu") ||
+            packageName.contains("aliexpress") || packageName.contains("shopee") ||
+            label.contains("social") || label.contains("shop") || label.contains("store") -> 85
 
-            // News (75)
-            packageName.contains("news") ||
-            packageName.contains("cnn") ||
-            packageName.contains("bbc") ||
-            packageName.contains("nytimes") || // New York Times
-            label.contains("news") -> 75
+            // News & Browsers (75) - rabbit holes, infinite reading
+            packageName.contains("news") || packageName.contains("cnn") ||
+            packageName.contains("bbc") || packageName.contains("nytimes") ||
+            packageName.contains("chrome") || packageName.contains("firefox") ||
+            packageName.contains("browser") || packageName.contains("edge") ||
+            packageName.contains("brave") || packageName.contains("opera") ||
+            label.contains("news") || label.contains("browser") -> 75
 
-            // Productivity (15)
-            packageName.contains("office") ||
-            packageName.contains("docs") ||
-            packageName.contains("sheets") ||
-            packageName.contains("slides") ||
-            packageName.contains("notion") ||
-            packageName.contains("evernote") ||
-            packageName.contains("todoist") ||
-            packageName.contains("trello") ||
-            packageName.contains("asana") ||
-            packageName.contains("slack") ||
-            packageName.contains("zoom") ||
-            packageName.contains("teams") ||
-            label.contains("productivity") ||
-            label.contains("office") -> 15
+            // Communication & Chat (50) - neutral (can be distracting or necessary)
+            packageName.contains("telegram") || packageName.contains("messenger") ||
+            packageName.contains("discord") || packageName.contains("wechat") || 
+            packageName.contains("signal") || packageName.contains("mail") || 
+            packageName.contains("gmail") || packageName.contains("outlook") || 
+            packageName.contains("messages") || label.contains("chat") || 
+            label.contains("message") || label.contains("mail") -> 50
 
-            // Tools (20)
-            packageName.contains("calculator") ||
-            packageName.contains("calendar") ||
-            packageName.contains("clock") ||
-            packageName.contains("camera") ||
-            packageName.contains("gallery") ||
-            packageName.contains("files") ||
-            packageName.contains("settings") ||
-            label.contains("tool") ||
-            label.contains("utility") -> 20
+            // Music & Podcasts (40) - background, usually not visually distracting
+            packageName.contains("spotify") || packageName.contains("music") ||
+            packageName.contains("podcast") || packageName.contains("soundcloud") ||
+            packageName.contains("audible") || label.contains("music") || label.contains("podcast") -> 40
+
+            // Finance & Navigation (30) - utility, quick operations
+            packageName.contains("bank") || packageName.contains("wallet") ||
+            packageName.contains("paypal") || packageName.contains("cashapp") ||
+            packageName.contains("venmo") || packageName.contains("maps") ||
+            packageName.contains("uber") || packageName.contains("lyft") ||
+            packageName.contains("waze") || packageName.contains("pay") ||
+            label.contains("bank") || label.contains("map") || label.contains("navigation") ||
+            label.contains("pay") -> 30
+
+            // Tools, Health & Essential Comm (20) - pure utility or emergency
+            packageName.contains("whatsapp") || packageName.contains("calculator") || 
+            packageName.contains("calendar") || packageName.contains("clock") || 
+            packageName.contains("camera") || packageName.contains("gallery") || 
+            packageName.contains("files") || packageName.contains("settings") || 
+            packageName.contains("health") || packageName.contains("fit") || 
+            packageName.contains("workout") || packageName.contains("strava") || 
+            label.contains("tool") || label.contains("utility") || 
+            label.contains("health") || label.contains("fitness") -> 20
+
+            // Productivity & Education (10-15) - primary focus areas
+            packageName.contains("office") || packageName.contains("docs") ||
+            packageName.contains("sheets") || packageName.contains("slides") ||
+            packageName.contains("notion") || packageName.contains("evernote") ||
+            packageName.contains("todoist") || packageName.contains("trello") ||
+            packageName.contains("asana") || packageName.contains("slack") ||
+            packageName.contains("zoom") || packageName.contains("teams") ||
+            packageName.contains("duolingo") || packageName.contains("quizlet") ||
+            packageName.contains("canvas") || packageName.contains("linkedin") ||
+            label.contains("productivity") || label.contains("office") || 
+            label.contains("learn") || label.contains("education") -> 15
+
+            // System UI/Core OS (5) - should almost never be blocked
+            packageName.contains("system") || packageName.contains("android") ||
+            packageName.contains("launcher") || packageName.contains("ui") ||
+            packageName.contains("dialer") || packageName.contains("phone") ||
+            label.contains("system") || label.contains("launcher") -> 5
 
             // Default: no change (keep existing score or default 50)
             else -> null
