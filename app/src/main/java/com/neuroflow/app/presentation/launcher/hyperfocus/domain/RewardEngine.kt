@@ -5,10 +5,12 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPrefere
 
 object RewardEngine {
 
-    fun computeTier(completedSinceActivation: Int, totalTarget: Int): RewardTier {
+    fun computeTier(completedSinceActivation: Int, totalTarget: Int, emergencyUsed: Boolean = false): RewardTier {
         if (completedSinceActivation <= 0) return RewardTier.NONE
         val target = totalTarget.coerceAtLeast(1)
         if (completedSinceActivation >= target) return RewardTier.FULL
+        if (emergencyUsed) return RewardTier.NONE // Skips intermediate rewards if emergency used
+
         // Scale thresholds proportionally: MICRO=25%, PARTIAL=50%, EARNED=75%
         return when {
             completedSinceActivation >= (target * 0.75f).toInt().coerceAtLeast(1) -> RewardTier.EARNED
@@ -17,10 +19,12 @@ object RewardEngine {
         }
     }
 
-    fun tasksToNextTier(completed: Int, target: Int): Int {
-        if (completed <= 0) return 1
+    fun tasksToNextTier(completed: Int, target: Int, emergencyUsed: Boolean = false): Int {
+        if (completed <= 0 && !emergencyUsed) return 1
         val t = target.coerceAtLeast(1)
         if (completed >= t) return 0
+        if (emergencyUsed) return t - completed // Must complete all remaining tasks
+
         val earnedThreshold  = (t * 0.75f).toInt().coerceAtLeast(1)
         val partialThreshold = (t * 0.50f).toInt().coerceAtLeast(1)
         return when {

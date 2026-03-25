@@ -80,15 +80,19 @@ private fun ActivationSheetContent(
     val activeTaskCount by viewModel.activeTaskCount.collectAsState()
     val hasActiveTasks = activeTaskCount > 0
 
-    // Build full app list with labels, sorted alphabetically
+    // Build full app list with labels, sorted alphabetically, only including launchable apps
     val allApps = remember {
-        context.packageManager.getInstalledApplications(0)
-            .filter { it.packageName != context.packageName }
-            .mapNotNull { info ->
-                val label = context.packageManager.getApplicationLabel(info).toString()
-                label to info.packageName
+        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN, null)
+        intent.addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = context.packageManager.queryIntentActivities(intent, 0)
+        
+        resolveInfos.mapNotNull { info ->
+            if (info.activityInfo.packageName == context.packageName) null
+            else {
+                val label = info.loadLabel(context.packageManager).toString()
+                label to info.activityInfo.packageName
             }
-            .sortedBy { it.first.lowercase() }
+        }.distinctBy { it.second }.sortedBy { it.first.lowercase() }
     }
 
     // Pre-select apps with distraction score > 70
@@ -155,6 +159,19 @@ private fun ActivationSheetContent(
 
         HorizontalDivider()
 
+        // Confirmation field
+        OutlinedTextField(
+            value = confirmText,
+            onValueChange = { confirmText = it },
+            label = { Text("Type FOCUS to confirm") },
+            supportingText = { Text("This action is hard to reverse during a session.") },
+            singleLine = true,
+            isError = confirmText.isNotEmpty() && confirmText != "FOCUS",
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider()
+
         // App selector header
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -214,19 +231,6 @@ private fun ActivationSheetContent(
                 }
             }
         }
-
-        HorizontalDivider()
-
-        // Confirmation field
-        OutlinedTextField(
-            value = confirmText,
-            onValueChange = { confirmText = it },
-            label = { Text("Type FOCUS to confirm") },
-            supportingText = { Text("This action is hard to reverse during a session.") },
-            singleLine = true,
-            isError = confirmText.isNotEmpty() && confirmText != "FOCUS",
-            modifier = Modifier.fillMaxWidth()
-        )
 
         // No tasks warning
         if (!hasActiveTasks) {

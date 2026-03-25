@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -33,12 +34,15 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -67,6 +71,8 @@ fun BlockingOverlayScreen(
     val progress by viewModel.progress.collectAsState()
     val isUnlockActive by viewModel.isUnlockActive.collectAsState()
     val unlockSecondsRemaining by viewModel.unlockSecondsRemaining.collectAsState()
+
+    var showEmergencyDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -513,9 +519,52 @@ fun BlockingOverlayScreen(
                         Text("Enter unlock code", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = { showEmergencyDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Emergency Access (3 mins)", color = Color(0xFFB0B0B0))
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
         }
+    }
+
+    if (showEmergencyDialog) {
+        AlertDialog(
+            onDismissRequest = { showEmergencyDialog = false },
+            containerColor = Color(0xFF1A1A2E),
+            titleContentColor = Color.White,
+            textContentColor = Color(0xFFB0B0B0),
+            title = {
+                Text("Emergency Access", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "This will grant you 3 minutes of access to $appName.\n\n" +
+                    "⚠️ WARNING: If you use this emergency bypass, you will lose your next intermediate rewards and must complete ALL daily tasks to earn any further unlocks."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showEmergencyDialog = false
+                        viewModel.activateEmergencyBypass()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF6B6B))
+                ) {
+                    Text("Use Emergency", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmergencyDialog = false }) {
+                    Text("Cancel", color = Color.White)
+                }
+            }
+        )
     }
 }

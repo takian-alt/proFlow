@@ -161,14 +161,18 @@ private fun SubliminalBlock(affirmations: List<String>) {
             "Progress, not perfection."
         )
     }
-    var index by remember { mutableIntStateOf(0) }
+    var index by remember(messages.size) { 
+        mutableIntStateOf(if (messages.isNotEmpty()) messages.indices.random() else 0) 
+    }
     // rememberUpdatedState so the loop always sees the latest messages without restarting
     val currentMessages by rememberUpdatedState(messages)
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(3 * 60 * 1000L)
-            index = (index + 1) % currentMessages.size
+            if (currentMessages.isNotEmpty()) {
+                index = currentMessages.indices.random()
+            }
         }
     }
 

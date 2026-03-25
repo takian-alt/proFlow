@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -782,10 +783,30 @@ private fun DistractionScoringSection(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Sort apps alphabetically using locale-aware Collator
-                val sortedApps = remember(allApps) {
+                var searchQuery by remember { mutableStateOf("") }
+                
+                // Search field for distraction scoring apps
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search apps to score...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Sort and filter apps
+                val filteredAndSortedApps = remember(allApps, searchQuery) {
                     val collator = Collator.getInstance(Locale.getDefault())
-                    allApps.sortedWith(compareBy(collator) { it.label })
+                    allApps
+                        .filter { 
+                            searchQuery.isBlank() || 
+                            it.label.contains(searchQuery, ignoreCase = true) || 
+                            it.packageName.contains(searchQuery, ignoreCase = true)
+                        }
+                        .sortedWith(compareBy(collator) { it.label })
                 }
 
                 // App list with sliders
@@ -796,7 +817,7 @@ private fun DistractionScoringSection(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                sortedApps.forEach { app ->
+                filteredAndSortedApps.forEach { app ->
                     // Get current score, default to 50 if not set (Requirement 20.2)
                     val currentScore = distractionScores[app.packageName] ?: 50
 
@@ -893,58 +914,86 @@ private fun categorizeApps(apps: List<AppInfo>): Map<String, Int> {
 
         // Categorize based on package name and label patterns
         val score = when {
-            // Social apps (85)
-            packageName.contains("facebook") ||
-            packageName.contains("instagram") ||
-            packageName.contains("twitter") ||
-            packageName.contains("tiktok") ||
-            packageName.contains("snapchat") ||
-            packageName.contains("whatsapp") ||
-            packageName.contains("telegram") ||
-            packageName.contains("messenger") ||
-            packageName.contains("discord") ||
-            packageName.contains("reddit") ||
-            packageName.contains("linkedin") ||
-            label.contains("social") -> 85
+            // Streaming & Video (95) - highly engaging, passive consumption
+            packageName.contains("netflix") || packageName.contains("youtube") || 
+            packageName.contains("twitch") || packageName.contains("disney") ||
+            packageName.contains("hulu") || packageName.contains("primevideo") ||
+            packageName.contains("max") || packageName.contains("hbo") ||
+            label.contains("video") || label.contains("streaming") || 
+            label.contains("movie") || label.contains("tv") -> 95
+            
+            // Games (90) - active high engagement loop
+            packageName.contains("game") || packageName.contains("play.") ||
+            label.contains("game") || packageName.contains("roblox") ||
+            packageName.contains("minecraft") || packageName.contains("epic") -> 90
 
-            // Games (90)
-            packageName.contains("game") ||
-            packageName.contains("play.") ||
-            label.contains("game") -> 90
+            // Social & Shopping (85) - endless scrolling, high impulse
+            packageName.contains("facebook") || packageName.contains("instagram") ||
+            packageName.contains("twitter") || packageName.contains("tiktok") ||
+            packageName.contains("snapchat") || packageName.contains("reddit") ||
+            packageName.contains("pinterest") || packageName.contains("tumblr") ||
+            packageName.contains("amazon") || packageName.contains("ebay") ||
+            packageName.contains("shein") || packageName.contains("temu") ||
+            packageName.contains("aliexpress") || packageName.contains("shopee") ||
+            label.contains("social") || label.contains("shop") || label.contains("store") -> 85
 
-            // News (75)
-            packageName.contains("news") ||
-            packageName.contains("cnn") ||
-            packageName.contains("bbc") ||
-            packageName.contains("nytimes") || // New York Times
-            label.contains("news") -> 75
+            // News & Browsers (75) - rabbit holes, infinite reading
+            packageName.contains("news") || packageName.contains("cnn") ||
+            packageName.contains("bbc") || packageName.contains("nytimes") ||
+            packageName.contains("chrome") || packageName.contains("firefox") ||
+            packageName.contains("browser") || packageName.contains("edge") ||
+            packageName.contains("brave") || packageName.contains("opera") ||
+            label.contains("news") || label.contains("browser") -> 75
 
-            // Productivity (15)
-            packageName.contains("office") ||
-            packageName.contains("docs") ||
-            packageName.contains("sheets") ||
-            packageName.contains("slides") ||
-            packageName.contains("notion") ||
-            packageName.contains("evernote") ||
-            packageName.contains("todoist") ||
-            packageName.contains("trello") ||
-            packageName.contains("asana") ||
-            packageName.contains("slack") ||
-            packageName.contains("zoom") ||
-            packageName.contains("teams") ||
-            label.contains("productivity") ||
-            label.contains("office") -> 15
+            // Communication & Chat (50) - neutral (can be distracting or necessary)
+            packageName.contains("telegram") || packageName.contains("messenger") ||
+            packageName.contains("discord") || packageName.contains("wechat") || 
+            packageName.contains("signal") || packageName.contains("mail") || 
+            packageName.contains("gmail") || packageName.contains("outlook") || 
+            packageName.contains("messages") || label.contains("chat") || 
+            label.contains("message") || label.contains("mail") -> 50
 
-            // Tools (20)
-            packageName.contains("calculator") ||
-            packageName.contains("calendar") ||
-            packageName.contains("clock") ||
-            packageName.contains("camera") ||
-            packageName.contains("gallery") ||
-            packageName.contains("files") ||
-            packageName.contains("settings") ||
-            label.contains("tool") ||
-            label.contains("utility") -> 20
+            // Music & Podcasts (40) - background, usually not visually distracting
+            packageName.contains("spotify") || packageName.contains("music") ||
+            packageName.contains("podcast") || packageName.contains("soundcloud") ||
+            packageName.contains("audible") || label.contains("music") || label.contains("podcast") -> 40
+
+            // Finance & Navigation (30) - utility, quick operations
+            packageName.contains("bank") || packageName.contains("wallet") ||
+            packageName.contains("paypal") || packageName.contains("cashapp") ||
+            packageName.contains("venmo") || packageName.contains("maps") ||
+            packageName.contains("uber") || packageName.contains("lyft") ||
+            packageName.contains("waze") || packageName.contains("pay") ||
+            label.contains("bank") || label.contains("map") || label.contains("navigation") ||
+            label.contains("pay") -> 30
+
+            // Tools, Health & Essential Comm (20) - pure utility or emergency
+            packageName.contains("whatsapp") || packageName.contains("calculator") || 
+            packageName.contains("calendar") || packageName.contains("clock") || 
+            packageName.contains("camera") || packageName.contains("gallery") || 
+            packageName.contains("files") || packageName.contains("settings") || 
+            packageName.contains("health") || packageName.contains("fit") || 
+            packageName.contains("workout") || packageName.contains("strava") || 
+            label.contains("tool") || label.contains("utility") || 
+            label.contains("health") || label.contains("fitness") -> 20
+
+            // Productivity & Education (10-15) - primary focus areas
+            packageName.contains("office") || packageName.contains("docs") ||
+            packageName.contains("sheets") || packageName.contains("slides") ||
+            packageName.contains("notion") || packageName.contains("evernote") ||
+            packageName.contains("todoist") || packageName.contains("trello") ||
+            packageName.contains("asana") || packageName.contains("slack") ||
+            packageName.contains("zoom") || packageName.contains("teams") ||
+            packageName.contains("duolingo") || packageName.contains("quizlet") ||
+            packageName.contains("canvas") || packageName.contains("linkedin") ||
+            label.contains("productivity") || label.contains("office") || 
+            label.contains("learn") || label.contains("education") -> 15
+
+            // System UI/Core OS (5) - should almost never be blocked
+            packageName.contains("system") || packageName.contains("android") ||
+            packageName.contains("launcher") || packageName.contains("ui") ||
+            packageName.contains("dialer") || packageName.contains("phone") ||
+            label.contains("system") || label.contains("launcher") -> 5
 
             // Default: no change (keep existing score or default 50)
             else -> null

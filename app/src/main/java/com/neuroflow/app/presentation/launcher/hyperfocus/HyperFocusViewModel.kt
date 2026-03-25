@@ -61,8 +61,8 @@ class HyperFocusViewModel @Inject constructor(
             (totalCompleted - prefs.tasksCompletedAtActivation).coerceAtLeast(0)
         }
         val fraction = completedSinceActivation.toFloat() / prefs.dailyTaskTarget.coerceAtLeast(1)
-        val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
-        val tasksToNextTier = RewardEngine.tasksToNextTier(completedSinceActivation, prefs.dailyTaskTarget)
+        val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
+        val tasksToNextTier = RewardEngine.tasksToNextTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
         HyperFocusProgress(
             completedSinceActivation = completedSinceActivation,
             totalTarget = prefs.dailyTaskTarget,
@@ -132,6 +132,12 @@ class HyperFocusViewModel @Inject constructor(
             val activeTasks = taskRepository.getActiveTasks()
             if (activeTasks.isEmpty()) return@launch
             hyperFocusManager.activate(blockedPackages, activeTasks.size, activeTasks.map { it.id }.toSet())
+        }
+    }
+
+    fun activateEmergencyBypass() {
+        viewModelScope.launch {
+            hyperFocusManager.triggerEmergencyBypass()
         }
     }
 

@@ -33,6 +33,7 @@ interface HyperFocusManager {
     suspend fun completePlanning()
     suspend fun updateHeartbeat()
     suspend fun reportTamper(reason: String)
+    suspend fun triggerEmergencyBypass()
 }
 
 @Singleton
@@ -115,7 +116,7 @@ class HyperFocusManagerImpl @Inject constructor(
             taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED } - prefs.tasksCompletedAtActivation
         }
         val completedSinceActivation = completedLockedTasks.coerceAtLeast(0)
-        val newTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget)
+        val newTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
 
         if (newTier.ordinal > prefs.currentTier.ordinal ||
             (completedSinceActivation >= prefs.dailyTaskTarget &&
@@ -225,6 +226,24 @@ class HyperFocusManagerImpl @Inject constructor(
                 tamperDetectedAt = timestamp
             )
         }
+    }
+
+    override suspend fun triggerEmergencyBypass() {
+        val prefs = hyperFocusDataStore.current()
+        if (!prefs.isActive) return
+
+        val now = System.currentTimeMillis()
+        val expiresAt = now + 3 * 60 * 1000L // 3 minutes unlock
+
+        hyperFocusDataStore.update {
+            it.copy(
+                activeUnlockExpiresAt = expiresAt,
+                emergencyUsed = true,
+                currentTier = RewardTier.NONE
+            )
+        }
+
+        context.startForegroundService(Intent(context, UnlockTimerService::class.java))
     }
 }
 
