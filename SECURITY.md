@@ -43,10 +43,12 @@ proFlow stores all task and preference data **locally on your device** using Roo
 
 | Permission | Purpose |
 |---|---|
-| `POST_NOTIFICATIONS` | Task reminders, daily planning, and streak alerts |
+| `POST_NOTIFICATIONS` | Task reminders, daily planning, autonomy nudge, and streak alerts |
 | `SCHEDULE_EXACT_ALARM` | Reliable delivery of time-sensitive notifications |
-| `RECEIVE_BOOT_COMPLETED` | Restart scheduled workers after device reboot |
+| `RECEIVE_BOOT_COMPLETED` | Restart scheduled workers after device reboot via `BootReceiver` |
 | `VIBRATE` | Haptic feedback for notifications |
+
+The home screen widget (`FocusWidgetProvider`) displays only the title of your current top-priority task on the home screen. No sensitive data beyond the task title is rendered outside the app.
 
 ---
 
