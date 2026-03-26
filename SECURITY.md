@@ -6,7 +6,8 @@ Only the most recent release of proFlow receives security fixes.
 
 | Version | Supported |
 |---|---|
-| 1.0.x (latest) | ✅ Yes |
+| 3.0.x (latest) | ✅ Yes |
+| 1.0.x | ❌ No |
 | < 1.0 | ❌ No |
 
 ---
@@ -41,12 +42,25 @@ When reporting, please include as much of the following information as possible 
 
 proFlow stores all task and preference data **locally on your device** using Room (SQLite) and Proto DataStore. There is no network communication or remote server. The application requests the following Android permissions:
 
-| Permission | Purpose |
-|---|---|
-| `POST_NOTIFICATIONS` | Task reminders, daily planning, autonomy nudge, and streak alerts |
-| `SCHEDULE_EXACT_ALARM` | Reliable delivery of time-sensitive notifications |
-| `RECEIVE_BOOT_COMPLETED` | Restart scheduled workers after device reboot via `BootReceiver` |
-| `VIBRATE` | Haptic feedback for notifications |
+| Permission | Required? | Purpose |
+|---|---|---|
+| `POST_NOTIFICATIONS` | ⚠️ Optional | Task reminders, daily planning, autonomy nudge, and streak alerts |
+| `SCHEDULE_EXACT_ALARM` | ⚠️ Optional | Reliable delivery of time-sensitive notifications |
+| `RECEIVE_BOOT_COMPLETED` | ✅ Yes | Restart scheduled workers after device reboot via `BootReceiver` |
+| `VIBRATE` | ⚠️ Optional | Haptic feedback for notifications |
+| `FOREGROUND_SERVICE` | ✅ Yes | Run HyperFocus monitor and unlock-timer services in the foreground |
+| `FOREGROUND_SERVICE_SPECIAL_USE` | ✅ Yes | Declare `specialUse` foreground service subtype for unlock-countdown and session-monitor services |
+| `QUERY_ALL_PACKAGES` | ✅ Yes (launcher) | Enumerate installed apps for the app drawer, dock, and folder grid |
+| `BIND_APPWIDGET` | ⚠️ Optional | Embed Android home-screen widgets in launcher page slots |
+| `PACKAGE_USAGE_STATS` | ⚠️ Optional | Power the Distraction Engine — user must grant via *Settings → Special App Access → Usage Access* |
+| `USE_BIOMETRIC` | ⚠️ Optional | Biometric app-lock: authenticate before forwarding a locked-app launch intent |
+| `USE_FINGERPRINT` | ⚠️ Optional | Legacy fingerprint fallback on pre-Android 9 devices |
+| `READ_CONTACTS` | ⚠️ Optional | Surface contact shortcuts in the launcher (feature disabled if denied) |
+| `EXPAND_STATUS_BAR` | ✅ Yes (launcher) | Allow swipe-down gesture on the home screen to expand the notification shade |
+| `BIND_ACCESSIBILITY_SERVICE` | ✅ Yes (HyperFocus) | `AppBlockingService` — intercepts window-state events to redirect blocked apps during a HyperFocus session |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` | ⚠️ Optional | `NotificationBadgeService` — counts unread notifications per package for badge overlays on app icons |
+
+**HyperFocus unlock codes** are encrypted with AES-256 before being stored in the Room database (`unlock_codes` table). Keys are generated per session and are never written to external storage or transmitted off-device.
 
 The home screen widget (`FocusWidgetProvider`) displays only the title of your current top-priority task on the home screen. No sensitive data beyond the task title is rendered outside the app.
 
@@ -60,6 +74,8 @@ The following are in scope for security reports:
 - SQL injection or other data-layer vulnerabilities via Room
 - Issues with exported Android components (Activities, Services, BroadcastReceivers, ContentProviders) that allow exploitation from other apps
 - Insecure data storage (e.g., sensitive data written to external storage or shared preferences without encryption)
+- Weaknesses in the AES-256 HyperFocus unlock-code generation, storage, or verification logic (`AESUtil`, `UnlockCodeRepository`)
+- Privilege escalation or unintended capability grants via the `AppBlockingService` (AccessibilityService)
 
 The following are **out of scope**:
 
