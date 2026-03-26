@@ -71,7 +71,7 @@ _Full screenshot gallery coming with the first public release. Key screens inclu
 | Architecture | MVVM, Clean Architecture |
 | DI | Hilt 2.51.1 |
 | Database | Room 2.6.1 (SQLite, 10 migrations, schema v11) |
-| Preferences | Proto DataStore |
+| Preferences | Preferences DataStore |
 | Background | WorkManager |
 | Charts | Vico |
 | Build | Gradle 8.x with Kotlin DSL, KSP |
@@ -169,7 +169,7 @@ Data flows **unidirectionally**: Compose UI → ViewModel (StateFlow) → Reposi
 
 ### Prerequisites
 
-- Android Studio Hedgehog (2023.1.1) or later
+- Android Studio Koala (2024.1.1) or later
 - JDK 17
 - Android SDK with API level 26–35
 
@@ -194,6 +194,12 @@ Open the project in Android Studio, allow Gradle to sync, then run the **app** c
 ```bash
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
+
+---
+
+## How to Best Use proFlow
+
+New to proFlow? Read the **[Usage Guide](USAGE_GUIDE.md)** for a step-by-step walkthrough covering daily workflows, advanced features, and tips for getting the most out of every neuroscience-backed feature.
 
 ---
 
