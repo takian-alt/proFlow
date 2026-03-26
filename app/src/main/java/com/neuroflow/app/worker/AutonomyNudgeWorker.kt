@@ -9,6 +9,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
+import com.neuroflow.app.R
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.receiver.NudgeSnoozeReceiver
 import dagger.assisted.Assisted
@@ -71,20 +72,20 @@ class AutonomyNudgeWorker @AssistedInject constructor(
 
             val notification = NotificationCompat.Builder(appContext, "autonomy_nudge")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("Task not started yet")
-                .setContentText("Pick one: Not ready, Split it, or WOOP.")
+                .setContentTitle(appContext.getString(R.string.autonomy_nudge_title))
+                .setContentText(appContext.getString(R.string.autonomy_nudge_summary))
                 .setStyle(
                     NotificationCompat.BigTextStyle().bigText(
-                        "\"${task.title}\" is still pending.\n" +
-                            "Not ready: remind me in 1 hour.\n" +
-                            "Split it: break into 3 smaller tasks.\n" +
-                            "WOOP: open reflection for avoidance."
+                        appContext.getString(R.string.autonomy_nudge_bigtext_task_pending, task.title) + "\n" +
+                            appContext.getString(R.string.autonomy_nudge_bigtext_not_ready) + "\n" +
+                            appContext.getString(R.string.autonomy_nudge_bigtext_split) + "\n" +
+                            appContext.getString(R.string.autonomy_nudge_bigtext_woop)
                     )
                 )
                 .setAutoCancel(true)
-                .addAction(0, "Not ready", notReadyPendingIntent)
-                .addAction(0, "Split it", splitTaskPendingIntent)
-                .addAction(0, "WOOP", woopReflectPendingIntent)
+                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_not_ready), notReadyPendingIntent)
+                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_split), splitTaskPendingIntent)
+                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_woop), woopReflectPendingIntent)
                 .build()
 
             NotificationManagerCompat.from(appContext).apply {

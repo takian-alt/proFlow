@@ -31,6 +31,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -43,6 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.navigationBars
@@ -98,6 +102,9 @@ fun HomeScreen(
     }
 
     val totalPages = 3 + extraPages.size
+    val indicatorBottomPadding = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding() + 72.dp
     val pagerState = rememberPagerState(
         initialPage = 1,
         pageCount = { totalPages }
@@ -156,22 +163,34 @@ fun HomeScreen(
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 88.dp),
+                .padding(bottom = indicatorBottomPadding),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             repeat(totalPages) { index ->
                 Box(
                     modifier = Modifier
-                        .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
-                        .background(
-                            color = if (index == pagerState.currentPage)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            shape = CircleShape
-                        )
-                )
+                        .size(24.dp)
+                        .semantics { contentDescription = "Go to page ${index + 1}" }
+                        .clickable {
+                            scope.launch {
+                                pagerState.animateScrollToPage(index)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
+                            .background(
+                                color = if (index == pagerState.currentPage)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                shape = CircleShape
+                            )
+                    )
+                }
             }
         }
     }
@@ -232,7 +251,16 @@ private fun QuotePage(
     )
     val customQuotesList by viewModel.customQuotes.collectAsStateWithLifecycle()
     val allQuotes = quotes + customQuotesList
-    val index = remember { Random.nextInt(maxOf(1, allQuotes.size)) }
+    var index by remember(allQuotes.size) { mutableIntStateOf(Random.nextInt(maxOf(1, allQuotes.size))) }
+
+    LaunchedEffect(allQuotes.size) {
+        if (allQuotes.isNotEmpty()) {
+            while (true) {
+                delay(20_000)
+                index = (index + 1) % allQuotes.size
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -276,6 +304,16 @@ private fun QuotePage(
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Next quote",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            if (allQuotes.isNotEmpty()) {
+                                index = (index + 1) % allQuotes.size
+                            }
+                        }
                     )
                 }
             }

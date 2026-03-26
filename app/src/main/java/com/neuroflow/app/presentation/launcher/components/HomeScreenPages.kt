@@ -53,16 +53,19 @@ fun LeftPage(
     val top3Distracted by viewModel.top3DistractingApps.collectAsStateWithLifecycle()
     val distractionLoading by viewModel.distractionLoading.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+    val distractionBlockVisible = blocks["distraction_top3"] == true
 
     // Load on first composition and reload on every resume.
     // The ViewModel checks blockEnabled internally, so we don't need to gate it here.
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(Unit) {
-        viewModel.loadTop3DistractingApps()
+    LaunchedEffect(distractionBlockVisible) {
+        if (distractionBlockVisible) {
+            viewModel.loadTop3DistractingApps()
+        }
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME && distractionBlockVisible) {
                 viewModel.loadTop3DistractingApps()
             }
         }
@@ -134,6 +137,37 @@ fun LeftPage(
                     onRefresh = { viewModel.loadTop3DistractingApps(force = true) },
                     onReset = { viewModel.resetTop3DistractingApps() }
                 )
+            }
+
+            if (blocks.values.none { it }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "No blocks visible",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color(0xFF374151)
+                        )
+                        Text(
+                            "Open settings to enable at least one Focus Space block.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF6B7280),
+                            textAlign = TextAlign.Center
+                        )
+                        TextButton(onClick = { showSettings = true }) {
+                            Text("Open Settings")
+                        }
+                    }
+                }
             }
         }
 
@@ -457,7 +491,7 @@ private fun DistractionTop3Block(
                     Text(
                         "No data yet — start a focus session to begin tracking.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFD1D5DB)
+                        color = Color(0xFF6B7280)
                     )
                 }
                 else -> {
@@ -529,7 +563,8 @@ private fun DistractionAppRow(
                 Text(
                     text = "$timeLabel · ${app.openCount}×",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF9CA3AF)
+                    color = Color(0xFF9CA3AF),
+                    maxLines = 1
                 )
             }
             // Score bar

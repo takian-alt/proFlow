@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.neuroflow.app.R
@@ -94,6 +95,8 @@ fun AppIcon(
     onLock: () -> Unit = {},
     onAddToHome: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    isInteractive: Boolean = true,
+    iconSize: Dp = 48.dp,
     enableLongPress: Boolean = true
 ) {
     val context = LocalContext.current
@@ -139,13 +142,13 @@ fun AppIcon(
 
     // Process icon with shape mask
     val processedIcon = remember(appInfo.icon, theme.iconShape) {
-        val sizePx = (48.dp.value * context.resources.displayMetrics.density).toInt()
+        val sizePx = (iconSize.value * context.resources.displayMetrics.density).toInt()
         AdaptiveIconProcessor.process(appInfo.icon, theme.iconShape, sizePx, context)
     }
 
     Box(
         modifier = modifier
-            .size(48.dp)
+            .size(iconSize)
             .onGloballyPositioned { coordinates ->
                 // Capture icon position for popup anchoring
                 val position = coordinates.positionInWindow()
@@ -154,7 +157,9 @@ fun AppIcon(
                 }
             }
             .then(
-                if (enableLongPress) {
+                if (!isInteractive) {
+                    Modifier
+                } else if (enableLongPress) {
                     Modifier.combinedClickable(
                         onClick = handleTap,
                         onLongClick = {
@@ -173,7 +178,7 @@ fun AppIcon(
             bitmap = processedIcon.asImageBitmap(),
             contentDescription = appInfo.label,
             modifier = Modifier
-                .size(48.dp)
+                .size(iconSize)
                 .alpha(iconAlpha)
         )
 

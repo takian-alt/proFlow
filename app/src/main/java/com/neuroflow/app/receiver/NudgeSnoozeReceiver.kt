@@ -3,12 +3,15 @@ package com.neuroflow.app.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.neuroflow.app.R
 import com.neuroflow.app.worker.AutonomyNudgeWorker
 import java.util.concurrent.TimeUnit
 
@@ -36,13 +39,21 @@ class NudgeSnoozeReceiver : BroadcastReceiver() {
             request
         )
 
-        val confirmation = NotificationCompat.Builder(context, "autonomy_nudge")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Reminder snoozed")
-            .setContentText("We'll remind you again in 1 hour.")
-            .setAutoCancel(true)
-            .build()
+        val canNotify = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
 
-        NotificationManagerCompat.from(context).notify(uniqueWorkName.hashCode(), confirmation)
+        if (canNotify) {
+            val confirmation = NotificationCompat.Builder(context, "autonomy_nudge")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(context.getString(R.string.autonomy_snooze_confirmation_title))
+                .setContentText(context.getString(R.string.autonomy_snooze_confirmation_body))
+                .setAutoCancel(true)
+                .build()
+
+            NotificationManagerCompat.from(context).notify(uniqueWorkName.hashCode(), confirmation)
+        }
     }
 }
