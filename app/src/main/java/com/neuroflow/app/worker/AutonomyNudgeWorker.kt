@@ -9,6 +9,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
+import com.neuroflow.app.R
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.receiver.NudgeSnoozeReceiver
 import dagger.assisted.Assisted
@@ -38,6 +39,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 notificationId + 1,
                 Intent(appContext, NudgeSnoozeReceiver::class.java).apply {
                     putExtra("taskId", taskId)
+                    putExtra("notificationId", notificationId)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -49,6 +51,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 Intent(appContext, MainActivity::class.java).apply {
                     action = "SPLIT_TASK"
                     putExtra("taskId", taskId)
+                    putExtra("notificationId", notificationId)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -61,6 +64,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 Intent(appContext, MainActivity::class.java).apply {
                     action = "WOOP_REFLECT"
                     putExtra("taskId", taskId)
+                    putExtra("notificationId", notificationId)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -68,12 +72,20 @@ class AutonomyNudgeWorker @AssistedInject constructor(
 
             val notification = NotificationCompat.Builder(appContext, "autonomy_nudge")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("You haven't started \"${task.title}\" yet")
-                .setContentText("What's getting in the way? Tap an option below.")
+                .setContentTitle(appContext.getString(R.string.autonomy_nudge_title))
+                .setContentText(appContext.getString(R.string.autonomy_nudge_summary))
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        appContext.getString(R.string.autonomy_nudge_bigtext_task_pending, task.title) + "\n" +
+                            appContext.getString(R.string.autonomy_nudge_bigtext_not_ready) + "\n" +
+                            appContext.getString(R.string.autonomy_nudge_bigtext_split) + "\n" +
+                            appContext.getString(R.string.autonomy_nudge_bigtext_woop)
+                    )
+                )
                 .setAutoCancel(true)
-                .addAction(0, "I'm not ready yet", notReadyPendingIntent)
-                .addAction(0, "It feels too big", splitTaskPendingIntent)
-                .addAction(0, "I'm avoiding it", woopReflectPendingIntent)
+                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_not_ready), notReadyPendingIntent)
+                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_split), splitTaskPendingIntent)
+                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_woop), woopReflectPendingIntent)
                 .build()
 
             NotificationManagerCompat.from(appContext).apply {

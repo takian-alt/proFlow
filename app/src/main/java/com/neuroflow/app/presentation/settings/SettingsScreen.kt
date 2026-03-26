@@ -137,7 +137,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Focus Behaviour
+            // Focus Behaviour + Neuro Booster automation
             SettingsSection("Focus Behaviour") {
                 SettingsToggleRow(
                     label = "WOOP planning prompt",
@@ -151,6 +151,15 @@ fun SettingsScreen(
                     description = "Automatically starts tracking after 8 seconds on the focus screen",
                     checked = prefs.autoTrackerEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsToggleRow(
+                    label = "Split tasks in sequence",
+                    description = "When using \"It feels too big\", Part 2 depends on Part 1 and Part 3 depends on Part 2",
+                    checked = prefs.autoSplitSequentialDependencies,
+                    onCheckedChange = {
+                        viewModel.updatePreferences { p -> p.copy(autoSplitSequentialDependencies = it) }
+                    }
                 )
             }
 

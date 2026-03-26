@@ -5,8 +5,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -208,7 +210,8 @@ fun AppFolderOverlay(
                                         modifier = Modifier.size(48.dp),
                                         onTap = { onAppLaunch(app.packageName) },
                                         onPinToDock = { onPinToDock(app.packageName) },
-                                        onHide = { onHide(app.packageName) }
+                                        onHide = { onHide(app.packageName) },
+                                        onLongPress = { onAppLongPress(app) }
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
@@ -252,6 +255,7 @@ fun AppFolderOverlay(
  * @param onTap Callback when folder icon is tapped
  * @param onLongPress Callback when folder icon is long-pressed
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FolderIcon(
     folder: FolderDefinition,
@@ -275,7 +279,10 @@ fun FolderIcon(
             .size(64.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onTap)
+            .combinedClickable(
+                onClick = onTap,
+                onLongClick = onLongPress
+            )
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { /* Handle folder drag */ },
@@ -302,7 +309,9 @@ fun FolderIcon(
                         modifier = Modifier.size(24.dp),
                         onTap = {},
                         onPinToDock = {},
-                        onHide = {}
+                        onHide = {},
+                        isInteractive = false,
+                        iconSize = 24.dp
                     )
                 }
                 previewApps.getOrNull(1)?.let { app ->
@@ -312,7 +321,9 @@ fun FolderIcon(
                         modifier = Modifier.size(24.dp),
                         onTap = {},
                         onPinToDock = {},
-                        onHide = {}
+                        onHide = {},
+                        isInteractive = false,
+                        iconSize = 24.dp
                     )
                 }
             }
@@ -327,7 +338,9 @@ fun FolderIcon(
                         modifier = Modifier.size(24.dp),
                         onTap = {},
                         onPinToDock = {},
-                        onHide = {}
+                        onHide = {},
+                        isInteractive = false,
+                        iconSize = 24.dp
                     )
                 }
                 previewApps.getOrNull(3)?.let { app ->
@@ -337,7 +350,9 @@ fun FolderIcon(
                         modifier = Modifier.size(24.dp),
                         onTap = {},
                         onPinToDock = {},
-                        onHide = {}
+                        onHide = {},
+                        isInteractive = false,
+                        iconSize = 24.dp
                     )
                 }
             }

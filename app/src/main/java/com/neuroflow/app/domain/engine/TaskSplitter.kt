@@ -11,17 +11,29 @@ object TaskSplitter {
      * and has [task.id] set as [parentTaskId].
      * The original task is archived so it no longer competes in the active list.
      */
-    suspend fun split(task: TaskEntity, taskRepository: TaskRepository): List<TaskEntity> {
-        val subtasks = (1..3).map { part ->
+    suspend fun split(
+        task: TaskEntity,
+        taskRepository: TaskRepository,
+        sequentialDependencies: Boolean = false
+    ): List<TaskEntity> {
+        val now = System.currentTimeMillis()
+        val baseSubtasks = (1..3).map { part ->
             TaskEntity(
                 title = "Part $part/3 of ${task.title}",
                 quadrant = task.quadrant,
                 priority = task.priority,
                 impactScore = task.impactScore / 3,
                 parentTaskId = task.id,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
+                createdAt = now,
+                updatedAt = now
             )
+        }
+        val subtasks = if (!sequentialDependencies) {
+            baseSubtasks
+        } else {
+            baseSubtasks.mapIndexed { index, subtask ->
+                if (index == 0) subtask else subtask.copy(dependsOnTaskIds = baseSubtasks[index - 1].id)
+            }
         }
         subtasks.forEach { taskRepository.insert(it) }
         // Archive the parent so it doesn't remain active alongside its subtasks

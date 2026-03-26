@@ -333,16 +333,25 @@ class LauncherViewModel @Inject constructor(
     val top3DistractingApps: StateFlow<List<com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult>> = _top3DistractingApps.asStateFlow()
 
     private val _isLoadingDistraction = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val _distractionLoadVersion = java.util.concurrent.atomic.AtomicLong(0L)
+    private val _distractionManuallyCleared = MutableStateFlow(false)
 
     private val _distractionLoading = MutableStateFlow(false)
     val distractionLoading: StateFlow<Boolean> = _distractionLoading.asStateFlow()
 
     fun resetTop3DistractingApps() {
+        // Invalidate any in-flight load result so it cannot repopulate after manual clear.
+        _distractionLoadVersion.incrementAndGet()
+        _distractionManuallyCleared.value = true
         _top3DistractingApps.value = emptyList()
     }
 
-    fun loadTop3DistractingApps() {
+    fun loadTop3DistractingApps(force: Boolean = false) {
+        if (!force && _distractionManuallyCleared.value) return
+        if (force) _distractionManuallyCleared.value = false
+
         if (!_isLoadingDistraction.compareAndSet(false, true)) return
+        val requestVersion = _distractionLoadVersion.incrementAndGet()
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 _distractionLoading.value = true
@@ -351,8 +360,12 @@ class LauncherViewModel @Inject constructor(
                 if (!blockEnabled) return@launch
                 if (!com.neuroflow.app.domain.engine.DistractionEngine.hasUsagePermission(context)) return@launch
                 val sessions = sessionRepository.getAllSessions()
-                _top3DistractingApps.value = com.neuroflow.app.domain.engine.DistractionEngine
+                val rankedApps = com.neuroflow.app.domain.engine.DistractionEngine
                     .rankAppsByDistraction(sessions = sessions, context = context)
+                // Ignore stale results if a newer refresh/reset happened mid-flight.
+                if (_distractionLoadVersion.get() == requestVersion && !_distractionManuallyCleared.value) {
+                    _top3DistractingApps.value = rankedApps
+                }
             } finally {
                 _distractionLoading.value = false
                 _isLoadingDistraction.set(false)
@@ -401,11 +414,27 @@ class LauncherViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HyperFocusPreferences())
 
     /**
+     * True only when there is a real running task focus session.
+     * Use this for task-card in-progress UI; do not include HyperFocus-only state.
+     */
+    val taskSessionActive: StateFlow<Boolean> = sessionRepository.observeOpenSessions()
+        .map { sessions -> sessions.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
+     * Task ID of the currently open focus session (if any).
+     * Used by launcher task card so "Open Focus" targets the real running task.
+     */
+    val activeFocusTaskId: StateFlow<String?> = sessionRepository.observeOpenSessions()
+        .map { sessions -> sessions.firstOrNull()?.taskId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
      * Focus mode active state (Phase 5: wired to session repository).
      * Tracks whether a focus session is currently active OR hyper focus is active.
      */
     val focusActive: StateFlow<Boolean> = combine(
-        sessionRepository.observeOpenSessions().map { sessions -> sessions.isNotEmpty() },
+        taskSessionActive,
         hyperFocusPrefs.map { it.isActive }
     ) { sessionActive, hyperActive -> sessionActive || hyperActive }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)

@@ -573,7 +573,7 @@ private fun InProgressState(
             ) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = null,
+                    contentDescription = "Stop session",
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(6.dp))
@@ -600,7 +600,7 @@ private fun ActionButtons(
             onClick = onSkip,
             modifier = Modifier.weight(1f)
         ) {
-            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.Close, contentDescription = "Skip task", modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(4.dp))
             Text("Skip")
         }

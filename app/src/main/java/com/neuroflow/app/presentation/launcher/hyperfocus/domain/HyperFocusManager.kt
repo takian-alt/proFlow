@@ -206,10 +206,10 @@ class HyperFocusManagerImpl @Inject constructor(
 
     override suspend fun triggerEmergencyBypass() {
         val prefs = hyperFocusDataStore.current()
-        if (!prefs.isActive) return
+        if (!prefs.isActive || prefs.emergencyUsed) return
 
         val now = System.currentTimeMillis()
-        val expiresAt = now + 3 * 60 * 1000L // 3 minutes unlock
+        val expiresAt = now + 10 * 60 * 1000L // 10 minutes unlock (one-time per session)
 
         hyperFocusDataStore.update {
             it.copy(
