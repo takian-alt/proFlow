@@ -166,6 +166,108 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
             )
 
             GuideSection(
+                emoji = "🌀",
+                title = "WOOP — plan before you start",
+                color = NeuroFlowColors.ScheduleBg,
+                textColor = NeuroFlowColors.ScheduleText,
+                summary = "A 60-second mental rehearsal that dramatically improves follow-through.",
+                steps = listOf(
+                    "When you tap Start Focus, a WOOP prompt appears: Wish, Outcome, Obstacle, Plan.",
+                    "Wish — what do you want to accomplish in this session?",
+                    "Outcome — what's the best result you could imagine?",
+                    "Obstacle — what's the most likely thing that will get in the way?",
+                    "Plan — 'If [obstacle] happens, then I will [action].' Write it down.",
+                    "After the session, a short reflection asks how reality matched your expectation.",
+                    "Over time, Analytics → WOOP Calibration shows how accurately you predict difficulty."
+                )
+            )
+
+            GuideSection(
+                emoji = "⚔️",
+                title = "Ulysses Contracts — commit to the hard stuff",
+                color = NeuroFlowColors.DeadlineCard,
+                textColor = NeuroFlowColors.DoFirstText,
+                summary = "A binding commitment for tasks you keep avoiding.",
+                steps = listOf(
+                    "Open any task → tap 'Create Ulysses Contract'.",
+                    "Write a specific commitment: 'I will finish X by [date].'",
+                    "Set a deadline — the contract is automatically evaluated at that moment.",
+                    "WIN if the task was completed before the deadline. LOSS if not.",
+                    "Your WIN/LOSS record is visible in Analytics → Ulysses Contracts card.",
+                    "Use contracts sparingly — reserve them for tasks you've genuinely been avoiding.",
+                    "The psychological cost of a recorded LOSS is the point. It works."
+                )
+            )
+
+            GuideSection(
+                emoji = "🔒",
+                title = "HyperFocus — the nuclear option",
+                color = MaterialTheme.colorScheme.errorContainer,
+                textColor = MaterialTheme.colorScheme.onErrorContainer,
+                summary = "Whole-phone distraction blocker for your deepest work sessions.",
+                steps = listOf(
+                    "Open Launcher Settings → HyperFocus to activate.",
+                    "Select which apps to block, set a task target, then tap Activate.",
+                    "Blocked apps show a motivational overlay instead of opening.",
+                    "To exit early, enter an AES-256-GCM encrypted unlock code (time-limited).",
+                    "Completing your task target earns a reward tier: Bronze → Silver → Gold → Platinum.",
+                    "Grant Accessibility and Usage Access permissions when prompted — HyperFocus needs them to intercept app launches.",
+                    "Save HyperFocus for your most important deep-work sessions, not every session."
+                )
+            )
+
+            GuideSection(
+                emoji = "🪞",
+                title = "Identity & Goals — anchor your why",
+                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
+                textColor = NeuroFlowColors.Purple,
+                summary = "Long-term motivation comes from who you are, not just what you do.",
+                steps = listOf(
+                    "Open the navigation drawer → Identity to add personal affirmation statements.",
+                    "Write identity-based statements, not goals: 'I finish what I start', not 'Finish report'.",
+                    "Affirmations surface at strategic moments — fresh starts, streak breaks, contract creation.",
+                    "Add Yearly and Weekly Goals from the drawer Goals section.",
+                    "Link tasks to goals in the task editor — the engine applies a goal-risk multiplier when a linked goal is at risk.",
+                    "Set 1–3 yearly goals and 1–2 weekly goals. More than that dilutes focus.",
+                    "Review your goals every Monday when you create the week's tasks."
+                )
+            )
+
+            GuideSection(
+                emoji = "🏠",
+                title = "Focus Launcher — your phone, reimagined",
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                textColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                summary = "Replace your home screen with one built for deep work.",
+                steps = listOf(
+                    "Press Home → select proFlow → Always, to set it as your launcher.",
+                    "The Focus Task Card at the top always shows your highest-scored task. Tap Start Focus to begin.",
+                    "Habit Quick Row surfaces today's due habits for one-tap check-in.",
+                    "Swipe up to open the full App Drawer. Swipe right for the Quick Stats Panel.",
+                    "Long-press any icon for: open, lock (biometric), hide, folder, app info.",
+                    "Swipe down to expand the notification shade.",
+                    "Customize grid size, icon shape, clock style, and distraction scores in Launcher Settings."
+                )
+            )
+
+            GuideSection(
+                emoji = "🔔",
+                title = "Autonomy Nudge & Fresh Starts",
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                textColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                summary = "Smart prompts that get you unstuck before you even realize you're stuck.",
+                steps = listOf(
+                    "If a task goes untouched for 2 hours, proFlow sends a nudge notification.",
+                    "'Not ready yet' — snoozes the nudge for a later window.",
+                    "'It feels too big' — automatically splits the task into 3 equal subtasks.",
+                    "Fresh Start prompts appear on Mondays, month starts, streak breaks, and after 3-day absences.",
+                    "Fresh starts are capped at once per week so they feel meaningful, not annoying.",
+                    "When you see a Fresh Start, take 60 seconds: review goals, pick one task, start immediately.",
+                    "The psychological permission to begin again without guilt is the whole point."
+                )
+            )
+
+            GuideSection(
                 emoji = "🧠",
                 title = "The science behind it",
                 color = MaterialTheme.colorScheme.surface,
@@ -178,6 +280,8 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                     "Zeigarnik Effect — unfinished tasks nag at you. Completing them feels disproportionately good.",
                     "Implementation Intentions — 'if-then' plans double task completion rates (Gollwitzer, 1999).",
                     "Circadian Rhythm Research — analytical work peaks in the morning, creative work in late morning/afternoon.",
+                    "WOOP (Oettingen) — mental contrasting with implementation intentions outperforms positive visualization.",
+                    "Self-Determination Theory — identity-based motivation outlasts goal-based motivation.",
                     "You don't need to know any of this — just use the app and it works in the background."
                 )
             )

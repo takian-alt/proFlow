@@ -49,7 +49,7 @@ There are many ways to contribute beyond writing code:
 
 ### Requirements
 
-- Android Studio Hedgehog (2023.1.1) or later
+- Android Studio Koala (2024.1.1) or later
 - JDK 17
 - Android SDK API 26–35
 - An Android device or emulator running Android 8.0+
