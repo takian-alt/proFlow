@@ -10,7 +10,7 @@ proFlow is an advanced productivity and task management application for Android,
 
 | Version | Min Android | File |
 |---------|-------------|------|
-| **v3.0.0** (latest) | Android 8.0 (API 26) | [⬇ app-release.apk](documents/app-release.apk) |
+| **v3.0.0** (latest) | Android 8.0 (API 26) | [⬇ app-release.apk](app/release/app-release.apk) |
 
 > **Install tip:** You will need to enable *Install from unknown sources* in your Android settings before side-loading the APK.
 
@@ -70,7 +70,7 @@ _Full screenshot gallery coming with the first public release. Key screens inclu
 | Navigation | Navigation Compose 2.8.5 |
 | Architecture | MVVM, Clean Architecture |
 | DI | Hilt 2.51.1 |
-| Database | Room 2.6.1 (SQLite, 6 migrations) |
+| Database | Room 2.6.1 (SQLite, 10 migrations, schema v11) |
 | Preferences | Proto DataStore |
 | Background | WorkManager |
 | Charts | Vico |
