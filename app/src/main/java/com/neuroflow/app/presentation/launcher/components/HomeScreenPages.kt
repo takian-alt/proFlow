@@ -131,7 +131,7 @@ fun LeftPage(
                 DistractionTop3Block(
                     tasks = top3Distracted,
                     isLoading = distractionLoading,
-                    onRefresh = { viewModel.loadTop3DistractingApps() },
+                    onRefresh = { viewModel.loadTop3DistractingApps(force = true) },
                     onReset = { viewModel.resetTop3DistractingApps() }
                 )
             }

@@ -76,6 +76,7 @@ import com.neuroflow.app.presentation.launcher.theme.LocalLauncherTheme
  * @param onPinToDock Callback to pin app to dock
  * @param onHide Callback to hide app from drawer
  * @param onLock Callback to lock app with biometric authentication
+ * @param onLongPress Optional callback invoked before showing shortcut popup
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -92,6 +93,7 @@ fun AppIcon(
     onHide: () -> Unit,
     onLock: () -> Unit = {},
     onAddToHome: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
     enableLongPress: Boolean = true
 ) {
     val context = LocalContext.current
@@ -156,6 +158,7 @@ fun AppIcon(
                     Modifier.combinedClickable(
                         onClick = handleTap,
                         onLongClick = {
+                            onLongPress?.invoke()
                             // Show ShortcutPopup on long-press (Requirement 5.1)
                             showShortcutPopup = true
                         }

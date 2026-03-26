@@ -323,6 +323,8 @@ private fun PortraitLayout(
     val woopEntity by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val habitTasks by viewModel.habitTasks.collectAsStateWithLifecycle()
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
+    val taskSessionActive by viewModel.taskSessionActive.collectAsStateWithLifecycle()
+    val activeFocusTaskId by viewModel.activeFocusTaskId.collectAsStateWithLifecycle()
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
     val allApps by viewModel.allApps.collectAsStateWithLifecycle()
@@ -374,15 +376,16 @@ private fun PortraitLayout(
                     topTask = topTask,
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
-                    focusActive = focusActive,
+                    focusActive = taskSessionActive,
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     prefs = userPreferences,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
+                        val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
                         val intent = Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
                             action = "com.procus.ACTION_OPEN_FOCUS"
-                            putExtra("task_id", taskId)
+                            putExtra("task_id", effectiveTaskId)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         context.startActivity(intent)
@@ -491,6 +494,8 @@ private fun LandscapeLayout(
     val woopEntity by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val habitTasks by viewModel.habitTasks.collectAsStateWithLifecycle()
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
+    val taskSessionActive by viewModel.taskSessionActive.collectAsStateWithLifecycle()
+    val activeFocusTaskId by viewModel.activeFocusTaskId.collectAsStateWithLifecycle()
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
@@ -524,15 +529,16 @@ private fun LandscapeLayout(
                     topTask = topTask,
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
-                    focusActive = focusActive,
+                    focusActive = taskSessionActive,
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     prefs = userPreferences,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
+                        val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
                         val intent = Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
                             action = "com.procus.ACTION_OPEN_FOCUS"
-                            putExtra("task_id", taskId)
+                            putExtra("task_id", effectiveTaskId)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         context.startActivity(intent)
@@ -591,6 +597,8 @@ private fun TwoColumnLayout(
     val woopEntity by viewModel.topTaskWoopEntity.collectAsStateWithLifecycle()
     val habitTasks by viewModel.habitTasks.collectAsStateWithLifecycle()
     val focusActive by viewModel.focusActive.collectAsStateWithLifecycle()
+    val taskSessionActive by viewModel.taskSessionActive.collectAsStateWithLifecycle()
+    val activeFocusTaskId by viewModel.activeFocusTaskId.collectAsStateWithLifecycle()
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
@@ -612,15 +620,16 @@ private fun TwoColumnLayout(
                 topTask = topTask,
                 ulyssesContract = ulyssesContract,
                 woopEntity = woopEntity,
-                focusActive = focusActive,
+                focusActive = taskSessionActive,
                 focusElapsedSeconds = focusElapsedSeconds,
                 hasActiveTasks = allActiveTasks.isNotEmpty(),
                 prefs = userPreferences,
                 onSkip = { taskId -> viewModel.skipTask(taskId) },
                 onStartFocus = { taskId ->
+                    val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
                     val intent = Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
                         action = "com.procus.ACTION_OPEN_FOCUS"
-                        putExtra("task_id", taskId)
+                        putExtra("task_id", effectiveTaskId)
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(intent)

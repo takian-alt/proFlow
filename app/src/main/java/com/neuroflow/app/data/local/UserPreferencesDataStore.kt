@@ -63,6 +63,7 @@ data class UserPreferences(
     // Focus behaviour toggles
     val woopEnabled: Boolean = true,
     val autoTrackerEnabled: Boolean = false,
+    val autoSplitSequentialDependencies: Boolean = false,
     // Left page quick note
     val leftPageQuickNote: String = ""
 )
@@ -113,6 +114,7 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_WEEKLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_weekly_goal_shown_year")
         val WOOP_ENABLED = booleanPreferencesKey("woop_enabled")
         val AUTO_TRACKER_ENABLED = booleanPreferencesKey("auto_tracker_enabled")
+        val AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES = booleanPreferencesKey("auto_split_sequential_dependencies")
         val LEFT_PAGE_QUICK_NOTE = stringPreferencesKey("left_page_quick_note")
     }
 
@@ -161,6 +163,7 @@ class UserPreferencesDataStore @Inject constructor(
             lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
             woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
             autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
+            autoSplitSequentialDependencies = prefs[Keys.AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES] ?: false,
             leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
         )
     }
@@ -225,6 +228,7 @@ class UserPreferencesDataStore @Inject constructor(
                 lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
                 woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
                 autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
+                autoSplitSequentialDependencies = prefs[Keys.AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES] ?: false,
                 leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
             )
             val updated = update(current)
@@ -269,6 +273,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] = updated.lastWeeklyGoalShownYear
             prefs[Keys.WOOP_ENABLED] = updated.woopEnabled
             prefs[Keys.AUTO_TRACKER_ENABLED] = updated.autoTrackerEnabled
+            prefs[Keys.AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES] = updated.autoSplitSequentialDependencies
             prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
         }
     }

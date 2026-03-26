@@ -43,6 +43,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.neuroflow.app.presentation.analytics.AnalyticsScreen
 import com.neuroflow.app.presentation.focus.FocusScreen
+import com.neuroflow.app.presentation.focus.MiniWoopReflectionScreen
 import com.neuroflow.app.presentation.history.HistoryScreen
 import com.neuroflow.app.presentation.identity.IdentityScreen
 import com.neuroflow.app.presentation.logtime.LogTimeScreen
@@ -68,6 +69,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object Identity : Screen("identity", "Identity", Icons.Filled.Psychology)
     data object LauncherSettingsScreen : Screen("launcher_settings", "Launcher Settings", null)
     data object Rewards : Screen("rewards", "Rewards", null)
+    data object MiniWoop : Screen("mini_woop/{taskId}", "WOOP Reflection", null)
 }
 
 val bottomNavItems = listOf(
@@ -80,7 +82,10 @@ val bottomNavItems = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NeuroFlowApp(
-    initialTaskId: String? = null
+    initialTaskId: String? = null,
+    initialWoopTaskId: String? = null,
+    onInitialTaskConsumed: () -> Unit = {},
+    onInitialWoopTaskConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -93,13 +98,19 @@ fun NeuroFlowApp(
     // Edit dialog state: null = closed, YEARLY/WEEKLY = open for that period
     var editingPeriod by remember { mutableStateOf<GoalPeriod?>(null) }
 
-    // Handle initial navigation to FocusScreen if taskId is provided
-    androidx.compose.runtime.LaunchedEffect(initialTaskId) {
-        if (initialTaskId != null) {
+    // Handle initial deep links from activity intents.
+    androidx.compose.runtime.LaunchedEffect(initialTaskId, initialWoopTaskId) {
+        if (initialWoopTaskId != null) {
+            navController.navigate("mini_woop/$initialWoopTaskId") {
+                launchSingleTop = true
+            }
+            onInitialWoopTaskConsumed()
+        } else if (initialTaskId != null) {
             navController.navigate("focus/$initialTaskId") {
                 // Don't add to back stack if we're already on the start destination
                 launchSingleTop = true
             }
+            onInitialTaskConsumed()
         }
     }
 
@@ -347,6 +358,14 @@ fun NeuroFlowApp(
                 }
                 composable(Screen.Identity.route) {
                     IdentityScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(
+                    route = Screen.MiniWoop.route,
+                    arguments = listOf(navArgument("taskId") { type = NavType.StringType })
+                ) {
+                    MiniWoopReflectionScreen(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }

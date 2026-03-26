@@ -38,6 +38,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 notificationId + 1,
                 Intent(appContext, NudgeSnoozeReceiver::class.java).apply {
                     putExtra("taskId", taskId)
+                    putExtra("notificationId", notificationId)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -49,6 +50,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 Intent(appContext, MainActivity::class.java).apply {
                     action = "SPLIT_TASK"
                     putExtra("taskId", taskId)
+                    putExtra("notificationId", notificationId)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -61,6 +63,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 Intent(appContext, MainActivity::class.java).apply {
                     action = "WOOP_REFLECT"
                     putExtra("taskId", taskId)
+                    putExtra("notificationId", notificationId)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -68,12 +71,20 @@ class AutonomyNudgeWorker @AssistedInject constructor(
 
             val notification = NotificationCompat.Builder(appContext, "autonomy_nudge")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("You haven't started \"${task.title}\" yet")
-                .setContentText("What's getting in the way? Tap an option below.")
+                .setContentTitle("Task not started yet")
+                .setContentText("Pick one: Not ready, Split it, or WOOP.")
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "\"${task.title}\" is still pending.\n" +
+                            "Not ready: remind me in 1 hour.\n" +
+                            "Split it: break into 3 smaller tasks.\n" +
+                            "WOOP: open reflection for avoidance."
+                    )
+                )
                 .setAutoCancel(true)
-                .addAction(0, "I'm not ready yet", notReadyPendingIntent)
-                .addAction(0, "It feels too big", splitTaskPendingIntent)
-                .addAction(0, "I'm avoiding it", woopReflectPendingIntent)
+                .addAction(0, "Not ready", notReadyPendingIntent)
+                .addAction(0, "Split it", splitTaskPendingIntent)
+                .addAction(0, "WOOP", woopReflectPendingIntent)
                 .build()
 
             NotificationManagerCompat.from(appContext).apply {

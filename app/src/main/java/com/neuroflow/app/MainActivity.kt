@@ -19,6 +19,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
+import androidx.core.app.NotificationManagerCompat
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -26,6 +29,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.FreshStartEngine
+import com.neuroflow.app.domain.engine.TaskSplitter
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.presentation.common.GoalPeriod
@@ -36,6 +40,7 @@ import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
 import com.neuroflow.app.presentation.onboarding.OnboardingScreen
 import com.neuroflow.app.worker.AutonomyNudgeWorker
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -45,6 +50,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var preferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var taskRepository: TaskRepository
+
+    private var initialFocusTaskId by mutableStateOf<String?>(null)
+    private var initialWoopTaskId by mutableStateOf<String?>(null)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -57,29 +65,58 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent) {
         val taskId = intent.getStringExtra("taskId") ?: intent.getStringExtra("task_id")
+        val notificationId = intent.getIntExtra("notificationId", Int.MIN_VALUE)
+        if (notificationId != Int.MIN_VALUE) {
+            NotificationManagerCompat.from(this).cancel(notificationId)
+        }
         when (intent.action) {
             "com.procus.ACTION_OPEN_FOCUS" -> {
-                // Handle ACTION_OPEN_FOCUS from launcher
-                // Navigation is handled by NeuroFlowApp via deep link
-                // The intent is already set, so NeuroFlowApp will pick it up
+                initialFocusTaskId = taskId
                 return
             }
             "RESCHEDULE_NUDGE" -> {
                 if (taskId == null) return
+                val uniqueWorkName = "autonomy_nudge_$taskId"
                 // Re-enqueue AutonomyNudgeWorker with 1-hour delay
                 val request = OneTimeWorkRequestBuilder<AutonomyNudgeWorker>()
                     .setInitialDelay(1, TimeUnit.HOURS)
                     .setInputData(workDataOf("taskId" to taskId))
-                    .addTag("autonomy_nudge_$taskId")
+                    .addTag(uniqueWorkName)
                     .build()
-                WorkManager.getInstance(this).enqueue(request)
+                WorkManager.getInstance(this).enqueueUniqueWork(
+                    uniqueWorkName,
+                    ExistingWorkPolicy.REPLACE,
+                    request
+                )
             }
             "SPLIT_TASK" -> {
-                // TaskSplitter is called from AutonomyNudgeWorker context; here we just navigate
-                // Navigation to the task is handled by NeuroFlowApp via deep link / intent extras
+                if (taskId == null) return
+                lifecycleScope.launch {
+                    val task = taskRepository.getById(taskId) ?: return@launch
+                    // Prevent repeated taps from splitting an already archived/split task again.
+                    if (task.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE) return@launch
+
+                    val prefs = preferencesDataStore.preferencesFlow.first()
+
+                    val subtasks = TaskSplitter.split(
+                        task,
+                        taskRepository,
+                        sequentialDependencies = prefs.autoSplitSequentialDependencies
+                    )
+                    val nextTaskId = subtasks.firstOrNull()?.id ?: return@launch
+
+                    val openFocusIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
+                        action = "com.procus.ACTION_OPEN_FOCUS"
+                        putExtra("task_id", nextTaskId)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    startActivity(openFocusIntent)
+                }
             }
             "WOOP_REFLECT" -> {
-                // Navigate to MiniWoopReflectionScreen — handled by NeuroFlowApp nav
+                initialWoopTaskId = taskId
             }
         }
     }
@@ -102,13 +139,6 @@ class MainActivity : ComponentActivity() {
             // Track whether goals refill has been handled this session (skip = session-only)
             var yearlyGoalHandled by remember { mutableStateOf(false) }
             var weeklyGoalHandled by remember { mutableStateOf(false) }
-
-            // Extract task_id from intent for ACTION_OPEN_FOCUS
-            val initialTaskId = remember(intent) {
-                if (intent.action == "com.procus.ACTION_OPEN_FOCUS") {
-                    intent.getStringExtra("task_id")
-                } else null
-            }
 
             val darkTheme = when (preferences?.theme) {
                 AppTheme.LIGHT -> false
@@ -253,7 +283,12 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onSkip = { weeklyGoalHandled = true }
                                 )
-                                else -> NeuroFlowApp(initialTaskId = initialTaskId)
+                                else -> NeuroFlowApp(
+                                    initialTaskId = initialFocusTaskId,
+                                    initialWoopTaskId = initialWoopTaskId,
+                                    onInitialTaskConsumed = { initialFocusTaskId = null },
+                                    onInitialWoopTaskConsumed = { initialWoopTaskId = null }
+                                )
                             }
                         }
                     }

@@ -208,7 +208,8 @@ fun AppFolderOverlay(
                                         modifier = Modifier.size(48.dp),
                                         onTap = { onAppLaunch(app.packageName) },
                                         onPinToDock = { onPinToDock(app.packageName) },
-                                        onHide = { onHide(app.packageName) }
+                                        onHide = { onHide(app.packageName) },
+                                        onLongPress = { onAppLongPress(app) }
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(

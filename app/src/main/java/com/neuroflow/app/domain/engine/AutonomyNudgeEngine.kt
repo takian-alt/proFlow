@@ -27,11 +27,17 @@ object AutonomyNudgeEngine {
             .addTag("$TAG_PREFIX${task.id}")
             .build()
 
-        androidx.work.WorkManager.getInstance(context).enqueue(request)
+        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+            "$TAG_PREFIX${task.id}",
+            androidx.work.ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     fun cancelNudge(context: Context, taskId: String) {
         androidx.work.WorkManager.getInstance(context)
             .cancelAllWorkByTag("$TAG_PREFIX$taskId")
+        androidx.work.WorkManager.getInstance(context)
+            .cancelUniqueWork("$TAG_PREFIX$taskId")
     }
 }
