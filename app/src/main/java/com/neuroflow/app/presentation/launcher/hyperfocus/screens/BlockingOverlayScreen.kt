@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import androidx.navigation.NavController
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.presentation.launcher.LauncherActivity
@@ -73,11 +74,13 @@ fun BlockingOverlayScreen(
     val progress by viewModel.progress.collectAsState()
     val isUnlockActive by viewModel.isUnlockActive.collectAsState()
     val unlockSecondsRemaining by viewModel.unlockSecondsRemaining.collectAsState()
+    val sessionSecondsRemaining by viewModel.sessionSecondsRemaining.collectAsState()
 
     var showEmergencyDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val isTimeBasedSession = prefs.sessionMode == HyperFocusSessionMode.TIME_BASED
     
     val appName = remember(blockedPackage) {
         try {
@@ -331,92 +334,128 @@ fun BlockingOverlayScreen(
                 }
             }
 
-            // ============ PROGRESS SECTION ============
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFF1A1A2E),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            if (isTimeBasedSession) {
+                // ============ SESSION TIMER SECTION ============
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF1A1A2E),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(
-                        text = "Today's Progress",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    LinearProgressIndicator(
-                        progress = { progress.fraction },
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
-                        trackColor = Color(0xFF2D2D44),
-                        strokeCap = StrokeCap.Round
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column {
-                            Text(
-                                text = "${progress.completedSinceActivation} / ${progress.totalTarget}",
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "tasks completed",
-                                color = Color(0xFFB0B0B0),
-                                fontSize = 12.sp
-                            )
-                        }
+                        Text(
+                            text = "Focus Timer",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = formatSeconds(sessionSecondsRemaining),
+                            color = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Apps stay blocked until this timer ends.",
+                            color = Color(0xFFB0B0B0),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                // ============ PROGRESS SECTION ============
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF1A1A2E),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Today's Progress",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
-                        if (progress.currentTier != RewardTier.FULL) {
-                            val tiers = RewardTier.entries
-                            val nextIndex = tiers.indexOf(progress.currentTier) + 1
-                            val nextTier = if (nextIndex < tiers.size) tiers[nextIndex] else null
-                            val unlockLabel = when {
-                                nextTier == null || nextTier == RewardTier.FULL -> "full unlock"
-                                else -> "${nextTier.unlockMinutes}min unlock"
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
+                        LinearProgressIndicator(
+                            progress = { progress.fraction },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
+                            trackColor = Color(0xFF2D2D44),
+                            strokeCap = StrokeCap.Round
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
                                 Text(
-                                    text = "${progress.tasksToNextTier}",
-                                    color = Color(0xFF4A90E2),
+                                    text = "${progress.completedSinceActivation} / ${progress.totalTarget}",
+                                    color = Color.White,
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "more → $unlockLabel",
+                                    text = "tasks completed",
                                     color = Color(0xFFB0B0B0),
                                     fontSize = 12.sp
                                 )
                             }
-                        } else {
-                            Surface(
-                                modifier = Modifier
-                                    .background(
-                                        color = Color(0xFF1B5E20),
-                                        shape = RoundedCornerShape(8.dp)
+
+                            if (progress.currentTier != RewardTier.FULL) {
+                                val tiers = RewardTier.entries
+                                val nextIndex = tiers.indexOf(progress.currentTier) + 1
+                                val nextTier = if (nextIndex < tiers.size) tiers[nextIndex] else null
+                                val unlockLabel = when {
+                                    nextTier == null || nextTier == RewardTier.FULL -> "full unlock"
+                                    else -> "${nextTier.unlockMinutes}min unlock"
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "${progress.tasksToNextTier}",
+                                        color = Color(0xFF4A90E2),
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
-                                    .padding(8.dp),
-                                color = Color(0xFF1B5E20)
-                            ) {
-                                Text(
-                                    text = "✓ Full Reward",
-                                    color = Color(0xFF69F0AE),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                    Text(
+                                        text = "more → $unlockLabel",
+                                        color = Color(0xFFB0B0B0),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    modifier = Modifier
+                                        .background(
+                                            color = Color(0xFF1B5E20),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(8.dp),
+                                    color = Color(0xFF1B5E20)
+                                ) {
+                                    Text(
+                                        text = "✓ Full Reward",
+                                        color = Color(0xFF69F0AE),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -595,5 +634,17 @@ fun BlockingOverlayScreen(
                 }
             }
         )
+    }
+}
+
+private fun formatSeconds(seconds: Long?): String {
+    val safe = (seconds ?: 0L).coerceAtLeast(0L)
+    val hours = safe / 3600
+    val minutes = (safe % 3600) / 60
+    val secs = safe % 60
+    return if (hours > 0) {
+        String.format("%02d:%02d:%02d", hours, minutes, secs)
+    } else {
+        String.format("%02d:%02d", minutes, secs)
     }
 }

@@ -63,6 +63,11 @@ enum class HyperFocusState {
     PLANNING
 }
 
+enum class HyperFocusSessionMode {
+    TASK_BASED,
+    TIME_BASED
+}
+
 enum class RewardTier(val unlockMinutes: Int, val taskThreshold: Int) {
     NONE(0, 0),
     MICRO(2, 1),

@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,7 +27,7 @@ import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NewTaskSheet(
     onDismiss: () -> Unit,
@@ -37,6 +38,14 @@ fun NewTaskSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isEditing = editTask != null
+    val suggestedTags = remember(availableTasks) {
+        availableTasks
+            .flatMap { task -> task.tags.split(",") }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
 
     var title by remember { mutableStateOf(editTask?.title ?: "") }
     var description by remember { mutableStateOf(editTask?.description ?: "") }
@@ -49,7 +58,9 @@ fun NewTaskSheet(
     var deadlineTime by remember { mutableLongStateOf(editTask?.deadlineTime ?: -1L) }
     var scheduledDate by remember { mutableLongStateOf(editTask?.scheduledDate ?: 0L) }
     var scheduledTime by remember { mutableLongStateOf(editTask?.scheduledTime ?: -1L) }
-    var isScheduleLocked by remember { mutableStateOf(editTask?.isScheduleLocked ?: false) }
+    var isScheduleLocked by remember {
+        mutableStateOf(editTask?.isScheduleLocked ?: ((editTask?.recurrence ?: Recurrence.NONE) != Recurrence.NONE))
+    }
     var habitDate by remember { mutableLongStateOf(editTask?.habitDate ?: 0L) }
     var estimatedDuration by remember { mutableIntStateOf(editTask?.estimatedDurationMinutes ?: 0) }
     var impactScore by remember { mutableFloatStateOf((editTask?.impactScore ?: 50).toFloat()) }
@@ -91,6 +102,12 @@ fun NewTaskSheet(
         (cal.get(Calendar.HOUR_OF_DAY) * 3600000L + cal.get(Calendar.MINUTE) * 60000L).takeIf { t -> t > 0L } ?: -1L
     } ?: -1L) }
     var datePickerTarget by remember { mutableStateOf("deadline") }
+
+    LaunchedEffect(selectedRecurrence, isEditing) {
+        if (!isEditing && selectedRecurrence != Recurrence.NONE) {
+            isScheduleLocked = true
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -725,7 +742,7 @@ fun NewTaskSheet(
                                 deadlineTime = if (selectedRecurrence == Recurrence.NONE && deadlineTime >= 0) deadlineTime else null,
                                 scheduledDate = if (selectedRecurrence == Recurrence.NONE && scheduledDate > 0) scheduledDate else null,
                                 scheduledTime = if (selectedRecurrence == Recurrence.NONE && scheduledTime >= 0) scheduledTime else null,
-                                isScheduleLocked = isScheduleLocked,
+                                isScheduleLocked = if (selectedRecurrence != Recurrence.NONE) true else isScheduleLocked,
                                 estimatedDurationMinutes = estimatedDuration,
                                 impactScore = impactScore.toInt(),
                                 valueScore = valueScore.toInt(),
@@ -817,17 +834,49 @@ fun NewTaskSheet(
             onDismissRequest = { showTagDialog = false },
             title = { Text("Add Tag") },
             text = {
-                OutlinedTextField(
-                    value = newTag,
-                    onValueChange = { newTag = it },
-                    label = { Text("Tag name") },
-                    singleLine = true
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = newTag,
+                        onValueChange = { newTag = it },
+                        label = { Text("Tag name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (suggestedTags.isNotEmpty()) {
+                        Text(
+                            "Select existing",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            suggestedTags.forEach { tag ->
+                                val isSelected = tags.any { it.equals(tag, ignoreCase = true) }
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        tags = if (isSelected) {
+                                            tags.filterNot { it.equals(tag, ignoreCase = true) }
+                                        } else {
+                                            tags + tag
+                                        }
+                                    },
+                                    label = { Text(tag) }
+                                )
+                            }
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (newTag.isNotBlank()) {
-                        tags = tags.toMutableList().apply { add(newTag.trim()) }
+                    val cleaned = newTag.trim()
+                    if (cleaned.isNotBlank() && tags.none { it.equals(cleaned, ignoreCase = true) }) {
+                        tags = tags.toMutableList().apply { add(cleaned) }
                     }
                     showTagDialog = false
                 }) { Text("Add") }

@@ -58,12 +58,18 @@ class ScheduleViewModel @Inject constructor(
     }
 
     fun nextDay() {
-        val next = _uiState.value.selectedDate + 86_400_000
+        val next = Calendar.getInstance().apply {
+            timeInMillis = _uiState.value.selectedDate
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
         selectDate(next)
     }
 
     fun previousDay() {
-        val prev = _uiState.value.selectedDate - 86_400_000
+        val prev = Calendar.getInstance().apply {
+            timeInMillis = _uiState.value.selectedDate
+            add(Calendar.DAY_OF_YEAR, -1)
+        }.timeInMillis
         selectDate(prev)
     }
 

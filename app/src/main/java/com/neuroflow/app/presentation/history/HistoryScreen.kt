@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.history
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -77,35 +78,65 @@ fun HistoryScreen(
                 }
             }
             else -> {
-                LazyColumn(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                        .padding(innerPadding)
                 ) {
-                    items(uiState.completedTasks, key = { it.id }) { task ->
-                        HistoryTaskRow(
-                            task = task,
-                            onClick = {
-                                scope.launch {
-                                    selectedSessions = viewModel.getSessionsForTask(task.id)
-                                    selectedTaskId = task.id
-                                }
-                            },
-                            onDelete = {
-                                viewModel.deleteTask(task)
-                                scope.launch {
-                                    val result = snackbarHostState.showSnackbar(
-                                        message = "Task deleted",
-                                        actionLabel = "Undo",
-                                        duration = SnackbarDuration.Short
-                                    )
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.restoreTask(task)
-                                    }
-                                }
-                            }
+                    HistoryDateRangeFilters(
+                        selected = uiState.selectedDateRange,
+                        onSelected = viewModel::updateDateRange
+                    )
+
+                    if (uiState.availableTags.isNotEmpty()) {
+                        HistoryTagFilters(
+                            tags = uiState.availableTags,
+                            selectedTag = uiState.selectedTag,
+                            onSelected = viewModel::updateTagFilter
                         )
+                    }
+
+                    if (uiState.completedTasks.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No completed tasks in this date range.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            items(uiState.completedTasks, key = { it.id }) { task ->
+                                HistoryTaskRow(
+                                    task = task,
+                                    onClick = {
+                                        scope.launch {
+                                            selectedSessions = viewModel.getSessionsForTask(task.id)
+                                            selectedTaskId = task.id
+                                        }
+                                    },
+                                    onDelete = {
+                                        viewModel.deleteTask(task)
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar(
+                                                message = "Task deleted",
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                viewModel.restoreTask(task)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -118,6 +149,63 @@ fun HistoryScreen(
             sessions = selectedSessions,
             onDismiss = { selectedTaskId = null }
         )
+    }
+}
+
+@Composable
+private fun HistoryTagFilters(
+    tags: List<String>,
+    selectedTag: String?,
+    onSelected: (String?) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilterChip(
+            selected = selectedTag == null,
+            onClick = { onSelected(null) },
+            label = { Text("All tags") }
+        )
+        tags.forEach { tag ->
+            FilterChip(
+                selected = selectedTag == tag,
+                onClick = { onSelected(tag) },
+                label = { Text(tag) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryDateRangeFilters(
+    selected: HistoryDateRange,
+    onSelected: (HistoryDateRange) -> Unit
+) {
+    val options = listOf(
+        HistoryDateRange.ALL to "All",
+        HistoryDateRange.TODAY to "Today",
+        HistoryDateRange.LAST_7_DAYS to "7 Days",
+        HistoryDateRange.LAST_30_DAYS to "30 Days"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (range, label) ->
+            FilterChip(
+                selected = selected == range,
+                onClick = { onSelected(range) },
+                label = { Text(label) }
+            )
+        }
     }
 }
 

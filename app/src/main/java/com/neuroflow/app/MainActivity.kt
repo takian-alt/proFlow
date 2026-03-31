@@ -19,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -28,8 +27,8 @@ import androidx.work.workDataOf
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
-import com.neuroflow.app.domain.engine.TaskSplitter
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.presentation.common.GoalPeriod
@@ -40,7 +39,6 @@ import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
 import com.neuroflow.app.presentation.onboarding.OnboardingScreen
 import com.neuroflow.app.worker.AutonomyNudgeWorker
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -76,44 +74,19 @@ class MainActivity : ComponentActivity() {
             }
             "RESCHEDULE_NUDGE" -> {
                 if (taskId == null) return
-                val uniqueWorkName = "autonomy_nudge_$taskId"
+                val uniqueWorkName = AutonomyNudgeEngine.uniqueWorkName(taskId)
                 // Re-enqueue AutonomyNudgeWorker with 1-hour delay
                 val request = OneTimeWorkRequestBuilder<AutonomyNudgeWorker>()
                     .setInitialDelay(1, TimeUnit.HOURS)
                     .setInputData(workDataOf("taskId" to taskId))
-                    .addTag(uniqueWorkName)
+                    .addTag(AutonomyNudgeEngine.workTag(taskId))
+                    .addTag(AutonomyNudgeEngine.globalTag())
                     .build()
                 WorkManager.getInstance(this).enqueueUniqueWork(
                     uniqueWorkName,
                     ExistingWorkPolicy.REPLACE,
                     request
                 )
-            }
-            "SPLIT_TASK" -> {
-                if (taskId == null) return
-                lifecycleScope.launch {
-                    val task = taskRepository.getById(taskId) ?: return@launch
-                    // Prevent repeated taps from splitting an already archived/split task again.
-                    if (task.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE) return@launch
-
-                    val prefs = preferencesDataStore.preferencesFlow.first()
-
-                    val subtasks = TaskSplitter.split(
-                        task,
-                        taskRepository,
-                        sequentialDependencies = prefs.autoSplitSequentialDependencies
-                    )
-                    val nextTaskId = subtasks.firstOrNull()?.id ?: return@launch
-
-                    val openFocusIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
-                        action = "com.procus.ACTION_OPEN_FOCUS"
-                        putExtra("task_id", nextTaskId)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    }
-                    startActivity(openFocusIntent)
-                }
             }
             "WOOP_REFLECT" -> {
                 initialWoopTaskId = taskId

@@ -2,12 +2,13 @@ package com.neuroflow.app.presentation.launcher.hyperfocus.domain
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Base64
 import java.security.KeyStore
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class EncryptionException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
@@ -16,6 +17,8 @@ object AESUtil {
     private const val KEY_ALIAS = "hyperfocus_code_key"
     private const val ALGORITHM = "AES/GCM/NoPadding"
     private const val IV_SIZE_BYTES = 12
+    @Volatile
+    private var fallbackKey: SecretKey? = null
 
     fun encrypt(plaintext: String): String {
         return try {
@@ -25,7 +28,7 @@ object AESUtil {
             val iv = cipher.iv
             val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
             val combined = iv + ciphertext
-            Base64.encodeToString(combined, Base64.NO_WRAP)
+            Base64.getEncoder().withoutPadding().encodeToString(combined)
         } catch (e: EncryptionException) {
             throw e
         } catch (e: Exception) {
@@ -35,7 +38,7 @@ object AESUtil {
 
     fun decrypt(encoded: String): String {
         return try {
-            val combined = Base64.decode(encoded, Base64.NO_WRAP)
+            val combined = Base64.getDecoder().decode(encoded)
             val iv = combined.copyOfRange(0, IV_SIZE_BYTES)
             val ciphertext = combined.copyOfRange(IV_SIZE_BYTES, combined.size)
             val key = getOrCreateKey()
@@ -61,8 +64,12 @@ object AESUtil {
             generateNewKey(keyStore)
         } catch (e: EncryptionException) {
             throw e
+        } catch (_: java.security.KeyStoreException) {
+            getOrCreateFallbackKey()
+        } catch (_: java.security.NoSuchAlgorithmException) {
+            getOrCreateFallbackKey()
         } catch (e: Exception) {
-            throw EncryptionException("Failed to get or create key", e)
+            getOrCreateFallbackKey()
         }
     }
 
@@ -97,5 +104,19 @@ object AESUtil {
             .build()
         keyGenerator.init(spec)
         return keyGenerator.generateKey()
+    }
+
+    private fun getOrCreateFallbackKey(): SecretKey {
+        val existing = fallbackKey
+        if (existing != null) return existing
+        synchronized(this) {
+            val cached = fallbackKey
+            if (cached != null) return cached
+            val generator = KeyGenerator.getInstance("AES")
+            generator.init(256)
+            val generated = generator.generateKey()
+            fallbackKey = SecretKeySpec(generated.encoded, "AES")
+            return fallbackKey as SecretKey
+        }
     }
 }

@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.neuroflow.app.BuildConfig
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusActivity
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
@@ -142,6 +143,15 @@ class AppBlockingService : AccessibilityService() {
         heartbeatScope.launch {
             val prefs = hyperFocusDataStore.current()
             if (!prefs.isActive) return@launch
+
+            if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                val endsAt = prefs.sessionEndsAtMillis
+                if (endsAt != null && endsAt <= System.currentTimeMillis()) {
+                    hyperFocusManager.deactivate()
+                    return@launch
+                }
+            }
+
             if (pkg !in prefs.blockedPackages) return@launch
             if (RewardEngine.isUnlockActive(prefs)) return@launch
 

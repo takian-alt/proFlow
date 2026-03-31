@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.HyperFocusState
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusProgress
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
@@ -38,6 +39,7 @@ fun HyperFocusStatusBar(
     prefs: HyperFocusPreferences,
     progress: HyperFocusProgress,
     unlockSecondsRemaining: Long?,
+    sessionSecondsRemaining: Long?,
     onRewardsClick: () -> Unit,
     onPlanningClick: () -> Unit
 ) {
@@ -107,6 +109,24 @@ fun HyperFocusStatusBar(
                         text = "🔓 UNLOCKED — ${minutes}m ${seconds}s remaining",
                         color = Color(0xFF4CAF50),
                         style = MaterialTheme.typography.labelMedium
+                    )
+                }
+
+                prefs.sessionMode == HyperFocusSessionMode.TIME_BASED -> {
+                    val remaining = sessionSecondsRemaining ?: 0L
+                    val hours = remaining / 3600
+                    val minutes = (remaining % 3600) / 60
+                    val seconds = remaining % 60
+                    val label = if (hours > 0) {
+                        String.format("%02d:%02d:%02d", hours, minutes, seconds)
+                    } else {
+                        String.format("%02d:%02d", minutes, seconds)
+                    }
+
+                    Text(
+                        text = "🔒 FOCUS TIMER — $label remaining",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.HyperFocusState
 import com.neuroflow.app.domain.model.RewardTier
 import kotlinx.coroutines.flow.Flow
@@ -41,7 +42,12 @@ data class HyperFocusPreferences(
     // Only completions of these tasks count toward rewards — prevents spam-adding new tasks.
     val lockedTaskIds: Set<String> = emptySet(),
     // Tracks if an emergency bypass was used this session, canceling intermediate rewards
-    val emergencyUsed: Boolean = false
+    val emergencyUsed: Boolean = false,
+    // Session mode determines whether focus is task-driven or time-driven.
+    val sessionMode: HyperFocusSessionMode = HyperFocusSessionMode.TASK_BASED,
+    // Used for time-based sessions.
+    val sessionDurationMinutes: Int? = null,
+    val sessionEndsAtMillis: Long? = null
 )
 
 interface HyperFocusDataStore {
@@ -103,6 +109,9 @@ class HyperFocusDataStoreImpl @Inject constructor(
         prefs.lockedTaskIds.forEach { lockedTasksArray.put(it) }
         json.put("lockedTaskIds", lockedTasksArray)
         json.put("emergencyUsed", prefs.emergencyUsed)
+        json.put("sessionMode", prefs.sessionMode.name)
+        json.put("sessionDurationMinutes", prefs.sessionDurationMinutes ?: JSONObject.NULL)
+        json.put("sessionEndsAtMillis", prefs.sessionEndsAtMillis ?: JSONObject.NULL)
         return json.toString()
     }
 
@@ -137,7 +146,18 @@ class HyperFocusDataStoreImpl @Inject constructor(
                     val arr = obj.optJSONArray("lockedTaskIds")
                     if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
                 },
-                emergencyUsed = obj.optBoolean("emergencyUsed", false)
+                emergencyUsed = obj.optBoolean("emergencyUsed", false),
+                sessionMode = try {
+                    HyperFocusSessionMode.valueOf(
+                        obj.optString("sessionMode", HyperFocusSessionMode.TASK_BASED.name)
+                    )
+                } catch (_: Exception) {
+                    HyperFocusSessionMode.TASK_BASED
+                },
+                sessionDurationMinutes = if (obj.isNull("sessionDurationMinutes")) null
+                    else obj.optInt("sessionDurationMinutes").takeIf { it > 0 },
+                sessionEndsAtMillis = if (obj.isNull("sessionEndsAtMillis")) null
+                    else obj.optLong("sessionEndsAtMillis").takeIf { it > 0L }
             )
         } catch (_: Exception) {
             HyperFocusPreferences()

@@ -35,12 +35,15 @@ class LauncherSearchEngineImpl @Inject constructor(
     private val pinnedAppsDataStore: PinnedAppsDataStore
 ) : LauncherSearchEngine {
 
+    private fun normalize(text: String): String =
+        text.lowercase().replace(Regex("[^a-z0-9]"), "")
+
     override suspend fun search(query: String): SearchResults = withContext(Dispatchers.IO) {
         if (query.isBlank()) {
             return@withContext SearchResults()
         }
 
-        val normalizedQuery = query.trim().lowercase()
+        val normalizedQuery = normalize(query.trim())
 
         // Launch all searches in parallel
         val appsDeferred = async { searchApps(normalizedQuery) }
@@ -70,8 +73,8 @@ class LauncherSearchEngineImpl @Inject constructor(
         return try {
             val allApps = appRepository.apps.first()
             allApps.filter { app ->
-                app.label.lowercase().contains(query) ||
-                app.packageName.lowercase().contains(query)
+                normalize(app.label).contains(query) ||
+                normalize(app.packageName).contains(query)
             }.take(10) // Limit to top 10 results
         } catch (e: Exception) {
             android.util.Log.e("LauncherSearchEngine", "Error searching apps", e)
@@ -103,7 +106,7 @@ class LauncherSearchEngineImpl @Inject constructor(
             )
 
             val selection = "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?"
-            val selectionArgs = arrayOf("%$query%")
+            val selectionArgs = arrayOf("%${query.trim()}%")
             val sortOrder = "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} ASC"
 
             var cursor: Cursor? = null
@@ -290,8 +293,8 @@ class LauncherSearchEngineImpl @Inject constructor(
 
             // Filter settings by query
             commonSettings.filter { setting ->
-                setting.title.lowercase().contains(query) ||
-                setting.description?.lowercase()?.contains(query) == true
+                normalize(setting.title).contains(query) ||
+                setting.description?.let { normalize(it).contains(query) } == true
             }.take(5) // Limit to top 5 results
         } catch (e: Exception) {
             android.util.Log.e("LauncherSearchEngine", "Error searching settings", e)

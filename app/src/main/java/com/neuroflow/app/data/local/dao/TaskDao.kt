@@ -40,9 +40,13 @@ interface TaskDao {
 
     @Query("""
         SELECT * FROM tasks
-        WHERE scheduledDate >= :dayStart AND scheduledDate < :dayEnd
-        AND status = 'ACTIVE'
-        ORDER BY scheduledTime ASC
+        WHERE status = 'ACTIVE'
+          AND (
+                (scheduledDate >= :dayStart AND scheduledDate < :dayEnd)
+                OR
+                (recurrence != 'NONE' AND habitDate >= :dayStart AND habitDate < :dayEnd)
+              )
+        ORDER BY COALESCE(scheduledTime, habitDate % 86400000, 0) ASC
     """)
     fun observeTasksForDate(dayStart: Long, dayEnd: Long): Flow<List<TaskEntity>>
 

@@ -5,7 +5,12 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 
 object AutonomyNudgeEngine {
     private const val TAG_PREFIX = "autonomy_nudge_"
+    private const val GLOBAL_TAG = "autonomy_nudge_all"
     private const val DELAY_HOURS = 2L
+
+    fun uniqueWorkName(taskId: String): String = "$TAG_PREFIX$taskId"
+    fun workTag(taskId: String): String = "$TAG_PREFIX$taskId"
+    fun globalTag(): String = GLOBAL_TAG
 
     fun scheduleNudge(context: Context, task: TaskEntity) {
         // Check POST_NOTIFICATIONS permission (Android 13+)
@@ -24,11 +29,12 @@ object AutonomyNudgeEngine {
         val request = androidx.work.OneTimeWorkRequestBuilder<com.neuroflow.app.worker.AutonomyNudgeWorker>()
             .setInitialDelay(DELAY_HOURS, java.util.concurrent.TimeUnit.HOURS)
             .setInputData(data)
-            .addTag("$TAG_PREFIX${task.id}")
+            .addTag(workTag(task.id))
+            .addTag(globalTag())
             .build()
 
         androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
-            "$TAG_PREFIX${task.id}",
+            uniqueWorkName(task.id),
             androidx.work.ExistingWorkPolicy.REPLACE,
             request
         )
@@ -36,8 +42,8 @@ object AutonomyNudgeEngine {
 
     fun cancelNudge(context: Context, taskId: String) {
         androidx.work.WorkManager.getInstance(context)
-            .cancelAllWorkByTag("$TAG_PREFIX$taskId")
+            .cancelAllWorkByTag(workTag(taskId))
         androidx.work.WorkManager.getInstance(context)
-            .cancelUniqueWork("$TAG_PREFIX$taskId")
+            .cancelUniqueWork(uniqueWorkName(taskId))
     }
 }

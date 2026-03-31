@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.launcher.hyperfocus
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
@@ -52,6 +53,16 @@ class HyperFocusViewModel @Inject constructor(
         hyperFocusDataStore.flow,
         tickerFlow
     ) { prefs, _ ->
+        if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+            return@combine HyperFocusProgress(
+                completedSinceActivation = 0,
+                totalTarget = 0,
+                currentTier = RewardTier.NONE,
+                fraction = 0f,
+                tasksToNextTier = 0
+            )
+        }
+
         val completedSinceActivation = if (prefs.lockedTaskIds.isNotEmpty()) {
             taskRepository.getAllTasks()
                 .count { it.id in prefs.lockedTaskIds && it.status == TaskStatus.COMPLETED }
@@ -86,6 +97,15 @@ class HyperFocusViewModel @Inject constructor(
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val sessionSecondsRemaining: StateFlow<Long?> = combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs ->
+        if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TIME_BASED) {
+            return@combine null
+        }
+        val endsAt = prefs.sessionEndsAtMillis ?: return@combine null
+        ((endsAt - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val claimedCodeToShow: MutableStateFlow<String?> = MutableStateFlow(null)
     // Which tier the currently shown code belongs to
     val claimedCodeTier: MutableStateFlow<RewardTier?> = MutableStateFlow(null)
@@ -108,6 +128,17 @@ class HyperFocusViewModel @Inject constructor(
                     }
                 rewardCounts.value = counts
             }
+        }
+
+        viewModelScope.launch {
+            combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs -> prefs }
+                .collect { prefs ->
+                    if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TIME_BASED) return@collect
+                    val endsAt = prefs.sessionEndsAtMillis ?: return@collect
+                    if (endsAt <= System.currentTimeMillis()) {
+                        hyperFocusManager.deactivate()
+                    }
+                }
         }
     }
 
@@ -135,6 +166,13 @@ class HyperFocusViewModel @Inject constructor(
         }
     }
 
+    fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int) {
+        viewModelScope.launch {
+            if (blockedPackages.isEmpty()) return@launch
+            hyperFocusManager.activateTimed(blockedPackages, durationMinutes)
+        }
+    }
+
     fun activateEmergencyBypass() {
         viewModelScope.launch {
             hyperFocusManager.triggerEmergencyBypass()
@@ -144,6 +182,7 @@ class HyperFocusViewModel @Inject constructor(
     fun claimRewardForTier(tier: RewardTier) {
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()
+            if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) return@launch
             val sessionId = prefs.sessionId ?: return@launch
             val currentProgress = progress.value
 

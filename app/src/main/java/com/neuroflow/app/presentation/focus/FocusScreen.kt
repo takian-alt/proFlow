@@ -625,24 +625,29 @@ fun FocusScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Row 5: Scheduled card
-            if (task.scheduledDate != null) {
+            // Row 5: Time block card (scheduled or recurring habit anchor)
+            val timeBlockMillis = when {
+                task.scheduledDate != null -> task.scheduledDate + (task.scheduledTime ?: 0)
+                task.recurrence != Recurrence.NONE && task.habitDate != null -> task.habitDate
+                else -> null
+            }
+            if (timeBlockMillis != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = scheduledCardColor),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("📅 SCHEDULED", fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 12.sp)
+                        val timeBlockLabel = if (task.scheduledDate != null) "📅 SCHEDULED" else "🔁 RECURRENCE TIME"
+                        Text(timeBlockLabel, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 12.sp)
                         Spacer(modifier = Modifier.height(4.dp))
-                        val schedMillis = task.scheduledDate + (task.scheduledTime ?: 0)
                         Text(
-                            text = formatRelativeTime(schedMillis, task.scheduledTime != null),
+                            text = formatRelativeTime(timeBlockMillis, true),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = formatFullDate(schedMillis, task.scheduledTime != null),
+                            text = formatFullDate(timeBlockMillis, true),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

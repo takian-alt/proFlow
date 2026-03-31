@@ -10,26 +10,40 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
+import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.receiver.NudgeSnoozeReceiver
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 
 @HiltWorker
 class AutonomyNudgeWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val taskRepository: TaskRepository
+    private val taskRepository: TaskRepository,
+    private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!prefs.autonomyNudgeNotificationsEnabled) return Result.success()
+
         val taskId = inputData.getString("taskId") ?: return Result.success()
 
         return try {
             val task = taskRepository.getById(taskId)
 
             // Idempotent: skip if task gone or already started
-            if (task == null || task.sessionCount > 0) return Result.success()
+            if (task == null || task.status != TaskStatus.ACTIVE || task.sessionCount > 0) return Result.success()
+
+            val now = System.currentTimeMillis()
+            val dueAt = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
+                ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+                ?: task.habitDate
+            // Don't nudge tasks that are clearly in the future.
+            if (dueAt != null && dueAt > now + 10 * 60_000L) return Result.success()
 
             val notificationId = taskId.hashCode()
 
@@ -44,23 +58,10 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // "It feels too big" — open MainActivity with SPLIT_TASK action
-            val splitTaskPendingIntent = PendingIntent.getActivity(
-                appContext,
-                notificationId + 2,
-                Intent(appContext, MainActivity::class.java).apply {
-                    action = "SPLIT_TASK"
-                    putExtra("taskId", taskId)
-                    putExtra("notificationId", notificationId)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
             // "I'm avoiding it" — open MainActivity with WOOP_REFLECT action
             val woopReflectPendingIntent = PendingIntent.getActivity(
                 appContext,
-                notificationId + 3,
+                notificationId + 2,
                 Intent(appContext, MainActivity::class.java).apply {
                     action = "WOOP_REFLECT"
                     putExtra("taskId", taskId)
@@ -78,13 +79,11 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                     NotificationCompat.BigTextStyle().bigText(
                         appContext.getString(R.string.autonomy_nudge_bigtext_task_pending, task.title) + "\n" +
                             appContext.getString(R.string.autonomy_nudge_bigtext_not_ready) + "\n" +
-                            appContext.getString(R.string.autonomy_nudge_bigtext_split) + "\n" +
                             appContext.getString(R.string.autonomy_nudge_bigtext_woop)
                     )
                 )
                 .setAutoCancel(true)
                 .addAction(0, appContext.getString(R.string.autonomy_nudge_action_not_ready), notReadyPendingIntent)
-                .addAction(0, appContext.getString(R.string.autonomy_nudge_action_split), splitTaskPendingIntent)
                 .addAction(0, appContext.getString(R.string.autonomy_nudge_action_woop), woopReflectPendingIntent)
                 .build()
 

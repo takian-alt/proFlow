@@ -1,27 +1,17 @@
 package com.neuroflow.app.presentation.common
 
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.*
 
 fun formatRelativeTime(millis: Long, hasTime: Boolean, now: Long = System.currentTimeMillis()): String {
     if (!hasTime) {
-        val nowCal = Calendar.getInstance().apply {
-            timeInMillis = now
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-
-        val targetCal = Calendar.getInstance().apply {
-            timeInMillis = millis
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-
-        val diffDays = Math.round((targetCal.timeInMillis - nowCal.timeInMillis) / 86400000.0).toInt()
+        val zone = ZoneId.systemDefault()
+        val nowDate = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val targetDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+        val diffDays = ChronoUnit.DAYS.between(nowDate, targetDate).toInt()
         return when {
             diffDays == 0 -> "Today"
             diffDays == 1 -> "Tomorrow"

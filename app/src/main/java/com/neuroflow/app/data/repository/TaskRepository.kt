@@ -22,6 +22,31 @@ private fun Long.toDayStart(): Long {
     return cal.timeInMillis
 }
 
+private fun Calendar.addRecurrenceStep(recurrence: Recurrence, customDays: Int) {
+    when (recurrence) {
+        Recurrence.DAILY -> add(Calendar.DAY_OF_YEAR, 1)
+        Recurrence.WEEKLY -> add(Calendar.WEEK_OF_YEAR, 1)
+        Recurrence.MONTHLY -> add(Calendar.MONTH, 1)
+        Recurrence.CUSTOM -> add(Calendar.DAY_OF_YEAR, customDays.coerceAtLeast(1))
+        Recurrence.NONE -> Unit
+    }
+}
+
+private fun nextRecurringAnchorAfter(
+    recurrence: Recurrence,
+    customDays: Int,
+    currentAnchor: Long,
+    now: Long
+): Long {
+    val cal = Calendar.getInstance().apply { timeInMillis = currentAnchor }
+    // Always move to the next cycle, then roll forward if the anchor is still in the past.
+    cal.addRecurrenceStep(recurrence, customDays)
+    while (cal.timeInMillis <= now) {
+        cal.addRecurrenceStep(recurrence, customDays)
+    }
+    return cal.timeInMillis
+}
+
 @Singleton
 class TaskRepository @Inject constructor(
     private val taskDao: TaskDao,
@@ -55,10 +80,9 @@ class TaskRepository @Inject constructor(
     suspend fun resetEstimationErrors() = taskDao.resetEstimationErrors()
 
     /**
-     * Marks [task] as completed and, if it has a recurrence, inserts the next occurrence.
-     * The next occurrence's [TaskEntity.habitDate] is always shifted by the recurrence interval.
-     * deadline/scheduledDate are also shifted if they were set on the original.
-     * Returns the new task ID if a recurrence was created, null otherwise.
+     * Marks [task] as completed and, if it has recurrence, inserts the next occurrence.
+     * Uses calendar-aware stepping (daily/weekly/monthly/custom days) and guarantees
+     * the new occurrence anchor lands strictly in the future.
      */
     suspend fun completeAndRecur(task: TaskEntity, now: Long): String? {
         update(
@@ -74,18 +98,15 @@ class TaskRepository @Inject constructor(
 
         if (task.recurrence == Recurrence.NONE) return null
 
-        val intervalMs = when (task.recurrence) {
-            Recurrence.DAILY   -> 86_400_000L
-            Recurrence.WEEKLY  -> 7 * 86_400_000L
-            Recurrence.MONTHLY -> 30 * 86_400_000L
-            Recurrence.CUSTOM  -> task.recurrenceIntervalDays * 86_400_000L
-            Recurrence.NONE    -> 0L
-        }
-
-        // Anchor for the next occurrence: prefer habitDate, fall back to scheduledDate,
-        // fall back to deadlineDate, fall back to now (so there's always a next-due date).
+        // Anchor for recurrence progression: prefer habitDate, then scheduled/deadline, then now.
         val currentAnchor = task.habitDate ?: task.scheduledDate ?: task.deadlineDate ?: now
-        val nextAnchor = currentAnchor + intervalMs
+        val nextAnchor = nextRecurringAnchorAfter(
+            recurrence = task.recurrence,
+            customDays = task.recurrenceIntervalDays,
+            currentAnchor = currentAnchor,
+            now = now
+        )
+        val deltaMs = nextAnchor - currentAnchor
 
         val newId = UUID.randomUUID().toString()
         insert(
@@ -94,8 +115,8 @@ class TaskRepository @Inject constructor(
                 status = TaskStatus.ACTIVE,
                 completedAt = null,
                 habitDate = nextAnchor,
-                deadlineDate = task.deadlineDate?.plus(intervalMs),
-                scheduledDate = task.scheduledDate?.plus(intervalMs),
+                deadlineDate = task.deadlineDate?.plus(deltaMs),
+                scheduledDate = task.scheduledDate?.plus(deltaMs),
                 isScheduleLocked = task.isScheduleLocked,
                 totalTimeTrackedMinutes = 0f,
                 sessionCount = 0,
