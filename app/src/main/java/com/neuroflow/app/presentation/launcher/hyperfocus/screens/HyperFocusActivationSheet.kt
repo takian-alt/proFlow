@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -80,8 +81,8 @@ private fun ActivationSheetContent(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val activeTaskCount by viewModel.activeTaskCount.collectAsState()
-    val hasActiveTasks = activeTaskCount > 0
+    val activeTasks by viewModel.activeTasks.collectAsState()
+    val hasActiveTasks = activeTasks.isNotEmpty()
 
     // Build full app list with labels, sorted alphabetically, only including launchable apps
     val allApps = remember {
@@ -104,6 +105,18 @@ private fun ActivationSheetContent(
             distractionScores.filter { it.value > 70 }.keys.forEach { pkg -> map[pkg] = true }
         }
     }
+    val selectedTaskIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    LaunchedEffect(activeTasks) {
+        val activeIds = activeTasks.map { it.id }.toSet()
+        val stale = selectedTaskIds.keys.filter { it !in activeIds }
+        stale.forEach { selectedTaskIds.remove(it) }
+        activeTasks.forEach { task ->
+            if (selectedTaskIds[task.id] == null) {
+                selectedTaskIds[task.id] = false
+            }
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
@@ -118,8 +131,16 @@ private fun ActivationSheetContent(
             pkg.contains(searchQuery, ignoreCase = true)
         }
     }
+    val filteredTasks = remember(searchQuery, activeTasks) {
+        if (searchQuery.isBlank()) activeTasks
+        else activeTasks.filter { task ->
+            task.title.contains(searchQuery, ignoreCase = true) ||
+                task.description.contains(searchQuery, ignoreCase = true)
+        }
+    }
 
     val selectedCount = selectedPackages.count { it.value }
+    val selectedTaskCount = selectedTaskIds.count { it.value }
 
     Column(
         modifier = Modifier
@@ -182,11 +203,19 @@ private fun ActivationSheetContent(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = MaterialTheme.shapes.small
             ) {
-                Text(
-                    text = "Daily task target: $activeTaskCount task(s)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp)
-                )
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Select tasks for this session",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Daily task target: $selectedTaskCount task(s)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             Text(
@@ -285,6 +314,60 @@ private fun ActivationSheetContent(
             }
         }
 
+        if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tasks in Hyper Focus",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$selectedTaskCount selected",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (filteredTasks.isEmpty()) {
+                Text(
+                    text = "No active tasks found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                filteredTasks.forEach { task ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedTaskIds[task.id] == true,
+                            onCheckedChange = { checked -> selectedTaskIds[task.id] = checked }
+                        )
+                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                            Text(
+                                text = task.title,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (task.description.isNotBlank()) {
+                                Text(
+                                    text = task.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // No tasks warning
         if (sessionMode == HyperFocusSessionMode.TASK_BASED && !hasActiveTasks) {
             Surface(
@@ -308,12 +391,13 @@ private fun ActivationSheetContent(
                 if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
                     viewModel.activateTimed(selected, selectedDurationMinutes)
                 } else {
-                    viewModel.activate(selected)
+                    val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                    viewModel.activate(selected, selectedTasks)
                 }
                 onDismiss()
             },
             enabled = confirmText == "FOCUS" && selectedCount > 0 &&
-                (sessionMode == HyperFocusSessionMode.TIME_BASED || hasActiveTasks),
+                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
             modifier = Modifier.fillMaxWidth()
         ) {
             val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {

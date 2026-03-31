@@ -580,21 +580,23 @@ fun BlockingOverlayScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (!prefs.emergencyUsed) {
-                    TextButton(
-                        onClick = { showEmergencyDialog = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Emergency Access (10 mins)", color = Color(0xFFB0B0B0))
+                if (prefs.sessionMode == HyperFocusSessionMode.TASK_BASED) {
+                    if (!prefs.emergencyUsed) {
+                        TextButton(
+                            onClick = { showEmergencyDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Emergency Access (10 mins)", color = Color(0xFFB0B0B0))
+                        }
+                    } else {
+                        Text(
+                            text = "Emergency access already used for this session",
+                            color = Color(0xFFB0B0B0),
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
                     }
-                } else {
-                    Text(
-                        text = "Emergency access already used for this session",
-                        color = Color(0xFFB0B0B0),
-                        fontSize = 12.sp,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
-                    )
                 }
             }
 

@@ -5,8 +5,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.content.ContextCompat
 import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusActivity
@@ -30,6 +32,7 @@ class AppBlockingService : AccessibilityService() {
     private val heartbeatScope = CoroutineScope(Dispatchers.IO)
     private var lastBlockedPackage: String? = null
     private var lastBlockTime: Long = 0
+    @Volatile private var lastSeenForegroundPackage: String? = null
 
     companion object {
         private const val TAG = "AppBlockingService"
@@ -79,6 +82,8 @@ class AppBlockingService : AccessibilityService() {
             ?: event.packageName?.toString()
             ?: return
 
+        lastSeenForegroundPackage = pkg
+
         checkAndBlockApp(pkg)
     }
 
@@ -94,13 +99,12 @@ class AppBlockingService : AccessibilityService() {
             info.flags = info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
 
-        registerReceiver(
+        registerReceiverCompat(
             unlockExpiredReceiver,
-            IntentFilter(UnlockTimerService.ACTION_UNLOCK_EXPIRED),
-            RECEIVER_NOT_EXPORTED
+            IntentFilter(UnlockTimerService.ACTION_UNLOCK_EXPIRED)
         )
 
-        registerReceiver(
+        registerReceiverCompat(
             packageTamperReceiver,
             IntentFilter().apply {
                 addDataScheme("package")
@@ -108,8 +112,7 @@ class AppBlockingService : AccessibilityService() {
                 addAction(Intent.ACTION_PACKAGE_CHANGED)
                 addAction(Intent.ACTION_PACKAGE_REPLACED)
                 addAction(Intent.ACTION_PACKAGE_RESTARTED)
-            },
-            RECEIVER_NOT_EXPORTED
+            }
         )
 
         // Heartbeat
@@ -129,6 +132,7 @@ class AppBlockingService : AccessibilityService() {
                 if (prefs.isActive) {
                     val currentApp = rootInActiveWindow?.packageName?.toString()
                         ?: getForegroundAppFromUsageStats()
+                        ?: lastSeenForegroundPackage
                     if (currentApp != null) {
                         checkAndBlockApp(currentApp)
                     }
@@ -162,12 +166,41 @@ class AppBlockingService : AccessibilityService() {
             lastBlockTime = now
             Log.d(TAG, "Blocking app: $pkg")
 
-            startActivity(Intent(this@AppBlockingService, HyperFocusActivity::class.java).apply {
+            val launchIntent = Intent(this@AppBlockingService, HyperFocusActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("blocked_package", pkg)
-            })
+            }
+
+            val launched = runCatching {
+                startActivity(launchIntent)
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to launch blocking overlay for $pkg", error)
+            }.isSuccess
+
+            if (!launched) {
+                // Android 12+ can deny background launches; force HOME so user exits blocked app.
+                runCatching {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }.onFailure { error ->
+                    Log.w(TAG, "Fallback HOME action failed after overlay launch denial", error)
+                }
+            }
+        }
+    }
+
+    private fun registerReceiverCompat(receiver: BroadcastReceiver, filter: IntentFilter) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
         }
     }
 

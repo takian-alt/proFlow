@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.launcher.hyperfocus
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
@@ -149,6 +150,9 @@ class HyperFocusViewModel @Inject constructor(
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val activeTasks: StateFlow<List<TaskEntity>> = taskRepository.observeActiveTasks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val activeTaskCount: StateFlow<Int> = flow {
         while (true) {
             emit(taskRepository.getActiveTasks().size)
@@ -156,13 +160,19 @@ class HyperFocusViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    fun activate(blockedPackages: Set<String>) {
+    fun activate(blockedPackages: Set<String>, selectedTaskIds: Set<String>) {
         viewModelScope.launch {
-            // Single DB read — pass the list to the manager so both target count
-            // and lockedTaskIds snapshot come from the exact same query result
-            val activeTasks = taskRepository.getActiveTasks()
-            if (activeTasks.isEmpty()) return@launch
-            hyperFocusManager.activate(blockedPackages, activeTasks.size, activeTasks.map { it.id }.toSet())
+            if (blockedPackages.isEmpty()) return@launch
+
+            val activeIds = taskRepository.getActiveTasks().map { it.id }.toSet()
+            val normalizedSelection = selectedTaskIds.intersect(activeIds)
+            if (normalizedSelection.isEmpty()) return@launch
+
+            hyperFocusManager.activate(
+                blockedPackages = blockedPackages,
+                dailyTaskTarget = normalizedSelection.size,
+                lockedTaskIds = normalizedSelection
+            )
         }
     }
 

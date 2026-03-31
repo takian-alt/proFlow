@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.*
@@ -109,21 +110,15 @@ class LauncherActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         // Edge-to-edge: let content draw behind system bars
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        // Make nav bar and status bar fully transparent so wallpaper shows through
-        // Nav bar button appearance is controlled by WindowInsetsController
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.let { controller ->
-                // Start with light appearance (dark buttons) — adapts to wallpaper color
-                controller.setSystemBarsAppearance(
-                    android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
-                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                    android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
-                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                )
-            }
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+        } catch (e: Exception) {
+            Log.w("LauncherActivity", "Failed to set edge-to-edge layout", e)
         }
+
+        // Note: Window insets controller setup deferred to onWindowFocusChanged
+        // where the window is guaranteed to be fully initialized.
+        // Setting it in onCreate before the DecorView is created causes NPE.
 
         // Clear skipped tasks on launcher start
         viewModel.clearSkippedTasks()
@@ -294,10 +289,46 @@ class LauncherActivity : FragmentActivity() {
         navigateToMainPage?.invoke()
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        
+        if (hasFocus && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                // Make nav bar and status bar fully transparent so wallpaper shows through
+                // Nav bar button appearance is controlled by WindowInsetsController
+                window.insetsController?.let { controller ->
+                    // Start with light appearance (dark buttons) — adapts to wallpaper color
+                    controller.setSystemBarsAppearance(
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w("LauncherActivity", "Failed to set window insets controller", e)
+            }
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         // Register PackageChangeReceiver for package install/uninstall events
-        registerReceiver(packageChangeReceiver, PackageChangeReceiver.createIntentFilter())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                packageChangeReceiver,
+                PackageChangeReceiver.createIntentFilter(),
+                RECEIVER_EXPORTED
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            ContextCompat.registerReceiver(
+                this,
+                packageChangeReceiver,
+                PackageChangeReceiver.createIntentFilter(),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+        }
 
         // Start listening for widget updates
         // Safe to call even when no widgets are bound (Phase 1 scaffolding)

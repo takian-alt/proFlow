@@ -40,9 +40,9 @@ class AESUtilTest : StringSpec({
 
     "uniqueness: two encryptions of the same plaintext should produce different ciphertext" {
         val plaintext = "ABC123"
-        val first =AESUtil.encrypt(plaintext)
+        val first = AESUtil.encrypt(plaintext)
         val second = AESUtil.encrypt(plaintext)
-   first shouldNotBe second
+        first shouldNotBe second
     }
 
     "decrypt should throw EncryptionException for malformed input" {

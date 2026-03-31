@@ -17,10 +17,14 @@ object AccessibilityUtil {
             android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK
         )
 
-        val targetServiceName = "${context.packageName}/.presentation.launcher.hyperfocus.service.AppBlockingService"
+        val targetShortName = "${context.packageName}/.presentation.launcher.hyperfocus.service.AppBlockingService"
+        val targetFullName = "${context.packageName}/${AppBlockingService::class.java.name}"
 
         return enabledServices.any { serviceInfo ->
-            serviceInfo.id == targetServiceName
+            val id = serviceInfo.id
+            id == targetShortName ||
+                id == targetFullName ||
+                id.endsWith("/${AppBlockingService::class.java.name}")
         }
     }
 }

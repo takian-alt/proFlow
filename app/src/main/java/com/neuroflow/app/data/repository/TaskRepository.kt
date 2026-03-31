@@ -73,9 +73,17 @@ class TaskRepository @Inject constructor(
     suspend fun getAllTasks(): List<TaskEntity> = taskDao.getAllTasks()
     suspend fun getCompletedTasks(): List<TaskEntity> = taskDao.getCompletedTasks()
 
-    suspend fun insert(task: TaskEntity) = taskDao.insert(task)
+    suspend fun insert(task: TaskEntity) {
+        taskDao.insert(task)
+        if (task.status == TaskStatus.ACTIVE) {
+            hyperFocusManager.get().addTasksToSession(setOf(task.id))
+        }
+    }
     suspend fun update(task: TaskEntity) = taskDao.update(task)
-    suspend fun delete(task: TaskEntity) = taskDao.delete(task)
+    suspend fun delete(task: TaskEntity) {
+        if (hyperFocusManager.get().isTaskDeletionBlocked(task.id)) return
+        taskDao.delete(task)
+    }
     suspend fun deleteAll() = taskDao.deleteAll()
     suspend fun resetEstimationErrors() = taskDao.resetEstimationErrors()
 

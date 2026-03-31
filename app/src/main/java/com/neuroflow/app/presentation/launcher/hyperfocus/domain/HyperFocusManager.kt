@@ -29,6 +29,8 @@ sealed class UnlockResult {
 interface HyperFocusManager {
     suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>)
     suspend fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int)
+    suspend fun addTasksToSession(taskIds: Set<String>)
+    suspend fun isTaskDeletionBlocked(taskId: String): Boolean
     suspend fun deactivate()
     suspend fun onTaskCompleted()
     suspend fun submitCode(enteredCode: String): UnlockResult
@@ -88,6 +90,46 @@ class HyperFocusManagerImpl @Inject constructor(
             sessionMode = HyperFocusSessionMode.TIME_BASED,
             sessionDurationMinutes = safeDuration
         )
+    }
+
+    override suspend fun addTasksToSession(taskIds: Set<String>) {
+        if (taskIds.isEmpty()) return
+
+        val prefs = hyperFocusDataStore.current()
+        if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TASK_BASED) return
+
+        val now = System.currentTimeMillis()
+        val validIds = taskRepository.getAllTasks()
+            .filter { task ->
+                task.id in taskIds &&
+                    task.status == TaskStatus.ACTIVE &&
+                    (task.scheduledDate == null || task.scheduledDate <= now)
+            }
+            .map { it.id }
+            .toSet()
+
+        if (validIds.isEmpty()) return
+
+        hyperFocusDataStore.update {
+            val mergedIds = it.lockedTaskIds + validIds
+            if (mergedIds == it.lockedTaskIds) {
+                it
+            } else {
+                it.copy(
+                    lockedTaskIds = mergedIds,
+                    dailyTaskTarget = mergedIds.size
+                )
+            }
+        }
+
+        // Recompute tier after adding tasks because newly-added tasks may already be completed later in the session.
+        onTaskCompleted()
+    }
+
+    override suspend fun isTaskDeletionBlocked(taskId: String): Boolean {
+        val prefs = hyperFocusDataStore.current()
+        if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TASK_BASED) return false
+        return taskId in prefs.lockedTaskIds
     }
 
     private suspend fun activateInternal(
@@ -259,19 +301,28 @@ class HyperFocusManagerImpl @Inject constructor(
     override suspend fun triggerEmergencyBypass() {
         val prefs = hyperFocusDataStore.current()
         if (!prefs.isActive || prefs.emergencyUsed) return
+        if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) return
 
         val now = System.currentTimeMillis()
         val expiresAt = now + 10 * 60 * 1000L // 10 minutes unlock (one-time per session)
+        var applied = false
 
         hyperFocusDataStore.update {
-            it.copy(
-                activeUnlockExpiresAt = expiresAt,
-                emergencyUsed = true,
-                currentTier = RewardTier.NONE
-            )
+            if (!it.isActive || it.emergencyUsed || it.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                it
+            } else {
+                applied = true
+                it.copy(
+                    activeUnlockExpiresAt = expiresAt,
+                    emergencyUsed = true,
+                    currentTier = RewardTier.NONE
+                )
+            }
         }
 
-        runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
+        if (applied) {
+            runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
+        }
     }
 }
 
