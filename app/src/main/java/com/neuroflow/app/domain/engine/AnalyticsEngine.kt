@@ -120,6 +120,10 @@ object AnalyticsEngine {
         val habitCompletionRate: Float,
         val longestHabitStreak: Int,
         val activeHabitStreaks: List<Pair<String, Int>>,  // title -> current streak, top 5
+        val recurringTasksTotal: Int,
+        val recurringTasksCompleted: Int,
+        val lockedScheduleTasksTotal: Int,
+        val lockedScheduleTasksCompleted: Int,
         // Streaks
         val currentStreak: Int,
         val longestStreak: Int,
@@ -134,6 +138,7 @@ object AnalyticsEngine {
         val publicCommitmentCompleted: Int,
         val ifThenPlanUsageRate: Float,       // % of tasks with if-then plan
         val contextTagBreakdown: Map<String, Int>,  // tag -> count
+        val taskTagBreakdown: Map<String, Int>,     // user tags -> count
         val taskTypeDistribution: Map<String, Int>,  // type name -> count
         // XP / points
         val totalXp: Int,
@@ -200,6 +205,10 @@ object AnalyticsEngine {
         // Use recurrence as source of truth — isHabitual is only set on completion
         val habitTasks = allTasks.filter { it.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE || it.isHabitual }
         val habitCompleted = habitTasks.filter { it.status == TaskStatus.COMPLETED }
+        val recurringTasksTotal = allTasks.count { it.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE }
+        val recurringTasksCompleted = completed.count { it.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE }
+        val lockedScheduleTasksTotal = allTasks.count { it.isScheduleLocked }
+        val lockedScheduleTasksCompleted = completed.count { it.isScheduleLocked }
         val habitCompletionRate = if (habitTasks.isNotEmpty())
             habitCompleted.size.toFloat() / habitTasks.size * 100f else 0f
         // Best streak across all tasks (active recurring tasks carry the streak forward)
@@ -235,6 +244,11 @@ object AnalyticsEngine {
             .filter { it.contextTag.isNotBlank() }
             .groupBy { it.contextTag }
             .mapValues { it.value.size }
+
+        val taskTagBreakdown = allTasks
+            .flatMap { task -> task.tags.split(",").map { it.trim() }.filter { it.isNotBlank() } }
+            .groupingBy { it }
+            .eachCount()
 
         val taskTypeDistribution = allTasks
             .groupBy { it.taskType.name }
@@ -314,6 +328,10 @@ object AnalyticsEngine {
             habitCompletionRate = habitCompletionRate,
             longestHabitStreak = longestHabitStreak,
             activeHabitStreaks = activeHabitStreaks,
+            recurringTasksTotal = recurringTasksTotal,
+            recurringTasksCompleted = recurringTasksCompleted,
+            lockedScheduleTasksTotal = lockedScheduleTasksTotal,
+            lockedScheduleTasksCompleted = lockedScheduleTasksCompleted,
             currentStreak = prefs.dailyStreak,
             longestStreak = prefs.longestStreak,
             topProcrastinatedTasks = topProcrastinated,
@@ -325,6 +343,7 @@ object AnalyticsEngine {
             publicCommitmentCompleted = publicCommitmentCompleted.size,
             ifThenPlanUsageRate = ifThenPlanUsageRate,
             contextTagBreakdown = contextTagBreakdown,
+            taskTagBreakdown = taskTagBreakdown,
             taskTypeDistribution = taskTypeDistribution,
             totalXp = totalXp,
             xpToday = xpToday,

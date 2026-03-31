@@ -67,6 +67,7 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
             MapeCard(summary) { viewModel.resetEstimationData() }
             SmapeCard(summary)
             HabitsCard(summary)
+            RecurrenceAndScheduleCard(summary)
             StreakCard(summary, uiState.preferences.identityLabel, uiState.preferences.topGoal)
             if (uiState.preferences.peakEnergyStart < uiState.preferences.peakEnergyEnd) {
                 // Use effective (blended) peak if available, otherwise fall back to manual
@@ -462,6 +463,73 @@ private fun HabitsCard(s: AnalyticsEngine.AnalyticsSummary) {
 }
 
 @Composable
+private fun RecurrenceAndScheduleCard(s: AnalyticsEngine.AnalyticsSummary) {
+    if (s.recurringTasksTotal == 0 && s.lockedScheduleTasksTotal == 0) return
+    AnalyticsCard("Recurrence & Locked Schedule") {
+        if (s.recurringTasksTotal > 0) {
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                Text("Recurring tasks completed", fontSize = 13.sp)
+                Text(
+                    "${s.recurringTasksCompleted}/${s.recurringTasksTotal}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (s.lockedScheduleTasksTotal > 0) {
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                Text("Locked-schedule tasks completed", fontSize = 13.sp)
+                Text(
+                    "${s.lockedScheduleTasksCompleted}/${s.lockedScheduleTasksTotal}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        val recurringRate = if (s.recurringTasksTotal > 0)
+            s.recurringTasksCompleted.toFloat() / s.recurringTasksTotal else 0f
+        val lockedRate = if (s.lockedScheduleTasksTotal > 0)
+            s.lockedScheduleTasksCompleted.toFloat() / s.lockedScheduleTasksTotal else 0f
+
+        if (s.recurringTasksTotal > 0 || s.lockedScheduleTasksTotal > 0) {
+            Text(
+                "Completion reliability",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            if (s.recurringTasksTotal > 0) {
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    Text("Recurring", fontSize = 12.sp)
+                    Text("${(recurringRate * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                LinearProgressIndicator(
+                    progress = { recurringRate.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    color = NeuroFlowColors.Purple
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            if (s.lockedScheduleTasksTotal > 0) {
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    Text("Locked schedule", fontSize = 12.sp)
+                    Text("${(lockedRate * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                LinearProgressIndicator(
+                    progress = { lockedRate.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    color = Color(0xFF1565C0)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun StreakCard(s: AnalyticsEngine.AnalyticsSummary, identityLabel: String, topGoal: String) {
     AnalyticsCard("Streak & Consistency") {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
@@ -634,6 +702,28 @@ private fun NeuroBoostCard(s: AnalyticsEngine.AnalyticsSummary) {
                     ) {
                         Text("$tag ($count)", modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             fontSize = 12.sp, color = NeuroFlowColors.Purple, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
+
+        if (s.taskTagBreakdown.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("Task Tag Breakdown", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                s.taskTagBreakdown.entries.sortedByDescending { it.value }.take(6).forEach { (tag, count) ->
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF1565C0).copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            "$tag ($count)",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            fontSize = 12.sp,
+                            color = Color(0xFF1565C0),
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }

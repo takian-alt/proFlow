@@ -31,16 +31,17 @@ class UnlockCodeRepositoryImpl @Inject constructor(
 
     override suspend fun generateCodePool(sessionId: String) {
         // One code per tier — user earns exactly one unlock per tier per session
-        val entities = listOf(RewardTier.MICRO, RewardTier.PARTIAL, RewardTier.EARNED, RewardTier.FULL).map { tier ->
+        val entities = mutableListOf<UnlockCodeEntity>()
+        for (tier in listOf(RewardTier.MICRO, RewardTier.PARTIAL, RewardTier.EARNED, RewardTier.FULL)) {
             val plaintext = generateCode()
             val encrypted = AESUtil.encrypt(plaintext)
-            UnlockCodeEntity(
+            entities.add(UnlockCodeEntity(
                 id = UUID.randomUUID().toString(),
                 encryptedCode = encrypted,
                 tier = tier,
                 sessionId = sessionId,
                 createdAt = System.currentTimeMillis()
-            )
+            ))
         }
         dao.insertAll(entities)
     }
@@ -66,11 +67,12 @@ class UnlockCodeRepositoryImpl @Inject constructor(
         val unused = dao.getUnusedBySession(sessionId)
 
         // Try to match against existing codes
-        val match = unused.firstOrNull { entity ->
-            runCatching { AESUtil.decrypt(entity.encryptedCode) }
-                .getOrNull() == normalized
+        for (entity in unused) {
+            val decrypted = runCatching { AESUtil.decrypt(entity.encryptedCode) }.getOrNull()
+            if (decrypted == normalized) {
+                return entity
+            }
         }
-        if (match != null) return match
 
         // If no match AND all decryptions failed (key was invalidated), regenerate pool
         val allDecryptFailed = unused.isNotEmpty() && unused.all { entity ->

@@ -112,7 +112,7 @@ class FocusViewModel @Inject constructor(
         restoreActiveSession()
     }
 
-    private var lastScheduledReminderFlags: Int = -1
+    private var lastReminderSignature: Pair<Int, Long?>? = null
 
     private fun loadTask() {
         viewModelScope.launch {
@@ -120,10 +120,18 @@ class FocusViewModel @Inject constructor(
             taskRepository.observeById(taskId).collect { task ->
                 _uiState.update { it.copy(task = task) }
                 refreshScore()
-                // Only re-schedule reminders if reminderFlags actually changed
-                if (task != null && task.reminderFlags != 0 && task.reminderFlags != lastScheduledReminderFlags) {
-                    lastScheduledReminderFlags = task.reminderFlags
-                    scheduleReminders(task)
+                if (task == null) {
+                    lastReminderSignature = null
+                } else {
+                    val targetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
+                        ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+                        ?: task.habitDate
+                    val signature = task.reminderFlags to targetMs
+                    // Re-schedule on any effective reminder change, including flag reset to 0.
+                    if (signature != lastReminderSignature) {
+                        lastReminderSignature = signature
+                        scheduleReminders(task)
+                    }
                 }
                 // Start launch countdown once after the first non-null task is received
                 if (task != null && !launchCountdownStarted) {
@@ -648,6 +656,14 @@ class FocusViewModel @Inject constructor(
      * Flags: 15min=1, 30min=2, 1hr=4, 1day=8 — before deadline or scheduled time.
      */
     fun scheduleReminders(task: TaskEntity) {
+        val workManager = androidx.work.WorkManager.getInstance(applicationContext)
+        val allReminderTags = listOf(1, 2, 4, 8).map { flag -> "reminder_${task.id}_$flag" }
+        allReminderTags.forEach { tag -> workManager.cancelAllWorkByTag(tag) }
+
+        if (!_uiState.value.preferences.deadlineReminderNotificationsEnabled) {
+            return
+        }
+
         val targetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
             ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
             ?: task.habitDate  // recurring tasks use habitDate (already includes time)
@@ -672,12 +688,9 @@ class FocusViewModel @Inject constructor(
                         .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
                         .setInputData(data)
                         .addTag("reminder_${task.id}_${flag}")
+                        .addTag("task_reminder_all")
                         .build()
-                    // Cancel any existing reminder for this task+flag before scheduling
-                    androidx.work.WorkManager.getInstance(applicationContext)
-                        .cancelAllWorkByTag("reminder_${task.id}_${flag}")
-                    androidx.work.WorkManager.getInstance(applicationContext)
-                        .enqueue(request)
+                    workManager.enqueue(request)
                 }
             }
         }

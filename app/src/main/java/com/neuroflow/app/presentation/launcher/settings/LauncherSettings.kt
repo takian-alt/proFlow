@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.provider.Settings
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -304,6 +305,7 @@ private fun HyperFocusSettingsSection(
     hyperFocusViewModel: HyperFocusViewModel
 ) {
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
+    val sessionSecondsRemaining by hyperFocusViewModel.sessionSecondsRemaining.collectAsStateWithLifecycle()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -358,13 +360,28 @@ private fun HyperFocusSettingsSection(
 
             // Show active status only — session cannot be manually stopped
             if (isActive) {
+                val timeRemainingText = if (hyperFocusPrefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    val remaining = (sessionSecondsRemaining ?: 0L).coerceAtLeast(0L)
+                    val h = remaining / 3600
+                    val m = (remaining % 3600) / 60
+                    val s = remaining % 60
+                    if (h > 0) String.format("%02d:%02d:%02d", h, m, s)
+                    else String.format("%02d:%02d", m, s)
+                } else {
+                    null
+                }
+
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.small,
                     color = MaterialTheme.colorScheme.errorContainer
                 ) {
                     Text(
-                        text = "🔒 Session active — complete your tasks to finish.",
+                        text = if (hyperFocusPrefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                            "🔒 Session active — timer running${timeRemainingText?.let { " ($it left)" } ?: ""}."
+                        } else {
+                            "🔒 Session active — complete your tasks to finish."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.padding(12.dp)

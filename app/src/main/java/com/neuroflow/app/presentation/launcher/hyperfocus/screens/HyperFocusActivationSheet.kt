@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -36,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,8 +81,8 @@ private fun ActivationSheetContent(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val activeTaskCount by viewModel.activeTaskCount.collectAsState()
-    val hasActiveTasks = activeTaskCount > 0
+    val activeTasks by viewModel.activeTasks.collectAsState()
+    val hasActiveTasks = activeTasks.isNotEmpty()
 
     // Build full app list with labels, sorted alphabetically, only including launchable apps
     val allApps = remember {
@@ -101,9 +105,24 @@ private fun ActivationSheetContent(
             distractionScores.filter { it.value > 70 }.keys.forEach { pkg -> map[pkg] = true }
         }
     }
+    val selectedTaskIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    LaunchedEffect(activeTasks) {
+        val activeIds = activeTasks.map { it.id }.toSet()
+        val stale = selectedTaskIds.keys.filter { it !in activeIds }
+        stale.forEach { selectedTaskIds.remove(it) }
+        activeTasks.forEach { task ->
+            if (selectedTaskIds[task.id] == null) {
+                selectedTaskIds[task.id] = false
+            }
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
+    var sessionMode by remember { mutableStateOf(HyperFocusSessionMode.TASK_BASED) }
+    val durationOptions = remember { listOf(15, 25, 45, 60, 90, 120) }
+    var selectedDurationMinutes by remember { mutableStateOf(25) }
 
     val filteredApps = remember(searchQuery, allApps) {
         if (searchQuery.isBlank()) allApps
@@ -112,8 +131,16 @@ private fun ActivationSheetContent(
             pkg.contains(searchQuery, ignoreCase = true)
         }
     }
+    val filteredTasks = remember(searchQuery, activeTasks) {
+        if (searchQuery.isBlank()) activeTasks
+        else activeTasks.filter { task ->
+            task.title.contains(searchQuery, ignoreCase = true) ||
+                task.description.contains(searchQuery, ignoreCase = true)
+        }
+    }
 
     val selectedCount = selectedPackages.count { it.value }
+    val selectedTaskCount = selectedTaskIds.count { it.value }
 
     Column(
         modifier = Modifier
@@ -137,24 +164,79 @@ private fun ActivationSheetContent(
             shape = MaterialTheme.shapes.small
         ) {
             Text(
-                text = "⚠️ Selected apps will be blocked until you complete your daily tasks.",
+                text = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    "⚠️ Selected apps will be blocked for your chosen duration."
+                } else {
+                    "⚠️ Selected apps will be blocked until you complete your daily tasks."
+                },
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(12.dp)
             )
         }
 
-        // Daily task target
-        Surface(
+        Text(
+            text = "Focus mode",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = MaterialTheme.shapes.small
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "Daily task target: $activeTaskCount task(s)",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(12.dp)
+            FilterChip(
+                selected = sessionMode == HyperFocusSessionMode.TASK_BASED,
+                onClick = { sessionMode = HyperFocusSessionMode.TASK_BASED },
+                label = { Text("Task-based") }
             )
+            FilterChip(
+                selected = sessionMode == HyperFocusSessionMode.TIME_BASED,
+                onClick = { sessionMode = HyperFocusSessionMode.TIME_BASED },
+                label = { Text("Time-based") }
+            )
+        }
+
+        if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Select tasks for this session",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Daily task target: $selectedTaskCount task(s)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "Block duration",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                durationOptions.forEach { minutes ->
+                    FilterChip(
+                        selected = selectedDurationMinutes == minutes,
+                        onClick = { selectedDurationMinutes = minutes },
+                        label = { Text("${minutes}m") }
+                    )
+                }
+            }
         }
 
         HorizontalDivider()
@@ -232,8 +314,62 @@ private fun ActivationSheetContent(
             }
         }
 
+        if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tasks in Hyper Focus",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$selectedTaskCount selected",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (filteredTasks.isEmpty()) {
+                Text(
+                    text = "No active tasks found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                filteredTasks.forEach { task ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedTaskIds[task.id] == true,
+                            onCheckedChange = { checked -> selectedTaskIds[task.id] = checked }
+                        )
+                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                            Text(
+                                text = task.title,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (task.description.isNotBlank()) {
+                                Text(
+                                    text = task.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // No tasks warning
-        if (!hasActiveTasks) {
+        if (sessionMode == HyperFocusSessionMode.TASK_BASED && !hasActiveTasks) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.errorContainer,
@@ -252,13 +388,24 @@ private fun ActivationSheetContent(
         Button(
             onClick = {
                 val selected = selectedPackages.filter { it.value }.keys.toSet()
-                viewModel.activate(selected)
+                if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    viewModel.activateTimed(selected, selectedDurationMinutes)
+                } else {
+                    val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                    viewModel.activate(selected, selectedTasks)
+                }
                 onDismiss()
             },
-            enabled = confirmText == "FOCUS" && selectedCount > 0 && hasActiveTasks,
+            enabled = confirmText == "FOCUS" && selectedCount > 0 &&
+                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Activate Hyper Focus 🔒")
+            val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                "Activate ${selectedDurationMinutes}m Focus Lock"
+            } else {
+                "Activate Hyper Focus 🔒"
+            }
+            Text(label)
         }
     }
 }

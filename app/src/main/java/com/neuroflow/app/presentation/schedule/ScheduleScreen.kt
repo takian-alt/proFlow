@@ -141,7 +141,9 @@ fun ScheduleScreen(
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(24) { hour ->
                     val tasksAtHour = uiState.tasksForDay.filter { task ->
-                        val taskHour = ((task.scheduledTime ?: 0L) / 3_600_000L).toInt()
+                        val taskHour = ((task.scheduledTime
+                            ?: task.habitDate?.let { millis -> millis % 86_400_000L }
+                            ?: 0L) / 3_600_000L).toInt()
                         taskHour == hour
                     }
                     TimelineRow(
@@ -159,7 +161,9 @@ fun ScheduleScreen(
 
     // Task picker bottom sheet — tap an empty slot to assign an existing task
     pickerHour?.let { hour ->
-        val unscheduledTasks = uiState.allActiveTasks.filter { it.scheduledDate == null && !it.isScheduleLocked }
+        val unscheduledTasks = uiState.allActiveTasks.filter {
+            it.scheduledDate == null && it.habitDate == null && !it.isScheduleLocked
+        }
         TaskPickerSheet(
             hour = hour,
             tasks = unscheduledTasks,

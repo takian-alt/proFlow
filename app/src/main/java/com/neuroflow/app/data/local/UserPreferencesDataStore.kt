@@ -63,7 +63,14 @@ data class UserPreferences(
     // Focus behaviour toggles
     val woopEnabled: Boolean = true,
     val autoTrackerEnabled: Boolean = false,
-    val autoSplitSequentialDependencies: Boolean = false,
+    // Notification preferences
+    val dailyPlanNotificationsEnabled: Boolean = true,
+    val streakNotificationsEnabled: Boolean = true,
+    val autonomyNudgeNotificationsEnabled: Boolean = true,
+    val deadlineReminderNotificationsEnabled: Boolean = true,
+    val deadlineEscalationNotificationsEnabled: Boolean = true,
+    val dailyPlanNotificationHour: Int = 7,
+    val streakCheckNotificationHour: Int = 21,
     // Left page quick note
     val leftPageQuickNote: String = ""
 )
@@ -114,7 +121,13 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_WEEKLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_weekly_goal_shown_year")
         val WOOP_ENABLED = booleanPreferencesKey("woop_enabled")
         val AUTO_TRACKER_ENABLED = booleanPreferencesKey("auto_tracker_enabled")
-        val AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES = booleanPreferencesKey("auto_split_sequential_dependencies")
+        val DAILY_PLAN_NOTIFICATIONS_ENABLED = booleanPreferencesKey("daily_plan_notifications_enabled")
+        val STREAK_NOTIFICATIONS_ENABLED = booleanPreferencesKey("streak_notifications_enabled")
+        val AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED = booleanPreferencesKey("autonomy_nudge_notifications_enabled")
+        val DEADLINE_REMINDER_NOTIFICATIONS_ENABLED = booleanPreferencesKey("deadline_reminder_notifications_enabled")
+        val DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED = booleanPreferencesKey("deadline_escalation_notifications_enabled")
+        val DAILY_PLAN_NOTIFICATION_HOUR = intPreferencesKey("daily_plan_notification_hour")
+        val STREAK_CHECK_NOTIFICATION_HOUR = intPreferencesKey("streak_check_notification_hour")
         val LEFT_PAGE_QUICK_NOTE = stringPreferencesKey("left_page_quick_note")
     }
 
@@ -163,7 +176,13 @@ class UserPreferencesDataStore @Inject constructor(
             lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
             woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
             autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
-            autoSplitSequentialDependencies = prefs[Keys.AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES] ?: false,
+            dailyPlanNotificationsEnabled = prefs[Keys.DAILY_PLAN_NOTIFICATIONS_ENABLED] ?: true,
+            streakNotificationsEnabled = prefs[Keys.STREAK_NOTIFICATIONS_ENABLED] ?: true,
+            autonomyNudgeNotificationsEnabled = prefs[Keys.AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED] ?: true,
+            deadlineReminderNotificationsEnabled = prefs[Keys.DEADLINE_REMINDER_NOTIFICATIONS_ENABLED] ?: true,
+            deadlineEscalationNotificationsEnabled = prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] ?: true,
+            dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
+            streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
             leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
         )
     }
@@ -228,7 +247,13 @@ class UserPreferencesDataStore @Inject constructor(
                 lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
                 woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
                 autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
-                autoSplitSequentialDependencies = prefs[Keys.AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES] ?: false,
+                dailyPlanNotificationsEnabled = prefs[Keys.DAILY_PLAN_NOTIFICATIONS_ENABLED] ?: true,
+                streakNotificationsEnabled = prefs[Keys.STREAK_NOTIFICATIONS_ENABLED] ?: true,
+                autonomyNudgeNotificationsEnabled = prefs[Keys.AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED] ?: true,
+                deadlineReminderNotificationsEnabled = prefs[Keys.DEADLINE_REMINDER_NOTIFICATIONS_ENABLED] ?: true,
+                deadlineEscalationNotificationsEnabled = prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] ?: true,
+                dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
+                streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
                 leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
             )
             val updated = update(current)
@@ -273,7 +298,13 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] = updated.lastWeeklyGoalShownYear
             prefs[Keys.WOOP_ENABLED] = updated.woopEnabled
             prefs[Keys.AUTO_TRACKER_ENABLED] = updated.autoTrackerEnabled
-            prefs[Keys.AUTO_SPLIT_SEQUENTIAL_DEPENDENCIES] = updated.autoSplitSequentialDependencies
+            prefs[Keys.DAILY_PLAN_NOTIFICATIONS_ENABLED] = updated.dailyPlanNotificationsEnabled
+            prefs[Keys.STREAK_NOTIFICATIONS_ENABLED] = updated.streakNotificationsEnabled
+            prefs[Keys.AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED] = updated.autonomyNudgeNotificationsEnabled
+            prefs[Keys.DEADLINE_REMINDER_NOTIFICATIONS_ENABLED] = updated.deadlineReminderNotificationsEnabled
+            prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] = updated.deadlineEscalationNotificationsEnabled
+            prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] = updated.dailyPlanNotificationHour.coerceIn(0, 23)
+            prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] = updated.streakCheckNotificationHour.coerceIn(0, 23)
             prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
         }
     }

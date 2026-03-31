@@ -7,18 +7,103 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.neuroflow.app.R
+import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.domain.model.TaskStatus
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
+import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 const val CHANNEL_TASKS = "tasks"
 const val CHANNEL_FOCUS = "focus"
 const val CHANNEL_DAILY = "daily_plan"
+const val WORK_DAILY_PLAN = "daily_plan"
+const val WORK_STREAK_CHECK = "streak_check"
+const val WORK_DEADLINE_ESCALATION = "deadline_escalation"
+
+internal data class NotificationWorkerPlan(
+    val dailyPlanEnabled: Boolean,
+    val dailyPlanDelayMs: Long,
+    val streakEnabled: Boolean,
+    val streakDelayMs: Long,
+    val escalationEnabled: Boolean
+)
+
+internal fun delayUntilHour(hour: Int, nowMillis: Long = System.currentTimeMillis()): Long {
+    val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+    val target = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, hour.coerceIn(0, 23))
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    if (target.before(now)) target.add(Calendar.DAY_OF_YEAR, 1)
+    return target.timeInMillis - now.timeInMillis
+}
+
+internal fun buildNotificationWorkerPlan(
+    prefs: UserPreferences,
+    nowMillis: Long = System.currentTimeMillis()
+): NotificationWorkerPlan {
+    return NotificationWorkerPlan(
+        dailyPlanEnabled = prefs.dailyPlanNotificationsEnabled,
+        dailyPlanDelayMs = delayUntilHour(prefs.dailyPlanNotificationHour, nowMillis),
+        streakEnabled = prefs.streakNotificationsEnabled,
+        streakDelayMs = delayUntilHour(prefs.streakCheckNotificationHour, nowMillis),
+        escalationEnabled = prefs.deadlineEscalationNotificationsEnabled
+    )
+}
+
+fun scheduleNotificationWorkers(context: Context, prefs: UserPreferences) {
+    val workManager = WorkManager.getInstance(context)
+    val plan = buildNotificationWorkerPlan(prefs)
+
+    if (plan.dailyPlanEnabled) {
+        val dailyPlanRequest = PeriodicWorkRequestBuilder<DailyPlanWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(plan.dailyPlanDelayMs, TimeUnit.MILLISECONDS)
+            .build()
+        workManager.enqueueUniquePeriodicWork(
+            WORK_DAILY_PLAN,
+            ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
+            dailyPlanRequest
+        )
+    } else {
+        workManager.cancelUniqueWork(WORK_DAILY_PLAN)
+    }
+
+    if (plan.streakEnabled) {
+        val streakCheckRequest = PeriodicWorkRequestBuilder<StreakCheckWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(plan.streakDelayMs, TimeUnit.MILLISECONDS)
+            .build()
+        workManager.enqueueUniquePeriodicWork(
+            WORK_STREAK_CHECK,
+            ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
+            streakCheckRequest
+        )
+    } else {
+        workManager.cancelUniqueWork(WORK_STREAK_CHECK)
+    }
+
+    if (plan.escalationEnabled) {
+        val escalationRequest = PeriodicWorkRequestBuilder<DeadlineEscalationWorker>(4, TimeUnit.HOURS).build()
+        workManager.enqueueUniquePeriodicWork(
+            WORK_DEADLINE_ESCALATION,
+            ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
+            escalationRequest
+        )
+    } else {
+        workManager.cancelUniqueWork(WORK_DEADLINE_ESCALATION)
+    }
+}
 
 fun createNotificationChannels(context: Context) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -52,6 +137,7 @@ class DailyPlanWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!prefs.dailyPlanNotificationsEnabled) return Result.success()
         val tasks = taskRepository.getActiveTasks()
         val topTasks = TaskScoringEngine.sortedByScore(tasks, prefs).take(3)
 
@@ -90,6 +176,7 @@ class StreakCheckWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!prefs.streakNotificationsEnabled) return Result.success()
         val today = java.util.Calendar.getInstance().apply {
             set(java.util.Calendar.HOUR_OF_DAY, 0)
             set(java.util.Calendar.MINUTE, 0)
@@ -136,10 +223,14 @@ class StreakCheckWorker @AssistedInject constructor(
 class DeadlineEscalationWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val taskRepository: TaskRepository
+    private val taskRepository: TaskRepository,
+    private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!prefs.deadlineEscalationNotificationsEnabled) return Result.success()
+
         val now = System.currentTimeMillis()
         val threshold = 48 * 3_600_000L  // 48 hours in ms
 
@@ -189,15 +280,34 @@ class DeadlineEscalationWorker @AssistedInject constructor(
 class TaskReminderWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val taskRepository: TaskRepository
+    private val taskRepository: TaskRepository,
+    private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!prefs.deadlineReminderNotificationsEnabled) return Result.success()
+
         val taskId = inputData.getString("taskId") ?: return Result.failure()
-        val taskTitle = inputData.getString("taskTitle") ?: run {
-            taskRepository.getById(taskId)?.title ?: return Result.failure()
-        }
+        val task = taskRepository.getById(taskId) ?: return Result.success()
+        if (task.status != TaskStatus.ACTIVE) return Result.success()
+        val taskTitle = inputData.getString("taskTitle") ?: task.title
         val minutesBefore = inputData.getLong("minutesBefore", 0L)
+        val expectedTargetMs = inputData.getLong("targetMs", -1L)
+
+        val actualTargetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
+            ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+            ?: task.habitDate
+            ?: return Result.success()
+
+        // Skip stale reminder work if target moved significantly after scheduling.
+        if (expectedTargetMs > 0 && kotlin.math.abs(actualTargetMs - expectedTargetMs) > 5 * 60_000L) {
+            return Result.success()
+        }
+
+        val now = System.currentTimeMillis()
+        // Do not emit reminder notifications once the task is already overdue for too long.
+        if (actualTargetMs < now - 10 * 60_000L) return Result.success()
 
         val timeLabel = when (minutesBefore) {
             15L   -> "15 minutes"

@@ -42,7 +42,6 @@ import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 import com.neuroflow.app.presentation.launcher.hyperfocus.components.HyperFocusStatusBar
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 import androidx.compose.foundation.layout.WindowInsets
@@ -150,7 +149,13 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> LeftPage(viewModel = viewModel)
-                1 -> QuotePage(viewModel = viewModel, launcherApps = launcherApps, snackbarHostState = snackbarHostState, gestureHandler = gestureHandler)
+                1 -> QuotePage(
+                    viewModel = viewModel,
+                    launcherApps = launcherApps,
+                    snackbarHostState = snackbarHostState,
+                    gestureHandler = gestureHandler,
+                    isVisible = pagerState.currentPage == page
+                )
                 2 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null, showDateTime = false)
                 else -> {
                     val extraPage = extraPages.getOrNull(page - 3)
@@ -240,6 +245,7 @@ private fun QuotePage(
     launcherApps: android.content.pm.LauncherApps,
     snackbarHostState: SnackbarHostState,
     gestureHandler: LauncherGestureHandler,
+    isVisible: Boolean,
     modifier: Modifier = Modifier
 ) {
     val quotes = listOf(
@@ -247,18 +253,104 @@ private fun QuotePage(
         "Attention is the rarest and purest form of generosity. — Simone Weil",
         "When you want to change your habits, focus not on what you want to achieve, but on who you wish to become. — James Clear",
         "People with clear goals and consistent focus get more done than people with more talent. — Cal Newport",
-        "The best time to plant a tree was 20 years ago. The second best time is now. — Chinese Proverb"
+        "The best time to plant a tree was 20 years ago. The second best time is now. — Chinese Proverb",
+        "The secret of getting ahead is getting started. — Mark Twain",
+        "Well begun is half done. — Aristotle",
+        "We are what we repeatedly do. Excellence is a habit. — Will Durant",
+        "Knowing yourself is the beginning of all wisdom. — Aristotle",
+        "He who has a why to live can bear almost any how. — Friedrich Nietzsche",
+        "The future depends on what you do today. — Mahatma Gandhi",
+        "Do what you can, with what you have, where you are. — Theodore Roosevelt",
+        "Simplicity is the ultimate sophistication. — Leonardo da Vinci",
+        "What we think, we become. — Buddha",
+        "No pressure, no diamonds. — Thomas Carlyle",
+        "Fortune favors the bold. — Virgil",
+        "Action is the foundational key to all success. — Pablo Picasso",
+        "The only way out is through. — Robert Frost",
+        "You miss 100 percent of the shots you do not take. — Wayne Gretzky",
+        "The best revenge is massive success. — Frank Sinatra",
+        "I hear and I forget. I do and I understand. — Confucius",
+        "Learning never exhausts the mind. — Leonardo da Vinci",
+        "Success is not final, failure is not fatal. — Winston Churchill",
+        "What gets measured gets managed. — Peter Drucker",
+        "Discipline is the bridge between goals and accomplishment. — Jim Rohn",
+        "Energy and persistence conquer all things. — Benjamin Franklin",
+        "He who has begun has half done. — Horace",
+        "The impediment to action advances action. — Marcus Aurelius",
+        "It always seems impossible until it is done. — Nelson Mandela",
+        "The journey of a thousand miles begins with one step. — Lao Tzu",
+        "The man who moves a mountain begins by carrying small stones. — Confucius",
+        "Do not wait; the time will never be just right. — Napoleon Hill",
+        "Dreams do not work unless you do. — John C. Maxwell",
+        "The harder I work, the luckier I get. — Samuel Goldwyn",
+        "Courage is resistance to fear, mastery of fear. — Mark Twain",
+        "Quality means doing it right when no one is looking. — Henry Ford",
+        "Small deeds done are better than great deeds planned. — Peter Marshall",
+        "Fall seven times, stand up eight. — Japanese Proverb",
+        "Do not count the days, make the days count. — Muhammad Ali",
+        "If opportunity does not knock, build a door. — Milton Berle",
+        "Your habits are writing your reputation before success arrives.",
+        "The hours you protect become the life you create.",
+        "Silence your chaos, and your priorities get louder.",
+        "Progress begins the moment you stop negotiating with distraction.",
+        "A focused day is a vote for your future self.",
+        "You do not need perfect conditions, only honest effort.",
+        "When you keep promises to yourself, confidence stops being fragile.",
+        "One disciplined week can reset a drifting month.",
+        "Clarity comes to people who start before they feel ready.",
+        "Build a life that does not need escaping from."
     )
     val customQuotesList by viewModel.customQuotes.collectAsStateWithLifecycle()
     val allQuotes = quotes + customQuotesList
-    var index by remember(allQuotes.size) { mutableIntStateOf(Random.nextInt(maxOf(1, allQuotes.size))) }
+    var index by remember(allQuotes) {
+        mutableIntStateOf(if (allQuotes.isNotEmpty()) Random.nextInt(allQuotes.size) else 0)
+    }
+    var remainingQuoteIndices by remember(allQuotes) { mutableStateOf(emptyList<Int>()) }
+    var hasVisitedQuotePage by remember { mutableStateOf(false) }
 
-    LaunchedEffect(allQuotes.size) {
-        if (allQuotes.isNotEmpty()) {
-            while (true) {
-                delay(20_000)
-                index = (index + 1) % allQuotes.size
+    fun buildShuffledPool(currentIndex: Int): List<Int> {
+        if (allQuotes.isEmpty()) return emptyList()
+        if (allQuotes.size == 1) return listOf(0)
+
+        val shuffled = (0 until allQuotes.size).shuffled().toMutableList()
+        // Avoid immediate repeats across cycle boundaries.
+        if (shuffled.first() == currentIndex) {
+            val swapWith = shuffled.indexOfFirst { it != currentIndex }
+            if (swapWith > 0) {
+                val tmp = shuffled[0]
+                shuffled[0] = shuffled[swapWith]
+                shuffled[swapWith] = tmp
             }
+        }
+        return shuffled
+    }
+
+    fun pickNextQuote() {
+        if (allQuotes.isEmpty()) return
+
+        var pool = remainingQuoteIndices
+        if (pool.isEmpty()) {
+            pool = buildShuffledPool(index)
+        }
+
+        index = pool.first()
+        remainingQuoteIndices = pool.drop(1)
+    }
+
+    LaunchedEffect(allQuotes) {
+        if (allQuotes.isNotEmpty()) {
+            // Reset pool when quote content changes (including custom quotes updates).
+            remainingQuoteIndices = (0 until allQuotes.size).filter { it != index }.shuffled()
+        }
+    }
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible || allQuotes.isEmpty()) return@LaunchedEffect
+
+        if (hasVisitedQuotePage) {
+            pickNextQuote()
+        } else {
+            hasVisitedQuotePage = true
         }
     }
 
@@ -310,9 +402,7 @@ private fun QuotePage(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.clickable {
-                            if (allQuotes.isNotEmpty()) {
-                                index = (index + 1) % allQuotes.size
-                            }
+                            pickNextQuote()
                         }
                     )
                 }
@@ -376,6 +466,7 @@ private fun PortraitLayout(
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
     val hyperFocusProgress by hyperFocusViewModel.progress.collectAsStateWithLifecycle()
     val unlockSecondsRemaining by hyperFocusViewModel.unlockSecondsRemaining.collectAsStateWithLifecycle()
+    val sessionSecondsRemaining by hyperFocusViewModel.sessionSecondsRemaining.collectAsStateWithLifecycle()
 
     var selectedFolder by remember { mutableStateOf<com.neuroflow.app.presentation.launcher.data.FolderDefinition?>(null) }
     var showFolderOverlay by remember { mutableStateOf(false) }
@@ -403,6 +494,7 @@ private fun PortraitLayout(
                     prefs = hyperFocusPrefs,
                     progress = hyperFocusProgress,
                     unlockSecondsRemaining = unlockSecondsRemaining,
+                    sessionSecondsRemaining = sessionSecondsRemaining,
                     onRewardsClick = {
                         (context as? LauncherActivity)?.let { it.isRewardsOpen = true }
                     },
@@ -414,7 +506,7 @@ private fun PortraitLayout(
                     topTask = topTask,
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
-                    focusActive = taskSessionActive,
+                    focusActive = focusActive,
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     prefs = userPreferences,
@@ -567,7 +659,7 @@ private fun LandscapeLayout(
                     topTask = topTask,
                     ulyssesContract = ulyssesContract,
                     woopEntity = woopEntity,
-                    focusActive = taskSessionActive,
+                    focusActive = focusActive,
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     prefs = userPreferences,
@@ -658,7 +750,7 @@ private fun TwoColumnLayout(
                 topTask = topTask,
                 ulyssesContract = ulyssesContract,
                 woopEntity = woopEntity,
-                focusActive = taskSessionActive,
+                focusActive = focusActive,
                 focusElapsedSeconds = focusElapsedSeconds,
                 hasActiveTasks = allActiveTasks.isNotEmpty(),
                 prefs = userPreferences,

@@ -155,7 +155,8 @@ class LauncherViewModel @Inject constructor(
         val recurringDueToday = tasks.filter { task ->
             task.recurrence != Recurrence.NONE &&
             task.habitDate != null &&
-            task.habitDate in todayStart..todayEnd
+            task.habitDate >= todayStart &&
+            task.habitDate < todayEnd
         }
 
         // Sort by score and take top 3

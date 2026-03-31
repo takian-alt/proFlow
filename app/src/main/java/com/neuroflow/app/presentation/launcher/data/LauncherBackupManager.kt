@@ -43,56 +43,42 @@ class LauncherBackupManager @Inject constructor(
     suspend fun export(): String = withContext(Dispatchers.IO) {
         val prefs = pinnedAppsDataStore.launcherPrefsFlow.first()
 
-        val json = JSONObject()
-        json.put("schemaVersion", 1)
+        fun esc(value: String): String = value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
 
-        // Dock apps
-        val dockArray = JSONArray()
-        prefs.dockPackages.forEach { dockArray.put(it) }
-        json.put("dockPackages", dockArray)
+        fun listToJson(list: List<String>): String =
+            list.joinToString(prefix = "[", postfix = "]") { "\"${esc(it)}\"" }
 
-        // Folders
-        val foldersArray = JSONArray()
-        prefs.folders.forEach { folder ->
-            val folderObj = JSONObject()
-            folderObj.put("id", folder.id)
-            folderObj.put("name", folder.name)
-            folderObj.put("gridIndex", folder.gridIndex)
+        fun setToJson(set: Set<String>): String =
+            set.joinToString(prefix = "[", postfix = "]") { "\"${esc(it)}\"" }
 
-            val packagesArray = JSONArray()
-            folder.packages.forEach { packagesArray.put(it) }
-            folderObj.put("packages", packagesArray)
-
-            foldersArray.put(folderObj)
+        val foldersJson = prefs.folders.joinToString(prefix = "[", postfix = "]") { folder ->
+            val packages = listToJson(folder.packages)
+            "{" +
+                "\"id\":\"${esc(folder.id)}\"," +
+                "\"name\":\"${esc(folder.name)}\"," +
+                "\"gridIndex\":${folder.gridIndex}," +
+                "\"packages\":$packages" +
+            "}"
         }
-        json.put("folders", foldersArray)
 
-        // Hidden packages
-        val hiddenArray = JSONArray()
-        prefs.hiddenPackages.forEach { hiddenArray.put(it) }
-        json.put("hiddenPackages", hiddenArray)
+        val iconPackField = prefs.iconPackPackageName?.let {
+            ",\"iconPackPackageName\":\"${esc(it)}\""
+        } ?: ""
 
-        // Locked packages
-        val lockedArray = JSONArray()
-        prefs.lockedPackages.forEach { lockedArray.put(it) }
-        json.put("lockedPackages", lockedArray)
-
-        // Icon pack
-        prefs.iconPackPackageName?.let { json.put("iconPackPackageName", it) }
-
-        // Icon shape
-        json.put("iconShape", prefs.iconShape.name)
-
-        // Drawer columns
-        json.put("drawerColumns", prefs.drawerColumns)
-
-        // Card alpha
-        json.put("cardAlpha", prefs.cardAlpha.toDouble())
-
-        // Clock style
-        json.put("clockStyle", prefs.clockStyle.name)
-
-        json.toString(2) // Pretty print with 2-space indent
+        "{" +
+            "\"schemaVersion\":1," +
+            "\"dockPackages\":${listToJson(prefs.dockPackages)}," +
+            "\"folders\":$foldersJson," +
+            "\"hiddenPackages\":${setToJson(prefs.hiddenPackages)}," +
+            "\"lockedPackages\":${setToJson(prefs.lockedPackages)}" +
+            iconPackField +
+            ",\"iconShape\":\"${prefs.iconShape.name}\"," +
+            "\"drawerColumns\":${prefs.drawerColumns}," +
+            "\"cardAlpha\":${prefs.cardAlpha.toDouble()}," +
+            "\"clockStyle\":\"${prefs.clockStyle.name}\"" +
+        "}"
     }
 
     /**
@@ -112,7 +98,17 @@ class LauncherBackupManager @Inject constructor(
             val jsonObj = JSONObject(json)
 
             // Validate schema version
-            val schemaVersion = jsonObj.optInt("schemaVersion", 0)
+            val schemaFromRaw = Regex("\"schemaVersion\"\\s*:\\s*(\\d+)")
+                .find(json)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+            val schemaVersion = schemaFromRaw
+                ?: when {
+                    !jsonObj.has("schemaVersion") -> 0
+                    else -> jsonObj.optString("schemaVersion", "0").toIntOrNull()
+                        ?: jsonObj.optInt("schemaVersion", 0)
+                }
             if (schemaVersion == 0) {
                 return@withContext ImportResult(
                     success = false,
@@ -251,22 +247,26 @@ class LauncherBackupManager @Inject constructor(
             }
 
             // Update preferences (Requirement 18.3)
-            pinnedAppsDataStore.updatePreferences { prefs ->
-                prefs.copy(
-                    dockPackages = dockPackages,
-                    folders = folders,
-                    hiddenPackages = hiddenPackages,
-                    lockedPackages = lockedPackages,
-                    iconPackPackageName = validatedIconPack,
-                    iconShape = iconShape,
-                    drawerColumns = drawerColumns,
-                    cardAlpha = cardAlpha,
-                    clockStyle = clockStyle,
-                    backupMetadata = BackupMetadata(
-                        timestamp = System.currentTimeMillis(),
-                        version = schemaVersion
+            runCatching {
+                pinnedAppsDataStore.updatePreferences { prefs ->
+                    prefs.copy(
+                        dockPackages = dockPackages,
+                        folders = folders,
+                        hiddenPackages = hiddenPackages,
+                        lockedPackages = lockedPackages,
+                        iconPackPackageName = validatedIconPack,
+                        iconShape = iconShape,
+                        drawerColumns = drawerColumns,
+                        cardAlpha = cardAlpha,
+                        clockStyle = clockStyle,
+                        backupMetadata = BackupMetadata(
+                            timestamp = System.currentTimeMillis(),
+                            version = schemaVersion
+                        )
                     )
-                )
+                }
+            }.onFailure { e ->
+                android.util.Log.e("LauncherBackupManager", "Error applying imported prefs", e)
             }
 
             ImportResult(

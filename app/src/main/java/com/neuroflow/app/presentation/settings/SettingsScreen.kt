@@ -152,13 +152,83 @@ fun SettingsScreen(
                     checked = prefs.autoTrackerEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            SettingsSection("Notifications") {
                 SettingsToggleRow(
-                    label = "Split tasks in sequence",
-                    description = "When using \"It feels too big\", Part 2 depends on Part 1 and Part 3 depends on Part 2",
-                    checked = prefs.autoSplitSequentialDependencies,
+                    label = "Daily plan notification",
+                    description = "Send your top-3 planning notification each morning",
+                    checked = prefs.dailyPlanNotificationsEnabled,
                     onCheckedChange = {
-                        viewModel.updatePreferences { p -> p.copy(autoSplitSequentialDependencies = it) }
+                        viewModel.updatePreferences { p -> p.copy(dailyPlanNotificationsEnabled = it) }
+                    }
+                )
+                if (prefs.dailyPlanNotificationsEnabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsNumberRow(
+                        label = "Daily plan hour",
+                        value = prefs.dailyPlanNotificationHour,
+                        min = 0,
+                        max = 23,
+                        formatHour = true
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(dailyPlanNotificationHour = it) }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SettingsToggleRow(
+                    label = "Streak check notification",
+                    description = "Warn when your streak is at risk in the evening",
+                    checked = prefs.streakNotificationsEnabled,
+                    onCheckedChange = {
+                        viewModel.updatePreferences { p -> p.copy(streakNotificationsEnabled = it) }
+                    }
+                )
+                if (prefs.streakNotificationsEnabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsNumberRow(
+                        label = "Streak check hour",
+                        value = prefs.streakCheckNotificationHour,
+                        min = 0,
+                        max = 23,
+                        formatHour = true
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(streakCheckNotificationHour = it) }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SettingsToggleRow(
+                    label = "Autonomy nudge notifications",
+                    description = "Allow 2-hour nudges for untouched tasks",
+                    checked = prefs.autonomyNudgeNotificationsEnabled,
+                    onCheckedChange = {
+                        viewModel.updatePreferences { p -> p.copy(autonomyNudgeNotificationsEnabled = it) }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SettingsToggleRow(
+                    label = "Deadline reminder notifications",
+                    description = "Allow 15m/30m/1h/1d deadline reminders",
+                    checked = prefs.deadlineReminderNotificationsEnabled,
+                    onCheckedChange = {
+                        viewModel.updatePreferences { p -> p.copy(deadlineReminderNotificationsEnabled = it) }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SettingsToggleRow(
+                    label = "Deadline escalation alerts",
+                    description = "Allow schedule-to-do-first escalation notifications",
+                    checked = prefs.deadlineEscalationNotificationsEnabled,
+                    onCheckedChange = {
+                        viewModel.updatePreferences { p -> p.copy(deadlineEscalationNotificationsEnabled = it) }
                     }
                 )
             }

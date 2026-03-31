@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.HyperFocusState
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
@@ -27,6 +28,9 @@ sealed class UnlockResult {
 
 interface HyperFocusManager {
     suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>)
+    suspend fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int)
+    suspend fun addTasksToSession(taskIds: Set<String>)
+    suspend fun isTaskDeletionBlocked(taskId: String): Boolean
     suspend fun deactivate()
     suspend fun onTaskCompleted()
     suspend fun submitCode(enteredCode: String): UnlockResult
@@ -56,19 +60,101 @@ class HyperFocusManagerImpl @Inject constructor(
             unlockCodeRepository.deleteSessionCodes(sessionId)
         }
         // Stop both timer and monitor services
-        context.stopService(Intent(context, UnlockTimerService::class.java))
-        context.stopService(
-            Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
-        )
-        WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
+        runCatching { context.stopService(Intent(context, UnlockTimerService::class.java)) }
+        runCatching {
+            context.stopService(
+                Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
+            )
+        }
+        runCatching {
+            WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
+        }
     }
 
     override suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>) {
+        activateInternal(
+            blockedPackages = blockedPackages,
+            dailyTaskTarget = dailyTaskTarget,
+            lockedTaskIds = lockedTaskIds,
+            sessionMode = HyperFocusSessionMode.TASK_BASED,
+            sessionDurationMinutes = null
+        )
+    }
+
+    override suspend fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int) {
+        val safeDuration = durationMinutes.coerceAtLeast(1)
+        activateInternal(
+            blockedPackages = blockedPackages,
+            dailyTaskTarget = 0,
+            lockedTaskIds = emptySet(),
+            sessionMode = HyperFocusSessionMode.TIME_BASED,
+            sessionDurationMinutes = safeDuration
+        )
+    }
+
+    override suspend fun addTasksToSession(taskIds: Set<String>) {
+        if (taskIds.isEmpty()) return
+
+        val prefs = hyperFocusDataStore.current()
+        if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TASK_BASED) return
+
+        val now = System.currentTimeMillis()
+        val validIds = taskRepository.getAllTasks()
+            .filter { task ->
+                task.id in taskIds &&
+                    task.status == TaskStatus.ACTIVE &&
+                    (task.scheduledDate == null || task.scheduledDate <= now)
+            }
+            .map { it.id }
+            .toSet()
+
+        if (validIds.isEmpty()) return
+
+        hyperFocusDataStore.update {
+            val mergedIds = it.lockedTaskIds + validIds
+            if (mergedIds == it.lockedTaskIds) {
+                it
+            } else {
+                it.copy(
+                    lockedTaskIds = mergedIds,
+                    dailyTaskTarget = mergedIds.size
+                )
+            }
+        }
+
+        // Recompute tier after adding tasks because newly-added tasks may already be completed later in the session.
+        onTaskCompleted()
+    }
+
+    override suspend fun isTaskDeletionBlocked(taskId: String): Boolean {
+        val prefs = hyperFocusDataStore.current()
+        if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TASK_BASED) return false
+        return taskId in prefs.lockedTaskIds
+    }
+
+    private suspend fun activateInternal(
+        blockedPackages: Set<String>,
+        dailyTaskTarget: Int,
+        lockedTaskIds: Set<String>,
+        sessionMode: HyperFocusSessionMode,
+        sessionDurationMinutes: Int?
+    ) {
         val sessionId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        val sessionEndsAtMillis = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+            now + (sessionDurationMinutes ?: 1) * 60_000L
+        } else {
+            null
+        }
 
         Log.d(TAG, "Activating Hyper Focus - Session: $sessionId")
         Log.d(TAG, "Blocked packages (${blockedPackages.size}): ${blockedPackages.joinToString()}")
-        Log.d(TAG, "Daily task target: $dailyTaskTarget")
+        Log.d(TAG, "Session mode: $sessionMode")
+        if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
+            Log.d(TAG, "Daily task target: $dailyTaskTarget")
+        } else {
+            Log.d(TAG, "Duration: ${sessionDurationMinutes ?: 0} minute(s)")
+        }
 
         // Clean up expired codes from previous sessions, then generate fresh pool
         unlockCodeRepository.deleteExpiredCodes()
@@ -86,26 +172,34 @@ class HyperFocusManagerImpl @Inject constructor(
                 activeUnlockExpiresAt = null,
                 wrongCodeAttempts = 0,
                 lockoutExpiresAt = null,
-                lockedTaskIds = lockedTaskIds
+                lockedTaskIds = lockedTaskIds,
+                sessionMode = sessionMode,
+                sessionDurationMinutes = sessionDurationMinutes,
+                sessionEndsAtMillis = sessionEndsAtMillis
             )
         }
 
         // Start the monitor service to keep Hyper Focus active
-        context.startForegroundService(
-            Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
-        )
+        runCatching {
+            context.startForegroundService(
+                Intent(context, com.neuroflow.app.presentation.launcher.hyperfocus.service.HyperFocusMonitorService::class.java)
+            )
+        }
 
         // Schedule periodic accessibility watchdog (every 15 min)
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            AccessibilityWatchdogWorker.WORK_NAME,
-            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<AccessibilityWatchdogWorker>(15, TimeUnit.MINUTES).build()
-        )
+        runCatching {
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                AccessibilityWatchdogWorker.WORK_NAME,
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<AccessibilityWatchdogWorker>(15, TimeUnit.MINUTES).build()
+            )
+        }
     }
 
     override suspend fun onTaskCompleted() {
         val prefs = hyperFocusDataStore.current()
         if (!prefs.isActive) return
+        if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) return
 
         // Only count tasks that were active when the session started
         val completedLockedTasks = if (prefs.lockedTaskIds.isNotEmpty()) {
@@ -176,7 +270,7 @@ class HyperFocusManagerImpl @Inject constructor(
 
         // Start the foreground timer service for timed unlocks (FULL tier = permanent, no timer needed)
         if (expiresAt != null) {
-            context.startForegroundService(Intent(context, UnlockTimerService::class.java))
+            runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
         }
 
         return UnlockResult.Success(match.tier.unlockMinutes)
@@ -207,19 +301,28 @@ class HyperFocusManagerImpl @Inject constructor(
     override suspend fun triggerEmergencyBypass() {
         val prefs = hyperFocusDataStore.current()
         if (!prefs.isActive || prefs.emergencyUsed) return
+        if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) return
 
         val now = System.currentTimeMillis()
         val expiresAt = now + 10 * 60 * 1000L // 10 minutes unlock (one-time per session)
+        var applied = false
 
         hyperFocusDataStore.update {
-            it.copy(
-                activeUnlockExpiresAt = expiresAt,
-                emergencyUsed = true,
-                currentTier = RewardTier.NONE
-            )
+            if (!it.isActive || it.emergencyUsed || it.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                it
+            } else {
+                applied = true
+                it.copy(
+                    activeUnlockExpiresAt = expiresAt,
+                    emergencyUsed = true,
+                    currentTier = RewardTier.NONE
+                )
+            }
         }
 
-        context.startForegroundService(Intent(context, UnlockTimerService::class.java))
+        if (applied) {
+            runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
+        }
     }
 }
 

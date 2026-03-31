@@ -125,7 +125,11 @@ class PinnedAppsDataStore @Inject constructor(
     }
 
     val launcherPrefsFlow: Flow<LauncherPreferences> = context.launcherDataStore.data.map { prefs ->
-        LauncherPreferences(
+        mapToLauncherPreferences(prefs)
+    }
+
+    private fun mapToLauncherPreferences(prefs: Preferences): LauncherPreferences {
+        return LauncherPreferences(
             dockPackages = parseStringList(prefs[Keys.DOCK_PACKAGES]),
             folders = parseFolders(prefs[Keys.FOLDERS]),
             hiddenPackages = parseStringSet(prefs[Keys.HIDDEN_PACKAGES]),
@@ -251,34 +255,7 @@ class PinnedAppsDataStore @Inject constructor(
 
     suspend fun updatePreferences(update: (LauncherPreferences) -> LauncherPreferences) {
         context.launcherDataStore.edit { prefs ->
-            val current = LauncherPreferences(
-                dockPackages = parseStringList(prefs[Keys.DOCK_PACKAGES]),
-                folders = parseFolders(prefs[Keys.FOLDERS]),
-                hiddenPackages = parseStringSet(prefs[Keys.HIDDEN_PACKAGES]),
-                lockedPackages = parseStringSet(prefs[Keys.LOCKED_PACKAGES]),
-                recentPackages = parseStringList(prefs[Keys.RECENT_PACKAGES]),
-                cardAlpha = prefs[Keys.CARD_ALPHA] ?: 0.85f,
-                clockStyle = try {
-                    ClockStyle.valueOf(prefs[Keys.CLOCK_STYLE] ?: ClockStyle.DIGITAL.name)
-                } catch (_: Exception) { ClockStyle.DIGITAL },
-                iconPackPackageName = prefs[Keys.ICON_PACK_PACKAGE_NAME],
-                iconShape = try {
-                    IconShape.valueOf(prefs[Keys.ICON_SHAPE] ?: IconShape.SYSTEM_DEFAULT.name)
-                } catch (_: Exception) { IconShape.SYSTEM_DEFAULT },
-                drawerColumns = prefs[Keys.DRAWER_COLUMNS] ?: 4,
-                distractionScores = parseDistractionScores(prefs[Keys.DISTRACTION_SCORES]),
-                backupMetadata = parseBackupMetadata(prefs[Keys.BACKUP_METADATA]),
-                webSearchUrl = prefs[Keys.WEB_SEARCH_URL] ?: "https://www.google.com/search?q=",
-                showTaskScore = prefs[Keys.SHOW_TASK_SCORE] ?: false,
-                skippedTaskIds = parseStringSet(prefs[Keys.SKIPPED_TASK_IDS]),
-                taskCardStyle = try {
-                    CardStyle.valueOf(prefs[Keys.TASK_CARD_STYLE] ?: CardStyle.ELEVATED.name)
-                } catch (_: Exception) { CardStyle.ELEVATED },
-                distractionDimmingEnabled = prefs[Keys.DISTRACTION_DIMMING_ENABLED] ?: true,
-                homeScreenPages = parseHomeScreenPages(prefs[Keys.HOME_SCREEN_PAGES]),
-                homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true,
-                leftPageBlocks = parseLeftPageBlocks(prefs[Keys.LEFT_PAGE_BLOCKS])
-            )
+            val current = mapToLauncherPreferences(prefs)
             val updated = update(current)
             prefs[Keys.DOCK_PACKAGES] = encodeStringList(updated.dockPackages)
             prefs[Keys.FOLDERS] = encodeFolders(updated.folders)
@@ -287,11 +264,20 @@ class PinnedAppsDataStore @Inject constructor(
             prefs[Keys.RECENT_PACKAGES] = encodeStringList(updated.recentPackages)
             prefs[Keys.CARD_ALPHA] = updated.cardAlpha
             prefs[Keys.CLOCK_STYLE] = updated.clockStyle.name
-            updated.iconPackPackageName?.let { prefs[Keys.ICON_PACK_PACKAGE_NAME] = it }
+            if (updated.iconPackPackageName == null) {
+                prefs.remove(Keys.ICON_PACK_PACKAGE_NAME)
+            } else {
+                prefs[Keys.ICON_PACK_PACKAGE_NAME] = updated.iconPackPackageName
+            }
             prefs[Keys.ICON_SHAPE] = updated.iconShape.name
             prefs[Keys.DRAWER_COLUMNS] = updated.drawerColumns
             prefs[Keys.DISTRACTION_SCORES] = encodeDistractionScores(updated.distractionScores)
-            encodeBackupMetadata(updated.backupMetadata)?.let { prefs[Keys.BACKUP_METADATA] = it }
+            val backupMetadata = encodeBackupMetadata(updated.backupMetadata)
+            if (backupMetadata == null) {
+                prefs.remove(Keys.BACKUP_METADATA)
+            } else {
+                prefs[Keys.BACKUP_METADATA] = backupMetadata
+            }
             prefs[Keys.WEB_SEARCH_URL] = updated.webSearchUrl
             prefs[Keys.SHOW_TASK_SCORE] = updated.showTaskScore
             prefs[Keys.SKIPPED_TASK_IDS] = encodeStringSet(updated.skippedTaskIds)

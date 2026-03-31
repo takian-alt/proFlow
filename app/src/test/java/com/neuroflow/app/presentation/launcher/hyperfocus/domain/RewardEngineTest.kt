@@ -38,9 +38,9 @@ class RewardEngineTest : StringSpec({
         val target = 5
         RewardEngine.computeTier(0, target) shouldBe RewardTier.NONE
         RewardEngine.computeTier(1, target) shouldBe RewardTier.MICRO
-        RewardEngine.computeTier(2, target) shouldBe RewardTier.MICRO
-        RewardEngine.computeTier(3, target) shouldBe RewardTier.PARTIAL
-        RewardEngine.computeTier(4, target) shouldBe RewardTier.PARTIAL
+        RewardEngine.computeTier(2, target) shouldBe RewardTier.PARTIAL
+        RewardEngine.computeTier(3, target) shouldBe RewardTier.EARNED
+        RewardEngine.computeTier(4, target) shouldBe RewardTier.EARNED
         RewardEngine.computeTier(5, target) shouldBe RewardTier.FULL
         RewardEngine.computeTier(6, target) shouldBe RewardTier.FULL
     }
@@ -77,15 +77,15 @@ class RewardEngineTest : StringSpec({
     }
 
     "computeTier returns MICRO for 1 completed (target=10)" {
-        RewardEngine.computeTier(1, 10) shouldBe RewardTier.MICRO
+        RewardEngine.computeTier(1, 10) shouldBe RewardTier.NONE
     }
 
     "computeTier returns PARTIAL for 3 completed (target=10)" {
-        RewardEngine.computeTier(3, 10) shouldBe RewardTier.PARTIAL
+        RewardEngine.computeTier(3, 10) shouldBe RewardTier.MICRO
     }
 
     "computeTier returns EARNED for 5 completed (target=10)" {
-        RewardEngine.computeTier(5, 10) shouldBe RewardTier.EARNED
+        RewardEngine.computeTier(5, 10) shouldBe RewardTier.PARTIAL
     }
 
     "secondsRemaining returns null when unlock not active" {

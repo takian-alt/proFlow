@@ -34,7 +34,7 @@ class UnlockCodeRepositoryTest : StringSpec({
     beforeTest {
         mockkObject(AESUtil)
         // Return a realistic Base64-encoded fake ciphertext (longer than 6 chars)
-        every { AESUtil.encrypt(any()) } answers {
+        coEvery { AESUtil.encrypt(any()) } answers {
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         }
     }

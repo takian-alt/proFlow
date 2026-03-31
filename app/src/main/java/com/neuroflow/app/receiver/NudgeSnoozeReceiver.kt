@@ -11,6 +11,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.R
 import com.neuroflow.app.worker.AutonomyNudgeWorker
 import java.util.concurrent.TimeUnit
@@ -27,11 +28,12 @@ class NudgeSnoozeReceiver : BroadcastReceiver() {
             NotificationManagerCompat.from(context).cancel(notificationId)
         }
 
-        val uniqueWorkName = "autonomy_nudge_$taskId"
+        val uniqueWorkName = AutonomyNudgeEngine.uniqueWorkName(taskId)
         val request = OneTimeWorkRequestBuilder<AutonomyNudgeWorker>()
             .setInitialDelay(1, TimeUnit.HOURS)
             .setInputData(workDataOf("taskId" to taskId))
-            .addTag(uniqueWorkName)
+            .addTag(AutonomyNudgeEngine.workTag(taskId))
+            .addTag(AutonomyNudgeEngine.globalTag())
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             uniqueWorkName,

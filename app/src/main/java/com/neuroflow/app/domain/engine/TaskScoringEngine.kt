@@ -75,6 +75,14 @@ object TaskScoringEngine {
         } else 0
         if (blockedByCount > 0) return max(0f, 5f * (1f / blockedByCount))
 
+        val lockAnchorMs = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+            ?: task.habitDate
+        if (task.isScheduleLocked && lockAnchorMs != null) {
+            val minutesUntilAnchor = (lockAnchorMs - nowMillis) / 60_000f
+            // Locked tasks are intentionally hidden from focus ranking until close to their window.
+            if (minutesUntilAnchor > 10f) return 1f
+        }
+
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
@@ -289,10 +297,11 @@ object TaskScoringEngine {
         // ── 19. COMMITMENT DEVICE (Social Accountability) ────────────────────
         if (task.isPublicCommitment) s += 70f
 
-        if (task.isScheduleLocked && task.scheduledDate != null) {
-            val minutesUntil = (task.scheduledDate - nowMillis) / 60_000f
-            if (minutesUntil in -30f..60f) s += 80f
-            else if (minutesUntil in -120f..240f) s += 30f
+        if (task.isScheduleLocked && lockAnchorMs != null) {
+            val minutesUntil = (lockAnchorMs - nowMillis) / 60_000f
+            if (minutesUntil in -30f..10f) s += 160f
+            else if (minutesUntil in -120f..60f) s += 80f
+            else if (minutesUntil in -240f..120f) s += 30f
         }
 
         // ── 20. LOSS AVERSION (Kahneman & Tversky) ───────────────────────────
@@ -351,8 +360,10 @@ object TaskScoringEngine {
                 else             -> "Later"
             }
         }
-        if (task.scheduledDate != null) {
-            val minutesUntil = (task.scheduledDate + (task.scheduledTime ?: 0L) - nowMillis) / 60_000f
+        val anchorMs = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+            ?: task.habitDate
+        if (anchorMs != null) {
+            val minutesUntil = (anchorMs - nowMillis) / 60_000f
             return when {
                 minutesUntil < -60  -> "Scheduled (past)"
                 minutesUntil < 0    -> "Starting now"
@@ -378,8 +389,10 @@ object TaskScoringEngine {
                 else             -> max(0f, 1f - hoursLeft / 720f)
             }
         }
-        if (task.scheduledDate != null) {
-            val minutesUntil = (task.scheduledDate + (task.scheduledTime ?: 0L) - nowMillis) / 60_000f
+        val anchorMs = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+            ?: task.habitDate
+        if (anchorMs != null) {
+            val minutesUntil = (anchorMs - nowMillis) / 60_000f
             return when {
                 minutesUntil <= 0    -> 0.85f
                 minutesUntil < 15    -> 0.72f
