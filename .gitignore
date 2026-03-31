@@ -3,6 +3,9 @@
 build/
 **/build/
 
+# Release binaries (use GitHub Releases instead)
+app/release/
+
 # Local config (contains SDK path, never commit this)
 local.properties
 
