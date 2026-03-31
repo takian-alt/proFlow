@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.0] — 2026-03-31
+
+### Added
+
+- **`HyperFocusSessionMode` enum** — `TASK_BASED` and `TIME_BASED` modes let you choose whether a HyperFocus session is gated by a completed-task count or a fixed time budget.
+- **Notification preferences** — fine-grained per-notification toggles and configurable delivery hours added to `UserPreferences`:
+  - `dailyPlanNotificationsEnabled` / `dailyPlanNotificationHour` (default 7 am)
+  - `streakNotificationsEnabled` / `streakCheckNotificationHour` (default 9 pm)
+  - `autonomyNudgeNotificationsEnabled`
+  - `deadlineReminderNotificationsEnabled`
+  - `deadlineEscalationNotificationsEnabled`
+- **Recurring-task schedule support** — `TaskDao.observeTasksForDate` now surfaces recurring tasks whose `habitDate` falls within the day window alongside one-off scheduled tasks; sort order uses `COALESCE(scheduledTime, habitDate % 86400000, 0)` for a unified timeline.
+- **`TaskRepository.addRecurrenceStep` / `nextRecurringAnchorAfter`** — internal helpers that advance a recurring task's anchor date by one recurrence interval (daily / weekly / monthly / custom-days), always landing on a future date.
+- **Analytics: `RecurrenceAndScheduleCard`** — new card in the Analytics screen showing completion rates for recurring tasks and locked-schedule tasks separately.
+- **`AnalyticsSummary` fields** — `recurringTasksTotal`, `recurringTasksCompleted`, `lockedScheduleTasksTotal`, `lockedScheduleTasksCompleted`, and `taskTagBreakdown` (user-defined tag → count) added to the engine output.
+- **`AutonomyNudgeEngine` public API** — `uniqueWorkName(taskId)`, `workTag(taskId)`, and `globalTag()` are now public methods for consistent work-name construction across callers; a `GLOBAL_TAG` groups all nudge workers for bulk cancellation.
+- **`NewTaskSheet` suggested tags** — the tag field now shows a chip row of tags already used across existing tasks, making cross-task organisation friction-free.
+
+### Changed
+
+- **`TaskScoringEngine` — locked-slot priority suppression** — tasks with `isScheduleLocked = true` are assigned a score of `1` (floor) until they are within 10 minutes of their scheduled anchor (`scheduledDate + scheduledTime` or `habitDate`), preventing them from displacing focus-worthy work in the priority list prematurely.
+- **`NeuroFlowApplication` worker scheduling** — daily-plan, streak-check, and deadline-escalation workers are now scheduled through a consolidated `scheduleNotificationWorkers` helper that reads the user's notification-hour preferences from `UserPreferencesDataStore` before enqueuing, so custom delivery times are respected from the very first launch.
+- **`TimeUtils` — migrated to `java.time`** — `formatRelativeTime` and related helpers now use `java.time.Instant`, `ZoneId`, and `ChronoUnit` instead of legacy `java.util.Calendar` arithmetic.
+
+### Removed
+
+- **`TaskSplitter`** — the standalone `TaskSplitter` object has been removed; auto-split logic is now handled inline within `MainActivity` using `AutonomyNudgeEngine.uniqueWorkName` for correct work cancellation.
+
+---
+
 ## [3.0.0] — 2026-03-26
 
 ### Added
@@ -223,6 +253,7 @@ The app can now be set as the Android home screen. The launcher is intentionally
 
 ---
 
-[Unreleased]: https://github.com/takian-alt/proFlow/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/takian-alt/proFlow/compare/version_4.0.0...HEAD
+[4.0.0]: https://github.com/takian-alt/proFlow/compare/v3.0.0...version_4.0.0
 [3.0.0]: https://github.com/takian-alt/proFlow/compare/v1.0.0...v3.0.0
 [1.0.0]: https://github.com/takian-alt/proFlow/releases/tag/v1.0.0

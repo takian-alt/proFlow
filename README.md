@@ -8,9 +8,11 @@ proFlow is an advanced productivity and task management application for Android,
 
 ## Download
 
-| Version | Min Android | File |
-|---------|-------------|------|
-| **v3.0.0** (latest) | Android 8.0 (API 26) | [⬇ app-release.apk](app/release/app-release.apk) |
+Download the latest release APK from the [GitHub Releases page](https://github.com/takian-alt/proFlow/releases/tag/version_4.0.0).
+
+| Version | Min Android | Release |
+|---------|-------------|---------|
+| **v4.0.0** (latest) | Android 8.0 (API 26) | [⬇ GitHub Releases](https://github.com/takian-alt/proFlow/releases/tag/version_4.0.0) |
 
 > **Install tip:** You will need to enable *Install from unknown sources* in your Android settings before side-loading the APK.
 

@@ -6,7 +6,8 @@ Only the most recent release of proFlow receives security fixes.
 
 | Version | Supported |
 |---|---|
-| 3.0.x (latest) | ✅ Yes |
+| 4.0.x (latest) | ✅ Yes |
+| 3.0.x | ❌ No |
 | 1.0.x | ❌ No |
 | < 1.0 | ❌ No |
 
