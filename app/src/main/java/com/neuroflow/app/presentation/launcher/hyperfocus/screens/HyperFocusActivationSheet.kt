@@ -33,7 +33,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -118,24 +117,25 @@ private fun ActivationSheetContent(
         }
     }
 
-    var searchQuery by remember { mutableStateOf("") }
+    var taskSearchQuery by remember { mutableStateOf("") }
+    var appSearchQuery by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
     var sessionMode by remember { mutableStateOf(HyperFocusSessionMode.TASK_BASED) }
     val durationOptions = remember { listOf(15, 25, 45, 60, 90, 120) }
     var selectedDurationMinutes by remember { mutableStateOf(25) }
 
-    val filteredApps = remember(searchQuery, allApps) {
-        if (searchQuery.isBlank()) allApps
+    val filteredApps = remember(appSearchQuery, allApps) {
+        if (appSearchQuery.isBlank()) allApps
         else allApps.filter { (label, pkg) ->
-            label.contains(searchQuery, ignoreCase = true) ||
-            pkg.contains(searchQuery, ignoreCase = true)
+            label.contains(appSearchQuery, ignoreCase = true) ||
+            pkg.contains(appSearchQuery, ignoreCase = true)
         }
     }
-    val filteredTasks = remember(searchQuery, activeTasks) {
-        if (searchQuery.isBlank()) activeTasks
+    val filteredTasks = remember(taskSearchQuery, activeTasks) {
+        if (taskSearchQuery.isBlank()) activeTasks
         else activeTasks.filter { task ->
-            task.title.contains(searchQuery, ignoreCase = true) ||
-                task.description.contains(searchQuery, ignoreCase = true)
+            task.title.contains(taskSearchQuery, ignoreCase = true) ||
+                task.description.contains(taskSearchQuery, ignoreCase = true)
         }
     }
 
@@ -239,6 +239,69 @@ private fun ActivationSheetContent(
             }
         }
 
+        if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tasks in Hyper Focus",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$selectedTaskCount selected",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            OutlinedTextField(
+                value = taskSearchQuery,
+                onValueChange = { taskSearchQuery = it },
+                placeholder = { Text("Search tasks...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (filteredTasks.isEmpty()) {
+                Text(
+                    text = "No active tasks found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                filteredTasks.forEach { task ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedTaskIds[task.id] == true,
+                            onCheckedChange = { checked -> selectedTaskIds[task.id] = checked }
+                        )
+                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                            Text(
+                                text = task.title,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (task.description.isNotBlank()) {
+                                Text(
+                                    text = task.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         HorizontalDivider()
 
         // Confirmation field
@@ -251,6 +314,30 @@ private fun ActivationSheetContent(
             isError = confirmText.isNotEmpty() && confirmText != "FOCUS",
             modifier = Modifier.fillMaxWidth()
         )
+
+        // Activate button near top for faster access
+        Button(
+            onClick = {
+                val selected = selectedPackages.filter { it.value }.keys.toSet()
+                if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    viewModel.activateTimed(selected, selectedDurationMinutes)
+                } else {
+                    val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                    viewModel.activate(selected, selectedTasks)
+                }
+                onDismiss()
+            },
+            enabled = confirmText == "FOCUS" && selectedCount > 0 &&
+                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                "Activate ${selectedDurationMinutes}m Focus Lock"
+            } else {
+                "Activate Hyper Focus 🔒"
+            }
+            Text(label)
+        }
 
         HorizontalDivider()
 
@@ -274,8 +361,8 @@ private fun ActivationSheetContent(
 
         // Search field
         OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
+            value = appSearchQuery,
+            onValueChange = { appSearchQuery = it },
             placeholder = { Text("Search apps...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
@@ -314,60 +401,6 @@ private fun ActivationSheetContent(
             }
         }
 
-        if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
-            HorizontalDivider()
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Tasks in Hyper Focus",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "$selectedTaskCount selected",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            if (filteredTasks.isEmpty()) {
-                Text(
-                    text = "No active tasks found.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                filteredTasks.forEach { task ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = selectedTaskIds[task.id] == true,
-                            onCheckedChange = { checked -> selectedTaskIds[task.id] = checked }
-                        )
-                        Column(modifier = Modifier.padding(start = 4.dp)) {
-                            Text(
-                                text = task.title,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            if (task.description.isNotBlank()) {
-                                Text(
-                                    text = task.description,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // No tasks warning
         if (sessionMode == HyperFocusSessionMode.TASK_BASED && !hasActiveTasks) {
             Surface(
@@ -382,30 +415,6 @@ private fun ActivationSheetContent(
                     modifier = Modifier.padding(12.dp)
                 )
             }
-        }
-
-        // Activate button
-        Button(
-            onClick = {
-                val selected = selectedPackages.filter { it.value }.keys.toSet()
-                if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                    viewModel.activateTimed(selected, selectedDurationMinutes)
-                } else {
-                    val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
-                    viewModel.activate(selected, selectedTasks)
-                }
-                onDismiss()
-            },
-            enabled = confirmText == "FOCUS" && selectedCount > 0 &&
-                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                "Activate ${selectedDurationMinutes}m Focus Lock"
-            } else {
-                "Activate Hyper Focus 🔒"
-            }
-            Text(label)
         }
     }
 }

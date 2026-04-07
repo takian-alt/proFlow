@@ -189,6 +189,12 @@ class HyperFocusViewModel @Inject constructor(
         }
     }
 
+    fun addTasksToActiveSession(taskIds: Set<String>) {
+        viewModelScope.launch {
+            hyperFocusManager.addTasksToSession(taskIds)
+        }
+    }
+
     fun claimRewardForTier(tier: RewardTier) {
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()

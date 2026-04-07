@@ -1,6 +1,8 @@
 package com.neuroflow.app.presentation.launcher.settings
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.provider.Settings
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
+import com.neuroflow.app.domain.model.TaskStatus
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -116,6 +119,34 @@ fun LauncherSettings(
                         LauncherOnboardingCard(viewModel = viewModel)
                     }
 
+                    // Hyper Focus Section (Task 7.3, Requirements: 6.3)
+                    item {
+                        HyperFocusSettingsSection(
+                            isActive = hyperFocusPrefs.isActive,
+                            onSetup = {
+                                val accessibilityEnabled = com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+                                    .isAppBlockingServiceEnabled(context)
+                                val usageStatsEnabled = try {
+                                    val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
+                                    appOps.unsafeCheckOpNoThrow(
+                                        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                                        android.os.Process.myUid(),
+                                        context.packageName
+                                    ) == android.app.AppOpsManager.MODE_ALLOWED
+                                } catch (e: Exception) { false }
+
+                                if (!accessibilityEnabled || !usageStatsEnabled) {
+                                    showPermissionSetup = true
+                                } else {
+                                    showActivationSheet = true
+                                }
+                            },
+                            onViewProgress = { showActivationSheet = false },
+                            onNavigateToRewards = onNavigateToRewards,
+                            hyperFocusViewModel = hyperFocusViewModel
+                        )
+                    }
+
                     // Home Screen Pages Section
                     item {
                         HomeScreenPagesSection(viewModel = viewModel)
@@ -206,34 +237,6 @@ fun LauncherSettings(
                         )
                     }
 
-                    // Hyper Focus Section (Task 7.3, Requirements: 6.3)
-                    item {
-                        HyperFocusSettingsSection(
-                            isActive = hyperFocusPrefs.isActive,
-                            onSetup = {
-                                val accessibilityEnabled = com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
-                                    .isAppBlockingServiceEnabled(context)
-                                val usageStatsEnabled = try {
-                                    val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
-                                    appOps.unsafeCheckOpNoThrow(
-                                        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
-                                        android.os.Process.myUid(),
-                                        context.packageName
-                                    ) == android.app.AppOpsManager.MODE_ALLOWED
-                                } catch (e: Exception) { false }
-
-                                if (!accessibilityEnabled || !usageStatsEnabled) {
-                                    showPermissionSetup = true
-                                } else {
-                                    showActivationSheet = true
-                                }
-                            },
-                            onViewProgress = { showActivationSheet = false },
-                            onNavigateToRewards = onNavigateToRewards,
-                            hyperFocusViewModel = hyperFocusViewModel
-                        )
-                    }
-
                     // Backup/Restore Section (Task 21.3)
                     item {
                         BackupRestoreSection(
@@ -306,6 +309,91 @@ private fun HyperFocusSettingsSection(
 ) {
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
     val sessionSecondsRemaining by hyperFocusViewModel.sessionSecondsRemaining.collectAsStateWithLifecycle()
+    val activeTasks by hyperFocusViewModel.activeTasks.collectAsStateWithLifecycle()
+
+    var showAddTasksDialog by remember { mutableStateOf(false) }
+    val lockedTasks = remember(hyperFocusPrefs.lockedTaskIds, activeTasks) {
+        activeTasks.filter { it.id in hyperFocusPrefs.lockedTaskIds }
+    }
+    val availableTasks = remember(hyperFocusPrefs.lockedTaskIds, activeTasks) {
+        activeTasks.filter { task ->
+            task.status == TaskStatus.ACTIVE && task.id !in hyperFocusPrefs.lockedTaskIds
+        }
+    }
+
+    if (showAddTasksDialog) {
+        val selectedTaskIds = remember { mutableStateMapOf<String, Boolean>() }
+        LaunchedEffect(availableTasks) {
+            selectedTaskIds.keys
+                .filter { id -> availableTasks.none { it.id == id } }
+                .forEach { staleId -> selectedTaskIds.remove(staleId) }
+            availableTasks.forEach { task ->
+                if (selectedTaskIds[task.id] == null) {
+                    selectedTaskIds[task.id] = false
+                }
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = { showAddTasksDialog = false },
+            title = { Text("Add Tasks To Active Session") },
+            text = {
+                if (availableTasks.isEmpty()) {
+                    Text(
+                        text = "No additional actionable tasks are available.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        availableTasks.forEach { task ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selectedTaskIds[task.id] == true,
+                                    onCheckedChange = { checked -> selectedTaskIds[task.id] = checked }
+                                )
+                                Column(modifier = Modifier.padding(start = 4.dp)) {
+                                    Text(task.title, style = MaterialTheme.typography.bodyMedium)
+                                    if (task.description.isNotBlank()) {
+                                        Text(
+                                            text = task.description,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selected = selectedTaskIds.filterValues { it }.keys.toSet()
+                        hyperFocusViewModel.addTasksToActiveSession(selected)
+                        showAddTasksDialog = false
+                    },
+                    enabled = selectedTaskIds.any { it.value }
+                ) {
+                    Text("Add Selected")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddTasksDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -326,6 +414,42 @@ private fun HyperFocusSettingsSection(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
+
+            // Primary actions at top for quick access
+            if (!isActive) {
+                Button(
+                    onClick = onSetup,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Setup / Activate")
+                }
+            } else if (hyperFocusPrefs.sessionMode == HyperFocusSessionMode.TASK_BASED) {
+                Button(
+                    onClick = { showAddTasksDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = availableTasks.isNotEmpty()
+                ) {
+                    Text("Add Tasks To Session")
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    val lockedCount = hyperFocusPrefs.lockedTaskIds.size
+                    val subtitle = if (lockedTasks.isNotEmpty()) {
+                        lockedTasks.take(2).joinToString { it.title }
+                    } else {
+                        "No tasks selected yet."
+                    }
+                    Text(
+                        text = "Session tasks: $lockedCount\n$subtitle",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
 
             // Status row
             Row(
@@ -386,13 +510,6 @@ private fun HyperFocusSettingsSection(
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.padding(12.dp)
                     )
-                }
-            } else {
-                Button(
-                    onClick = onSetup,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Setup / Activate")
                 }
             }
 

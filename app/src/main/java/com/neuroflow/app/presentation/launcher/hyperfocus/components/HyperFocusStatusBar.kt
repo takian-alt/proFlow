@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -151,6 +152,19 @@ fun HyperFocusStatusBar(
                         text = "🔒 FOCUS",
                         style = MaterialTheme.typography.labelMedium
                     )
+                    if (prefs.sessionMode == HyperFocusSessionMode.TASK_BASED) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = "${prefs.lockedTaskIds.size} tasks",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     Spacer(Modifier.width(4.dp))
                     LinearProgressIndicator(
                         progress = { progress.fraction },

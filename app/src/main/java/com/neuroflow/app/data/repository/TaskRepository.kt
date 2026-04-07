@@ -75,9 +75,6 @@ class TaskRepository @Inject constructor(
 
     suspend fun insert(task: TaskEntity) {
         taskDao.insert(task)
-        if (task.status == TaskStatus.ACTIVE) {
-            hyperFocusManager.get().addTasksToSession(setOf(task.id))
-        }
     }
     suspend fun update(task: TaskEntity) = taskDao.update(task)
     suspend fun delete(task: TaskEntity) {
