@@ -530,19 +530,19 @@ fun BlockingOverlayScreen(
                 // ============ ACTION BUTTONS (LOCKED) ============
                 Button(
                     onClick = {
-                        val shouldOpenPlanning =
+                        val isPlanningPending =
                             prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
+
+                        if (isPlanningPending) {
+                            navController.navigate("planning_prompt")
+                            return@Button
+                        }
 
                         val launcherIntent = Intent(context, LauncherActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                                 Intent.FLAG_ACTIVITY_SINGLE_TOP
-
-                            if (shouldOpenPlanning) {
-                                putExtra(LauncherActivity.EXTRA_OPEN_PLANNING, true)
-                            }
                         }
-
                         context.startActivity(launcherIntent)
                         (context as? Activity)?.finish()
                     },

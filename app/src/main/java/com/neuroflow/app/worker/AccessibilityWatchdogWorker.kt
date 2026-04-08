@@ -29,7 +29,7 @@ class AccessibilityWatchdogWorker @AssistedInject constructor(
 
     companion object {
         const val WORK_NAME = "accessibility_watchdog"
-        private const val CHANNEL_ID = "accessibility_watchdog"
+        private const val CHANNEL_ID = "accessibility_watchdog_silent"
         private const val NOTIFICATION_ID = 3001
     }
 
@@ -57,10 +57,11 @@ class AccessibilityWatchdogWorker @AssistedInject constructor(
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Accessibility Watchdog",
-            NotificationManager.IMPORTANCE_HIGH
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
-            enableVibration(true)
-            setBypassDnd(true)
+            enableVibration(false)
+            setBypassDnd(false)
+            setSound(null, null)
         }
         notificationManager.createNotificationChannel(channel)
 
@@ -72,8 +73,9 @@ class AccessibilityWatchdogWorker @AssistedInject constructor(
             .setContentText("Accessibility service is off — apps are not being blocked. Tap to re-enable.")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setAutoCancel(false)
             .setContentIntent(
                 PendingIntent.getActivity(appContext, 0, intent, PendingIntent.FLAG_IMMUTABLE)

@@ -8,6 +8,7 @@ import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.HyperFocusState
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -56,6 +57,7 @@ class HyperFocusManagerImpl @Inject constructor(
         val sessionId = hyperFocusDataStore.current().sessionId
         Log.d(TAG, "Deactivating Hyper Focus session: $sessionId")
         hyperFocusDataStore.update { HyperFocusPreferences() }
+        runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, false) }
         if (sessionId != null) {
             unlockCodeRepository.deleteSessionCodes(sessionId)
         }
@@ -175,7 +177,8 @@ class HyperFocusManagerImpl @Inject constructor(
                 lockedTaskIds = lockedTaskIds,
                 sessionMode = sessionMode,
                 sessionDurationMinutes = sessionDurationMinutes,
-                sessionEndsAtMillis = sessionEndsAtMillis
+                sessionEndsAtMillis = sessionEndsAtMillis,
+                lastServiceHeartbeat = now
             )
         }
 
@@ -194,6 +197,14 @@ class HyperFocusManagerImpl @Inject constructor(
                 PeriodicWorkRequestBuilder<AccessibilityWatchdogWorker>(15, TimeUnit.MINUTES).build()
             )
         }
+
+        // Ensure strict kiosk protections are applied even when activation happens outside LauncherActivity.
+        if (DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)) {
+            runCatching { DeviceOwnerKioskManager.enableHybridProtection(context) }
+            runCatching { DeviceOwnerKioskManager.bringLauncherToFront(context) }
+        }
+
+        runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, true) }
     }
 
     override suspend fun onTaskCompleted() {

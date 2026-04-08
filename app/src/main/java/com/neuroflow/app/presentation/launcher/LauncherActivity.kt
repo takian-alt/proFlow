@@ -33,6 +33,7 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PlanningPrompt
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
 import com.neuroflow.app.presentation.launcher.theme.ProvideLauncherTheme
 import com.neuroflow.app.presentation.launcher.theme.mapPreferencesToTheme
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
@@ -309,6 +310,12 @@ class LauncherActivity : FragmentActivity() {
                 Log.w("LauncherActivity", "Failed to set window insets controller", e)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        DeviceOwnerKioskManager.enableHybridProtection(this)
+        DeviceOwnerKioskManager.syncLockTaskMode(this)
     }
 
     override fun onStart() {

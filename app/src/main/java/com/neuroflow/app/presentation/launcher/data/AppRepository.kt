@@ -86,6 +86,7 @@ class AppRepository @Inject constructor(
                                 className = className,
                                 userHandle = profile,
                                 icon = icon,
+                                installedAtMillis = activityInfo.firstInstallTime,
                                 distractionScore = distractionScores[packageName] ?: 50,
                                 isWorkProfile = isWorkProfile
                             )

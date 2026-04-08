@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
 import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusActivity
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
@@ -37,6 +38,19 @@ class AppBlockingService : AccessibilityService() {
     companion object {
         private const val TAG = "AppBlockingService"
         private const val BLOCK_DEBOUNCE_MS = 1000L
+        private const val HEARTBEAT_INTERVAL_MS = 2_000L
+        private const val POLLING_INTERVAL_MS = 300L
+
+        // Core tamper paths across common OEM builds.
+        private val TAMPER_SENSITIVE_PACKAGES = setOf(
+            "com.android.settings",
+            "com.google.android.permissioncontroller",
+            "com.samsung.android.settings",
+            "com.miui.securitycenter",
+            "com.coloros.safecenter",
+            "com.oplus.safecenter",
+            "com.huawei.systemmanager"
+        )
     }
 
     // When the unlock timer expires, reset debounce so the polling immediately re-blocks
@@ -95,6 +109,12 @@ class AppBlockingService : AccessibilityService() {
         super.onServiceConnected()
         Log.d(TAG, "AppBlockingService connected")
 
+        runCatching {
+            DeviceOwnerKioskManager.enableHybridProtection(this)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to re-arm kiosk/keepalive protections from accessibility service", error)
+        }
+
         serviceInfo?.let { info ->
             info.flags = info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
@@ -118,8 +138,8 @@ class AppBlockingService : AccessibilityService() {
         // Heartbeat
         heartbeatScope.launch {
             while (true) {
-                delay(30_000L)
                 hyperFocusManager.updateHeartbeat()  // now suspend, safe to call here
+                delay(HEARTBEAT_INTERVAL_MS)
             }
         }
 
@@ -127,7 +147,7 @@ class AppBlockingService : AccessibilityService() {
         // Uses rootInActiveWindow as primary (no permission needed), UsageStats as secondary
         heartbeatScope.launch {
             while (true) {
-                delay(500L)
+                delay(POLLING_INTERVAL_MS)
                 val prefs = hyperFocusDataStore.current()
                 if (prefs.isActive) {
                     val currentApp = rootInActiveWindow?.packageName?.toString()
@@ -156,8 +176,14 @@ class AppBlockingService : AccessibilityService() {
                 }
             }
 
-            if (pkg !in prefs.blockedPackages) return@launch
+            val isTamperSensitive = pkg in TAMPER_SENSITIVE_PACKAGES
+            val isUserBlockedApp = pkg in prefs.blockedPackages
+            if (!isUserBlockedApp && !isTamperSensitive) return@launch
             if (RewardEngine.isUnlockActive(prefs)) return@launch
+
+            if (isTamperSensitive && !isUserBlockedApp) {
+                hyperFocusManager.reportTamper("Protected settings opened: $pkg")
+            }
 
             val now = System.currentTimeMillis()
             if (pkg == lastBlockedPackage && (now - lastBlockTime) < BLOCK_DEBOUNCE_MS) return@launch
@@ -180,6 +206,9 @@ class AppBlockingService : AccessibilityService() {
             }.isSuccess
 
             if (!launched) {
+                if (DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@AppBlockingService)) {
+                    DeviceOwnerKioskManager.bringLauncherToFront(this@AppBlockingService)
+                }
                 // Android 12+ can deny background launches; force HOME so user exits blocked app.
                 runCatching {
                     performGlobalAction(GLOBAL_ACTION_HOME)

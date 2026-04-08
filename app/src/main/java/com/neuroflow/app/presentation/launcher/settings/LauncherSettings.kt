@@ -1,5 +1,6 @@
 package com.neuroflow.app.presentation.launcher.settings
 
+import android.app.Activity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,12 +21,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
 import android.provider.Settings
+import android.widget.Toast
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.TaskStatus
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.LauncherViewModel
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.ClockStyle
@@ -49,6 +55,7 @@ import java.util.Locale
  * - Quick categorize flow (Task 20.2)
  * - Dock editor, hidden apps, locked apps management (Task 23.2)
  * - Visual customization (clock style, card transparency, icon pack, icon shape, grid size) (Task 23.3)
+ * - Kiosk settings (strict mode toggle for Device Owner kiosk policy)
  * - Feature settings (notification badges, show task score, web search URL, backup/restore) (Task 23.4)
  * - Launcher onboarding card (Task 24)
  *
@@ -128,12 +135,22 @@ fun LauncherSettings(
                                     .isAppBlockingServiceEnabled(context)
                                 val usageStatsEnabled = try {
                                     val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
-                                    appOps.unsafeCheckOpNoThrow(
-                                        android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
-                                        android.os.Process.myUid(),
-                                        context.packageName
-                                    ) == android.app.AppOpsManager.MODE_ALLOWED
-                                } catch (e: Exception) { false }
+                                    val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                        appOps.unsafeCheckOpNoThrow(
+                                            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                                            android.os.Process.myUid(),
+                                            context.packageName
+                                        )
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        appOps.checkOpNoThrow(
+                                            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                                            android.os.Process.myUid(),
+                                            context.packageName
+                                        )
+                                    }
+                                    mode == android.app.AppOpsManager.MODE_ALLOWED
+                                } catch (_: Exception) { false }
 
                                 if (!accessibilityEnabled || !usageStatsEnabled) {
                                     showPermissionSetup = true
@@ -222,6 +239,21 @@ fun LauncherSettings(
                         )
                     }
 
+                    // Kiosk Settings Section
+                    item {
+                        KioskSettingsSection(
+                            viewModel = viewModel,
+                            isExpanded = expandedSection == SettingsSection.KIOSK,
+                            onToggleExpanded = {
+                                expandedSection = if (expandedSection == SettingsSection.KIOSK) {
+                                    null
+                                } else {
+                                    SettingsSection.KIOSK
+                                }
+                            }
+                        )
+                    }
+
                     // Feature Settings Section (Task 23.4)
                     item {
                         FeatureSettingsSection(
@@ -284,8 +316,241 @@ private enum class SettingsSection {
     DISTRACTION_SCORING,
     DOCK_EDITOR,
     VISUAL_CUSTOMIZATION,
+    KIOSK,
     FEATURE_SETTINGS,
     CUSTOM_QUOTES
+}
+
+/**
+ * Kiosk Settings Section.
+ *
+ * Provides runtime strict/mixed toggle for Device Owner kiosk policy.
+ */
+@Composable
+private fun KioskSettingsSection(
+    viewModel: LauncherViewModel,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit
+) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val kioskStrictMode by viewModel.kioskStrictMode.collectAsState()
+    val isDeviceOwner by viewModel.isDeviceOwner.collectAsState()
+    val isDeviceAdminActive by viewModel.isDeviceAdminActive.collectAsState()
+    val canUseStrictMode = isDeviceOwner || isDeviceAdminActive
+    var showDeviceOwnerGuide by remember { mutableStateOf(false) }
+
+    val openDeviceOwnerSettings = {
+        val adminSettingsIntent = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
+        val securitySettingsIntent = Intent(Settings.ACTION_SECURITY_SETTINGS)
+        try {
+            context.startActivity(adminSettingsIntent)
+        } catch (_: Exception) {
+            context.startActivity(securitySettingsIntent)
+        }
+    }
+
+    LaunchedEffect(isExpanded) {
+        if (isExpanded) {
+            viewModel.refreshKioskState()
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Kiosk Settings",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Configure Device Owner kiosk behavior",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                TextButton(onClick = onToggleExpanded) {
+                    Text(if (isExpanded) "Collapse" else "Expand")
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Device Owner",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isDeviceOwner) "Active" else "Not active",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDeviceOwner) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Device Admin",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isDeviceAdminActive) "Active" else "Not active",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDeviceAdminActive) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Kiosk Strict Mode",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (isDeviceOwner) {
+                                "On: hard lock task + restrictions. Off: mixed protections with softer restrictions."
+                            } else if (isDeviceAdminActive) {
+                                "Device Admin is active. Strict mode can use lock-task fallback, but full kiosk restrictions require Device Owner provisioning."
+                            } else {
+                                "Device Admin is not active. Enable admin first, then provision Device Owner for full kiosk strict mode."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = if (canUseStrictMode) kioskStrictMode else false,
+                        enabled = canUseStrictMode,
+                        onCheckedChange = {
+                            val updated = viewModel.updateKioskStrictMode(it)
+                            if (!updated) return@Switch
+
+                            activity?.let { hostActivity ->
+                                DeviceOwnerKioskManager.syncLockTaskMode(hostActivity)
+                            }
+
+                            Toast.makeText(
+                                context,
+                                if (it) "Kiosk strict mode enabled" else "Kiosk strict mode disabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(onClick = openDeviceOwnerSettings) {
+                        Text("Open Device Admin settings")
+                    }
+
+                    if (!isDeviceOwner) {
+                        TextButton(onClick = { showDeviceOwnerGuide = true }) {
+                            Text("Device Owner setup guide")
+                        }
+                    }
+                }
+
+                if (showDeviceOwnerGuide) {
+                    val deviceOwnerCommand =
+                        "adb shell dpm set-device-owner com.neuroflow.app/.receiver.DeviceAdminReceiver"
+
+                    AlertDialog(
+                        onDismissRequest = { showDeviceOwnerGuide = false },
+                        title = { Text("Device Owner Setup") },
+                        text = {
+                            Text(
+                                "To activate full kiosk protections:\n\n" +
+                                    "1. Factory-reset the device.\n" +
+                                    "2. Complete setup without adding Google/work accounts.\n" +
+                                    "3. Enable Developer options + USB debugging.\n" +
+                                    "4. Connect to PC, then run one of these:\n" +
+                                    "   - bash scripts/setup-device-owner-kiosk.sh\n" +
+                                    "   - $deviceOwnerCommand\n" +
+                                    "5. Verify with: adb shell dpm list owners\n" +
+                                    "6. Reopen this screen and confirm Device Owner = Active.\n\n" +
+                                    "Troubleshooting:\n" +
+                                    "- 'Not allowed to set the device owner': device already provisioned or account exists. Factory reset and skip sign-in again.\n" +
+                                    "- 'Unknown admin': app missing or wrong component. Reinstall app and retry.\n\n" +
+                                    "Android does not allow enabling Device Owner from an in-app button or normal settings after provisioning."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showDeviceOwnerGuide = false }) {
+                                Text("OK")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+                                if (clipboardManager != null) {
+                                    clipboardManager.setPrimaryClip(
+                                        ClipData.newPlainText("Device Owner ADB Command", deviceOwnerCommand)
+                                    )
+                                    Toast.makeText(context, "ADB command copied", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Unable to access clipboard", Toast.LENGTH_SHORT).show()
+                                }
+                            }) {
+                                Text("Copy ADB command")
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**

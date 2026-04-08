@@ -82,16 +82,41 @@
         <!-- Reschedule workers after device reboot -->
         <receiver
             android:name=".receiver.BootReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- Launcher keepalive alarm restart receiver -->
+        <receiver
+            android:name=".presentation.launcher.service.LauncherKeepAliveAlarmReceiver"
+            android:exported="false" />
 
         <!-- Handles snooze action from autonomy nudge notification (no app open needed) -->
         <receiver
             android:name=".receiver.NudgeSnoozeReceiver"
             android:exported="false" />
+
+           <!-- Device admin receiver used for fully managed device-owner provisioning -->
+        <receiver
+            android:name=".receiver.DeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policy" />
+        </receiver>
 
         <!-- FocusWidget AppWidget provider -->
         <receiver
@@ -110,6 +135,16 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="shortService"
             tools:node="merge" />
+
+        <!-- Persistent launcher keepalive foreground service -->
+        <service
+            android:name=".presentation.launcher.service.LauncherKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="App process keepalive and restart watchdog" />
+        </service>
 
         <!-- Notification Badge Service -->
         <service

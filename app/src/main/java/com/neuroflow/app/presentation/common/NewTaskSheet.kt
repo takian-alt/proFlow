@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
@@ -38,13 +39,18 @@ fun NewTaskSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isEditing = editTask != null
-    val suggestedTags = remember(availableTasks) {
+    val tagViewModel: TaskTagViewModel = hiltViewModel()
+    val catalogTags by tagViewModel.tags.collectAsState()
+    val taskTags = remember(availableTasks) {
         availableTasks
             .flatMap { task -> task.tags.split(",") }
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .distinct()
-            .sorted()
+    }
+    val suggestedTags = remember(catalogTags, taskTags) {
+        (catalogTags + taskTags)
+            .distinctBy { it.lowercase(Locale.getDefault()) }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 
     var title by remember { mutableStateOf(editTask?.title ?: "") }
@@ -107,6 +113,10 @@ fun NewTaskSheet(
         if (!isEditing && selectedRecurrence != Recurrence.NONE) {
             isScheduleLocked = true
         }
+    }
+
+    LaunchedEffect(taskTags) {
+        tagViewModel.seedFromTasks(taskTags)
     }
 
     ModalBottomSheet(
@@ -724,6 +734,7 @@ fun NewTaskSheet(
                 Button(
                     onClick = {
                         if (title.isNotBlank()) {
+                            tagViewModel.addTags(tags)
                             val task = (editTask ?: TaskEntity(title = title)).copy(
                                 title = title,
                                 description = description,
@@ -856,17 +867,25 @@ fun NewTaskSheet(
                         ) {
                             suggestedTags.forEach { tag ->
                                 val isSelected = tags.any { it.equals(tag, ignoreCase = true) }
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = {
-                                        tags = if (isSelected) {
-                                            tags.filterNot { it.equals(tag, ignoreCase = true) }
-                                        } else {
-                                            tags + tag
-                                        }
-                                    },
-                                    label = { Text(tag) }
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            tags = if (isSelected) {
+                                                tags.filterNot { it.equals(tag, ignoreCase = true) }
+                                            } else {
+                                                tags + tag
+                                            }
+                                        },
+                                        label = { Text(tag) }
+                                    )
+                                    IconButton(onClick = { tagViewModel.removeTag(tag) }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "Remove tag"
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

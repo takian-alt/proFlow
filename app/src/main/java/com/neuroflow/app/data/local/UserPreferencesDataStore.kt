@@ -51,6 +51,8 @@ data class UserPreferences(
     val effectivePeakEnd: Int = -1,       // -1 = use peakEnergyEnd
     // Subliminal affirmations — stored as JSON array string
     val affirmations: List<String> = emptyList(),
+    // Persistent task tag catalog shown in task creation and history filters
+    val tagCatalog: List<String> = emptyList(),
     // Top 3 goals for the year (JSON array)
     val yearlyGoals: List<String> = emptyList(),
     // Top 3 goals for the current week (JSON array)
@@ -114,6 +116,7 @@ class UserPreferencesDataStore @Inject constructor(
         val EFFECTIVE_PEAK_START = intPreferencesKey("effective_peak_start")
         val EFFECTIVE_PEAK_END = intPreferencesKey("effective_peak_end")
         val AFFIRMATIONS = stringPreferencesKey("affirmations")
+        val TAG_CATALOG = stringPreferencesKey("tag_catalog")
         val YEARLY_GOALS = stringPreferencesKey("yearly_goals")
         val WEEKLY_GOALS = stringPreferencesKey("weekly_goals")
         val LAST_YEARLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_yearly_goal_shown_year")
@@ -169,6 +172,7 @@ class UserPreferencesDataStore @Inject constructor(
             effectivePeakStart = prefs[Keys.EFFECTIVE_PEAK_START] ?: -1,
             effectivePeakEnd = prefs[Keys.EFFECTIVE_PEAK_END] ?: -1,
             affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
+            tagCatalog = parseAffirmations(prefs[Keys.TAG_CATALOG]),
             yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
             weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
             lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
@@ -240,6 +244,7 @@ class UserPreferencesDataStore @Inject constructor(
                 effectivePeakStart = prefs[Keys.EFFECTIVE_PEAK_START] ?: -1,
                 effectivePeakEnd = prefs[Keys.EFFECTIVE_PEAK_END] ?: -1,
                 affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
+                tagCatalog = parseAffirmations(prefs[Keys.TAG_CATALOG]),
                 yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
                 weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
                 lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
@@ -291,6 +296,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.EFFECTIVE_PEAK_START] = updated.effectivePeakStart
             prefs[Keys.EFFECTIVE_PEAK_END] = updated.effectivePeakEnd
             prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
+            prefs[Keys.TAG_CATALOG] = encodeAffirmations(updated.tagCatalog)
             prefs[Keys.YEARLY_GOALS] = encodeAffirmations(updated.yearlyGoals)
             prefs[Keys.WEEKLY_GOALS] = encodeAffirmations(updated.weeklyGoals)
             prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] = updated.lastYearlyGoalShownYear
@@ -307,5 +313,39 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] = updated.streakCheckNotificationHour.coerceIn(0, 23)
             prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
         }
+    }
+
+    suspend fun mergeTagCatalog(tags: Collection<String>) {
+        val cleaned = tags.mapNotNull { it.trim().takeIf(String::isNotBlank) }
+        if (cleaned.isEmpty()) return
+
+        updatePreferences { prefs ->
+            prefs.copy(tagCatalog = mergeTags(prefs.tagCatalog, cleaned))
+        }
+    }
+
+    suspend fun removeTagFromCatalog(tag: String) {
+        val cleaned = tag.trim()
+        if (cleaned.isBlank()) return
+
+        updatePreferences { prefs ->
+            prefs.copy(tagCatalog = prefs.tagCatalog.filterNot { it.equals(cleaned, ignoreCase = true) })
+        }
+    }
+
+    private fun mergeTags(existing: List<String>, incoming: Collection<String>): List<String> {
+        val merged = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+
+        fun addTag(tag: String) {
+            val key = tag.lowercase()
+            if (seen.add(key)) {
+                merged += tag
+            }
+        }
+
+        existing.forEach(::addTag)
+        incoming.forEach(::addTag)
+        return merged.sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 }

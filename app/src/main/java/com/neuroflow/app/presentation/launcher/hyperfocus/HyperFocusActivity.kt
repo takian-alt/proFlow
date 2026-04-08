@@ -12,13 +12,20 @@ import androidx.compose.material3.Surface
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.BlockingOverlayScreen
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.CodeEntryScreen
+import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PlanningPromptScreen
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.hilt.navigation.compose.hiltViewModel
 
 @AndroidEntryPoint
 class HyperFocusActivity : ComponentActivity() {
+
+    override fun onResume() {
+        super.onResume()
+        DeviceOwnerKioskManager.syncLockTaskMode(this)
+    }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +53,14 @@ class HyperFocusActivity : ComponentActivity() {
                 }
                 composable("code_entry") {
                     CodeEntryScreen(viewModel, navController, blockedPackage)
+                }
+                composable("planning_prompt") {
+                    PlanningPromptScreen(
+                        viewModel = viewModel,
+                        onDismiss = {
+                            navController.popBackStack()
+                        }
+                    )
                 }
                 composable("launch_app") {
                     // Transparent screen — immediately launches the blocked app and finishes

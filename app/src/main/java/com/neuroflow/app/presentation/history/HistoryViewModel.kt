@@ -2,6 +2,7 @@ package com.neuroflow.app.presentation.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.SessionRepository
@@ -62,7 +63,8 @@ data class HistoryUiState(
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val userPreferencesDataStore: UserPreferencesDataStore
 ) : ViewModel() {
 
     private val selectedDateRange = MutableStateFlow(HistoryDateRange.ALL)
@@ -72,7 +74,12 @@ class HistoryViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            combine(taskRepository.observeCompletedTasks(), selectedDateRange, selectedTag) { tasks, range, tag ->
+            combine(
+                taskRepository.observeCompletedTasks(),
+                userPreferencesDataStore.preferencesFlow.map { it.tagCatalog },
+                selectedDateRange,
+                selectedTag
+            ) { tasks, catalogTags, range, tag ->
                 val dateFiltered = filterTasksByDateRange(tasks, range)
                 val tagFiltered = if (tag.isNullOrBlank()) {
                     dateFiltered
@@ -81,12 +88,13 @@ class HistoryViewModel @Inject constructor(
                         task.tags.split(",").map { it.trim() }.any { it.equals(tag, ignoreCase = true) }
                     }
                 }
-                val allTags = tasks
+                val allTags = (catalogTags + tasks
                     .flatMap { it.tags.split(",") }
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
-                    .distinct()
-                    .sorted()
+                )
+                    .distinctBy { it.lowercase() }
+                    .sortedWith(String.CASE_INSENSITIVE_ORDER)
                 Triple(tagFiltered, range, allTags)
             }.collect { (tasks, range, tags) ->
                 _uiState.update {

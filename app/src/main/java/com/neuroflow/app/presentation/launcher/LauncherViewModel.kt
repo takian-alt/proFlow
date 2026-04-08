@@ -1,18 +1,23 @@
 package com.neuroflow.app.presentation.launcher
 
+import android.app.AppOpsManager
 import android.app.role.RoleManager
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Process
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.domain.engine.TaskScoringEngine
@@ -28,7 +33,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -178,6 +186,34 @@ class LauncherViewModel @Inject constructor(
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     /**
+     * Token used to refresh app drawer sections when the drawer opens.
+     */
+    private val _drawerRefreshToken = MutableStateFlow(0L)
+
+    /**
+     * Recently installed apps, sorted by install time descending.
+     */
+    val recentlyInstalledApps: StateFlow<List<AppInfo>> = allApps
+        .map { apps ->
+            apps.sortedWith(
+                compareByDescending<AppInfo> { it.installedAtMillis }
+                    .thenBy { it.label.lowercase(Locale.getDefault()) }
+            ).take(4)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Most used apps, derived from UsageStatsManager usage data.
+     */
+    val mostUsedApps: StateFlow<List<AppInfo>> = combine(allApps, _drawerRefreshToken) { apps, _ -> apps }
+        .mapLatest { apps ->
+            withContext(Dispatchers.IO) {
+                loadMostUsedApps(apps)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
      * Filtered apps: combine(allApps, searchQuery, hiddenPackages, lockedPackages) for app drawer search.
      * Filters out apps that are both hidden AND locked (Requirement 15.8).
      * Never uses derivedStateOf.
@@ -203,6 +239,10 @@ class LauncherViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private fun AppInfo.drawerItemKey(): String {
+        return "$packageName|$className|${userHandle.hashCode()}"
+    }
+
     /**
      * Recent apps: last 10 launched apps from PinnedAppsDataStore.
      */
@@ -222,6 +262,21 @@ class LauncherViewModel @Inject constructor(
      */
     val launcherTheme = pinnedAppsDataStore.launcherPrefsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _kioskStrictMode = MutableStateFlow(
+        if (DeviceOwnerKioskManager.canUseStrictMode(context)) {
+            DeviceOwnerKioskManager.isStrictModeEnabled(context)
+        } else {
+            false
+        }
+    )
+    val kioskStrictMode: StateFlow<Boolean> = _kioskStrictMode.asStateFlow()
+
+    private val _isDeviceOwner = MutableStateFlow(DeviceOwnerKioskManager.isDeviceOwner(context))
+    val isDeviceOwner: StateFlow<Boolean> = _isDeviceOwner.asStateFlow()
+
+    private val _isDeviceAdminActive = MutableStateFlow(DeviceOwnerKioskManager.isAdminActive(context))
+    val isDeviceAdminActive: StateFlow<Boolean> = _isDeviceAdminActive.asStateFlow()
 
     /**
      * Home screen pages for multi-page grid.
@@ -629,6 +684,17 @@ class LauncherViewModel @Inject constructor(
     }
 
     /**
+     * Refresh installed apps and drawer ranking sections.
+     * Used when the app drawer opens so newly installed apps appear immediately.
+     */
+    fun refreshDrawerData() {
+        viewModelScope.launch {
+            appRepository.invalidateAndRebuild()
+            _drawerRefreshToken.value = System.currentTimeMillis()
+        }
+    }
+
+    /**
      * Record app launch: call AppRepository.recordLaunch.
      * Prepends to recent list (max 10).
      */
@@ -636,6 +702,58 @@ class LauncherViewModel @Inject constructor(
         viewModelScope.launch {
             appRepository.recordLaunch(packageName)
         }
+    }
+
+    private fun hasUsageStatsAccess(): Boolean {
+        return try {
+            val appOps = context.getSystemService(AppOpsManager::class.java)
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName
+                )
+            }
+            mode == AppOpsManager.MODE_ALLOWED
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private suspend fun loadMostUsedApps(apps: List<AppInfo>): List<AppInfo> = withContext(Dispatchers.IO) {
+        if (apps.isEmpty() || !hasUsageStatsAccess()) return@withContext emptyList()
+
+        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            ?: return@withContext emptyList()
+
+        val now = System.currentTimeMillis()
+        val lookbackStart = now - TimeUnit.DAYS.toMillis(30)
+        val usageByPackage = usageStatsManager
+            .queryUsageStats(UsageStatsManager.INTERVAL_BEST, lookbackStart, now)
+            ?.groupBy { it.packageName }
+            ?.mapValues { (_, stats) -> stats.sumOf { it.totalTimeInForeground } }
+            ?: emptyMap()
+
+        apps.asSequence()
+            .mapNotNull { app ->
+                usageByPackage[app.packageName]
+                    ?.takeIf { it > 0L }
+                    ?.let { app to it }
+            }
+            .sortedWith(
+                compareByDescending<Pair<AppInfo, Long>> { it.second }
+                    .thenBy { it.first.label.lowercase(Locale.getDefault()) }
+            )
+            .take(4)
+            .map { it.first }
+            .toList()
     }
 
     /**
@@ -991,6 +1109,39 @@ class LauncherViewModel @Inject constructor(
                 prefs.copy(distractionDimmingEnabled = enabled)
             }
         }
+    }
+
+    fun refreshKioskState() {
+        val deviceOwner = DeviceOwnerKioskManager.isDeviceOwner(context)
+        val deviceAdminActive = DeviceOwnerKioskManager.isAdminActive(context)
+        val canUseStrictMode = deviceOwner || deviceAdminActive
+        _isDeviceOwner.value = deviceOwner
+        _isDeviceAdminActive.value = deviceAdminActive
+        _kioskStrictMode.value = if (canUseStrictMode) {
+            DeviceOwnerKioskManager.isStrictModeEnabled(context)
+        } else {
+            false
+        }
+    }
+
+    fun updateKioskStrictMode(enabled: Boolean): Boolean {
+        val deviceOwner = DeviceOwnerKioskManager.isDeviceOwner(context)
+        val deviceAdminActive = DeviceOwnerKioskManager.isAdminActive(context)
+        _isDeviceOwner.value = deviceOwner
+        _isDeviceAdminActive.value = deviceAdminActive
+
+        val canUseStrictMode = deviceOwner || deviceAdminActive
+        if (!canUseStrictMode) {
+            _kioskStrictMode.value = false
+            return false
+        }
+
+        DeviceOwnerKioskManager.setStrictModeEnabled(context, enabled)
+        _kioskStrictMode.value = enabled
+
+        // Re-apply policies immediately so the toggle takes effect without restart.
+        DeviceOwnerKioskManager.enableHybridProtection(context)
+        return true
     }
 
     // ── FreshStart Integration (Task 25) ───────────────────────────────────

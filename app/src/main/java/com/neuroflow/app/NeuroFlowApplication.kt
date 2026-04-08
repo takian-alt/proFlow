@@ -4,8 +4,11 @@ import android.app.Application
 import android.os.StrictMode
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
+import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.worker.DistractionSyncWorker
 import com.neuroflow.app.worker.createNotificationChannels
 import com.neuroflow.app.worker.scheduleNotificationWorkers
@@ -23,7 +26,9 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var appRepository: AppRepository
+    @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var userPreferencesDataStore: UserPreferencesDataStore
+    @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -60,6 +65,24 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
         // Pre-warm AppRepository on IO thread
         applicationScope.launch {
             appRepository.loadAll()
+        }
+
+        DeviceOwnerKioskManager.enableHybridProtection(this)
+
+        // Re-sync Hyper Focus self-protection on process start.
+        // This keeps restrictions consistent even after process death/restart.
+        applicationScope.launch {
+            val hfPrefs = hyperFocusDataStore.current()
+            DeviceOwnerKioskManager.setHyperFocusSelfProtection(this@NeuroFlowApplication, hfPrefs.isActive)
+        }
+
+        // Seed the persistent tag catalog from all existing tasks.
+        applicationScope.launch {
+            val allTags = taskRepository.getAllTasks()
+                .flatMap { task -> task.tags.split(",") }
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            userPreferencesDataStore.mergeTagCatalog(allTags)
         }
     }
 
