@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     private var initialFocusTaskId by mutableStateOf<String?>(null)
     private var initialWoopTaskId by mutableStateOf<String?>(null)
+    private var initialGuideOpen by mutableStateOf(false)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -70,6 +71,10 @@ class MainActivity : ComponentActivity() {
         when (intent.action) {
             "com.procus.ACTION_OPEN_FOCUS" -> {
                 initialFocusTaskId = taskId
+                return
+            }
+            "com.procus.ACTION_OPEN_GUIDE" -> {
+                initialGuideOpen = true
                 return
             }
             "RESCHEDULE_NUDGE" -> {
@@ -259,8 +264,10 @@ class MainActivity : ComponentActivity() {
                                 else -> NeuroFlowApp(
                                     initialTaskId = initialFocusTaskId,
                                     initialWoopTaskId = initialWoopTaskId,
+                                    initialGuideOpen = initialGuideOpen,
                                     onInitialTaskConsumed = { initialFocusTaskId = null },
-                                    onInitialWoopTaskConsumed = { initialWoopTaskId = null }
+                                    onInitialWoopTaskConsumed = { initialWoopTaskId = null },
+                                    onInitialGuideConsumed = { initialGuideOpen = false }
                                 )
                             }
                         }

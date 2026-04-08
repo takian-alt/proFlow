@@ -13,7 +13,7 @@ apply(from = "lint-module-isolation.gradle.kts")
 android {
     val kioskStrictMode = providers.gradleProperty("kioskStrictMode")
         .map { it.toBooleanStrictOrNull() ?: false }
-        .orElse(false)
+        .orElse(true)
 
     namespace = "com.neuroflow.app"
     compileSdk = 35
@@ -22,8 +22,8 @@ android {
         applicationId = "com.neuroflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "4.0.0"
+        versionCode = 5
+        versionName = "5"
 
         // Toggle strict kiosk behavior at build time:
         // -PkioskStrictMode=true  => full lock task + hard restrictions

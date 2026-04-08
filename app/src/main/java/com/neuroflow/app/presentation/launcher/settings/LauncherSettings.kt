@@ -335,6 +335,8 @@ private fun KioskSettingsSection(
     val context = LocalContext.current
     val activity = context as? Activity
     val kioskStrictMode by viewModel.kioskStrictMode.collectAsState()
+    val companionModeEnabled by viewModel.companionModeEnabled.collectAsState()
+    val isDefaultLauncher by viewModel.isDefaultLauncher.collectAsState()
     val isDeviceOwner by viewModel.isDeviceOwner.collectAsState()
     val isDeviceAdminActive by viewModel.isDeviceAdminActive.collectAsState()
     val canUseStrictMode = isDeviceOwner || isDeviceAdminActive
@@ -488,6 +490,93 @@ private fun KioskSettingsSection(
                 }
 
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Companion Mode",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (!canUseStrictMode) {
+                                "Requires Device Admin or Device Owner. Enable admin access first to use Companion Mode."
+                            } else {
+                                "Keep your preferred phone launcher. Hyper Focus protection stays active in background without forcing ProFlow to front."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = if (canUseStrictMode) companionModeEnabled else false,
+                        enabled = canUseStrictMode,
+                        onCheckedChange = {
+                            val updated = viewModel.updateCompanionMode(it)
+                            if (!updated) return@Switch
+
+                            activity?.let { hostActivity ->
+                                DeviceOwnerKioskManager.syncLockTaskMode(hostActivity)
+                            }
+
+                            Toast.makeText(
+                                context,
+                                if (it) "Companion mode enabled" else "Companion mode disabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                }
+
+                Text(
+                    text = if (isDeviceOwner && kioskStrictMode) {
+                        "Hyper Focus hardening: selected blocked apps are suspended while a session is active, then automatically unsuspended when the session ends."
+                    } else {
+                        "Hyper Focus hardening is strongest in Device Owner + strict mode (blocked apps can be suspended during active sessions)."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Text(
+                    text = "Capability Matrix",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                CapabilityRow(
+                    label = "Background Hyper Focus enforcement",
+                    available = true,
+                    detail = "Active in both launcher and companion mode."
+                )
+                CapabilityRow(
+                    label = "Blocked-app suspension (strongest)",
+                    available = isDeviceOwner && kioskStrictMode,
+                    detail = "Requires Device Owner + strict mode."
+                )
+                CapabilityRow(
+                    label = "Needs ProFlow as default HOME",
+                    available = isDeviceOwner && kioskStrictMode && !companionModeEnabled,
+                    detail = if (companionModeEnabled) {
+                        "Disabled by Companion Mode."
+                    } else {
+                        "Enabled only for strict Device Owner policy."
+                    }
+                )
+                CapabilityRow(
+                    label = "Launcher currently default",
+                    available = isDefaultLauncher,
+                    detail = if (isDefaultLauncher) "ProFlow holds HOME role." else "Another launcher currently holds HOME role."
+                )
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -549,6 +638,33 @@ private fun KioskSettingsSection(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityRow(label: String, available: Boolean, detail: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = if (available) Icons.Default.Check else Icons.Default.Close,
+            contentDescription = null,
+            tint = if (available) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

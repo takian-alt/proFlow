@@ -52,6 +52,7 @@ import com.neuroflow.app.presentation.matrix.QuadrantDetailScreen
 import com.neuroflow.app.presentation.onboarding.AppGuideScreen
 import com.neuroflow.app.presentation.schedule.ScheduleScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
+import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
@@ -64,6 +65,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object Focus : Screen("focus/{taskId}?skipped={skipped}", "Focus", null)
     data object Settings : Screen("settings", "Settings", null)
     data object PriorityWeights : Screen("priority_weights", "Priority Weights", null)
+    data object PrivacyPermissions : Screen("privacy_permissions", "Privacy & Permissions", null)
     data object AppGuide : Screen("app_guide", "App Guide", null)
     data object LogTime : Screen("log_time", "Log Time", Icons.Filled.Timer)
     data object Identity : Screen("identity", "Identity", Icons.Filled.Psychology)
@@ -84,8 +86,10 @@ val bottomNavItems = listOf(
 fun NeuroFlowApp(
     initialTaskId: String? = null,
     initialWoopTaskId: String? = null,
+    initialGuideOpen: Boolean = false,
     onInitialTaskConsumed: () -> Unit = {},
-    onInitialWoopTaskConsumed: () -> Unit = {}
+    onInitialWoopTaskConsumed: () -> Unit = {},
+    onInitialGuideConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -94,13 +98,25 @@ fun NeuroFlowApp(
     val scope = rememberCoroutineScope()
     val drawerViewModel: DrawerViewModel = hiltViewModel()
     val prefs by drawerViewModel.preferences.collectAsState()
+    var showGuidePrompt by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(prefs?.userGuidePromptShown) {
+        if (prefs != null && !prefs!!.userGuidePromptShown) {
+            showGuidePrompt = true
+        }
+    }
 
     // Edit dialog state: null = closed, YEARLY/WEEKLY = open for that period
     var editingPeriod by remember { mutableStateOf<GoalPeriod?>(null) }
 
     // Handle initial deep links from activity intents.
-    androidx.compose.runtime.LaunchedEffect(initialTaskId, initialWoopTaskId) {
-        if (initialWoopTaskId != null) {
+    androidx.compose.runtime.LaunchedEffect(initialTaskId, initialWoopTaskId, initialGuideOpen) {
+        if (initialGuideOpen) {
+            navController.navigate(Screen.AppGuide.route) {
+                launchSingleTop = true
+            }
+            onInitialGuideConsumed()
+        } else if (initialWoopTaskId != null) {
             navController.navigate("mini_woop/$initialWoopTaskId") {
                 launchSingleTop = true
             }
@@ -136,6 +152,32 @@ fun NeuroFlowApp(
                 )
             },
             confirmButton = {}
+        )
+    }
+
+    if (showGuidePrompt) {
+        AlertDialog(
+            onDismissRequest = {
+                showGuidePrompt = false
+                drawerViewModel.markUserGuidePromptShown()
+            },
+            title = { Text("Welcome to proFlow") },
+            text = {
+                Text("Want a 2-minute walkthrough? The User Guide gives a quick setup checklist and a simple daily workflow.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showGuidePrompt = false
+                    drawerViewModel.markUserGuidePromptShown()
+                    navController.navigate(Screen.AppGuide.route)
+                }) { Text("Open Guide") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showGuidePrompt = false
+                    drawerViewModel.markUserGuidePromptShown()
+                }) { Text("Maybe later") }
+            }
         )
     }
 
@@ -327,11 +369,22 @@ fun NeuroFlowApp(
                         },
                         onNavigateToLauncherSettings = {
                             navController.navigate(Screen.LauncherSettingsScreen.route)
+                        },
+                        onNavigateToAppGuide = {
+                            navController.navigate(Screen.AppGuide.route)
+                        },
+                        onNavigateToPrivacyPermissions = {
+                            navController.navigate(Screen.PrivacyPermissions.route)
                         }
                     )
                 }
                 composable(Screen.PriorityWeights.route) {
                     PriorityWeightsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.PrivacyPermissions.route) {
+                    PrivacyPermissionsScreen(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }

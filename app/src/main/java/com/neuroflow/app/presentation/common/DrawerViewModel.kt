@@ -28,4 +28,10 @@ class DrawerViewModel @Inject constructor(
             preferencesDataStore.updatePreferences { it.copy(weeklyGoals = goals) }
         }
     }
+
+    fun markUserGuidePromptShown() {
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { it.copy(userGuidePromptShown = true) }
+        }
+    }
 }

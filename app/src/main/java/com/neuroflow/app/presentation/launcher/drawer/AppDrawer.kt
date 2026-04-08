@@ -1,10 +1,12 @@
 package com.neuroflow.app.presentation.launcher.drawer
 
+import android.content.Intent
 import android.content.pm.LauncherApps
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Schedule
@@ -132,6 +134,7 @@ private fun AppInfo.drawerItemKey(): String {
 fun AppDrawer(
     isOpen: Boolean,
     onDismiss: () -> Unit,
+    onOpenWalkthrough: () -> Unit = {},
     viewModel: LauncherViewModel = viewModel(),
     launcherApps: LauncherApps
 ) {
@@ -293,6 +296,8 @@ fun AppDrawer(
             else -> recentlyOpenedApps
         }
     }
+    val showQuickAccess = searchQuery.isBlank() &&
+        (recentlyOpenedApps.isNotEmpty() || recentlyInstalledQuickApps.isNotEmpty())
 
     // Slide-up animation with spring (Requirement 8.1)
     val offsetY by animateDpAsState(
@@ -417,152 +422,23 @@ fun AppDrawer(
                         )
                     )
 
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        FilledTonalButton(onClick = onOpenWalkthrough) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("2-Min Walkthrough")
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
-
-                    // Compact quick access: one row only, switchable between opened/installed.
-                    if (searchQuery.isBlank() && (recentlyOpenedApps.isNotEmpty() || recentlyInstalledQuickApps.isNotEmpty())) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 9.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Quick Access",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        if (recentlyOpenedApps.isNotEmpty()) {
-                                            FilterChip(
-                                                selected = quickAccessMode == "opened",
-                                                onClick = { quickAccessMode = "opened" },
-                                                label = { Text("Opened") },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.Schedule,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            )
-                                        }
-                                        if (recentlyInstalledQuickApps.isNotEmpty()) {
-                                            FilterChip(
-                                                selected = quickAccessMode == "installed",
-                                                onClick = { quickAccessMode = "installed" },
-                                                label = { Text("Installed") },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.NewReleases,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start)) {
-                                    items(quickRowApps, key = { it.drawerItemKey() }) { app ->
-                                        val isLocked = app.packageName in lockedPackages
-
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            modifier = Modifier.width(64.dp)
-                                        ) {
-                                            AppIcon(
-                                                appInfo = app,
-                                                launcherApps = launcherApps,
-                                                badgeCount = badgeCounts[app.packageName] ?: 0,
-                                                isLocked = isLocked,
-                                                focusActive = focusActive,
-                                                onTap = {
-                                                    launchAppWithBiometricCheck(
-                                                        app = app,
-                                                        isLocked = isLocked,
-                                                        activity = activity,
-                                                        launcherApps = launcherApps,
-                                                        onRecordLaunch = { viewModel.recordLaunch(app.packageName) },
-                                                        onDismiss = onDismiss
-                                                    )
-                                                },
-                                                onPinToDock = {
-                                                    if (dockApps.size >= 5) {
-                                                        android.widget.Toast.makeText(context, "Remove a dock app first", android.widget.Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        viewModel.pinToDock(app.packageName)
-                                                    }
-                                                },
-                                                onHide = { viewModel.hideApp(app.packageName) },
-                                                onLock = { viewModel.lockApp(app.packageName) },
-                                                onAddToHome = { addAppToHome(app.packageName) }
-                                            )
-
-                                            Spacer(modifier = Modifier.height(2.dp))
-
-                                            Text(
-                                                text = app.label,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                maxLines = 1,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Alphabetical app grid (Requirement 8.4)
-                    if (searchQuery.isBlank()) {
-                        Text(
-                            text = "All Apps",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
-
-                    // Focus mode banner (Requirement 20.4)
-                    if (focusActive && searchQuery.isBlank()) {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer
-                            )
-                        ) {
-                            Text(
-                                text = "Focus session active. Distraction apps are sorted last.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
 
                     val featuredPackages = remember(quickRowApps, searchQuery) {
                         if (searchQuery.isBlank()) {
@@ -617,6 +493,156 @@ fun AppDrawer(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        if (showQuickAccess) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp),
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 9.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Quick Access",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                if (recentlyOpenedApps.isNotEmpty()) {
+                                                    FilterChip(
+                                                        selected = quickAccessMode == "opened",
+                                                        onClick = { quickAccessMode = "opened" },
+                                                        label = { Text("Opened") },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                imageVector = Icons.Outlined.Schedule,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    )
+                                                }
+                                                if (recentlyInstalledQuickApps.isNotEmpty()) {
+                                                    FilterChip(
+                                                        selected = quickAccessMode == "installed",
+                                                        onClick = { quickAccessMode = "installed" },
+                                                        label = { Text("Installed") },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                imageVector = Icons.Outlined.NewReleases,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.Start)) {
+                                            items(quickRowApps, key = { it.drawerItemKey() }) { app ->
+                                                val isLocked = app.packageName in lockedPackages
+
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    modifier = Modifier.width(64.dp)
+                                                ) {
+                                                    AppIcon(
+                                                        appInfo = app,
+                                                        launcherApps = launcherApps,
+                                                        badgeCount = badgeCounts[app.packageName] ?: 0,
+                                                        isLocked = isLocked,
+                                                        focusActive = focusActive,
+                                                        onTap = {
+                                                            launchAppWithBiometricCheck(
+                                                                app = app,
+                                                                isLocked = isLocked,
+                                                                activity = activity,
+                                                                launcherApps = launcherApps,
+                                                                onRecordLaunch = { viewModel.recordLaunch(app.packageName) },
+                                                                onDismiss = onDismiss
+                                                            )
+                                                        },
+                                                        onPinToDock = {
+                                                            if (dockApps.size >= 5) {
+                                                                android.widget.Toast.makeText(context, "Remove a dock app first", android.widget.Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                viewModel.pinToDock(app.packageName)
+                                                            }
+                                                        },
+                                                        onHide = { viewModel.hideApp(app.packageName) },
+                                                        onLock = { viewModel.lockApp(app.packageName) },
+                                                        onAddToHome = { addAppToHome(app.packageName) }
+                                                    )
+
+                                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                                    Text(
+                                                        text = app.label,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        maxLines = 1,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Alphabetical app grid heading (Requirement 8.4)
+                        if (searchQuery.isBlank()) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                                Text(
+                                    text = "All Apps",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                            }
+                        }
+
+                        // Focus mode banner (Requirement 20.4)
+                        if (focusActive && searchQuery.isBlank()) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    )
+                                ) {
+                                    Text(
+                                        text = "Focus session active. Distraction apps are sorted last.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         groupedApps.forEach { (section, apps) ->
                             // Section header (only when search is inactive)
                             if (searchQuery.isBlank() && section.toString().isNotEmpty()) {

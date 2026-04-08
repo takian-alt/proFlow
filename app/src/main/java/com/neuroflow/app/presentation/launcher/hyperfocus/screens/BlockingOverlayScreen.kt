@@ -56,10 +56,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.MainActivity
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import androidx.navigation.NavController
 import com.neuroflow.app.domain.model.RewardTier
-import com.neuroflow.app.presentation.launcher.LauncherActivity
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -72,6 +72,7 @@ fun BlockingOverlayScreen(
 ) {
     val prefs by viewModel.hyperFocusPrefs.collectAsState()
     val progress by viewModel.progress.collectAsState()
+    val activeTasks by viewModel.activeTasks.collectAsState()
     val isUnlockActive by viewModel.isUnlockActive.collectAsState()
     val unlockSecondsRemaining by viewModel.unlockSecondsRemaining.collectAsState()
     val sessionSecondsRemaining by viewModel.sessionSecondsRemaining.collectAsState()
@@ -538,12 +539,20 @@ fun BlockingOverlayScreen(
                             return@Button
                         }
 
-                        val launcherIntent = Intent(context, LauncherActivity::class.java).apply {
+                        val preferredTaskId = prefs.lockedTaskIds.firstOrNull { lockedId ->
+                            activeTasks.any { it.id == lockedId }
+                        } ?: activeTasks.firstOrNull()?.id
+
+                        val focusIntent = Intent(context, MainActivity::class.java).apply {
+                            if (!preferredTaskId.isNullOrBlank()) {
+                                action = "com.procus.ACTION_OPEN_FOCUS"
+                                putExtra("task_id", preferredTaskId)
+                            }
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                                 Intent.FLAG_ACTIVITY_SINGLE_TOP
                         }
-                        context.startActivity(launcherIntent)
+                        context.startActivity(focusIntent)
                         (context as? Activity)?.finish()
                     },
                     modifier = Modifier

@@ -67,6 +67,7 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             appRepository.loadAll()
         }
 
+        DeviceOwnerKioskManager.migrateStrictModeDefault(this)
         DeviceOwnerKioskManager.enableHybridProtection(this)
 
         // Re-sync Hyper Focus self-protection on process start.
@@ -74,6 +75,11 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
         applicationScope.launch {
             val hfPrefs = hyperFocusDataStore.current()
             DeviceOwnerKioskManager.setHyperFocusSelfProtection(this@NeuroFlowApplication, hfPrefs.isActive)
+            DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
+                this@NeuroFlowApplication,
+                hfPrefs.blockedPackages,
+                hfPrefs.isActive && DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@NeuroFlowApplication)
+            )
         }
 
         // Seed the persistent tag catalog from all existing tasks.

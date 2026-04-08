@@ -56,6 +56,7 @@ class BootReceiver : BroadcastReceiver() {
 
         val wm = WorkManager.getInstance(context)
 
+        DeviceOwnerKioskManager.migrateStrictModeDefault(context)
         DeviceOwnerKioskManager.enableHybridProtection(context)
         if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
             DeviceOwnerKioskManager.onBootCompleted(context)
@@ -77,6 +78,11 @@ class BootReceiver : BroadcastReceiver() {
                 scheduleNotificationWorkers(context, prefs)
                 val hfPrefs = hyperFocusDataStore.current()
                 DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, hfPrefs.isActive)
+                DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
+                    context,
+                    hfPrefs.blockedPackages,
+                    hfPrefs.isActive && DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)
+                )
                 if (hfPrefs.isActive) {
                     val serviceEnabled = isAccessibilityServiceEnabled(context)
                     val heartbeatStale = (System.currentTimeMillis() - hfPrefs.lastServiceHeartbeat) > 60_000L

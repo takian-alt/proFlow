@@ -66,7 +66,7 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                     Text("⚡", fontSize = 40.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "proFlow prioritizes your tasks automatically — so you always know what to work on next.",
+                        "Start here: quick setup, then one repeatable daily loop.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -75,11 +75,56 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
             }
 
             GuideSection(
+                emoji = "🚀",
+                title = "Start in 3 minutes",
+                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
+                textColor = NeuroFlowColors.Purple,
+                summary = "Do only these steps first.",
+                steps = listOf(
+                    "Add 3-5 tasks only. Keep titles clear and specific.",
+                    "Set a deadline on at least one task that truly matters today.",
+                    "Mark one hard-but-important task as 🐸 Frog.",
+                    "Open Focus Mode and run one 25-minute sprint.",
+                    "Ignore everything else until that sprint is done."
+                )
+            )
+
+            GuideSection(
+                emoji = "🔁",
+                title = "Daily loop (repeat this)",
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                summary = "A simple sequence for every day.",
+                steps = listOf(
+                    "Morning: check Matrix and pick the top task in DO FIRST.",
+                    "Block a time slot for your top task.",
+                    "Run one Focus sprint before checking anything else.",
+                    "After each sprint: mark done, or split and continue.",
+                    "Evening: schedule tomorrow's first task."
+                )
+            )
+
+            GuideSection(
+                emoji = "➕",
+                title = "Add better tasks in 30 seconds",
+                color = MaterialTheme.colorScheme.surface,
+                textColor = MaterialTheme.colorScheme.onSurface,
+                summary = "Only fill fields that improve decisions.",
+                steps = listOf(
+                    "Title: write the next visible action, not a vague project name.",
+                    "Impact (0-100): higher impact = stronger priority.",
+                    "Effort (0-100): low effort helps quick wins; high effort is best in peak hours.",
+                    "Deadline: even a rough date improves ranking quality.",
+                    "Optional but powerful: mark one 🐸 Frog for momentum."
+                )
+            )
+
+            GuideSection(
                 emoji = "🗂",
-                title = "Matrix — your home base",
+                title = "Matrix - choose what to do now",
                 color = NeuroFlowColors.DoFirstBg,
                 textColor = NeuroFlowColors.DoFirstText,
-                summary = "Four quadrants, one clear picture of what matters.",
+                summary = "Use this to decide what to do now.",
                 steps = listOf(
                     "DO FIRST — urgent and important. These need your attention today.",
                     "SCHEDULE — important but not urgent. Plan time for these.",
@@ -95,21 +140,21 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                 title = "Priority Score — how tasks are ranked",
                 color = NeuroFlowColors.Purple.copy(alpha = 0.1f),
                 textColor = NeuroFlowColors.Purple,
-                summary = "Every task gets a live score. Higher = do it sooner.",
+                summary = "Trust the rank, then verify with one tap.",
                 steps = listOf(
                     "The score combines 20+ signals: deadline pressure, your energy level, time of day, effort, and more.",
                     "It updates every 30 seconds — so a task due in 2 hours will climb as the clock ticks.",
                     "In Focus Mode, tap 'Why this score?' to see exactly what's driving the number.",
-                    "You don't need to manage the score — just add good task details and let it work."
+                    "Rule of thumb: pick from your top 3 scored tasks and begin immediately."
                 )
             )
 
             GuideSection(
                 emoji = "🎯",
-                title = "Focus Mode — one task at a time",
+                title = "Focus Mode - finish one thing",
                 color = NeuroFlowColors.ScheduleBg,
                 textColor = NeuroFlowColors.ScheduleText,
-                summary = "Deep work, distraction-free.",
+                summary = "This is where progress actually happens.",
                 steps = listOf(
                     "Tap any task to enter Focus Mode. You'll see its score, urgency, and your plan.",
                     "Hit Start to begin time tracking. Pause if you need a break — the timer saves automatically.",
@@ -121,10 +166,10 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
 
             GuideSection(
                 emoji = "📅",
-                title = "Time Blocking — plan your day",
+                title = "Time Blocking - protect deep work",
                 color = NeuroFlowColors.ScheduledCard,
                 textColor = Color(0xFF1565C0),
-                summary = "Assign tasks to specific hours so your day has structure.",
+                summary = "Turn intent into a realistic day plan.",
                 steps = listOf(
                     "Tap any hour slot to assign an existing task or create a new one right there.",
                     "Use the + button to add a task without a specific slot.",
@@ -139,140 +184,22 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                 title = "Analytics — understand your patterns",
                 color = NeuroFlowColors.DeadlineCard,
                 textColor = NeuroFlowColors.DoFirstText,
-                summary = "See where your time actually goes.",
+                summary = "Review once a day, then adjust tomorrow.",
                 steps = listOf(
                     "XP & Points shows the impact you've delivered — higher-impact tasks earn more.",
                     "7-Day Trend shows your focus time per day so you can spot your best days.",
-                    "MAPE tracks how accurately you estimate task duration — aim for under 25%.",
+                    "MAPE tracks how accurately you estimate duration — lower is better.",
                     "Procrastination Radar surfaces tasks you keep deferring. Worth a look.",
-                    "Neuro Boost Insights shows how often you're using the science-backed features like Frog tasks and If-Then plans."
-                )
-            )
-
-            GuideSection(
-                emoji = "➕",
-                title = "Adding tasks — the details that matter",
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                summary = "Better inputs = smarter prioritization.",
-                steps = listOf(
-                    "Impact (0–100): how much does completing this move the needle? High impact = higher score.",
-                    "Effort (0–100): how hard is it? Low-effort tasks get a quick-win boost. High-effort tasks are boosted during your peak hours.",
-                    "Energy level: match the task to when you'll have the right energy — HIGH tasks score better during your peak hours.",
-                    "🐸 Frog: mark your most-dreaded task. It gets a big boost in the morning so you tackle it first.",
-                    "If-Then Plan: 'When I sit down at my desk, I will...' — tasks with a concrete plan score higher and get done more often.",
-                    "Deadline: even a rough deadline helps the scoring engine surface the task at the right time."
-                )
-            )
-
-            GuideSection(
-                emoji = "🌀",
-                title = "WOOP — plan before you start",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "A 60-second mental rehearsal that dramatically improves follow-through.",
-                steps = listOf(
-                    "When you tap Start Focus, a WOOP prompt appears: Wish, Outcome, Obstacle, Plan.",
-                    "Wish — what do you want to accomplish in this session?",
-                    "Outcome — what's the best result you could imagine?",
-                    "Obstacle — what's the most likely thing that will get in the way?",
-                    "Plan — 'If [obstacle] happens, then I will [action].' Write it down.",
-                    "After the session, a short reflection asks how reality matched your expectation.",
-                    "Over time, Analytics → WOOP Calibration shows how accurately you predict difficulty."
-                )
-            )
-
-            GuideSection(
-                emoji = "⚔️",
-                title = "Ulysses Contracts — commit to the hard stuff",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "A binding commitment for tasks you keep avoiding.",
-                steps = listOf(
-                    "Open any task → tap 'Create Ulysses Contract'.",
-                    "Write a specific commitment: 'I will finish X by [date].'",
-                    "Set a deadline — the contract is automatically evaluated at that moment.",
-                    "WIN if the task was completed before the deadline. LOSS if not.",
-                    "Your WIN/LOSS record is visible in Analytics → Ulysses Contracts card.",
-                    "Use contracts sparingly — reserve them for tasks you've genuinely been avoiding.",
-                    "The psychological cost of a recorded LOSS is the point. It works."
-                )
-            )
-
-            GuideSection(
-                emoji = "🔒",
-                title = "HyperFocus — the nuclear option",
-                color = MaterialTheme.colorScheme.errorContainer,
-                textColor = MaterialTheme.colorScheme.onErrorContainer,
-                summary = "Whole-phone distraction blocker for your deepest work sessions.",
-                steps = listOf(
-                    "Open Launcher Settings → HyperFocus to activate.",
-                    "Select which apps to block, set a task target, then tap Activate.",
-                    "Blocked apps show a motivational overlay instead of opening.",
-                    "To exit early, enter an AES-256-GCM encrypted unlock code (time-limited).",
-                    "Completing your task target earns a reward tier: Bronze → Silver → Gold → Platinum.",
-                    "Grant Accessibility and Usage Access permissions when prompted — HyperFocus needs them to intercept app launches.",
-                    "Save HyperFocus for your most important deep-work sessions, not every session."
-                )
-            )
-
-            GuideSection(
-                emoji = "🪞",
-                title = "Identity & Goals — anchor your why",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.Purple,
-                summary = "Long-term motivation comes from who you are, not just what you do.",
-                steps = listOf(
-                    "Open the navigation drawer → Identity to add personal affirmation statements.",
-                    "Write identity-based statements, not goals: 'I finish what I start', not 'Finish report'.",
-                    "Affirmations surface at strategic moments — fresh starts, streak breaks, contract creation.",
-                    "Add Yearly and Weekly Goals from the drawer Goals section.",
-                    "Link tasks to goals in the task editor — the engine applies a goal-risk multiplier when a linked goal is at risk.",
-                    "Set 1–3 yearly goals and 1–2 weekly goals. More than that dilutes focus.",
-                    "Review your goals every Monday when you create the week's tasks."
-                )
-            )
-
-            GuideSection(
-                emoji = "🏠",
-                title = "Focus Launcher — your phone, reimagined",
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                textColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                summary = "Replace your home screen with one built for deep work.",
-                steps = listOf(
-                    "Press Home → select proFlow → Always, to set it as your launcher.",
-                    "The Focus Task Card at the top always shows your highest-scored task. Tap Start Focus to begin.",
-                    "Habit Quick Row surfaces today's due habits for one-tap check-in.",
-                    "Swipe up to open the full App Drawer. Swipe right for the Quick Stats Panel.",
-                    "Long-press any icon for: open, lock (biometric), hide, folder, app info.",
-                    "Swipe down to expand the notification shade.",
-                    "Customize grid size, icon shape, clock style, and distraction scores in Launcher Settings."
-                )
-            )
-
-            GuideSection(
-                emoji = "🔔",
-                title = "Autonomy Nudge & Fresh Starts",
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                textColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                summary = "Smart prompts that get you unstuck before you even realize you're stuck.",
-                steps = listOf(
-                    "If a task goes untouched for 2 hours, proFlow sends a nudge notification.",
-                    "'Not ready yet' — snoozes the nudge for a later window.",
-                    "'It feels too big' — automatically splits the task into 3 equal subtasks.",
-                    "Fresh Start prompts appear on Mondays, month starts, streak breaks, and after 3-day absences.",
-                    "Fresh starts are capped at once per week so they feel meaningful, not annoying.",
-                    "When you see a Fresh Start, take 60 seconds: review goals, pick one task, start immediately.",
-                    "The psychological permission to begin again without guilt is the whole point."
+                    "If one metric is weak, change one behavior tomorrow. Keep it simple."
                 )
             )
 
             GuideSection(
                 emoji = "🧠",
-                title = "The science behind it",
+                title = "When you feel stuck",
                 color = MaterialTheme.colorScheme.surface,
                 textColor = MaterialTheme.colorScheme.onSurface,
-                summary = "proFlow is built on real productivity research.",
+                summary = "Use this reset sequence.",
                 steps = listOf(
                     "Eisenhower Matrix — the 4-quadrant framework used by presidents and CEOs.",
                     "Temporal Motivation Theory — urgency increases exponentially as deadlines approach.",
@@ -283,6 +210,11 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                     "WOOP (Oettingen) — mental contrasting with implementation intentions outperforms positive visualization.",
                     "Self-Determination Theory — identity-based motivation outlasts goal-based motivation.",
                     "You don't need to know any of this — just use the app and it works in the background."
+                    "Open Matrix and pick the highest scored task in DO FIRST.",
+                    "If it feels too big, split it into the smallest next action.",
+                    "Start a 10-minute timer in Focus Mode. Just begin.",
+                    "If still blocked, switch to a low-effort quick win and return after momentum builds.",
+                    "At end of day, schedule tomorrow's first task so morning starts clean."
                 )
             )
 
@@ -301,7 +233,7 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                     Text("💡", fontSize = 24.sp)
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        "Start simple — add 3–5 tasks, set a deadline on the most urgent one, and tap Focus. The rest figures itself out.",
+                        "Do less, but do it daily. Consistency beats intensity.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = NeuroFlowColors.Purple
                     )

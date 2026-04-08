@@ -73,6 +73,7 @@ data class UserPreferences(
     val deadlineEscalationNotificationsEnabled: Boolean = true,
     val dailyPlanNotificationHour: Int = 7,
     val streakCheckNotificationHour: Int = 21,
+    val userGuidePromptShown: Boolean = false,
     // Left page quick note
     val leftPageQuickNote: String = ""
 )
@@ -131,6 +132,7 @@ class UserPreferencesDataStore @Inject constructor(
         val DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED = booleanPreferencesKey("deadline_escalation_notifications_enabled")
         val DAILY_PLAN_NOTIFICATION_HOUR = intPreferencesKey("daily_plan_notification_hour")
         val STREAK_CHECK_NOTIFICATION_HOUR = intPreferencesKey("streak_check_notification_hour")
+        val USER_GUIDE_PROMPT_SHOWN = booleanPreferencesKey("user_guide_prompt_shown")
         val LEFT_PAGE_QUICK_NOTE = stringPreferencesKey("left_page_quick_note")
     }
 
@@ -187,6 +189,7 @@ class UserPreferencesDataStore @Inject constructor(
             deadlineEscalationNotificationsEnabled = prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] ?: true,
             dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
             streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
+            userGuidePromptShown = prefs[Keys.USER_GUIDE_PROMPT_SHOWN] ?: false,
             leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
         )
     }
@@ -259,6 +262,7 @@ class UserPreferencesDataStore @Inject constructor(
                 deadlineEscalationNotificationsEnabled = prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] ?: true,
                 dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
                 streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
+                userGuidePromptShown = prefs[Keys.USER_GUIDE_PROMPT_SHOWN] ?: false,
                 leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
             )
             val updated = update(current)
@@ -311,6 +315,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] = updated.deadlineEscalationNotificationsEnabled
             prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] = updated.dailyPlanNotificationHour.coerceIn(0, 23)
             prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] = updated.streakCheckNotificationHour.coerceIn(0, 23)
+            prefs[Keys.USER_GUIDE_PROMPT_SHOWN] = updated.userGuidePromptShown
             prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
         }
     }

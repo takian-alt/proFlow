@@ -272,6 +272,11 @@ class LauncherViewModel @Inject constructor(
     )
     val kioskStrictMode: StateFlow<Boolean> = _kioskStrictMode.asStateFlow()
 
+    private val _companionModeEnabled = MutableStateFlow(
+        DeviceOwnerKioskManager.isCompanionModeEnabled(context)
+    )
+    val companionModeEnabled: StateFlow<Boolean> = _companionModeEnabled.asStateFlow()
+
     private val _isDeviceOwner = MutableStateFlow(DeviceOwnerKioskManager.isDeviceOwner(context))
     val isDeviceOwner: StateFlow<Boolean> = _isDeviceOwner.asStateFlow()
 
@@ -1117,6 +1122,7 @@ class LauncherViewModel @Inject constructor(
         val canUseStrictMode = deviceOwner || deviceAdminActive
         _isDeviceOwner.value = deviceOwner
         _isDeviceAdminActive.value = deviceAdminActive
+        _companionModeEnabled.value = DeviceOwnerKioskManager.isCompanionModeEnabled(context)
         _kioskStrictMode.value = if (canUseStrictMode) {
             DeviceOwnerKioskManager.isStrictModeEnabled(context)
         } else {
@@ -1139,7 +1145,40 @@ class LauncherViewModel @Inject constructor(
         DeviceOwnerKioskManager.setStrictModeEnabled(context, enabled)
         _kioskStrictMode.value = enabled
 
+        val hfPrefs = hyperFocusPrefs.value
+        DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
+            context,
+            hfPrefs.blockedPackages,
+            hfPrefs.isActive && enabled
+        )
+
         // Re-apply policies immediately so the toggle takes effect without restart.
+        DeviceOwnerKioskManager.enableHybridProtection(context)
+        return true
+    }
+
+    fun updateCompanionMode(enabled: Boolean): Boolean {
+        val deviceOwner = DeviceOwnerKioskManager.isDeviceOwner(context)
+        val deviceAdminActive = DeviceOwnerKioskManager.isAdminActive(context)
+        _isDeviceOwner.value = deviceOwner
+        _isDeviceAdminActive.value = deviceAdminActive
+
+        val canUseStrictMode = deviceOwner || deviceAdminActive
+        if (!canUseStrictMode) {
+            _companionModeEnabled.value = false
+            return false
+        }
+
+        DeviceOwnerKioskManager.setCompanionModeEnabled(context, enabled)
+        _companionModeEnabled.value = enabled
+
+        val hfPrefs = hyperFocusPrefs.value
+        DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
+            context,
+            hfPrefs.blockedPackages,
+            hfPrefs.isActive && _kioskStrictMode.value
+        )
+
         DeviceOwnerKioskManager.enableHybridProtection(context)
         return true
     }

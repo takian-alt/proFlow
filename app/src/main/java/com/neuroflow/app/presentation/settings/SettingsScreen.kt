@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 
@@ -26,6 +27,8 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToPriorityWeights: () -> Unit,
     onNavigateToLauncherSettings: () -> Unit = {},
+    onNavigateToAppGuide: () -> Unit = {},
+    onNavigateToPrivacyPermissions: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -279,6 +282,56 @@ fun SettingsScreen(
                 }
             }
 
+            // User Guide
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = onNavigateToAppGuide
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("User Guide", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Start here: quick setup and daily workflow",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(Icons.Filled.ChevronRight, "Navigate")
+                }
+            }
+
+            // Privacy & Permissions
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = onNavigateToPrivacyPermissions
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Privacy & Permissions", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Why the app asks for powerful Android permissions",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(Icons.Filled.ChevronRight, "Navigate")
+                }
+            }
+
             // Appearance
             SettingsSection("Appearance") {
                 Text("Theme", fontWeight = FontWeight.Medium)
@@ -309,7 +362,7 @@ fun SettingsScreen(
 
             // About
             SettingsSection("About") {
-                Text("proFlow v3.0.0", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("proFlow v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(modifier = Modifier.height(32.dp))

@@ -234,6 +234,14 @@ class LauncherActivity : FragmentActivity() {
                 AppDrawer(
                     isOpen = isAppDrawerOpen,
                     onDismiss = { isAppDrawerOpen = false },
+                    onOpenWalkthrough = {
+                        startActivity(
+                            Intent(this@LauncherActivity, MainActivity::class.java).apply {
+                                action = "com.procus.ACTION_OPEN_GUIDE"
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                        )
+                    },
                     viewModel = viewModel,
                     launcherApps = launcherApps
                 )

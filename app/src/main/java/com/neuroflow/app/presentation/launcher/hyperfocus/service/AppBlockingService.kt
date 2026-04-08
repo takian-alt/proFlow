@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.launcher.hyperfocus.service
 
 import android.accessibilityservice.AccessibilityService
+import android.view.accessibility.AccessibilityNodeInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -22,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -41,17 +43,55 @@ class AppBlockingService : AccessibilityService() {
         private const val HEARTBEAT_INTERVAL_MS = 2_000L
         private const val POLLING_INTERVAL_MS = 300L
 
-        // Core tamper paths across common OEM builds.
-        private val TAMPER_SENSITIVE_PACKAGES = setOf(
+        private val SETTINGS_PACKAGES = setOf(
             "com.android.settings",
-            "com.google.android.permissioncontroller",
             "com.samsung.android.settings",
             "com.miui.securitycenter",
             "com.coloros.safecenter",
             "com.oplus.safecenter",
             "com.huawei.systemmanager"
         )
+
+        private val PERMISSION_CONTROLLER_PACKAGES = setOf(
+            "com.google.android.permissioncontroller",
+            "com.android.permissioncontroller"
+        )
+
+        private val PACKAGE_INSTALLER_PACKAGES = setOf(
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.miui.packageinstaller"
+        )
+
+        private val APP_PROTECTION_TOKENS = setOf(
+            BuildConfig.APPLICATION_ID.lowercase(Locale.ROOT),
+            "proflow",
+            "neuroflow"
+        )
+
+        private val APP_MANAGEMENT_KEYWORDS = setOf(
+            "app info",
+            "app details",
+            "manage app",
+            "uninstall",
+            "remove app",
+            "delete app"
+        )
+
+        private val DEVICE_ADMIN_KEYWORDS = setOf(
+            "device admin",
+            "device administrator",
+            "device admin apps",
+            "admin app",
+            "deviceadminadd",
+            "add device admin"
+        )
     }
+
+    private data class ProtectedSurfaceDecision(
+        val shouldBlock: Boolean,
+        val tamperReason: String?
+    )
 
     // When the unlock timer expires, reset debounce so the polling immediately re-blocks
     private val unlockExpiredReceiver = object : BroadcastReceiver() {
@@ -98,7 +138,9 @@ class AppBlockingService : AccessibilityService() {
 
         lastSeenForegroundPackage = pkg
 
-        checkAndBlockApp(pkg)
+        val className = event.className?.toString()
+        val eventSnapshot = buildEventSnapshot(event, className)
+        checkAndBlockApp(pkg, className, eventSnapshot)
     }
 
     override fun onInterrupt() {
@@ -154,14 +196,18 @@ class AppBlockingService : AccessibilityService() {
                         ?: getForegroundAppFromUsageStats()
                         ?: lastSeenForegroundPackage
                     if (currentApp != null) {
-                        checkAndBlockApp(currentApp)
+                        checkAndBlockApp(
+                            currentApp,
+                            className = rootInActiveWindow?.className?.toString(),
+                            eventSnapshot = getLiveWindowSnapshot()
+                        )
                     }
                 }
             }
         }
     }
 
-    private fun checkAndBlockApp(pkg: String) {
+    private fun checkAndBlockApp(pkg: String, className: String?, eventSnapshot: String?) {
         if (pkg == BuildConfig.APPLICATION_ID) return
 
         heartbeatScope.launch {
@@ -176,13 +222,16 @@ class AppBlockingService : AccessibilityService() {
                 }
             }
 
-            val isTamperSensitive = pkg in TAMPER_SENSITIVE_PACKAGES
+            val protectedSurfaceDecision = evaluateProtectedSurface(pkg, className, eventSnapshot)
+            val isTamperSensitive = protectedSurfaceDecision?.shouldBlock == true
             val isUserBlockedApp = pkg in prefs.blockedPackages
             if (!isUserBlockedApp && !isTamperSensitive) return@launch
             if (RewardEngine.isUnlockActive(prefs)) return@launch
 
             if (isTamperSensitive && !isUserBlockedApp) {
-                hyperFocusManager.reportTamper("Protected settings opened: $pkg")
+                hyperFocusManager.reportTamper(
+                    protectedSurfaceDecision?.tamperReason ?: "Protected settings opened: $pkg"
+                )
             }
 
             val now = System.currentTimeMillis()
@@ -217,6 +266,97 @@ class AppBlockingService : AccessibilityService() {
                 }
             }
         }
+    }
+
+    private fun evaluateProtectedSurface(
+        packageName: String,
+        className: String?,
+        eventSnapshot: String?
+    ): ProtectedSurfaceDecision? {
+        val loweredClassName = className?.lowercase(Locale.ROOT).orEmpty()
+
+        val inSettingsSurface = packageName in SETTINGS_PACKAGES || packageName in PERMISSION_CONTROLLER_PACKAGES
+        val inInstallerSurface = packageName in PACKAGE_INSTALLER_PACKAGES
+
+        if (!inSettingsSurface && !inInstallerSurface) return null
+
+        val snapshot = ((eventSnapshot ?: "") + " " + getWindowTextSnapshot())
+            .lowercase(Locale.ROOT)
+
+        val looksLikeDeviceAdmin =
+            loweredClassName.contains("deviceadmin") || DEVICE_ADMIN_KEYWORDS.any { snapshot.contains(it) }
+        if (looksLikeDeviceAdmin) {
+            return if (DeviceOwnerKioskManager.isAdminActive(this)) {
+                ProtectedSurfaceDecision(
+                    shouldBlock = true,
+                    tamperReason = "Protected device-admin settings opened: $packageName"
+                )
+            } else {
+                // Allow opening device-admin activation pages while admin is still off.
+                ProtectedSurfaceDecision(shouldBlock = false, tamperReason = null)
+            }
+        }
+
+        val looksLikeAppManagement =
+            loweredClassName.contains("installedappdetails") ||
+                loweredClassName.contains("appinfo") ||
+                loweredClassName.contains("uninstall") ||
+                loweredClassName.contains("manageapplications") ||
+                loweredClassName.contains("applicationsdetails") ||
+                loweredClassName.contains("settings\$appinfo") ||
+                APP_MANAGEMENT_KEYWORDS.any { snapshot.contains(it) }
+        val isTargetingThisApp =
+            APP_PROTECTION_TOKENS.any { snapshot.contains(it) } ||
+                loweredClassName.contains("installedappdetails") ||
+                loweredClassName.contains("uninstall")
+
+        if (looksLikeAppManagement && isTargetingThisApp) {
+            return ProtectedSurfaceDecision(
+                shouldBlock = true,
+                tamperReason = "Protected app-management screen opened: $packageName"
+            )
+        }
+
+        return null
+    }
+
+    private fun buildEventSnapshot(event: AccessibilityEvent, className: String?): String {
+        val textPart = event.text?.joinToString(" ") { it?.toString().orEmpty() }.orEmpty()
+        val contentDescription = event.contentDescription?.toString().orEmpty()
+        return "$className $textPart $contentDescription"
+    }
+
+    private fun getWindowTextSnapshot(maxNodes: Int = 120): String {
+        val root = rootInActiveWindow ?: return ""
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        val builder = StringBuilder()
+        queue.add(root)
+
+        var visited = 0
+        while (queue.isNotEmpty() && visited < maxNodes) {
+            val node = queue.removeFirst()
+            visited += 1
+
+            node.text?.toString()?.takeIf { it.isNotBlank() }?.let {
+                builder.append(it).append(' ')
+            }
+            node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let {
+                builder.append(it).append(' ')
+            }
+            node.viewIdResourceName?.takeIf { it.isNotBlank() }?.let {
+                builder.append(it).append(' ')
+            }
+
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let { queue.addLast(it) }
+            }
+
+        }
+        return builder.toString()
+    }
+
+    private fun getLiveWindowSnapshot(): String {
+        return getWindowTextSnapshot()
     }
 
     private fun registerReceiverCompat(receiver: BroadcastReceiver, filter: IntentFilter) {

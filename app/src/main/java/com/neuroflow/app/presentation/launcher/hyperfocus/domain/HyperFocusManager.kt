@@ -54,10 +54,18 @@ class HyperFocusManagerImpl @Inject constructor(
     }
 
     override suspend fun deactivate() {
-        val sessionId = hyperFocusDataStore.current().sessionId
+        val currentPrefs = hyperFocusDataStore.current()
+        val sessionId = currentPrefs.sessionId
         Log.d(TAG, "Deactivating Hyper Focus session: $sessionId")
-        hyperFocusDataStore.update { HyperFocusPreferences() }
         runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, false) }
+        runCatching {
+            DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
+                context,
+                currentPrefs.blockedPackages,
+                false
+            )
+        }
+        hyperFocusDataStore.update { HyperFocusPreferences() }
         if (sessionId != null) {
             unlockCodeRepository.deleteSessionCodes(sessionId)
         }
@@ -205,6 +213,13 @@ class HyperFocusManagerImpl @Inject constructor(
         }
 
         runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, true) }
+        runCatching {
+            DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
+                context,
+                blockedPackages,
+                DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)
+            )
+        }
     }
 
     override suspend fun onTaskCompleted() {
