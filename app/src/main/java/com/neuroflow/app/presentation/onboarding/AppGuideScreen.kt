@@ -209,7 +209,7 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                     "Circadian Rhythm Research — analytical work peaks in the morning, creative work in late morning/afternoon.",
                     "WOOP (Oettingen) — mental contrasting with implementation intentions outperforms positive visualization.",
                     "Self-Determination Theory — identity-based motivation outlasts goal-based motivation.",
-                    "You don't need to know any of this — just use the app and it works in the background."
+                    "You don't need to know any of this — just use the app and it works in the background.",
                     "Open Matrix and pick the highest scored task in DO FIRST.",
                     "If it feels too big, split it into the smallest next action.",
                     "Start a 10-minute timer in Focus Mode. Just begin.",
