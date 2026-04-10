@@ -24,13 +24,26 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.common.NewTaskSheet
 import com.neuroflow.app.presentation.common.getQuadrantBgColor
 import com.neuroflow.app.presentation.common.getQuadrantTextColor
-import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.text.SimpleDateFormat
 import java.util.*
+
+private const val HOURS_PER_DAY = 24
+private const val MINUTES_PER_HOUR = 60
+private const val MINUTES_PER_DAY = HOURS_PER_DAY * MINUTES_PER_HOUR
+private const val MILLIS_PER_MINUTE = 60_000L
+private const val MILLIS_PER_DAY = 86_400_000L
+private val HOUR_SLOT_HEIGHT = 60.dp
+private val MIN_SEGMENT_HEIGHT = 8.dp
+
+private data class HourSegment(
+    val task: TaskEntity,
+    val offsetMinutesInHour: Int,
+    val overlapMinutes: Int,
+    val startsInThisHour: Boolean
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,16 +152,10 @@ fun ScheduleScreen(
             val isToday = isToday(uiState.selectedDate)
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(24) { hour ->
-                    val tasksAtHour = uiState.tasksForDay.filter { task ->
-                        val taskHour = ((task.scheduledTime
-                            ?: task.habitDate?.let { millis -> millis % 86_400_000L }
-                            ?: 0L) / 3_600_000L).toInt()
-                        taskHour == hour
-                    }
+                items(HOURS_PER_DAY) { hour ->
                     TimelineRow(
                         hour = hour,
-                        tasks = tasksAtHour,
+                        tasks = uiState.tasksForDay,
                         isCurrentHour = isToday && hour == currentHour,
                         isWorkHour = hour in uiState.workDayStart until uiState.workDayEnd,
                         onTaskClick = onNavigateToFocus,
@@ -305,12 +312,27 @@ private fun TimelineRow(
     onTaskClick: (String) -> Unit,
     onSlotClick: () -> Unit
 ) {
+    val hourStartMinute = hour * MINUTES_PER_HOUR
+    val hourEndMinute = hourStartMinute + MINUTES_PER_HOUR
+    val segments = tasks.map { task ->
+        val taskStartMinute = taskStartMinuteOfDay(task)
+        val taskEndMinute = (taskStartMinute + taskDurationMinutes(task)).coerceAtMost(MINUTES_PER_DAY)
+        val overlapStart = maxOf(taskStartMinute, hourStartMinute)
+        val overlapEnd = minOf(taskEndMinute, hourEndMinute)
+        if (overlapEnd <= overlapStart) return@map null
+        HourSegment(
+            task = task,
+            offsetMinutesInHour = overlapStart - hourStartMinute,
+            overlapMinutes = overlapEnd - overlapStart,
+            startsInThisHour = taskStartMinute in hourStartMinute until hourEndMinute
+        )
+    }.filterNotNull()
+
     val workHourBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .defaultMinSize(minHeight = 64.dp)
+            .height(64.dp)
             .background(if (isWorkHour) workHourBg else Color.Transparent)
             .then(
                 if (isCurrentHour) Modifier.drawBehind {
@@ -343,65 +365,91 @@ private fun TimelineRow(
         )
 
         // Task blocks — tapping empty space opens the picker
-        Column(
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 4.dp, end = 8.dp, top = 2.dp, bottom = 2.dp)
+                .height(HOUR_SLOT_HEIGHT)
+                .clickable { onSlotClick() }
         ) {
-            if (tasks.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .clickable { onSlotClick() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "+ add",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                    )
-                }
+            if (segments.isEmpty()) {
+                Text(
+                    "+ add",
+                    modifier = Modifier.align(Alignment.Center),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                )
             } else {
-                tasks.forEach { task ->
-                    val blockHeight = maxOf(48, task.estimatedDurationMinutes).dp
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp)
-                            .height(blockHeight)
-                            .clickable { onTaskClick(task.id) },
-                        shape = RoundedCornerShape(8.dp),
-                        color = getQuadrantBgColor(task.quadrant)
-                    ) {
-                        Column(modifier = Modifier.padding(8.dp)) {
-                            Text(
-                                text = task.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = getQuadrantTextColor(task.quadrant),
-                                maxLines = 1
-                            )
-                            Text(
-                                text = task.quadrant.name.replace("_", " "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = getQuadrantTextColor(task.quadrant).copy(alpha = 0.7f)
-                            )
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    segments.forEach { segment ->
+                        val topOffset = HOUR_SLOT_HEIGHT * (segment.offsetMinutesInHour / MINUTES_PER_HOUR.toFloat())
+                        val rawHeight = HOUR_SLOT_HEIGHT * (segment.overlapMinutes / MINUTES_PER_HOUR.toFloat())
+                        val maxAvailableHeight = HOUR_SLOT_HEIGHT - topOffset
+                        val blockHeight = maxOf(rawHeight, MIN_SEGMENT_HEIGHT).coerceAtMost(maxAvailableHeight)
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = topOffset)
+                                    .height(blockHeight)
+                                    .clickable { onTaskClick(segment.task.id) },
+                                shape = RoundedCornerShape(8.dp),
+                                color = getQuadrantBgColor(segment.task.quadrant)
+                            ) {
+                                if (segment.startsInThisHour && blockHeight >= 24.dp) {
+                                    Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                                        Text(
+                                            text = segment.task.title,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = getQuadrantTextColor(segment.task.quadrant),
+                                            maxLines = 1
+                                        )
+                                        if (blockHeight >= 36.dp) {
+                                            Text(
+                                                text = segment.task.quadrant.name.replace("_", " "),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = getQuadrantTextColor(segment.task.quadrant).copy(alpha = 0.7f),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                // Still allow adding more tasks to a slot that already has one
-                TextButton(
-                    onClick = onSlotClick,
-                    modifier = Modifier.height(28.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp)
-                ) {
-                    Text("+ add", style = MaterialTheme.typography.labelSmall)
-                }
+
+                Text(
+                    text = "+ add",
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .clickable { onSlotClick() }
+                        .padding(end = 2.dp, bottom = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                )
             }
         }
     }
 }
+
+private fun taskStartMinuteOfDay(task: TaskEntity): Int {
+    val startMs = task.scheduledTime
+        ?: task.habitDate?.let { millis -> millis % MILLIS_PER_DAY }
+        ?: 0L
+    return (startMs / MILLIS_PER_MINUTE).toInt().coerceIn(0, MINUTES_PER_DAY - 1)
+}
+
+private fun taskDurationMinutes(task: TaskEntity): Int = task.estimatedDurationMinutes.coerceAtLeast(1)
 
 private fun hourLabel(hour: Int) = when {
     hour == 0  -> "12 am"

@@ -79,8 +79,9 @@ object TaskScoringEngine {
             ?: task.habitDate
         if (task.isScheduleLocked && lockAnchorMs != null) {
             val minutesUntilAnchor = (lockAnchorMs - nowMillis) / 60_000f
-            // Locked tasks are intentionally hidden from focus ranking until close to their window.
-            if (minutesUntilAnchor > 10f) return 1f
+            // Locked tasks remain visible in task lists, but carry zero ranking priority
+            // until their scheduled window is near.
+            if (minutesUntilAnchor > 10f) return 0f
         }
 
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }

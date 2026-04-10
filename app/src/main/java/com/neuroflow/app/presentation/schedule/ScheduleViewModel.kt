@@ -76,12 +76,11 @@ class ScheduleViewModel @Inject constructor(
     private fun loadTasksForDate(date: Long) {
         viewModelScope.launch {
             taskRepository.observeTasksForDate(date).collect { tasks ->
-                // Locked tasks are pinned — they cannot be reordered or auto-rescheduled
+                // Keep locked tasks visible in the timeline so users can still see their time blocks.
                 val locked = tasks.filter { it.isScheduleLocked }
-                val unlocked = tasks.filter { !it.isScheduleLocked }
                 _uiState.update {
                     it.copy(
-                        tasksForDay = unlocked,
+                        tasksForDay = tasks,
                         lockedTasks = locked,
                         isLoading = false
                     )
