@@ -52,6 +52,8 @@ import com.neuroflow.app.presentation.matrix.QuadrantDetailScreen
 import com.neuroflow.app.presentation.onboarding.AppGuideScreen
 import com.neuroflow.app.presentation.schedule.ScheduleScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
+import com.neuroflow.app.presentation.settings.SleepLogsScreen
+import com.neuroflow.app.presentation.settings.MEQQuizScreen
 import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
@@ -64,6 +66,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object QuadrantDetail : Screen("quadrant/{quadrantName}", "Quadrant", null)
     data object Focus : Screen("focus/{taskId}?skipped={skipped}", "Focus", null)
     data object Settings : Screen("settings", "Settings", null)
+    data object SleepLogs : Screen("sleep_logs", "Sleep Logs", null)
+    data object MEQQuiz : Screen("meq_quiz", "Chronotype Quiz", null)
     data object PriorityWeights : Screen("priority_weights", "Priority Weights", null)
     data object PrivacyPermissions : Screen("privacy_permissions", "Privacy & Permissions", null)
     data object AppGuide : Screen("app_guide", "App Guide", null)
@@ -375,7 +379,23 @@ fun NeuroFlowApp(
                         },
                         onNavigateToPrivacyPermissions = {
                             navController.navigate(Screen.PrivacyPermissions.route)
+                        },
+                        onNavigateToMEQQuiz = {
+                            navController.navigate(Screen.MEQQuiz.route)
+                        },
+                        onNavigateToSleepLogs = {
+                            navController.navigate(Screen.SleepLogs.route)
                         }
+                    )
+                }
+                composable(Screen.SleepLogs.route) {
+                    SleepLogsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.MEQQuiz.route) {
+                    MEQQuizScreen(
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
                 composable(Screen.PriorityWeights.route) {

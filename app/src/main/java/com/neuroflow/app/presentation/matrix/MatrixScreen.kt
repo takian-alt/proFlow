@@ -11,17 +11,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neuroflow.app.domain.engine.SleepPressureDetector
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.presentation.common.NewTaskSheet
 import com.neuroflow.app.presentation.common.getQuadrantBgColor
 import com.neuroflow.app.presentation.common.getQuadrantLabel
 import com.neuroflow.app.presentation.common.getQuadrantTextColor
+import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +90,11 @@ fun MatrixScreen(
                 .padding(innerPadding)
                 .padding(8.dp)
         ) {
+            uiState.energy?.let { energy ->
+                MatrixEnergyStrip(energy)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // 2x2 quadrant grid
             Row(
                 modifier = Modifier
@@ -137,6 +147,73 @@ fun MatrixScreen(
             },
             availableTasks = uiState.allActiveTasks
         )
+    }
+}
+
+@Composable
+private fun MatrixEnergyStrip(energy: EnergyScoreRepository.EnergyUiModel) {
+    val fatigueColor = when (energy.fatigueZone) {
+        SleepPressureDetector.FatigueZone.RESTED -> Color(0xFF43A047)
+        SleepPressureDetector.FatigueZone.MODERATE -> Color(0xFFF9A825)
+        SleepPressureDetector.FatigueZone.HIGH -> Color(0xFFF57C00)
+        SleepPressureDetector.FatigueZone.CRITICAL -> Color(0xFFE53935)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .background(
+                    brush = Brush.linearGradient(
+                        listOf(
+                            NeuroFlowColors.Purple.copy(alpha = 0.14f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                        )
+                    )
+                )
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Energy", fontWeight = FontWeight.Bold)
+                Text(
+                    "${energy.availableEnergy}/100",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = NeuroFlowColors.Purple
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { (energy.availableEnergy / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = NeuroFlowColors.Purple,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Peak ${energy.currentPeakValue}/${energy.peakValue}", fontSize = 12.sp)
+                Text("Drop ${energy.peakDrop}", fontSize = 12.sp)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Sleep pressure ${energy.sleepPressurePoints}", fontSize = 12.sp)
+                Text(
+                    "Fatigue ${energy.fatiguePercent}%",
+                    fontSize = 12.sp,
+                    color = fatigueColor,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 

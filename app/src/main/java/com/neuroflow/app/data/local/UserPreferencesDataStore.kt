@@ -15,6 +15,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 data class UserPreferences(
     val wakeUpHour: Int = 7,
+    val sleepHour: Int = 23,
     val peakEnergyStart: Int = 9,
     val peakEnergyEnd: Int = 12,
     val workDayStart: Int = 8,
@@ -45,10 +46,13 @@ data class UserPreferences(
     // Dynamic peak energy detection
     val detectedPeakStart: Int = -1,      // -1 = not yet detected
     val detectedPeakEnd: Int = -1,
+    val detectedPeakMinuteOfDay: Int = -1,
     val peakDetectionConfidence: Float = 0f,  // 0.0–1.0
     // Blended effective peak (manual lerp'd with detected, based on confidence)
     val effectivePeakStart: Int = -1,     // -1 = use peakEnergyStart
     val effectivePeakEnd: Int = -1,       // -1 = use peakEnergyEnd
+    val effectivePeakMinuteOfDay: Int = -1,
+    val quizPeakEnabled: Boolean = true,
     // Subliminal affirmations — stored as JSON array string
     val affirmations: List<String> = emptyList(),
     // Persistent task tag catalog shown in task creation and history filters
@@ -75,7 +79,17 @@ data class UserPreferences(
     val streakCheckNotificationHour: Int = 21,
     val userGuidePromptShown: Boolean = false,
     // Left page quick note
-    val leftPageQuickNote: String = ""
+    val leftPageQuickNote: String = "",
+    // MEQ Chronotype - manual user selection from onboarding
+    val manualChronotype: String? = null,
+    // MEQ Chronotype - result from completed quiz
+    val quizChronotype: String? = null,
+    // Quiz progress - JSON string storing which questions answered and selected answers
+    val quizProgress: String = "{}",
+    // Sleep pressure state (recomputed from logs + elapsed awake time)
+    val sleepPressurePoints: Int = 0,
+    val sleepPressureTrackingStartedAtMillis: Long = 0L,
+    val sleepPressureLastComputedAtMillis: Long = 0L
 )
 
 @Singleton
@@ -84,6 +98,7 @@ class UserPreferencesDataStore @Inject constructor(
 ) {
     private object Keys {
         val WAKE_UP_HOUR = intPreferencesKey("wake_up_hour")
+        val SLEEP_HOUR = intPreferencesKey("sleep_hour")
         val PEAK_ENERGY_START = intPreferencesKey("peak_energy_start")
         val PEAK_ENERGY_END = intPreferencesKey("peak_energy_end")
         val WORK_DAY_START = intPreferencesKey("work_day_start")
@@ -113,9 +128,12 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_APP_OPEN_MILLIS = longPreferencesKey("last_app_open_millis")
         val DETECTED_PEAK_START = intPreferencesKey("detected_peak_start")
         val DETECTED_PEAK_END = intPreferencesKey("detected_peak_end")
+        val DETECTED_PEAK_MINUTE_OF_DAY = intPreferencesKey("detected_peak_minute_of_day")
         val PEAK_DETECTION_CONFIDENCE = floatPreferencesKey("peak_detection_confidence")
         val EFFECTIVE_PEAK_START = intPreferencesKey("effective_peak_start")
         val EFFECTIVE_PEAK_END = intPreferencesKey("effective_peak_end")
+        val EFFECTIVE_PEAK_MINUTE_OF_DAY = intPreferencesKey("effective_peak_minute_of_day")
+        val QUIZ_PEAK_ENABLED = booleanPreferencesKey("quiz_peak_enabled")
         val AFFIRMATIONS = stringPreferencesKey("affirmations")
         val TAG_CATALOG = stringPreferencesKey("tag_catalog")
         val YEARLY_GOALS = stringPreferencesKey("yearly_goals")
@@ -134,11 +152,18 @@ class UserPreferencesDataStore @Inject constructor(
         val STREAK_CHECK_NOTIFICATION_HOUR = intPreferencesKey("streak_check_notification_hour")
         val USER_GUIDE_PROMPT_SHOWN = booleanPreferencesKey("user_guide_prompt_shown")
         val LEFT_PAGE_QUICK_NOTE = stringPreferencesKey("left_page_quick_note")
+        val MANUAL_CHRONOTYPE = stringPreferencesKey("manual_chronotype")
+        val QUIZ_CHRONOTYPE = stringPreferencesKey("quiz_chronotype")
+        val QUIZ_PROGRESS = stringPreferencesKey("quiz_progress")
+        val SLEEP_PRESSURE_POINTS = intPreferencesKey("sleep_pressure_points")
+        val SLEEP_PRESSURE_TRACKING_STARTED_AT = longPreferencesKey("sleep_pressure_tracking_started_at")
+        val SLEEP_PRESSURE_LAST_COMPUTED_AT = longPreferencesKey("sleep_pressure_last_computed_at")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
         UserPreferences(
             wakeUpHour = prefs[Keys.WAKE_UP_HOUR] ?: 7,
+            sleepHour = prefs[Keys.SLEEP_HOUR] ?: 23,
             peakEnergyStart = prefs[Keys.PEAK_ENERGY_START] ?: 9,
             peakEnergyEnd = prefs[Keys.PEAK_ENERGY_END] ?: 12,
             workDayStart = prefs[Keys.WORK_DAY_START] ?: 8,
@@ -170,9 +195,12 @@ class UserPreferencesDataStore @Inject constructor(
             lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L,
             detectedPeakStart = prefs[Keys.DETECTED_PEAK_START] ?: -1,
             detectedPeakEnd = prefs[Keys.DETECTED_PEAK_END] ?: -1,
+            detectedPeakMinuteOfDay = prefs[Keys.DETECTED_PEAK_MINUTE_OF_DAY] ?: -1,
             peakDetectionConfidence = prefs[Keys.PEAK_DETECTION_CONFIDENCE] ?: 0f,
             effectivePeakStart = prefs[Keys.EFFECTIVE_PEAK_START] ?: -1,
             effectivePeakEnd = prefs[Keys.EFFECTIVE_PEAK_END] ?: -1,
+            effectivePeakMinuteOfDay = prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] ?: -1,
+            quizPeakEnabled = prefs[Keys.QUIZ_PEAK_ENABLED] ?: true,
             affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
             tagCatalog = parseAffirmations(prefs[Keys.TAG_CATALOG]),
             yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
@@ -190,7 +218,13 @@ class UserPreferencesDataStore @Inject constructor(
             dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
             streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
             userGuidePromptShown = prefs[Keys.USER_GUIDE_PROMPT_SHOWN] ?: false,
-            leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
+            leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: "",
+            manualChronotype = prefs[Keys.MANUAL_CHRONOTYPE],
+            quizChronotype = prefs[Keys.QUIZ_CHRONOTYPE],
+            quizProgress = prefs[Keys.QUIZ_PROGRESS] ?: "{}",
+            sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
+            sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
+            sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L
         )
     }
 
@@ -212,6 +246,7 @@ class UserPreferencesDataStore @Inject constructor(
         context.dataStore.edit { prefs ->
             val current = UserPreferences(
                 wakeUpHour = prefs[Keys.WAKE_UP_HOUR] ?: 7,
+                sleepHour = prefs[Keys.SLEEP_HOUR] ?: 23,
                 peakEnergyStart = prefs[Keys.PEAK_ENERGY_START] ?: 9,
                 peakEnergyEnd = prefs[Keys.PEAK_ENERGY_END] ?: 12,
                 workDayStart = prefs[Keys.WORK_DAY_START] ?: 8,
@@ -243,9 +278,12 @@ class UserPreferencesDataStore @Inject constructor(
                 lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L,
                 detectedPeakStart = prefs[Keys.DETECTED_PEAK_START] ?: -1,
                 detectedPeakEnd = prefs[Keys.DETECTED_PEAK_END] ?: -1,
+                detectedPeakMinuteOfDay = prefs[Keys.DETECTED_PEAK_MINUTE_OF_DAY] ?: -1,
                 peakDetectionConfidence = prefs[Keys.PEAK_DETECTION_CONFIDENCE] ?: 0f,
                 effectivePeakStart = prefs[Keys.EFFECTIVE_PEAK_START] ?: -1,
                 effectivePeakEnd = prefs[Keys.EFFECTIVE_PEAK_END] ?: -1,
+                effectivePeakMinuteOfDay = prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] ?: -1,
+                quizPeakEnabled = prefs[Keys.QUIZ_PEAK_ENABLED] ?: true,
                 affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
                 tagCatalog = parseAffirmations(prefs[Keys.TAG_CATALOG]),
                 yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
@@ -263,10 +301,17 @@ class UserPreferencesDataStore @Inject constructor(
                 dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
                 streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
                 userGuidePromptShown = prefs[Keys.USER_GUIDE_PROMPT_SHOWN] ?: false,
-                leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: ""
+                leftPageQuickNote = prefs[Keys.LEFT_PAGE_QUICK_NOTE] ?: "",
+                manualChronotype = prefs[Keys.MANUAL_CHRONOTYPE],
+                quizChronotype = prefs[Keys.QUIZ_CHRONOTYPE],
+                quizProgress = prefs[Keys.QUIZ_PROGRESS] ?: "{}",
+                sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
+                sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
+                sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
+            prefs[Keys.SLEEP_HOUR] = updated.sleepHour.coerceIn(0, 23)
             prefs[Keys.PEAK_ENERGY_START] = updated.peakEnergyStart
             prefs[Keys.PEAK_ENERGY_END] = updated.peakEnergyEnd
             prefs[Keys.WORK_DAY_START] = updated.workDayStart
@@ -296,9 +341,12 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_APP_OPEN_MILLIS] = updated.lastAppOpenMillis
             prefs[Keys.DETECTED_PEAK_START] = updated.detectedPeakStart
             prefs[Keys.DETECTED_PEAK_END] = updated.detectedPeakEnd
+            prefs[Keys.DETECTED_PEAK_MINUTE_OF_DAY] = updated.detectedPeakMinuteOfDay
             prefs[Keys.PEAK_DETECTION_CONFIDENCE] = updated.peakDetectionConfidence
             prefs[Keys.EFFECTIVE_PEAK_START] = updated.effectivePeakStart
             prefs[Keys.EFFECTIVE_PEAK_END] = updated.effectivePeakEnd
+            prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] = updated.effectivePeakMinuteOfDay
+            prefs[Keys.QUIZ_PEAK_ENABLED] = updated.quizPeakEnabled
             prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
             prefs[Keys.TAG_CATALOG] = encodeAffirmations(updated.tagCatalog)
             prefs[Keys.YEARLY_GOALS] = encodeAffirmations(updated.yearlyGoals)
@@ -317,6 +365,16 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] = updated.streakCheckNotificationHour.coerceIn(0, 23)
             prefs[Keys.USER_GUIDE_PROMPT_SHOWN] = updated.userGuidePromptShown
             prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
+            if (updated.manualChronotype != null) {
+                prefs[Keys.MANUAL_CHRONOTYPE] = updated.manualChronotype
+            }
+            if (updated.quizChronotype != null) {
+                prefs[Keys.QUIZ_CHRONOTYPE] = updated.quizChronotype
+            }
+            prefs[Keys.QUIZ_PROGRESS] = updated.quizProgress
+            prefs[Keys.SLEEP_PRESSURE_POINTS] = updated.sleepPressurePoints
+            prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] = updated.sleepPressureTrackingStartedAtMillis
+            prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] = updated.sleepPressureLastComputedAtMillis
         }
     }
 

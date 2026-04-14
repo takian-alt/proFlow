@@ -66,6 +66,38 @@ object AnalyticsEngine {
         return cal.timeInMillis
     }
 
+    private fun normalizeHour(hour: Int): Int {
+        val normalized = hour % 24
+        return if (normalized < 0) normalized + 24 else normalized
+    }
+
+    private fun isHourInPeakWindow(hour: Int, peakStartHour: Int, peakEndHour: Int): Boolean {
+        val h = normalizeHour(hour)
+        val start = normalizeHour(peakStartHour)
+        val end = normalizeHour(peakEndHour)
+        return if (start <= end) {
+            h in start..end
+        } else {
+            h >= start || h <= end
+        }
+    }
+
+    private fun peakWindowsForDay(dayStartMillis: Long, peakStartHour: Int, peakEndHour: Int): List<Pair<Long, Long>> {
+        val hourMs = 3_600_000L
+        val dayEndMillis = dayStartMillis + 24 * hourMs
+        val start = normalizeHour(peakStartHour)
+        val end = normalizeHour(peakEndHour)
+
+        return if (start <= end) {
+            listOf(dayStartMillis + start * hourMs to dayStartMillis + (end + 1) * hourMs)
+        } else {
+            listOf(
+                dayStartMillis + start * hourMs to dayEndMillis,
+                dayStartMillis to dayStartMillis + (end + 1) * hourMs
+            )
+        }
+    }
+
     // ── 7-DAY FOCUS TREND ────────────────────────────────────────────────────
 
     /** Returns list of (dayLabel, focusMinutes) for the last 7 days, oldest first */
@@ -269,6 +301,10 @@ object AnalyticsEngine {
             .take(5)
             .map { it.title to it.focusModePoints }
 
+        val useQuizPeak = prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0
+        val peakStartHour = if (useQuizPeak) prefs.effectivePeakStart else prefs.peakEnergyStart
+        val peakEndHour = if (useQuizPeak) prefs.effectivePeakEnd else prefs.peakEnergyEnd
+
         // ── Peak-hour productivity ────────────────────────────────────────────
         // Split each session's duration at peak window boundaries so only the
         // portion that actually fell within peak hours is counted.
@@ -283,13 +319,13 @@ object AnalyticsEngine {
             val endDay = startOfDay(sessionEnd)
             var day = startDay
             while (day <= endDay) {
-                val peakWindowStart = day + prefs.peakEnergyStart * 3_600_000L
-                val peakWindowEnd = day + (prefs.peakEnergyEnd + 1) * 3_600_000L // end hour is inclusive
-
-                val overlapStart = maxOf(sessionStart, peakWindowStart)
-                val overlapEnd = minOf(sessionEnd, peakWindowEnd)
-                if (overlapEnd > overlapStart) {
-                    peakHourFocusMinutes += (overlapEnd - overlapStart) / 60_000f
+                val windows = peakWindowsForDay(day, peakStartHour, peakEndHour)
+                for ((peakWindowStart, peakWindowEnd) in windows) {
+                    val overlapStart = maxOf(sessionStart, peakWindowStart)
+                    val overlapEnd = minOf(sessionEnd, peakWindowEnd)
+                    if (overlapEnd > overlapStart) {
+                        peakHourFocusMinutes += (overlapEnd - overlapStart) / 60_000f
+                    }
                 }
                 day += 86_400_000L
             }
@@ -299,7 +335,7 @@ object AnalyticsEngine {
             val completedMs = task.completedAt ?: return@count false
             val cal = Calendar.getInstance().apply { timeInMillis = completedMs }
             val h = cal.get(Calendar.HOUR_OF_DAY)
-            h in prefs.peakEnergyStart..prefs.peakEnergyEnd
+            isHourInPeakWindow(h, peakStartHour, peakEndHour)
         }
 
         return AnalyticsSummary(

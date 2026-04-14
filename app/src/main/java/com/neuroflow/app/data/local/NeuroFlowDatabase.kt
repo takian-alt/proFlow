@@ -6,11 +6,13 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.GoalEntity
+import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
@@ -132,9 +134,29 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
     }
 }
 
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS sleep_logs (
+                id TEXT NOT NULL PRIMARY KEY,
+                startAt INTEGER NOT NULL,
+                endAt INTEGER NOT NULL,
+                durationMinutes INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                notes TEXT NOT NULL,
+                createdAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sleep_logs_startAt ON sleep_logs(startAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sleep_logs_endAt ON sleep_logs(endAt)")
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class],
-    version = 11,
+    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class],
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -146,4 +168,5 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun ulyssesContractDao(): UlyssesContractDao
     abstract fun unlockCodeDao(): UnlockCodeDao
     abstract fun hyperFocusSessionDao(): HyperFocusSessionDao
+    abstract fun sleepLogDao(): SleepLogDao
 }

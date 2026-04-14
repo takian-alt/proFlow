@@ -29,6 +29,8 @@ fun SettingsScreen(
     onNavigateToLauncherSettings: () -> Unit = {},
     onNavigateToAppGuide: () -> Unit = {},
     onNavigateToPrivacyPermissions: () -> Unit = {},
+    onNavigateToMEQQuiz: () -> Unit = {},
+    onNavigateToSleepLogs: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -90,8 +92,11 @@ fun SettingsScreen(
                     singleLine = true
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                SettingsNumberRow("Wake-up Hour", prefs.wakeUpHour, 0, 23, formatHour = true) {
+                SettingsNumberRow("Default Wake Hour", prefs.wakeUpHour, 0, 23, formatHour = true) {
                     viewModel.updatePreferences { p -> p.copy(wakeUpHour = it) }
+                }
+                SettingsNumberRow("Default Sleep Hour", prefs.sleepHour, 0, 23, formatHour = true) {
+                    viewModel.updatePreferences { p -> p.copy(sleepHour = it) }
                 }
                 SettingsNumberRow("Peak Energy Start", prefs.peakEnergyStart, 0, 23, formatHour = true) {
                     viewModel.updatePreferences { p -> p.copy(peakEnergyStart = it) }
@@ -234,6 +239,68 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(deadlineEscalationNotificationsEnabled = it) }
                     }
                 )
+            }
+
+            // Features → Energy
+            SettingsSection("Energy") {
+                SettingsToggleRow(
+                    label = "Use MEQ quiz peak",
+                    description = "When off, manual Peak Energy Start/End are used even if quiz results exist",
+                    checked = prefs.quizPeakEnabled,
+                    onCheckedChange = { enabled ->
+                        viewModel.updatePreferences { p -> p.copy(quizPeakEnabled = enabled) }
+                    }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (prefs.quizPeakEnabled) {
+                        "Scoring source: MEQ quiz peak when available"
+                    } else {
+                        "Scoring source: manual peak window"
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = onNavigateToMEQQuiz
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Energy", fontWeight = FontWeight.Bold)
+                        Text("Chronotype assessment & peak energy tracking", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, "Navigate")
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = onNavigateToSleepLogs
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Sleep Logs", fontWeight = FontWeight.Bold)
+                        Text("Track sleep sessions and fatigue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, "Navigate")
+                }
             }
 
             // Priority Weights

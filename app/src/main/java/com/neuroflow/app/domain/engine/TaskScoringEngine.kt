@@ -60,6 +60,22 @@ object TaskScoringEngine {
     // LossAversion(130) + Anxiety(60) + Distraction(80) = ~2445
     private const val THEORETICAL_MAX = 2445f
 
+    private fun normalizeHour(hour: Int): Int {
+        val normalized = hour % 24
+        return if (normalized < 0) normalized + 24 else normalized
+    }
+
+    private fun isHourInPeakWindow(hour: Int, peakStartHour: Int, peakEndHour: Int): Boolean {
+        val h = normalizeHour(hour)
+        val start = normalizeHour(peakStartHour)
+        val end = normalizeHour(peakEndHour)
+        return if (start <= end) {
+            h in start..end
+        } else {
+            h >= start || h <= end
+        }
+    }
+
     fun score(
         task: TaskEntity,
         prefs: UserPreferences,
@@ -88,14 +104,15 @@ object TaskScoringEngine {
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
 
-        // Use dynamically detected peak if available, blended with manual setting
-        val (effectivePeakStart, effectivePeakEnd) = if (prefs.effectivePeakStart >= 0) {
+        // Use quiz-derived peak only when enabled; otherwise fall back to manual setting.
+        val useQuizPeak = prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0
+        val (effectivePeakStart, effectivePeakEnd) = if (useQuizPeak) {
             prefs.effectivePeakStart to prefs.effectivePeakEnd
         } else {
             prefs.peakEnergyStart to prefs.peakEnergyEnd
         }
 
-        val isPeakHour = hour in effectivePeakStart..effectivePeakEnd
+        val isPeakHour = isHourInPeakWindow(hour, effectivePeakStart, effectivePeakEnd)
         val isMorning = hour < effectivePeakStart
         val isLowEnergySlot = hour in 13..15
         val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
@@ -424,14 +441,15 @@ object TaskScoringEngine {
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
 
-        // Mirror score()'s effective peak resolution exactly
-        val (effectivePeakStart, effectivePeakEnd) = if (prefs.effectivePeakStart >= 0) {
+        // Mirror score()'s peak resolution exactly (quiz toggle + fallback to manual).
+        val useQuizPeak = prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0
+        val (effectivePeakStart, effectivePeakEnd) = if (useQuizPeak) {
             prefs.effectivePeakStart to prefs.effectivePeakEnd
         } else {
             prefs.peakEnergyStart to prefs.peakEnergyEnd
         }
 
-        val isPeakHour = hour in effectivePeakStart..effectivePeakEnd
+        val isPeakHour = isHourInPeakWindow(hour, effectivePeakStart, effectivePeakEnd)
         val isMorning = hour < effectivePeakStart
         val isLowEnergySlot = hour in 13..15
 

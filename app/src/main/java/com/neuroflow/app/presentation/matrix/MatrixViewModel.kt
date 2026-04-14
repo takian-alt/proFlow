@@ -11,6 +11,7 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -22,6 +23,7 @@ data class MatrixUiState(
     val topScoredTaskId: String? = null,
     val allActiveTasks: List<TaskEntity> = emptyList(),
     val preferences: UserPreferences = UserPreferences(),
+    val energy: EnergyScoreRepository.EnergyUiModel? = null,
     val isLoading: Boolean = true
 )
 
@@ -29,7 +31,8 @@ data class MatrixUiState(
 class MatrixViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
-    private val preferencesDataStore: UserPreferencesDataStore
+    private val preferencesDataStore: UserPreferencesDataStore,
+    private val energyScoreRepository: EnergyScoreRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MatrixUiState())
@@ -39,8 +42,9 @@ class MatrixViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 taskRepository.observeActiveTasks(),
-                preferencesDataStore.preferencesFlow
-            ) { tasks, prefs ->
+                preferencesDataStore.preferencesFlow,
+                energyScoreRepository.observeEnergy()
+            ) { tasks, prefs, energy ->
                 val byQuadrant = Quadrant.entries.associateWith { q ->
                     tasks.filter { it.quadrant == q }
                 }
@@ -52,6 +56,7 @@ class MatrixViewModel @Inject constructor(
                     topScoredTaskId = sorted.firstOrNull()?.id,
                     allActiveTasks = tasks,
                     preferences = prefs,
+                    energy = energy,
                     isLoading = false
                 )
             }.collect { state ->

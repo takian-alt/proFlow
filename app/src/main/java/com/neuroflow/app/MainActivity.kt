@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,7 @@ import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.presentation.common.GoalPeriod
 import com.neuroflow.app.presentation.common.TopGoalsRefillCard
 import com.neuroflow.app.presentation.common.NeuroFlowApp
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var preferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var taskRepository: TaskRepository
+    @Inject lateinit var sleepPressureRepository: SleepPressureRepository
 
     private var initialFocusTaskId by mutableStateOf<String?>(null)
     private var initialWoopTaskId by mutableStateOf<String?>(null)
@@ -101,6 +104,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            sleepPressureRepository.refreshCurrentPressure()
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -137,11 +143,12 @@ class MainActivity : ComponentActivity() {
                         !prefs.onboardingCompleted -> OnboardingScreen(
                             onComplete = { data ->
                                 scope.launch {
-                                    // Convert energy period string → peak hour range
-                                    val (peakStart, peakEnd) = when (data.peakEnergyPeriod) {
-                                        "afternoon" -> 12 to 17
-                                        "evening"   -> 17 to 21
-                                        else        -> 9 to 12  // morning (default)
+                                    // Map chronotype to peak hour range for UI display
+                                    val (peakStart, peakEnd) = when (data.manualChronotype) {
+                                        "MODERATE_MORNING", "DEFINITE_MORNING" -> 9 to 12
+                                        "INTERMEDIATE" -> 12 to 17
+                                        "MODERATE_EVENING", "DEFINITE_EVENING" -> 17 to 21
+                                        else -> 9 to 12  // default
                                     }
                                     preferencesDataStore.updatePreferences { it.copy(
                                         identityLabel      = data.identityLabel,
@@ -149,6 +156,7 @@ class MainActivity : ComponentActivity() {
                                         wakeUpHour         = data.wakeUpHour,
                                         peakEnergyStart    = peakStart,
                                         peakEnergyEnd      = peakEnd,
+                                        manualChronotype   = data.manualChronotype,
                                         onboardingCompleted = true
                                     )}
                                     // Insert the "first task" as a DO_FIRST task if provided
@@ -274,6 +282,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            sleepPressureRepository.refreshCurrentPressure()
         }
     }
 }

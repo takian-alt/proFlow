@@ -10,6 +10,7 @@ import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
+import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -18,6 +19,7 @@ import javax.inject.Inject
 data class AnalyticsUiState(
     val summary: AnalyticsEngine.AnalyticsSummary? = null,
     val preferences: UserPreferences = UserPreferences(),
+    val energy: EnergyScoreRepository.EnergyUiModel? = null,
     val isLoading: Boolean = true,
     val activeContracts: List<UlyssesContractEntity> = emptyList(),
     val archivedContracts: List<UlyssesContractEntity> = emptyList()
@@ -28,7 +30,8 @@ class AnalyticsViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val contractRepository: UlyssesContractRepository
+    private val contractRepository: UlyssesContractRepository,
+    private val energyScoreRepository: EnergyScoreRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AnalyticsUiState())
@@ -56,6 +59,10 @@ class AnalyticsViewModel @Inject constructor(
 
         contractRepository.observeArchived().onEach { contracts ->
             _uiState.update { it.copy(archivedContracts = contracts) }
+        }.launchIn(viewModelScope)
+
+        energyScoreRepository.observeEnergy().onEach { energy ->
+            _uiState.update { it.copy(energy = energy) }
         }.launchIn(viewModelScope)
     }
 

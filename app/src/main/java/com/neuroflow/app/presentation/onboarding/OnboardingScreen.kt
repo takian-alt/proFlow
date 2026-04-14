@@ -15,7 +15,7 @@ import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 
 data class OnboardingData(
     val identityLabel: String = "",
-    val peakEnergyPeriod: String = "morning",
+    val manualChronotype: String = "MODERATE_MORNING",
     val topGoal: String = "",
     val firstTask: String = "",
     val wakeUpHour: Int = 7
@@ -61,7 +61,7 @@ fun OnboardingScreen(
             ) {
                 when (currentStep) {
                     0 -> IdentityStep(data.identityLabel) { data = data.copy(identityLabel = it) }
-                    1 -> EnergyStep(data.peakEnergyPeriod) { data = data.copy(peakEnergyPeriod = it) }
+                    1 -> EnergyStep(data.manualChronotype) { data = data.copy(manualChronotype = it) }
                     2 -> GoalStep(data.topGoal) { data = data.copy(topGoal = it) }
                     3 -> FirstTaskStep(data.firstTask) { data = data.copy(firstTask = it) }
                     4 -> WakeTimeStep(data.wakeUpHour) { data = data.copy(wakeUpHour = it) }
@@ -145,9 +145,9 @@ private fun EnergyStep(selected: String, onSelect: (String) -> Unit) {
         )
         Spacer(modifier = Modifier.height(32.dp))
         listOf(
-            Triple("🌅 Morning", "morning", "6 AM – 12 PM"),
-            Triple("☀ Afternoon", "afternoon", "12 PM – 5 PM"),
-            Triple("🌙 Evening", "evening", "5 PM – 10 PM")
+            Triple("🌅 Morning", "MODERATE_MORNING", "6 AM – 12 PM"),
+            Triple("☀ Afternoon", "INTERMEDIATE", "12 PM – 5 PM"),
+            Triple("🌙 Evening", "DEFINITE_EVENING", "5 PM – 10 PM")
         ).forEach { (label, value, subtitle) ->
             Card(
                 modifier = Modifier

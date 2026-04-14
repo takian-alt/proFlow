@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.StrictMode
 import android.os.UserManager
 import android.util.Log
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -34,23 +35,31 @@ object DeviceOwnerKioskManager {
     private const val RESTRICTION_DISALLOW_APPS_CONTROL = "no_control_apps"
 
     fun isStrictModeEnabled(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_STRICT_MODE, BuildConfig.KIOSK_STRICT_MODE)
+        return withDiskReadAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            prefs.getBoolean(KEY_STRICT_MODE, BuildConfig.KIOSK_STRICT_MODE)
+        }
     }
 
     fun setStrictModeEnabled(context: Context, enabled: Boolean) {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_STRICT_MODE, enabled).apply()
+        withDiskWriteAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            prefs.edit().putBoolean(KEY_STRICT_MODE, enabled).apply()
+        }
     }
 
     fun isCompanionModeEnabled(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_COMPANION_MODE, false)
+        return withDiskReadAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            prefs.getBoolean(KEY_COMPANION_MODE, false)
+        }
     }
 
     fun setCompanionModeEnabled(context: Context, enabled: Boolean) {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_COMPANION_MODE, enabled).apply()
+        withDiskWriteAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            prefs.edit().putBoolean(KEY_COMPANION_MODE, enabled).apply()
+        }
     }
 
     /**
@@ -58,15 +67,17 @@ object DeviceOwnerKioskManager {
      * Users can still disable it later from settings.
      */
     fun migrateStrictModeDefault(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        val alreadyMigrated = prefs.getBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, false)
-        if (alreadyMigrated) return
+        withDiskWriteAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            val alreadyMigrated = prefs.getBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, false)
+            if (alreadyMigrated) return
 
-        prefs.edit()
-            .putBoolean(KEY_STRICT_MODE, true)
-            .putBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, true)
-            .apply()
-        Log.i(TAG, "Applied strict-mode default migration (v1)")
+            prefs.edit()
+                .putBoolean(KEY_STRICT_MODE, true)
+                .putBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, true)
+                .apply()
+            Log.i(TAG, "Applied strict-mode default migration (v1)")
+        }
     }
 
     /**
@@ -343,16 +354,20 @@ object DeviceOwnerKioskManager {
     }
 
     private fun getTrackedHyperFocusSuspendedPackages(context: Context): Set<String> {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        return prefs.getStringSet(KEY_HYPERFOCUS_SUSPENDED_PACKAGES, emptySet())?.toSet() ?: emptySet()
+        return withDiskReadAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            prefs.getStringSet(KEY_HYPERFOCUS_SUSPENDED_PACKAGES, emptySet())?.toSet() ?: emptySet()
+        }
     }
 
     private fun setTrackedHyperFocusSuspendedPackages(context: Context, packages: Set<String>) {
-        val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        if (packages.isEmpty()) {
-            prefs.edit().remove(KEY_HYPERFOCUS_SUSPENDED_PACKAGES).apply()
-        } else {
-            prefs.edit().putStringSet(KEY_HYPERFOCUS_SUSPENDED_PACKAGES, packages).apply()
+        withDiskWriteAllowance {
+            val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            if (packages.isEmpty()) {
+                prefs.edit().remove(KEY_HYPERFOCUS_SUSPENDED_PACKAGES).apply()
+            } else {
+                prefs.edit().putStringSet(KEY_HYPERFOCUS_SUSPENDED_PACKAGES, packages).apply()
+            }
         }
     }
 
@@ -374,6 +389,24 @@ object DeviceOwnerKioskManager {
         } else {
             @Suppress("DEPRECATION")
             activityManager.isInLockTaskMode
+        }
+    }
+
+    private inline fun <T> withDiskReadAllowance(block: () -> T): T {
+        val oldPolicy = StrictMode.allowThreadDiskReads()
+        return try {
+            block()
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy)
+        }
+    }
+
+    private inline fun <T> withDiskWriteAllowance(block: () -> T): T {
+        val oldPolicy = StrictMode.allowThreadDiskWrites()
+        return try {
+            block()
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy)
         }
     }
 }

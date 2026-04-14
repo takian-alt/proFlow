@@ -11,14 +11,8 @@ import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
-import com.neuroflow.app.data.repository.WoopRepository
-import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
-import com.neuroflow.app.domain.engine.FreshStartEngine
-import com.neuroflow.app.domain.engine.PeakEnergyDetector
 import com.neuroflow.app.domain.engine.TaskScoringEngine
-import com.neuroflow.app.domain.engine.WoopEngine
-import com.neuroflow.app.domain.model.Recurrence
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -79,7 +73,10 @@ class FocusViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val woopRepository: WoopRepository,
+    private val sessionManager: FocusSessionManager,
+    private val woopManager: FocusWoopManager,
+    private val completionManager: FocusCompletionManager,
+    private val reminderScheduler: FocusReminderScheduler,
     private val application: Application
 ) : ViewModel() {
 
@@ -178,18 +175,13 @@ class FocusViewModel @Inject constructor(
 
     private fun loadWoopData() {
         viewModelScope.launch {
-            val woopData = woopRepository.getByTaskId(taskId)
-            val task = taskRepository.getById(taskId)
-            val prefs = preferencesDataStore.preferencesFlow.first()
-            val showWoopPrompt = prefs.woopEnabled && WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
-            val completedTasks = taskRepository.getCompletedTasks()
-            val dreadedTaskInsight = WoopEngine.dreadedTaskInsight(completedTasks)
+            val data = woopManager.load(taskId)
             _uiState.update {
                 it.copy(
-                    showWoopPrompt = showWoopPrompt,
-                    woopData = woopData,
-                    dreadedTaskInsight = dreadedTaskInsight,
-                    affectiveForecastError = task?.affectiveForecastError
+                    showWoopPrompt = data.showWoopPrompt,
+                    woopData = data.woopData,
+                    dreadedTaskInsight = data.dreadedTaskInsight,
+                    affectiveForecastError = data.affectiveForecastError
                 )
             }
         }
@@ -197,18 +189,14 @@ class FocusViewModel @Inject constructor(
 
     fun submitWoop(wish: String, outcome: String, obstacle: String, plan: String) {
         viewModelScope.launch {
-            val woop = WoopEntity(taskId = taskId, wish = wish, outcome = outcome, obstacle = obstacle, plan = plan)
-            woopRepository.upsert(woop)
-            val task = taskRepository.getById(taskId) ?: return@launch
-            taskRepository.update(task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis()))
+            val woop = woopManager.submit(taskId, wish, outcome, obstacle, plan) ?: return@launch
             _uiState.update { it.copy(showWoopPrompt = false, woopData = woop) }
         }
     }
 
     fun dismissWoop() {
         viewModelScope.launch {
-            val task = taskRepository.getById(taskId) ?: return@launch
-            taskRepository.update(task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis()))
+            if (!woopManager.dismiss(taskId)) return@launch
             _uiState.update { it.copy(showWoopPrompt = false) }
         }
     }
@@ -220,8 +208,7 @@ class FocusViewModel @Inject constructor(
 
     fun submitAffordanceRating(rating: Float) {
         viewModelScope.launch {
-            val task = taskRepository.getById(taskId) ?: return@launch
-            taskRepository.update(task.copy(affectiveForecastError = rating, updatedAt = System.currentTimeMillis()))
+            if (!woopManager.submitAffordanceRating(taskId, rating)) return@launch
             _uiState.update { it.copy(showAffordanceRating = false, affectiveForecastError = rating) }
         }
     }
@@ -236,27 +223,21 @@ class FocusViewModel @Inject constructor(
      */
     private fun restoreActiveSession() {
         viewModelScope.launch {
-            val openSession = sessionRepository.getOpenSessionForTask(taskId) ?: return@launch
             val now = System.currentTimeMillis()
-            val isPaused = openSession.pausedAt != null
-
-            // Elapsed = (now - startedAt) - totalPausedMs - (time since last pause if paused)
-            val pausedSinceMs = if (isPaused) now - openSession.pausedAt!! else 0L
-            val elapsedMs = (now - openSession.startedAt) - openSession.totalPausedMs - pausedSinceMs
-            val elapsedSec = maxOf(0L, elapsedMs / 1000L)
+            val restored = sessionManager.restoreActiveSession(taskId, now) ?: return@launch
 
             _uiState.update {
                 it.copy(
                     isTracking = true,
-                    isPaused = isPaused,
-                    elapsedSeconds = elapsedSec,
-                    activeSessionId = openSession.id
+                    isPaused = restored.isPaused,
+                    elapsedSeconds = restored.elapsedSeconds,
+                    activeSessionId = restored.sessionId
                 )
             }
 
             // Always restart the tick job — ViewModel may have been recreated while timer ran
             timerJob?.cancel()
-            if (!isPaused) startTimerTick()
+            if (!restored.isPaused) startTimerTick()
         }
     }
 
@@ -308,16 +289,7 @@ class FocusViewModel @Inject constructor(
         val now = System.currentTimeMillis()
 
         viewModelScope.launch {
-            // Persist open session to DB immediately — survives leaving the page
-            val session = TimeSessionEntity(
-                taskId = taskId,
-                startedAt = now,
-                endedAt = null,
-                pausedAt = null,
-                totalPausedMs = 0L,
-                sessionType = "MANUAL"
-            )
-            sessionRepository.insert(session)
+            val session = sessionManager.startSession(taskId, now)
             _uiState.update {
                 it.copy(isTracking = true, isPaused = false, elapsedSeconds = 0, activeSessionId = session.id)
             }
@@ -343,20 +315,11 @@ class FocusViewModel @Inject constructor(
         val now = System.currentTimeMillis()
 
         viewModelScope.launch {
-            val session = sessionRepository.getOpenSessionForTask(taskId) ?: return@launch
-            if (!state.isPaused) {
+            val pausedState = sessionManager.togglePause(taskId, state.isPaused, now) ?: return@launch
+            _uiState.update { it.copy(isPaused = pausedState) }
+            if (pausedState) {
                 timerJob?.cancel()
-                sessionRepository.update(session.copy(pausedAt = now))
-                _uiState.update { it.copy(isPaused = true) }
             } else {
-                val pausedDuration = now - (session.pausedAt ?: now)
-                sessionRepository.update(
-                    session.copy(
-                        pausedAt = null,
-                        totalPausedMs = session.totalPausedMs + pausedDuration
-                    )
-                )
-                _uiState.update { it.copy(isPaused = false) }
                 startTimerTick()
             }
         }
@@ -367,12 +330,7 @@ class FocusViewModel @Inject constructor(
         timerJob?.cancel()
         val now = System.currentTimeMillis()
         viewModelScope.launch {
-            val openSessions = sessionRepository.getOpenSessions()
-            openSessions.forEach { session ->
-                if (session.pausedAt == null) {
-                    sessionRepository.update(session.copy(pausedAt = now))
-                }
-            }
+            sessionManager.pauseAllOpenSessions(now)
             _uiState.update { it.copy(isPaused = true) }
         }
     }
@@ -436,39 +394,11 @@ class FocusViewModel @Inject constructor(
         }
 
         val now = System.currentTimeMillis()
-        val session = sessionRepository.getOpenSessionForTask(taskId)
-        if (session != null) {
-            val extraPausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
-            val totalPaused = session.totalPausedMs + extraPausedMs
-            val elapsedMs = (now - session.startedAt) - totalPaused
-            val durationMinutes = maxOf(0f, elapsedMs / 60_000f)
-
-            sessionRepository.update(
-                session.copy(
-                    endedAt = now,
-                    pausedAt = null,
-                    totalPausedMs = totalPaused,
-                    durationMinutes = durationMinutes
-                )
-            )
-
-            val task = taskRepository.getById(taskId)
-            task?.let {
-                taskRepository.update(
-                    it.copy(
-                        totalTimeTrackedMinutes = it.totalTimeTrackedMinutes + durationMinutes,
-                        sessionCount = it.sessionCount + 1,
-                        lastSessionDurationMinutes = durationMinutes,
-                        updatedAt = now
-                    )
-                )
-            }
-        }
+        sessionManager.finalizeSession(taskId, now)
         _uiState.update {
             it.copy(isTracking = false, isPaused = false, elapsedSeconds = 0, activeSessionId = null)
         }
 
-        updateDynamicPeak()
     }
 
     // ── POMODORO ──────────────────────────────────────────────────────────────
@@ -523,77 +453,14 @@ class FocusViewModel @Inject constructor(
             if (wasTracking) {
                 finalizeSessionSuspend()
             }
-
-            // If manual time was provided, insert a synthetic closed session
-            if (manualMinutes != null && manualMinutes > 0f) {
-                val now = System.currentTimeMillis()
-                val syntheticSession = com.neuroflow.app.data.local.entity.TimeSessionEntity(
-                    taskId = taskId,
-                    startedAt = now - (manualMinutes * 60_000f).toLong(),
-                    endedAt = now,
-                    durationMinutes = manualMinutes,
-                    sessionType = "MANUAL_LOG"
-                )
-                sessionRepository.insert(syntheticSession)
-            }
-
-            val task = taskRepository.getById(taskId) ?: return@launch
-            val sessions = sessionRepository.getByTaskId(taskId)
-            val actualDuration = sessions
-                .filter { it.endedAt != null && it.durationMinutes > 0f }
-                .sumOf { it.durationMinutes.toDouble() }.toFloat()
-
-            val mape = if (task.estimatedDurationMinutes > 0 && actualDuration > 0f)
-                AnalyticsEngine.computeMape(task.estimatedDurationMinutes.toFloat(), actualDuration) else null
-            val smape = if (task.estimatedDurationMinutes > 0 && actualDuration > 0f)
-                AnalyticsEngine.computeSmape(task.estimatedDurationMinutes.toFloat(), actualDuration) else null
-
-            val points = task.impactScore / 10
-            val now = System.currentTimeMillis()
-
-            val taskWithFocusData = task.copy(
-                actualDurationMinutes = actualDuration,
-                estimationErrorMape = mape,
-                estimationErrorSmape = smape,
-                focusModePoints = points,
-                updatedAt = now
-            )
-            taskRepository.completeAndRecur(taskWithFocusData, now)
-
-            val newHabitStreak = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE)
-                task.habitStreak + 1 else task.habitStreak
-
-            preferencesDataStore.updatePreferences { prefs ->
-                val now2 = System.currentTimeMillis()
-                val todayStart = run {
-                    val cal = java.util.Calendar.getInstance()
-                    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                    cal.set(java.util.Calendar.MINUTE, 0)
-                    cal.set(java.util.Calendar.SECOND, 0)
-                    cal.set(java.util.Calendar.MILLISECOND, 0)
-                    cal.timeInMillis
-                }
-                val yesterdayStart = todayStart - 86_400_000L
-                val newStreak = when {
-                    prefs.lastActiveDate >= todayStart -> prefs.dailyStreak
-                    prefs.lastActiveDate >= yesterdayStart -> prefs.dailyStreak + 1
-                    else -> 1
-                }
-                prefs.copy(
-                    totalTasksCompleted = prefs.totalTasksCompleted + 1,
-                    totalFocusMinutes = prefs.totalFocusMinutes + actualDuration.toInt(),
-                    dailyStreak = newStreak,
-                    lastActiveDate = now2,
-                    longestStreak = maxOf(prefs.longestStreak, newStreak)
-                )
-            }
+            val outcome = completionManager.completeTask(taskId, manualMinutes) ?: return@launch
 
             _uiState.update {
                 it.copy(
                     isCompleted = true,
-                    pointsEarned = points,
+                    pointsEarned = outcome.pointsEarned,
                     showCompletionSheet = true,
-                    completedHabitStreak = newHabitStreak,
+                    completedHabitStreak = outcome.newHabitStreak,
                     showAffordanceRating = true,
                     completionAffirmation = it.preferences.affirmations
                         .takeIf { list -> list.isNotEmpty() }
@@ -628,72 +495,15 @@ class FocusViewModel @Inject constructor(
     }
 
     /**
-     * Runs PeakEnergyDetector over all closed sessions and updates DataStore
-     * with the detected peak window and confidence score.
-     * Called after every session finalization.
-     */
-    private suspend fun updateDynamicPeak() {
-        val allSessions = sessionRepository.getAllSessions()
-        val result = PeakEnergyDetector.detect(allSessions)
-        preferencesDataStore.updatePreferences { prefs ->
-            val (effStart, effEnd) = if (result.hasEnoughData) {
-                PeakEnergyDetector.effectivePeak(prefs.peakEnergyStart, prefs.peakEnergyEnd, result)
-            } else {
-                prefs.peakEnergyStart to prefs.peakEnergyEnd
-            }
-            prefs.copy(
-                detectedPeakStart = if (result.hasEnoughData) result.detectedStart else prefs.detectedPeakStart,
-                detectedPeakEnd = if (result.hasEnoughData) result.detectedEnd else prefs.detectedPeakEnd,
-                peakDetectionConfidence = result.confidence,
-                effectivePeakStart = effStart,
-                effectivePeakEnd = effEnd
-            )
-        }
-    }
-
-    /**
      * Schedules OneTimeWorkRequests for each reminder flag set on the task.
      * Flags: 15min=1, 30min=2, 1hr=4, 1day=8 — before deadline or scheduled time.
      */
     fun scheduleReminders(task: TaskEntity) {
-        val workManager = androidx.work.WorkManager.getInstance(applicationContext)
-        val allReminderTags = listOf(1, 2, 4, 8).map { flag -> "reminder_${task.id}_$flag" }
-        allReminderTags.forEach { tag -> workManager.cancelAllWorkByTag(tag) }
-
-        if (!_uiState.value.preferences.deadlineReminderNotificationsEnabled) {
-            return
-        }
-
-        val targetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
-            ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-            ?: task.habitDate  // recurring tasks use habitDate (already includes time)
-            ?: return  // no time anchor — nothing to schedule against
-
-        val now = System.currentTimeMillis()
-        val flags = task.reminderFlags
-        val offsets = listOf(1 to 15L, 2 to 30L, 4 to 60L, 8 to 1440L)
-
-        offsets.forEach { (flag, minutesBefore) ->
-            if (flags and flag != 0) {
-                val fireAt = targetMs - minutesBefore * 60_000L
-                val delayMs = fireAt - now
-                if (delayMs > 0) {
-                    val data = androidx.work.Data.Builder()
-                        .putString("taskId", task.id)
-                        .putString("taskTitle", task.title)
-                        .putLong("targetMs", targetMs)
-                        .putLong("minutesBefore", minutesBefore)
-                        .build()
-                    val request = androidx.work.OneTimeWorkRequestBuilder<com.neuroflow.app.worker.TaskReminderWorker>()
-                        .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                        .setInputData(data)
-                        .addTag("reminder_${task.id}_${flag}")
-                        .addTag("task_reminder_all")
-                        .build()
-                    workManager.enqueue(request)
-                }
-            }
-        }
+        reminderScheduler.schedule(
+            task = task,
+            notificationsEnabled = _uiState.value.preferences.deadlineReminderNotificationsEnabled,
+            applicationContext = applicationContext
+        )
     }
 
     companion object {
