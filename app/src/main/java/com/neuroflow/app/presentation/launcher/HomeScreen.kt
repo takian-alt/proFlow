@@ -459,6 +459,7 @@ private fun PortraitLayout(
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val badgeCounts by viewModel.badgeCounts.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
+    val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle(initialValue = null)
     val appRepository = viewModel.getAppRepository()
 
     // HyperFocus state — Requirements: 6.2
@@ -510,6 +511,7 @@ private fun PortraitLayout(
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     prefs = userPreferences,
+                    effectivePeakProfile = peakDetection?.effectiveProfile,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
                         val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
@@ -629,6 +631,7 @@ private fun LandscapeLayout(
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
+    val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle(initialValue = null)
 
     Column(
         modifier = Modifier
@@ -663,6 +666,7 @@ private fun LandscapeLayout(
                     focusElapsedSeconds = focusElapsedSeconds,
                     hasActiveTasks = allActiveTasks.isNotEmpty(),
                     prefs = userPreferences,
+                    effectivePeakProfile = peakDetection?.effectiveProfile,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
                         val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
@@ -732,6 +736,7 @@ private fun TwoColumnLayout(
     val focusElapsedSeconds by viewModel.focusElapsedSeconds.collectAsStateWithLifecycle()
     val allActiveTasks by viewModel.allActiveTasks.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
+    val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle(initialValue = null)
 
     Row(
         modifier = Modifier
@@ -754,6 +759,7 @@ private fun TwoColumnLayout(
                 focusElapsedSeconds = focusElapsedSeconds,
                 hasActiveTasks = allActiveTasks.isNotEmpty(),
                 prefs = userPreferences,
+                effectivePeakProfile = peakDetection?.effectiveProfile,
                 onSkip = { taskId -> viewModel.skipTask(taskId) },
                 onStartFocus = { taskId ->
                     val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId

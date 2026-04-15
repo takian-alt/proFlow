@@ -529,6 +529,9 @@ class FocusViewModel @Inject constructor(
 
     fun onNavigationAttempted() {
         if (!_uiState.value.isTracking) return
+        viewModelScope.launch {
+            sessionManager.recordInterruptionBurst(taskId, appSwitchDelta = 1)
+        }
         navigationInterstitialJob?.cancel()
         _uiState.update { it.copy(showNavigationInterstitial = true, navigationInterstitialSecondsLeft = 3) }
         navigationInterstitialJob = viewModelScope.launch {

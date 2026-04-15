@@ -2,6 +2,7 @@ package com.neuroflow.app.domain.repository
 
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.domain.engine.EnergyScoreEngine
+import com.neuroflow.app.domain.engine.PeakEnergyEngine
 import com.neuroflow.app.domain.engine.SleepPressureDetector
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,6 +33,7 @@ class EnergyScoreRepository @Inject constructor(
         val circadianFactor: Float,
         val reservoirFactor: Float,
         val confidenceFactor: Float,
+        val effectivePeakProfile: PeakEnergyEngine.EffectivePeakProfile? = null,
         val refreshedAtMillis: Long
     )
 
@@ -79,6 +81,7 @@ class EnergyScoreRepository @Inject constructor(
                 circadianFactor = score.circadianFactor,
                 reservoirFactor = score.reservoirFactor,
                 confidenceFactor = score.confidenceFactor,
+                effectivePeakProfile = peakDetection.effectiveProfile,
                 refreshedAtMillis = nowMillis
             )
         }

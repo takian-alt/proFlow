@@ -23,6 +23,7 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPrefere
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.data.FolderDefinition
@@ -58,6 +59,7 @@ class LauncherViewModel @Inject constructor(
     private val launcherBackupManager: com.neuroflow.app.presentation.launcher.data.LauncherBackupManager,
     private val iconPackManager: com.neuroflow.app.presentation.launcher.data.IconPackManager,
     private val hyperFocusDataStore: HyperFocusDataStore,
+    private val peakEnergyRepository: PeakEnergyRepository,
 ) : ViewModel() {
 
     init {
@@ -357,6 +359,9 @@ class LauncherViewModel @Inject constructor(
      * Exposed for FreshStart detection in LauncherActivity.
      */
     val userPreferences = userPreferencesDataStore.preferencesFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val peakDetection = peakEnergyRepository.peakEnergyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /**

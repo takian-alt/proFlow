@@ -26,9 +26,9 @@ class EnergyScoreEngineTest : StringSpec({
         closeTo(result.reservoirFactor, 0.97375f)
         closeTo(result.circadianFactor, 1.0f)
         closeTo(result.peakScore, 97.375f)
-        closeTo(result.fatiguePenalty, 50.0f)
-        closeTo(result.rawEnergy, 47.375f)
-        closeTo(result.usableEnergy, 73.6875f)
+        closeTo(result.fatiguePenalty, 56.64419f, tolerance = 0.01f)
+        closeTo(result.rawEnergy, 40.73081f, tolerance = 0.01f)
+        closeTo(result.usableEnergy, 70.3654f, tolerance = 0.01f)
     }
 
     "sleep pressure penalty clamps at soft max" {
@@ -55,6 +55,24 @@ class EnergyScoreEngineTest : StringSpec({
         val rawFromDetailed = EnergyScoreEngine.calculateDetailed(snapshot).rawEnergy
 
         closeTo(rawFromCalculate, rawFromDetailed)
+    }
+
+    "usable energy is normalized from raw energy bounds" {
+        val max = EnergyScoreEngine.calculateDetailed(
+            EnergyScoreEngine.EnergySnapshot(
+                peakEnergy = detectionResult(confidence = 1.0f),
+                sleepPressurePoints = 0,
+                nowMillis = millisAtMinuteOfDay(105)
+            )
+        )
+        val min = EnergyScoreEngine.calculateDetailed(
+            EnergyScoreEngine.EnergySnapshot(
+                sleepPressurePoints = 9999
+            )
+        )
+
+        closeTo(max.usableEnergy, ((max.rawEnergy + 100f) / 2f).coerceIn(0f, 100f))
+        closeTo(min.usableEnergy, ((min.rawEnergy + 100f) / 2f).coerceIn(0f, 100f))
     }
 
 })

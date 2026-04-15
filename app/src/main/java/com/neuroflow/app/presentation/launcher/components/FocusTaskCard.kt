@@ -55,6 +55,7 @@ import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.formatFullDate
 import com.neuroflow.app.presentation.common.formatRelativeTime
 import com.neuroflow.app.presentation.launcher.theme.LocalLauncherTheme
@@ -93,6 +94,7 @@ fun FocusTaskCard(
     focusElapsedSeconds: Int = 0,
     hasActiveTasks: Boolean = true,
     prefs: com.neuroflow.app.data.local.UserPreferences? = null,
+    effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile? = null,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
     onStopFocus: () -> Unit = {},
@@ -129,6 +131,7 @@ fun FocusTaskCard(
                 focusElapsedSeconds = focusElapsedSeconds,
                 showTaskScore = theme.showTaskScore,
                 prefs = prefs,
+                effectivePeakProfile = effectivePeakProfile,
                 onSkip = { onSkip(topTask.id) },
                 onStartFocus = { onStartFocus(topTask.id) },
                 onStopFocus = onStopFocus
@@ -231,6 +234,7 @@ private fun TaskContent(
     focusElapsedSeconds: Int,
     showTaskScore: Boolean,
     prefs: com.neuroflow.app.data.local.UserPreferences?,
+    effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?,
     onSkip: () -> Unit,
     onStartFocus: () -> Unit,
     onStopFocus: () -> Unit = {}
@@ -278,6 +282,11 @@ private fun TaskContent(
             overflow = TextOverflow.Ellipsis
         )
 
+        PersonalizedPeakHint(
+            prefs = prefs,
+            effectivePeakProfile = effectivePeakProfile
+        )
+
         // WOOP obstacle and plan (if present)
         if (woopEntity != null && woopEntity.obstacle.isNotBlank()) {
             WoopReminder(woopEntity = woopEntity)
@@ -316,6 +325,65 @@ private fun TaskContent(
             ActionButtons(
                 onStartFocus = onStartFocus,
                 onSkip = onSkip
+            )
+        }
+    }
+}
+
+@Composable
+private fun PersonalizedPeakHint(
+    prefs: com.neuroflow.app.data.local.UserPreferences?,
+    effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?
+) {
+    if (prefs == null) return
+    val chronotype = prefs.quizChronotype ?: prefs.manualChronotype
+    val isMorningType = EnergyInsight.isMorningType(chronotype)
+    if (!isMorningType) return
+
+    val effectiveMinute = effectivePeakProfile?.anchorMinuteOfDay ?: EnergyInsight.effectivePeakMinuteOfDay(prefs)
+    val confidencePct = effectivePeakProfile?.confidence?.overall?.let { (it * 100f).toInt() }
+        ?: EnergyInsight.confidencePercent(prefs)
+    val timingText = EnergyInsight.timingHintForNow(effectiveMinute)
+
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+        shape = MaterialTheme.shapes.small
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Morning profile: $timingText",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = "Conf $confidencePct%",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = EnergyInsight.profileSummary(effectivePeakProfile),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = EnergyInsight.profileModeLabel(
+                    manualOverrideEnabled = prefs.manualPeakProfileEnabled,
+                    profile = effectivePeakProfile
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     }

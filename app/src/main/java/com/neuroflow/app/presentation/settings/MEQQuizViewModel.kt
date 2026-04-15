@@ -227,8 +227,14 @@ class MEQQuizViewModel @Inject constructor(
         val meqResult = MEQChronotypeDetector.detect(answerScores)
         val chronotype = meqResult.chronotype
         val meqScore = meqResult.totalScore
-        val wakeUpHour = _preferences.value?.wakeUpHour ?: 7
-        val peakResult = PeakEnergyEngine.detect(meqResult, wakeUpHour)
+        val prefs = _preferences.value
+        val wakeUpHour = prefs?.wakeUpHour ?: 7
+        val peakResult = PeakEnergyEngine.detect(
+            meqResult = meqResult,
+            wakeUpHour = wakeUpHour,
+            sleepHour = prefs?.sleepHour,
+            sleepPressurePoints = prefs?.sleepPressurePoints ?: 0
+        )
         
         _quizState.value = currentState.copy(
             isComplete = true,

@@ -154,9 +154,17 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
     }
 }
 
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE time_sessions ADD COLUMN pauseResumeCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE time_sessions ADD COLUMN appSwitchCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE time_sessions ADD COLUMN interruptionBurstCount INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 @Database(
     entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

@@ -41,6 +41,9 @@ class FocusSessionManager @Inject constructor(
             endedAt = null,
             pausedAt = null,
             totalPausedMs = 0L,
+            pauseResumeCount = 0,
+            appSwitchCount = 0,
+            interruptionBurstCount = 0,
             sessionType = "MANUAL"
         )
         sessionRepository.insert(session)
@@ -50,14 +53,20 @@ class FocusSessionManager @Inject constructor(
     suspend fun togglePause(taskId: String, currentlyPaused: Boolean, now: Long): Boolean? {
         val session = sessionRepository.getOpenSessionForTask(taskId) ?: return null
         return if (!currentlyPaused) {
-            sessionRepository.update(session.copy(pausedAt = now))
+            sessionRepository.update(
+                session.copy(
+                    pausedAt = now,
+                    pauseResumeCount = session.pauseResumeCount + 1
+                )
+            )
             true
         } else {
             val pausedDuration = now - (session.pausedAt ?: now)
             sessionRepository.update(
                 session.copy(
                     pausedAt = null,
-                    totalPausedMs = session.totalPausedMs + pausedDuration
+                    totalPausedMs = session.totalPausedMs + pausedDuration,
+                    pauseResumeCount = session.pauseResumeCount + 1
                 )
             )
             false
@@ -68,9 +77,24 @@ class FocusSessionManager @Inject constructor(
         val openSessions = sessionRepository.getOpenSessions()
         openSessions.forEach { session ->
             if (session.pausedAt == null) {
-                sessionRepository.update(session.copy(pausedAt = now))
+                sessionRepository.update(
+                    session.copy(
+                        pausedAt = now,
+                        pauseResumeCount = session.pauseResumeCount + 1
+                    )
+                )
             }
         }
+    }
+
+    suspend fun recordInterruptionBurst(taskId: String, appSwitchDelta: Int = 1) {
+        val session = sessionRepository.getOpenSessionForTask(taskId) ?: return
+        sessionRepository.update(
+            session.copy(
+                appSwitchCount = (session.appSwitchCount + appSwitchDelta).coerceAtLeast(0),
+                interruptionBurstCount = session.interruptionBurstCount + 1
+            )
+        )
     }
 
     suspend fun finalizeSession(taskId: String, now: Long): Float? {

@@ -12,6 +12,8 @@ import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -22,7 +24,12 @@ data class AnalyticsUiState(
     val energy: EnergyScoreRepository.EnergyUiModel? = null,
     val isLoading: Boolean = true,
     val activeContracts: List<UlyssesContractEntity> = emptyList(),
-    val archivedContracts: List<UlyssesContractEntity> = emptyList()
+    val archivedContracts: List<UlyssesContractEntity> = emptyList(),
+    val interruptionPauseResumeCount: Int = 0,
+    val interruptionAppSwitchCount: Int = 0,
+    val interruptionBurstCount: Int = 0,
+    val interruptionTrend7d: List<Pair<String, Int>> = emptyList(),
+    val interruptionRatePerHourTrend7d: List<Pair<String, Float>> = emptyList()
 )
 
 @HiltViewModel
@@ -48,9 +55,29 @@ class AnalyticsViewModel @Inject constructor(
                 allSessions = sessions,
                 prefs = prefs
             )
-            AnalyticsUiState(summary = summary, preferences = prefs, isLoading = false)
+            AnalyticsUiState(
+                summary = summary,
+                preferences = prefs,
+                isLoading = false,
+                interruptionPauseResumeCount = sessions.sumOf { it.pauseResumeCount },
+                interruptionAppSwitchCount = sessions.sumOf { it.appSwitchCount },
+                interruptionBurstCount = sessions.sumOf { it.interruptionBurstCount },
+                interruptionTrend7d = interruptionTrend7d(sessions),
+                interruptionRatePerHourTrend7d = interruptionRatePerHourTrend7d(sessions)
+            )
         }.onEach { state ->
-            _uiState.update { it.copy(summary = state.summary, preferences = state.preferences, isLoading = state.isLoading) }
+            _uiState.update {
+                it.copy(
+                    summary = state.summary,
+                    preferences = state.preferences,
+                    isLoading = state.isLoading,
+                    interruptionPauseResumeCount = state.interruptionPauseResumeCount,
+                    interruptionAppSwitchCount = state.interruptionAppSwitchCount,
+                    interruptionBurstCount = state.interruptionBurstCount,
+                    interruptionTrend7d = state.interruptionTrend7d,
+                    interruptionRatePerHourTrend7d = state.interruptionRatePerHourTrend7d
+                )
+            }
         }.launchIn(viewModelScope)
 
         contractRepository.observeActive().onEach { contracts ->
@@ -69,6 +96,47 @@ class AnalyticsViewModel @Inject constructor(
     fun resetEstimationData() {
         viewModelScope.launch {
             taskRepository.resetEstimationErrors()
+        }
+    }
+
+    private fun interruptionTrend7d(
+        sessions: List<com.neuroflow.app.data.local.entity.TimeSessionEntity>
+    ): List<Pair<String, Int>> {
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone).toLocalDate()
+        val counts = mutableMapOf<java.time.LocalDate, Int>()
+        sessions.forEach { s ->
+            val date = Instant.ofEpochMilli(s.startedAt).atZone(zone).toLocalDate()
+            val score = s.pauseResumeCount + s.appSwitchCount + s.interruptionBurstCount
+            counts[date] = (counts[date] ?: 0) + score
+        }
+        return (6 downTo 0).map { daysAgo ->
+            val date = today.minusDays(daysAgo.toLong())
+            val label = date.dayOfWeek.name.take(3)
+            label.lowercase().replaceFirstChar { it.uppercase() } to (counts[date] ?: 0)
+        }
+    }
+
+    private fun interruptionRatePerHourTrend7d(
+        sessions: List<com.neuroflow.app.data.local.entity.TimeSessionEntity>
+    ): List<Pair<String, Float>> {
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone).toLocalDate()
+        val interruptionByDate = mutableMapOf<java.time.LocalDate, Int>()
+        val minutesByDate = mutableMapOf<java.time.LocalDate, Float>()
+        sessions.forEach { s ->
+            val date = Instant.ofEpochMilli(s.startedAt).atZone(zone).toLocalDate()
+            val interruptions = s.pauseResumeCount + s.appSwitchCount + s.interruptionBurstCount
+            interruptionByDate[date] = (interruptionByDate[date] ?: 0) + interruptions
+            minutesByDate[date] = (minutesByDate[date] ?: 0f) + s.durationMinutes.coerceAtLeast(0f)
+        }
+        return (6 downTo 0).map { daysAgo ->
+            val date = today.minusDays(daysAgo.toLong())
+            val label = date.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
+            val interruptions = interruptionByDate[date] ?: 0
+            val hours = (minutesByDate[date] ?: 0f) / 60f
+            val rate = if (hours <= 0.05f) 0f else interruptions.toFloat() / hours
+            label to rate
         }
     }
 }

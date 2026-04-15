@@ -13,6 +13,9 @@ data class TimeSessionEntity(
     val pausedAt: Long? = null,      // null = not paused
     val totalPausedMs: Long = 0L,    // accumulated paused time
     val durationMinutes: Float = 0f, // filled on stop
+    val pauseResumeCount: Int = 0,   // number of pause/resume toggles during session
+    val appSwitchCount: Int = 0,     // foreground app switches observed while session active
+    val interruptionBurstCount: Int = 0, // grouped interruption bursts
     val sessionType: String = "MANUAL",
     val pomodoroNumber: Int = 0,
     val notes: String = ""

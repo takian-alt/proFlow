@@ -1,6 +1,7 @@
 package com.neuroflow.app.domain.engine
 
 import kotlin.math.roundToInt
+import kotlin.math.pow
 
 /**
  * Sleep pressure model based on accumulated wake time and cycle-based sleep recovery.
@@ -25,6 +26,7 @@ object SleepPressureDetector {
     const val PHASE_TWO_BONUS = 33
     const val FULL_CYCLE_RECOVERY = 279
     const val SOFT_MAX_REFERENCE = 3000
+    private const val FATIGUE_CURVE_GAMMA = 0.82f
 
     enum class FatigueZone {
         RESTED,
@@ -109,12 +111,23 @@ object SleepPressureDetector {
 
     /**
      * Maps raw pressure points to a user-facing 0..100 fatigue percentage using
-     * [SOFT_MAX_REFERENCE] as the soft upper bound.
+     * [SOFT_MAX_REFERENCE] as the soft upper bound and a nonlinear fatigue curve.
      */
     fun fatiguePercent(pressurePoints: Int, softMaxReference: Int = SOFT_MAX_REFERENCE): Int {
+        return (fatigueRatio(pressurePoints, softMaxReference) * 100f)
+            .roundToInt()
+            .coerceIn(0, 100)
+    }
+
+    /**
+     * Fatigue ratio in [0..1] using a concave curve so fatigue rises earlier than
+     * linear mapping and better matches subjective tiredness in long wake windows.
+     */
+    fun fatigueRatio(pressurePoints: Int, softMaxReference: Int = SOFT_MAX_REFERENCE): Float {
         val safeMax = softMaxReference.coerceAtLeast(1)
         val safePressure = pressurePoints.coerceAtLeast(0)
-        return ((safePressure * 100f) / safeMax).roundToInt().coerceIn(0, 100)
+        val ratio = (safePressure.toFloat() / safeMax.toFloat()).coerceIn(0f, 1f)
+        return ratio.pow(FATIGUE_CURVE_GAMMA).coerceIn(0f, 1f)
     }
 
     /**

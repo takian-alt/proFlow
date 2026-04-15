@@ -11,18 +11,11 @@ object EnergyScoreEngine {
     private const val MINUTES_PER_DAY = 24 * 60
     private const val PERCENT_SCALE = 100f
 
-    // Morning-profile circadian windows (relative to personal peak anchor).
-    private const val FIRST_PEAK_START_MINUTES = 0
-    private const val SECOND_PEAK_START_MINUTES = 570   // 9.5h
-    private const val THIRD_PEAK_START_MINUTES = 810    // 13.5h
-
-    private const val FIRST_PEAK_DURATION_MINUTES = 210 // 3.5h
-    private const val SECOND_PEAK_DURATION_MINUTES = 150 // 2.5h
-    private const val THIRD_PEAK_DURATION_MINUTES = 60  // 1h
-
-    private const val FIRST_PEAK_AMPLITUDE = 1.0f
-    private const val SECOND_PEAK_AMPLITUDE = 0.8f
-    private const val THIRD_PEAK_AMPLITUDE = 0.6f
+    private val DEFAULT_WINDOWS = listOf(
+        PeakEnergyEngine.PeakWindow(startMinuteOffset = 0, durationMinutes = 210, amplitude = 1.0f),
+        PeakEnergyEngine.PeakWindow(startMinuteOffset = 570, durationMinutes = 150, amplitude = 0.8f),
+        PeakEnergyEngine.PeakWindow(startMinuteOffset = 810, durationMinutes = 60, amplitude = 0.6f)
+    )
 
     data class ScoreResult(
         val rawEnergy: Float,
@@ -62,13 +55,16 @@ object EnergyScoreEngine {
 
         val circadianFactor = if (peak != null) {
             val minutesSincePeak = peak.minutesSincePeak(snapshot.nowMillis)
-            circadianFactor(minutesSincePeak)
+            circadianFactor(minutesSincePeak, peak.circadianProfile)
         } else {
             0f
         }
 
         val confidenceFactor = peak?.confidence?.coerceIn(0f, 1f) ?: 0f
-        val sleepPressureRatio = (pressurePoints.toFloat() / safeSoftMax.toFloat()).coerceIn(0f, 1f)
+        val sleepPressureRatio = SleepPressureDetector.fatigueRatio(
+            pressurePoints = pressurePoints,
+            softMaxReference = safeSoftMax
+        )
 
         val peakScore = (PERCENT_SCALE * reservoirFactor * circadianFactor * confidenceFactor)
             .coerceIn(0f, PERCENT_SCALE)
@@ -91,29 +87,20 @@ object EnergyScoreEngine {
     /**
      * Cosine-window circadian profile with three user-defined peaks.
      */
-    fun circadianFactor(minutesSincePeak: Int): Float {
+    fun circadianFactor(
+        minutesSincePeak: Int,
+        profile: PeakEnergyEngine.CircadianProfile? = null
+    ): Float {
         val wrapped = wrapMinutes(minutesSincePeak)
-
-        val firstPeak = peakWindow(
-            minute = wrapped,
-            startMinute = FIRST_PEAK_START_MINUTES,
-            durationMinutes = FIRST_PEAK_DURATION_MINUTES,
-            amplitude = FIRST_PEAK_AMPLITUDE
-        )
-        val secondPeak = peakWindow(
-            minute = wrapped,
-            startMinute = SECOND_PEAK_START_MINUTES,
-            durationMinutes = SECOND_PEAK_DURATION_MINUTES,
-            amplitude = SECOND_PEAK_AMPLITUDE
-        )
-        val thirdPeak = peakWindow(
-            minute = wrapped,
-            startMinute = THIRD_PEAK_START_MINUTES,
-            durationMinutes = THIRD_PEAK_DURATION_MINUTES,
-            amplitude = THIRD_PEAK_AMPLITUDE
-        )
-
-        val combined = firstPeak + secondPeak + thirdPeak
+        val windows = profile?.windows ?: DEFAULT_WINDOWS
+        val combined = windows.sumOf { window ->
+            peakWindow(
+                minute = wrapped,
+                startMinute = window.startMinuteOffset,
+                durationMinutes = window.durationMinutes,
+                amplitude = window.amplitude
+            ).toDouble()
+        }.toFloat()
         return combined.coerceIn(0f, 1f)
     }
 
@@ -125,7 +112,7 @@ object EnergyScoreEngine {
     ): Float {
         if (durationMinutes <= 0) return 0f
         val endMinute = startMinute + durationMinutes
-        if (minute < startMinute || minute > endMinute) return 0f
+        if (minute < startMinute || minute >= endMinute) return 0f
 
         val phase = (minute - startMinute).toFloat() / durationMinutes.toFloat()
         val raw = 0.5f * (1f - cos((2.0 * PI * phase).toFloat()))

@@ -89,7 +89,24 @@ data class UserPreferences(
     // Sleep pressure state (recomputed from logs + elapsed awake time)
     val sleepPressurePoints: Int = 0,
     val sleepPressureTrackingStartedAtMillis: Long = 0L,
-    val sleepPressureLastComputedAtMillis: Long = 0L
+    val sleepPressureLastComputedAtMillis: Long = 0L,
+    // Morning calibration auto-tune coefficients (bounded adaptive blend)
+    val morningTuneSleepWeight: Float = 0.30f,
+    val morningTuneWakeWeight: Float = 0.25f,
+    val morningTuneBehaviorWeight: Float = 0.25f,
+    val morningTuneBaseWeight: Float = 0.20f,
+    val morningTuneUpdatedAtMillis: Long = 0L,
+    val morningTuneVersion: Int = 1,
+    // Manual peak profile override controls
+    val manualPeakProfileEnabled: Boolean = false,
+    val manualPeakProfileType: String = "AUTO",
+    val manualPeakAnchorMinuteOfDay: Int = 360,
+    val manualPeakWindow1DurationMinutes: Int = 210,
+    val manualPeakWindow2DurationMinutes: Int = 150,
+    val manualPeakWindow3DurationMinutes: Int = 60,
+    val manualPeakWindow1Amplitude: Float = 1.0f,
+    val manualPeakWindow2Amplitude: Float = 0.8f,
+    val manualPeakWindow3Amplitude: Float = 0.6f
 )
 
 @Singleton
@@ -158,6 +175,21 @@ class UserPreferencesDataStore @Inject constructor(
         val SLEEP_PRESSURE_POINTS = intPreferencesKey("sleep_pressure_points")
         val SLEEP_PRESSURE_TRACKING_STARTED_AT = longPreferencesKey("sleep_pressure_tracking_started_at")
         val SLEEP_PRESSURE_LAST_COMPUTED_AT = longPreferencesKey("sleep_pressure_last_computed_at")
+        val MORNING_TUNE_SLEEP_WEIGHT = floatPreferencesKey("morning_tune_sleep_weight")
+        val MORNING_TUNE_WAKE_WEIGHT = floatPreferencesKey("morning_tune_wake_weight")
+        val MORNING_TUNE_BEHAVIOR_WEIGHT = floatPreferencesKey("morning_tune_behavior_weight")
+        val MORNING_TUNE_BASE_WEIGHT = floatPreferencesKey("morning_tune_base_weight")
+        val MORNING_TUNE_UPDATED_AT = longPreferencesKey("morning_tune_updated_at")
+        val MORNING_TUNE_VERSION = intPreferencesKey("morning_tune_version")
+        val MANUAL_PEAK_PROFILE_ENABLED = booleanPreferencesKey("manual_peak_profile_enabled")
+        val MANUAL_PEAK_PROFILE_TYPE = stringPreferencesKey("manual_peak_profile_type")
+        val MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY = intPreferencesKey("manual_peak_anchor_minute_of_day")
+        val MANUAL_PEAK_WINDOW_1_DURATION = intPreferencesKey("manual_peak_window_1_duration")
+        val MANUAL_PEAK_WINDOW_2_DURATION = intPreferencesKey("manual_peak_window_2_duration")
+        val MANUAL_PEAK_WINDOW_3_DURATION = intPreferencesKey("manual_peak_window_3_duration")
+        val MANUAL_PEAK_WINDOW_1_AMPLITUDE = floatPreferencesKey("manual_peak_window_1_amplitude")
+        val MANUAL_PEAK_WINDOW_2_AMPLITUDE = floatPreferencesKey("manual_peak_window_2_amplitude")
+        val MANUAL_PEAK_WINDOW_3_AMPLITUDE = floatPreferencesKey("manual_peak_window_3_amplitude")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -224,7 +256,22 @@ class UserPreferencesDataStore @Inject constructor(
             quizProgress = prefs[Keys.QUIZ_PROGRESS] ?: "{}",
             sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
             sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
-            sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L
+            sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
+            morningTuneSleepWeight = prefs[Keys.MORNING_TUNE_SLEEP_WEIGHT] ?: 0.30f,
+            morningTuneWakeWeight = prefs[Keys.MORNING_TUNE_WAKE_WEIGHT] ?: 0.25f,
+            morningTuneBehaviorWeight = prefs[Keys.MORNING_TUNE_BEHAVIOR_WEIGHT] ?: 0.25f,
+            morningTuneBaseWeight = prefs[Keys.MORNING_TUNE_BASE_WEIGHT] ?: 0.20f,
+            morningTuneUpdatedAtMillis = prefs[Keys.MORNING_TUNE_UPDATED_AT] ?: 0L,
+            morningTuneVersion = prefs[Keys.MORNING_TUNE_VERSION] ?: 1,
+            manualPeakProfileEnabled = prefs[Keys.MANUAL_PEAK_PROFILE_ENABLED] ?: false,
+            manualPeakProfileType = prefs[Keys.MANUAL_PEAK_PROFILE_TYPE] ?: "AUTO",
+            manualPeakAnchorMinuteOfDay = prefs[Keys.MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY] ?: 360,
+            manualPeakWindow1DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_1_DURATION] ?: 210,
+            manualPeakWindow2DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_2_DURATION] ?: 150,
+            manualPeakWindow3DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] ?: 60,
+            manualPeakWindow1Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] ?: 1.0f,
+            manualPeakWindow2Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] ?: 0.8f,
+            manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f
         )
     }
 
@@ -307,7 +354,22 @@ class UserPreferencesDataStore @Inject constructor(
                 quizProgress = prefs[Keys.QUIZ_PROGRESS] ?: "{}",
                 sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
                 sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
-                sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L
+                sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
+                morningTuneSleepWeight = prefs[Keys.MORNING_TUNE_SLEEP_WEIGHT] ?: 0.30f,
+                morningTuneWakeWeight = prefs[Keys.MORNING_TUNE_WAKE_WEIGHT] ?: 0.25f,
+                morningTuneBehaviorWeight = prefs[Keys.MORNING_TUNE_BEHAVIOR_WEIGHT] ?: 0.25f,
+                morningTuneBaseWeight = prefs[Keys.MORNING_TUNE_BASE_WEIGHT] ?: 0.20f,
+                morningTuneUpdatedAtMillis = prefs[Keys.MORNING_TUNE_UPDATED_AT] ?: 0L,
+                morningTuneVersion = prefs[Keys.MORNING_TUNE_VERSION] ?: 1,
+                manualPeakProfileEnabled = prefs[Keys.MANUAL_PEAK_PROFILE_ENABLED] ?: false,
+                manualPeakProfileType = prefs[Keys.MANUAL_PEAK_PROFILE_TYPE] ?: "AUTO",
+                manualPeakAnchorMinuteOfDay = prefs[Keys.MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY] ?: 360,
+                manualPeakWindow1DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_1_DURATION] ?: 210,
+                manualPeakWindow2DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_2_DURATION] ?: 150,
+                manualPeakWindow3DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] ?: 60,
+                manualPeakWindow1Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] ?: 1.0f,
+                manualPeakWindow2Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] ?: 0.8f,
+                manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -375,6 +437,21 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.SLEEP_PRESSURE_POINTS] = updated.sleepPressurePoints
             prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] = updated.sleepPressureTrackingStartedAtMillis
             prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] = updated.sleepPressureLastComputedAtMillis
+            prefs[Keys.MORNING_TUNE_SLEEP_WEIGHT] = updated.morningTuneSleepWeight
+            prefs[Keys.MORNING_TUNE_WAKE_WEIGHT] = updated.morningTuneWakeWeight
+            prefs[Keys.MORNING_TUNE_BEHAVIOR_WEIGHT] = updated.morningTuneBehaviorWeight
+            prefs[Keys.MORNING_TUNE_BASE_WEIGHT] = updated.morningTuneBaseWeight
+            prefs[Keys.MORNING_TUNE_UPDATED_AT] = updated.morningTuneUpdatedAtMillis
+            prefs[Keys.MORNING_TUNE_VERSION] = updated.morningTuneVersion
+            prefs[Keys.MANUAL_PEAK_PROFILE_ENABLED] = updated.manualPeakProfileEnabled
+            prefs[Keys.MANUAL_PEAK_PROFILE_TYPE] = updated.manualPeakProfileType
+            prefs[Keys.MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY] = updated.manualPeakAnchorMinuteOfDay.coerceIn(0, 1439)
+            prefs[Keys.MANUAL_PEAK_WINDOW_1_DURATION] = updated.manualPeakWindow1DurationMinutes.coerceIn(30, 360)
+            prefs[Keys.MANUAL_PEAK_WINDOW_2_DURATION] = updated.manualPeakWindow2DurationMinutes.coerceIn(30, 360)
+            prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] = updated.manualPeakWindow3DurationMinutes.coerceIn(30, 360)
+            prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] = updated.manualPeakWindow1Amplitude.coerceIn(0.2f, 1f)
+            prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] = updated.manualPeakWindow2Amplitude.coerceIn(0.2f, 1f)
+            prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] = updated.manualPeakWindow3Amplitude.coerceIn(0.2f, 1f)
         }
     }
 

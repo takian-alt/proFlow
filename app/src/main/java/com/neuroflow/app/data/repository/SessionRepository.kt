@@ -10,6 +10,11 @@ import javax.inject.Singleton
 class SessionRepository @Inject constructor(
     private val timeSessionDao: TimeSessionDao
 ) {
+    data class InterruptionSummary(
+        val totalPauseResumeCount: Int,
+        val totalAppSwitchCount: Int,
+        val totalInterruptionBursts: Int
+    )
     fun observeByTaskId(taskId: String): Flow<List<TimeSessionEntity>> =
         timeSessionDao.observeByTaskId(taskId)
 
@@ -26,6 +31,16 @@ class SessionRepository @Inject constructor(
 
     suspend fun getAllSessions(): List<TimeSessionEntity> =
         timeSessionDao.getAll()
+
+    suspend fun getInterruptionSummary(fromMillis: Long): InterruptionSummary {
+        val sessions = timeSessionDao.getAll()
+            .filter { it.startedAt >= fromMillis }
+        return InterruptionSummary(
+            totalPauseResumeCount = sessions.sumOf { it.pauseResumeCount },
+            totalAppSwitchCount = sessions.sumOf { it.appSwitchCount },
+            totalInterruptionBursts = sessions.sumOf { it.interruptionBurstCount }
+        )
+    }
 
     suspend fun getOpenSessionForTask(taskId: String): TimeSessionEntity? =
         timeSessionDao.getOpenSessionForTask(taskId)

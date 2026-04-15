@@ -12,6 +12,7 @@ import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.AppTheme
+import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.worker.scheduleNotificationWorkers
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,7 +32,8 @@ class SettingsViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val goalRepository: GoalRepository,
-    private val sleepPressureRepository: SleepPressureRepository
+    private val sleepPressureRepository: SleepPressureRepository,
+    private val peakEnergyRepository: PeakEnergyRepository
 ) : ViewModel() {
 
     val preferences: StateFlow<UserPreferences> = preferencesDataStore.preferencesFlow
@@ -39,6 +41,9 @@ class SettingsViewModel @Inject constructor(
 
     val sleepLogs: StateFlow<List<SleepLogEntity>> = sleepPressureRepository.observeSleepLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val peakDetection = peakEnergyRepository.peakEnergyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _sleepLogInputError = MutableStateFlow<String?>(null)
     val sleepLogInputError: StateFlow<String?> = _sleepLogInputError.asStateFlow()
