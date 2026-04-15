@@ -90,9 +90,20 @@ class SleepPressureDetectorTest {
     @Test
     fun `fatigue percent maps raw pressure to 0 to 100`() {
         assertEquals(0, SleepPressureDetector.fatiguePercent(0))
-        assertEquals(50, SleepPressureDetector.fatiguePercent(1500))
+        assertEquals(57, SleepPressureDetector.fatiguePercent(1500))
+        assertEquals(39, SleepPressureDetector.fatiguePercent(940))
         assertEquals(100, SleepPressureDetector.fatiguePercent(3000))
         assertEquals(100, SleepPressureDetector.fatiguePercent(9000))
+    }
+
+    @Test
+    fun `fatigue ratio is monotonic with pressure`() {
+        val low = SleepPressureDetector.fatigueRatio(600)
+        val mid = SleepPressureDetector.fatigueRatio(1400)
+        val high = SleepPressureDetector.fatigueRatio(2400)
+
+        assert(low < mid)
+        assert(mid < high)
     }
 
     @Test
