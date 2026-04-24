@@ -235,6 +235,13 @@ class MEQQuizViewModel @Inject constructor(
             sleepHour = prefs?.sleepHour,
             sleepPressurePoints = prefs?.sleepPressurePoints ?: 0
         )
+        val primaryWindowDurationMinutes = peakResult.circadianProfile.windows
+            .firstOrNull()
+            ?.durationMinutes
+            ?.coerceAtLeast(30)
+            ?: 60
+        val peakWindowEndMinuteOfDay = (peakResult.peakMinuteOfDay + primaryWindowDurationMinutes) % (24 * 60)
+        val peakWindowEndHourOfDay = peakWindowEndMinuteOfDay / 60
         
         _quizState.value = currentState.copy(
             isComplete = true,
@@ -248,11 +255,11 @@ class MEQQuizViewModel @Inject constructor(
                 prefs.copy(
                     quizChronotype = chronotype.name,
                     detectedPeakStart = peakResult.peakHourOfDay,
-                    detectedPeakEnd = (peakResult.peakHourOfDay + 1) % 24,
+                    detectedPeakEnd = peakWindowEndHourOfDay,
                     detectedPeakMinuteOfDay = peakResult.peakMinuteOfDay,
                     peakDetectionConfidence = peakResult.confidence,
                     effectivePeakStart = peakResult.peakHourOfDay,
-                    effectivePeakEnd = (peakResult.peakHourOfDay + 1) % 24,
+                    effectivePeakEnd = peakWindowEndHourOfDay,
                     effectivePeakMinuteOfDay = peakResult.peakMinuteOfDay,
                     quizProgress = "{}"  // Clear progress on completion
                 )

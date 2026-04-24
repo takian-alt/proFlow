@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.presentation.common.NewTaskSheet
 import com.neuroflow.app.presentation.common.getQuadrantBgColor
 import com.neuroflow.app.presentation.common.getQuadrantTextColor
@@ -33,8 +34,6 @@ import java.util.*
 private const val HOURS_PER_DAY = 24
 private const val MINUTES_PER_HOUR = 60
 private const val MINUTES_PER_DAY = HOURS_PER_DAY * MINUTES_PER_HOUR
-private const val MILLIS_PER_MINUTE = 60_000L
-private const val MILLIS_PER_DAY = 86_400_000L
 private val HOUR_SLOT_HEIGHT = 60.dp
 private val MIN_SEGMENT_HEIGHT = 8.dp
 
@@ -42,7 +41,9 @@ private data class HourSegment(
     val task: TaskEntity,
     val offsetMinutesInHour: Int,
     val overlapMinutes: Int,
-    val startsInThisHour: Boolean
+    val startsInThisHour: Boolean,
+    val continuesFromPreviousHour: Boolean,
+    val continuesToNextHour: Boolean
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -324,9 +325,12 @@ private fun TimelineRow(
             task = task,
             offsetMinutesInHour = overlapStart - hourStartMinute,
             overlapMinutes = overlapEnd - overlapStart,
-            startsInThisHour = taskStartMinute in hourStartMinute until hourEndMinute
+            startsInThisHour = taskStartMinute in hourStartMinute until hourEndMinute,
+            continuesFromPreviousHour = taskStartMinute < hourStartMinute,
+            continuesToNextHour = taskEndMinute > hourEndMinute
         )
     }.filterNotNull()
+        .sortedWith(compareBy<HourSegment>({ taskStartMinuteOfDay(it.task) }, { it.task.id }))
 
     val workHourBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f)
     Row(
@@ -389,6 +393,18 @@ private fun TimelineRow(
                         val rawHeight = HOUR_SLOT_HEIGHT * (segment.overlapMinutes / MINUTES_PER_HOUR.toFloat())
                         val maxAvailableHeight = HOUR_SLOT_HEIGHT - topOffset
                         val blockHeight = maxOf(rawHeight, MIN_SEGMENT_HEIGHT).coerceAtMost(maxAvailableHeight)
+                        val seamOverlap = 1.dp
+                        val topLift = if (segment.continuesFromPreviousHour) seamOverlap else 0.dp
+                        val bottomExtend = if (segment.continuesToNextHour) seamOverlap else 0.dp
+                        val adjustedTopOffset = if (topOffset > topLift) topOffset - topLift else 0.dp
+                        val adjustedHeight = (blockHeight + topLift + bottomExtend)
+                            .coerceAtMost(HOUR_SLOT_HEIGHT - adjustedTopOffset)
+                        val blockShape = when {
+                            segment.continuesFromPreviousHour && segment.continuesToNextHour -> RoundedCornerShape(0.dp)
+                            segment.continuesFromPreviousHour -> RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
+                            segment.continuesToNextHour -> RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                            else -> RoundedCornerShape(8.dp)
+                        }
 
                         Box(
                             modifier = Modifier
@@ -398,13 +414,13 @@ private fun TimelineRow(
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .offset(y = topOffset)
-                                    .height(blockHeight)
+                                    .offset(y = adjustedTopOffset)
+                                    .height(adjustedHeight)
                                     .clickable { onTaskClick(segment.task.id) },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = blockShape,
                                 color = getQuadrantBgColor(segment.task.quadrant)
                             ) {
-                                if (segment.startsInThisHour && blockHeight >= 24.dp) {
+                                if (segment.startsInThisHour && adjustedHeight >= 24.dp) {
                                     Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
                                         Text(
                                             text = segment.task.title,
@@ -413,7 +429,7 @@ private fun TimelineRow(
                                             color = getQuadrantTextColor(segment.task.quadrant),
                                             maxLines = 1
                                         )
-                                        if (blockHeight >= 36.dp) {
+                                        if (adjustedHeight >= 36.dp) {
                                             Text(
                                                 text = segment.task.quadrant.name.replace("_", " "),
                                                 style = MaterialTheme.typography.labelSmall,
@@ -443,10 +459,7 @@ private fun TimelineRow(
 }
 
 private fun taskStartMinuteOfDay(task: TaskEntity): Int {
-    val startMs = task.scheduledTime
-        ?: task.habitDate?.let { millis -> millis % MILLIS_PER_DAY }
-        ?: 0L
-    return (startMs / MILLIS_PER_MINUTE).toInt().coerceIn(0, MINUTES_PER_DAY - 1)
+    return task.timelineStartMinuteOfDay()
 }
 
 private fun taskDurationMinutes(task: TaskEntity): Int = task.estimatedDurationMinutes.coerceAtLeast(1)

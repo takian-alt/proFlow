@@ -46,7 +46,6 @@ interface TaskDao {
                 OR
                 (recurrence != 'NONE' AND habitDate >= :dayStart AND habitDate < :dayEnd)
               )
-        ORDER BY COALESCE(scheduledTime, habitDate % 86400000, 0) ASC
     """)
     fun observeTasksForDate(dayStart: Long, dayEnd: Long): Flow<List<TaskEntity>>
 

@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.localTimeOfDayOffset
+import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
@@ -37,7 +39,6 @@ fun NewTaskSheet(
     prefilledQuadrant: Quadrant? = null,
     availableTasks: List<TaskEntity> = emptyList()
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isEditing = editTask != null
     val tagViewModel: TaskTagViewModel = hiltViewModel()
     val catalogTags by tagViewModel.tags.collectAsState()
@@ -67,7 +68,7 @@ fun NewTaskSheet(
     var isScheduleLocked by remember {
         mutableStateOf(editTask?.isScheduleLocked ?: ((editTask?.recurrence ?: Recurrence.NONE) != Recurrence.NONE))
     }
-    var habitDate by remember { mutableLongStateOf(editTask?.habitDate ?: 0L) }
+    var habitDate by remember { mutableLongStateOf(editTask?.habitDate?.let(::startOfLocalDay) ?: 0L) }
     var estimatedDuration by remember { mutableIntStateOf(editTask?.estimatedDurationMinutes ?: 0) }
     var impactScore by remember { mutableFloatStateOf((editTask?.impactScore ?: 50).toFloat()) }
     var valueScore by remember { mutableFloatStateOf((editTask?.valueScore ?: 50).toFloat()) }
@@ -79,15 +80,15 @@ fun NewTaskSheet(
     var isFrog by remember { mutableStateOf(editTask?.isFrog ?: false) }
     var energyLevel by remember { mutableStateOf(editTask?.energyLevel ?: EnergyLevel.MEDIUM) }
     var contextTag by remember { mutableStateOf(editTask?.contextTag ?: "") }
-    var ifThenPlan by remember { mutableStateOf(editTask?.ifThenPlan ?: "") }
+    var stepByStepPlan by remember { mutableStateOf(editTask?.ifThenPlan ?: "") }
     var taskType by remember { mutableStateOf(editTask?.taskType ?: TaskType.ANALYTICAL) }
     var enjoymentScore by remember { mutableFloatStateOf((editTask?.enjoymentScore ?: 50).toFloat()) }
     var isPublicCommitment by remember { mutableStateOf(editTask?.isPublicCommitment ?: false) }
     var isAnxietyTask by remember { mutableStateOf(editTask?.isAnxietyTask ?: false) }
     var goalRiskLevel by remember { mutableIntStateOf(editTask?.goalRiskLevel ?: 0) }
-    var dependsOnTaskIds by remember { mutableStateOf(editTask?.dependsOnTaskIds ?: "") }
     var showNeuroBoost by remember { mutableStateOf(false) }
     var showDepsDialog by remember { mutableStateOf(false) }
+    var showDiscardDraftDialog by remember { mutableStateOf(false) }
     // Parse selected dep IDs into a set for easy toggle
     var selectedDepIds by remember {
         mutableStateOf(
@@ -102,12 +103,39 @@ fun NewTaskSheet(
     var showSchedTimePicker by remember { mutableStateOf(false) }
     var showHabitDatePicker by remember { mutableStateOf(false) }
     var showHabitTimePicker by remember { mutableStateOf(false) }
-    var habitTime by remember { mutableLongStateOf(editTask?.habitDate?.let {
-        // extract time-of-day portion if already set
-        val cal = Calendar.getInstance().apply { timeInMillis = it }
-        (cal.get(Calendar.HOUR_OF_DAY) * 3600000L + cal.get(Calendar.MINUTE) * 60000L).takeIf { t -> t > 0L } ?: -1L
-    } ?: -1L) }
+    var habitTime by remember { mutableLongStateOf(editTask?.habitDate?.let(::localTimeOfDayOffset) ?: -1L) }
     var datePickerTarget by remember { mutableStateOf("deadline") }
+
+    val hasDraftContent =
+        title.isNotBlank() ||
+            description.isNotBlank() ||
+            tags.isNotEmpty() ||
+            waitingFor.isNotBlank() ||
+            stepByStepPlan.isNotBlank() ||
+            selectedDepIds.isNotEmpty() ||
+            deadlineDate > 0L ||
+            scheduledDate > 0L ||
+            habitDate > 0L
+
+    val requestDismiss = {
+        if (hasDraftContent) {
+            showDiscardDraftDialog = true
+        } else {
+            onDismiss()
+        }
+    }
+
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { target ->
+            if (target == SheetValue.Hidden && hasDraftContent) {
+                showDiscardDraftDialog = true
+                false
+            } else {
+                true
+            }
+        }
+    )
 
     LaunchedEffect(selectedRecurrence, isEditing) {
         if (!isEditing && selectedRecurrence != Recurrence.NONE) {
@@ -120,7 +148,7 @@ fun NewTaskSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestDismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
@@ -527,6 +555,51 @@ fun NewTaskSheet(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Execution Plan Section
+            SectionLabel("EXECUTION PLAN")
+            Text("Dependencies", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            OutlinedButton(
+                onClick = { showDepsDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Add, "Pick tasks", modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    if (selectedDepIds.isEmpty()) "Select tasks this depends on"
+                    else "${selectedDepIds.size} task(s) selected"
+                )
+            }
+            if (selectedDepIds.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                val depTitles = availableTasks.filter { it.id in selectedDepIds }
+                depTitles.forEach { dep ->
+                    InputChip(
+                        selected = true,
+                        onClick = { selectedDepIds = selectedDepIds - dep.id },
+                        label = { Text(dep.title, maxLines = 1) },
+                        trailingIcon = {
+                            Icon(Icons.Filled.Close, "Remove", modifier = Modifier.size(14.dp))
+                        }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = stepByStepPlan,
+                onValueChange = { stepByStepPlan = it },
+                label = { Text("Step-by-step Plan") },
+                placeholder = { Text("Write one step per line") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3
+            )
+            Text(
+                "Each line becomes a checkbox in Focus mode.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Neuro Boost Section (collapsible)
             TextButton(
                 onClick = { showNeuroBoost = !showNeuroBoost }
@@ -677,47 +750,6 @@ fun NewTaskSheet(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Depends On — task picker
-                Text("Depends On", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedButton(
-                    onClick = { showDepsDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.Add, "Pick tasks", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        if (selectedDepIds.isEmpty()) "Select tasks this depends on"
-                        else "${selectedDepIds.size} task(s) selected"
-                    )
-                }
-                if (selectedDepIds.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    val depTitles = availableTasks.filter { it.id in selectedDepIds }
-                    depTitles.forEach { dep ->
-                        InputChip(
-                            selected = true,
-                            onClick = { selectedDepIds = selectedDepIds - dep.id },
-                            label = { Text(dep.title, maxLines = 1) },
-                            trailingIcon = {
-                                Icon(Icons.Filled.Close, "Remove", modifier = Modifier.size(14.dp))
-                            }
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // If-Then Plan
-                OutlinedTextField(
-                    value = ifThenPlan,
-                    onValueChange = { ifThenPlan = it },
-                    label = { Text("If-Then Plan") },
-                    placeholder = { Text("e.g., When I sit at my desk at 9am, I will do this") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2
-                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -728,7 +760,7 @@ fun NewTaskSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = requestDismiss) {
                     Text("Cancel")
                 }
                 Button(
@@ -764,7 +796,7 @@ fun NewTaskSheet(
                                 energyLevel = energyLevel,
                                 taskType = taskType,
                                 contextTag = contextTag,
-                                ifThenPlan = ifThenPlan,
+                                ifThenPlan = stepByStepPlan,
                                 enjoymentScore = enjoymentScore.toInt(),
                                 isPublicCommitment = isPublicCommitment,
                                 isAnxietyTask = isAnxietyTask,
@@ -786,6 +818,29 @@ fun NewTaskSheet(
             }
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    if (showDiscardDraftDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDraftDialog = false },
+            title = { Text("Discard task draft?") },
+            text = { Text("You have unsaved changes. Keep editing or discard this draft.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardDraftDialog = false
+                        onDismiss()
+                    }
+                ) {
+                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDraftDialog = false }) {
+                    Text("Keep editing")
+                }
+            }
+        )
     }
 
     // Dependency picker dialog

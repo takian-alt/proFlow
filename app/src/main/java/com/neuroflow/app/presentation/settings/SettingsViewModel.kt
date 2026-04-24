@@ -4,14 +4,13 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
+import com.neuroflow.app.data.local.DatabaseCleaner
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.SleepLogEntity
-import com.neuroflow.app.data.repository.GoalRepository
-import com.neuroflow.app.data.repository.SessionRepository
-import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.AppTheme
+import com.neuroflow.app.domain.repository.EnergyMetricsRepository
 import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.worker.scheduleNotificationWorkers
@@ -29,11 +28,10 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val taskRepository: TaskRepository,
-    private val sessionRepository: SessionRepository,
-    private val goalRepository: GoalRepository,
     private val sleepPressureRepository: SleepPressureRepository,
-    private val peakEnergyRepository: PeakEnergyRepository
+    private val energyMetricsRepository: EnergyMetricsRepository,
+    private val peakEnergyRepository: PeakEnergyRepository,
+    private val databaseCleaner: DatabaseCleaner
 ) : ViewModel() {
 
     val preferences: StateFlow<UserPreferences> = preferencesDataStore.preferencesFlow
@@ -116,11 +114,17 @@ class SettingsViewModel @Inject constructor(
 
     fun clearAllData() {
         viewModelScope.launch {
-            taskRepository.deleteAll()
-            sessionRepository.deleteAll()
-            goalRepository.deleteAll()
-            sleepPressureRepository.clearSleepLogsAndReset()
+            databaseCleaner.clearAllDataAndInvalidateBackup()
+            scheduleNotificationWorkers(context, UserPreferences())
+            WorkManager.getInstance(context).cancelAllWorkByTag(AutonomyNudgeEngine.globalTag())
+            WorkManager.getInstance(context).cancelAllWorkByTag("task_reminder_all")
             _sleepLogInputError.value = null
+        }
+    }
+
+    fun clearEnergyTelemetry() {
+        viewModelScope.launch {
+            energyMetricsRepository.clearAllPredictions()
         }
     }
 }

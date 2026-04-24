@@ -27,6 +27,9 @@ object SleepPressureDetector {
     const val FULL_CYCLE_RECOVERY = 279
     const val SOFT_MAX_REFERENCE = 3000
     private const val FATIGUE_CURVE_GAMMA = 0.82f
+    // Phase 1 overflow guard: max pressure = ~10 days of continuous wake (14,400 minutes)
+    // This prevents unbounded accumulation and integer overflow in downstream calculations
+    private const val MAX_PRESSURE_POINTS = 14_400
 
     enum class FatigueZone {
         RESTED,
@@ -57,22 +60,28 @@ object SleepPressureDetector {
 
     /**
      * Converts awake minutes into pressure points at +1 point/min.
+     * 
+     * Phase 1 overflow guard: output is capped at MAX_PRESSURE_POINTS to prevent
+     * unbounded accumulation and downstream calculation overflow.
      */
     fun pressureFromAwakeMinutes(awakeMinutes: Int): Int {
         val safeAwakeMinutes = awakeMinutes.coerceAtLeast(0)
-        return safeAwakeMinutes * AWAKE_POINTS_PER_MINUTE
+        return (safeAwakeMinutes * AWAKE_POINTS_PER_MINUTE).coerceAtMost(MAX_PRESSURE_POINTS)
     }
 
     /**
      * Applies wake-time accumulation to the current pressure.
+     * 
+     * Phase 1 overflow guard: the result is capped at MAX_PRESSURE_POINTS to prevent
+     * integer overflow and ensure pressure stays within reasonable bounds.
      */
     fun applyAwakeMinutes(currentPressure: Int, awakeMinutes: Int): DetectionResult {
-        val safeCurrentPressure = currentPressure.coerceAtLeast(0)
+        val safeCurrentPressure = currentPressure.coerceAtLeast(0).coerceAtMost(MAX_PRESSURE_POINTS)
         val safeAwakeMinutes = awakeMinutes.coerceAtLeast(0)
         val addedPressure = pressureFromAwakeMinutes(safeAwakeMinutes)
 
         return DetectionResult(
-            pressurePoints = safeCurrentPressure + addedPressure,
+            pressurePoints = (safeCurrentPressure + addedPressure).coerceAtMost(MAX_PRESSURE_POINTS),
             awakeMinutes = safeAwakeMinutes
         )
     }
@@ -94,15 +103,18 @@ object SleepPressureDetector {
 
     /**
      * Applies sleep-session recovery with a hard zero floor.
+     * 
+     * Phase 1 overflow guard: pressure is always kept within [0, MAX_PRESSURE_POINTS]
+     * to ensure recovery calculations remain stable and predictable.
      */
     fun applySleepSession(currentPressure: Int, sleepMinutes: Int): DetectionResult {
-        val safeCurrentPressure = currentPressure.coerceAtLeast(0)
+        val safeCurrentPressure = currentPressure.coerceAtLeast(0).coerceAtMost(MAX_PRESSURE_POINTS)
         val safeSleepMinutes = sleepMinutes.coerceAtLeast(0)
         val earnedRecovery = recoveryForSleepMinutes(safeSleepMinutes)
         val appliedRecovery = earnedRecovery.coerceAtMost(safeCurrentPressure)
 
         return DetectionResult(
-            pressurePoints = safeCurrentPressure - appliedRecovery,
+            pressurePoints = (safeCurrentPressure - appliedRecovery).coerceAtLeast(0).coerceAtMost(MAX_PRESSURE_POINTS),
             sleepMinutes = safeSleepMinutes,
             recoveryPointsEarned = earnedRecovery,
             recoveryPointsApplied = appliedRecovery
@@ -122,11 +134,15 @@ object SleepPressureDetector {
     /**
      * Fatigue ratio in [0..1] using a concave curve so fatigue rises earlier than
      * linear mapping and better matches subjective tiredness in long wake windows.
+     *
+     * Phase 1 overflow guard: explicitly clamps output to [0.0, 1.0] to prevent
+     * invalid fatigue calculations that could affect downstream energy predictions.
      */
     fun fatigueRatio(pressurePoints: Int, softMaxReference: Int = SOFT_MAX_REFERENCE): Float {
         val safeMax = softMaxReference.coerceAtLeast(1)
         val safePressure = pressurePoints.coerceAtLeast(0)
         val ratio = (safePressure.toFloat() / safeMax.toFloat()).coerceIn(0f, 1f)
+        // Explicit overflow guard: fatigue ratio must always be in [0.0, 1.0]
         return ratio.pow(FATIGUE_CURVE_GAMMA).coerceIn(0f, 1f)
     }
 

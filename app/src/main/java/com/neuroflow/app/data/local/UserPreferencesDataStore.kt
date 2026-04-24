@@ -90,6 +90,14 @@ data class UserPreferences(
     val sleepPressurePoints: Int = 0,
     val sleepPressureTrackingStartedAtMillis: Long = 0L,
     val sleepPressureLastComputedAtMillis: Long = 0L,
+    val autoFallbackSleepInsertionEnabled: Boolean = true,
+    // Moment model sensitivity controls
+    val momentInterruptionSensitivity: Float = 1.0f,
+    val momentNotificationSensitivity: Float = 1.0f,
+    val momentTaskPressureSensitivity: Float = 1.0f,
+    // Local telemetry privacy controls
+    val energyTelemetryEnabled: Boolean = true,
+    val energyTelemetryRetentionDays: Int = 30,
     // Morning calibration auto-tune coefficients (bounded adaptive blend)
     val morningTuneSleepWeight: Float = 0.30f,
     val morningTuneWakeWeight: Float = 0.25f,
@@ -97,10 +105,26 @@ data class UserPreferences(
     val morningTuneBaseWeight: Float = 0.20f,
     val morningTuneUpdatedAtMillis: Long = 0L,
     val morningTuneVersion: Int = 1,
+    val adaptivePeakFreezeEnabled: Boolean = false,
+    val peakQualityDegradeStreak: Int = 0,
+    val peakConfidenceAbstentionEnabled: Boolean = false,
+    val peakConfidenceAbstentionReason: String = "",
+    val peakConfidenceAbstentionTriggerCount: Int = 0,
+    val peakConfidenceAbstentionRecoveryCount: Int = 0,
+    val peakConfidenceAbstentionLastChangedAtMillis: Long = 0L,
+    val peakConfidenceAbstentionReasonFreezeCount: Int = 0,
+    val peakConfidenceAbstentionReasonLowSamplesCount: Int = 0,
+    val peakConfidenceAbstentionReasonLowCoverageCount: Int = 0,
+    val peakConfidenceAbstentionReasonWakeVarianceCount: Int = 0,
+    val peakConfidenceAbstentionReasonDivergenceCount: Int = 0,
+    val peakConfidenceAbstentionReasonOtherCount: Int = 0,
     // Manual peak profile override controls
     val manualPeakProfileEnabled: Boolean = false,
     val manualPeakProfileType: String = "AUTO",
     val manualPeakAnchorMinuteOfDay: Int = 360,
+    val manualPeakWindow1StartOffsetMinutes: Int = 0,
+    val manualPeakWindow2StartOffsetMinutes: Int = 570,
+    val manualPeakWindow3StartOffsetMinutes: Int = 810,
     val manualPeakWindow1DurationMinutes: Int = 210,
     val manualPeakWindow2DurationMinutes: Int = 150,
     val manualPeakWindow3DurationMinutes: Int = 60,
@@ -175,15 +199,37 @@ class UserPreferencesDataStore @Inject constructor(
         val SLEEP_PRESSURE_POINTS = intPreferencesKey("sleep_pressure_points")
         val SLEEP_PRESSURE_TRACKING_STARTED_AT = longPreferencesKey("sleep_pressure_tracking_started_at")
         val SLEEP_PRESSURE_LAST_COMPUTED_AT = longPreferencesKey("sleep_pressure_last_computed_at")
+        val AUTO_FALLBACK_SLEEP_INSERTION_ENABLED = booleanPreferencesKey("auto_fallback_sleep_insertion_enabled")
+        val MOMENT_INTERRUPTION_SENSITIVITY = floatPreferencesKey("moment_interruption_sensitivity")
+        val MOMENT_NOTIFICATION_SENSITIVITY = floatPreferencesKey("moment_notification_sensitivity")
+        val MOMENT_TASK_PRESSURE_SENSITIVITY = floatPreferencesKey("moment_task_pressure_sensitivity")
+        val ENERGY_TELEMETRY_ENABLED = booleanPreferencesKey("energy_telemetry_enabled")
+        val ENERGY_TELEMETRY_RETENTION_DAYS = intPreferencesKey("energy_telemetry_retention_days")
         val MORNING_TUNE_SLEEP_WEIGHT = floatPreferencesKey("morning_tune_sleep_weight")
         val MORNING_TUNE_WAKE_WEIGHT = floatPreferencesKey("morning_tune_wake_weight")
         val MORNING_TUNE_BEHAVIOR_WEIGHT = floatPreferencesKey("morning_tune_behavior_weight")
         val MORNING_TUNE_BASE_WEIGHT = floatPreferencesKey("morning_tune_base_weight")
         val MORNING_TUNE_UPDATED_AT = longPreferencesKey("morning_tune_updated_at")
         val MORNING_TUNE_VERSION = intPreferencesKey("morning_tune_version")
+        val ADAPTIVE_PEAK_FREEZE_ENABLED = booleanPreferencesKey("adaptive_peak_freeze_enabled")
+        val PEAK_QUALITY_DEGRADE_STREAK = intPreferencesKey("peak_quality_degrade_streak")
+        val PEAK_CONFIDENCE_ABSTENTION_ENABLED = booleanPreferencesKey("peak_confidence_abstention_enabled")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON = stringPreferencesKey("peak_confidence_abstention_reason")
+        val PEAK_CONFIDENCE_ABSTENTION_TRIGGER_COUNT = intPreferencesKey("peak_confidence_abstention_trigger_count")
+        val PEAK_CONFIDENCE_ABSTENTION_RECOVERY_COUNT = intPreferencesKey("peak_confidence_abstention_recovery_count")
+        val PEAK_CONFIDENCE_ABSTENTION_LAST_CHANGED_AT = longPreferencesKey("peak_confidence_abstention_last_changed_at")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON_FREEZE_COUNT = intPreferencesKey("peak_confidence_abstention_reason_freeze_count")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_SAMPLES_COUNT = intPreferencesKey("peak_confidence_abstention_reason_low_samples_count")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_COVERAGE_COUNT = intPreferencesKey("peak_confidence_abstention_reason_low_coverage_count")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON_WAKE_VARIANCE_COUNT = intPreferencesKey("peak_confidence_abstention_reason_wake_variance_count")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON_DIVERGENCE_COUNT = intPreferencesKey("peak_confidence_abstention_reason_divergence_count")
+        val PEAK_CONFIDENCE_ABSTENTION_REASON_OTHER_COUNT = intPreferencesKey("peak_confidence_abstention_reason_other_count")
         val MANUAL_PEAK_PROFILE_ENABLED = booleanPreferencesKey("manual_peak_profile_enabled")
         val MANUAL_PEAK_PROFILE_TYPE = stringPreferencesKey("manual_peak_profile_type")
         val MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY = intPreferencesKey("manual_peak_anchor_minute_of_day")
+        val MANUAL_PEAK_WINDOW_1_START_OFFSET = intPreferencesKey("manual_peak_window_1_start_offset")
+        val MANUAL_PEAK_WINDOW_2_START_OFFSET = intPreferencesKey("manual_peak_window_2_start_offset")
+        val MANUAL_PEAK_WINDOW_3_START_OFFSET = intPreferencesKey("manual_peak_window_3_start_offset")
         val MANUAL_PEAK_WINDOW_1_DURATION = intPreferencesKey("manual_peak_window_1_duration")
         val MANUAL_PEAK_WINDOW_2_DURATION = intPreferencesKey("manual_peak_window_2_duration")
         val MANUAL_PEAK_WINDOW_3_DURATION = intPreferencesKey("manual_peak_window_3_duration")
@@ -257,15 +303,37 @@ class UserPreferencesDataStore @Inject constructor(
             sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
             sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
             sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
+            autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
+            momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
+            momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
+            momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
+            energyTelemetryEnabled = prefs[Keys.ENERGY_TELEMETRY_ENABLED] ?: true,
+            energyTelemetryRetentionDays = (prefs[Keys.ENERGY_TELEMETRY_RETENTION_DAYS] ?: 30).coerceIn(1, 90),
             morningTuneSleepWeight = prefs[Keys.MORNING_TUNE_SLEEP_WEIGHT] ?: 0.30f,
             morningTuneWakeWeight = prefs[Keys.MORNING_TUNE_WAKE_WEIGHT] ?: 0.25f,
             morningTuneBehaviorWeight = prefs[Keys.MORNING_TUNE_BEHAVIOR_WEIGHT] ?: 0.25f,
             morningTuneBaseWeight = prefs[Keys.MORNING_TUNE_BASE_WEIGHT] ?: 0.20f,
             morningTuneUpdatedAtMillis = prefs[Keys.MORNING_TUNE_UPDATED_AT] ?: 0L,
             morningTuneVersion = prefs[Keys.MORNING_TUNE_VERSION] ?: 1,
+            adaptivePeakFreezeEnabled = prefs[Keys.ADAPTIVE_PEAK_FREEZE_ENABLED] ?: false,
+            peakQualityDegradeStreak = prefs[Keys.PEAK_QUALITY_DEGRADE_STREAK] ?: 0,
+            peakConfidenceAbstentionEnabled = prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_ENABLED] ?: false,
+            peakConfidenceAbstentionReason = prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON] ?: "",
+            peakConfidenceAbstentionTriggerCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_TRIGGER_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionRecoveryCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_RECOVERY_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionLastChangedAtMillis = prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_LAST_CHANGED_AT] ?: 0L,
+            peakConfidenceAbstentionReasonFreezeCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_FREEZE_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionReasonLowSamplesCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_SAMPLES_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionReasonLowCoverageCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_COVERAGE_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionReasonWakeVarianceCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_WAKE_VARIANCE_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionReasonDivergenceCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_DIVERGENCE_COUNT] ?: 0).coerceAtLeast(0),
+            peakConfidenceAbstentionReasonOtherCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_OTHER_COUNT] ?: 0).coerceAtLeast(0),
             manualPeakProfileEnabled = prefs[Keys.MANUAL_PEAK_PROFILE_ENABLED] ?: false,
             manualPeakProfileType = prefs[Keys.MANUAL_PEAK_PROFILE_TYPE] ?: "AUTO",
             manualPeakAnchorMinuteOfDay = prefs[Keys.MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY] ?: 360,
+            manualPeakWindow1StartOffsetMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_1_START_OFFSET] ?: 0,
+            manualPeakWindow2StartOffsetMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_2_START_OFFSET] ?: 570,
+            manualPeakWindow3StartOffsetMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_START_OFFSET] ?: 810,
             manualPeakWindow1DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_1_DURATION] ?: 210,
             manualPeakWindow2DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_2_DURATION] ?: 150,
             manualPeakWindow3DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] ?: 60,
@@ -355,15 +423,37 @@ class UserPreferencesDataStore @Inject constructor(
                 sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
                 sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
                 sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
+                autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
+                momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
+                momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
+                momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
+                energyTelemetryEnabled = prefs[Keys.ENERGY_TELEMETRY_ENABLED] ?: true,
+                energyTelemetryRetentionDays = (prefs[Keys.ENERGY_TELEMETRY_RETENTION_DAYS] ?: 30).coerceIn(1, 90),
                 morningTuneSleepWeight = prefs[Keys.MORNING_TUNE_SLEEP_WEIGHT] ?: 0.30f,
                 morningTuneWakeWeight = prefs[Keys.MORNING_TUNE_WAKE_WEIGHT] ?: 0.25f,
                 morningTuneBehaviorWeight = prefs[Keys.MORNING_TUNE_BEHAVIOR_WEIGHT] ?: 0.25f,
                 morningTuneBaseWeight = prefs[Keys.MORNING_TUNE_BASE_WEIGHT] ?: 0.20f,
                 morningTuneUpdatedAtMillis = prefs[Keys.MORNING_TUNE_UPDATED_AT] ?: 0L,
                 morningTuneVersion = prefs[Keys.MORNING_TUNE_VERSION] ?: 1,
+                adaptivePeakFreezeEnabled = prefs[Keys.ADAPTIVE_PEAK_FREEZE_ENABLED] ?: false,
+                peakQualityDegradeStreak = prefs[Keys.PEAK_QUALITY_DEGRADE_STREAK] ?: 0,
+                peakConfidenceAbstentionEnabled = prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_ENABLED] ?: false,
+                peakConfidenceAbstentionReason = prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON] ?: "",
+                peakConfidenceAbstentionTriggerCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_TRIGGER_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionRecoveryCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_RECOVERY_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionLastChangedAtMillis = prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_LAST_CHANGED_AT] ?: 0L,
+                peakConfidenceAbstentionReasonFreezeCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_FREEZE_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionReasonLowSamplesCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_SAMPLES_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionReasonLowCoverageCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_COVERAGE_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionReasonWakeVarianceCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_WAKE_VARIANCE_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionReasonDivergenceCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_DIVERGENCE_COUNT] ?: 0).coerceAtLeast(0),
+                peakConfidenceAbstentionReasonOtherCount = (prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_OTHER_COUNT] ?: 0).coerceAtLeast(0),
                 manualPeakProfileEnabled = prefs[Keys.MANUAL_PEAK_PROFILE_ENABLED] ?: false,
                 manualPeakProfileType = prefs[Keys.MANUAL_PEAK_PROFILE_TYPE] ?: "AUTO",
                 manualPeakAnchorMinuteOfDay = prefs[Keys.MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY] ?: 360,
+                manualPeakWindow1StartOffsetMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_1_START_OFFSET] ?: 0,
+                manualPeakWindow2StartOffsetMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_2_START_OFFSET] ?: 570,
+                manualPeakWindow3StartOffsetMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_START_OFFSET] ?: 810,
                 manualPeakWindow1DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_1_DURATION] ?: 210,
                 manualPeakWindow2DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_2_DURATION] ?: 150,
                 manualPeakWindow3DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] ?: 60,
@@ -429,23 +519,49 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LEFT_PAGE_QUICK_NOTE] = updated.leftPageQuickNote
             if (updated.manualChronotype != null) {
                 prefs[Keys.MANUAL_CHRONOTYPE] = updated.manualChronotype
+            } else {
+                prefs.remove(Keys.MANUAL_CHRONOTYPE)
             }
             if (updated.quizChronotype != null) {
                 prefs[Keys.QUIZ_CHRONOTYPE] = updated.quizChronotype
+            } else {
+                prefs.remove(Keys.QUIZ_CHRONOTYPE)
             }
             prefs[Keys.QUIZ_PROGRESS] = updated.quizProgress
             prefs[Keys.SLEEP_PRESSURE_POINTS] = updated.sleepPressurePoints
             prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] = updated.sleepPressureTrackingStartedAtMillis
             prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] = updated.sleepPressureLastComputedAtMillis
+            prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] = updated.autoFallbackSleepInsertionEnabled
+            prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] = updated.momentInterruptionSensitivity.coerceIn(0.5f, 2.0f)
+            prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] = updated.momentNotificationSensitivity.coerceIn(0.5f, 2.0f)
+            prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] = updated.momentTaskPressureSensitivity.coerceIn(0.5f, 2.0f)
+            prefs[Keys.ENERGY_TELEMETRY_ENABLED] = updated.energyTelemetryEnabled
+            prefs[Keys.ENERGY_TELEMETRY_RETENTION_DAYS] = updated.energyTelemetryRetentionDays.coerceIn(1, 90)
             prefs[Keys.MORNING_TUNE_SLEEP_WEIGHT] = updated.morningTuneSleepWeight
             prefs[Keys.MORNING_TUNE_WAKE_WEIGHT] = updated.morningTuneWakeWeight
             prefs[Keys.MORNING_TUNE_BEHAVIOR_WEIGHT] = updated.morningTuneBehaviorWeight
             prefs[Keys.MORNING_TUNE_BASE_WEIGHT] = updated.morningTuneBaseWeight
             prefs[Keys.MORNING_TUNE_UPDATED_AT] = updated.morningTuneUpdatedAtMillis
             prefs[Keys.MORNING_TUNE_VERSION] = updated.morningTuneVersion
+            prefs[Keys.ADAPTIVE_PEAK_FREEZE_ENABLED] = updated.adaptivePeakFreezeEnabled
+            prefs[Keys.PEAK_QUALITY_DEGRADE_STREAK] = updated.peakQualityDegradeStreak.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_ENABLED] = updated.peakConfidenceAbstentionEnabled
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON] = updated.peakConfidenceAbstentionReason
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_TRIGGER_COUNT] = updated.peakConfidenceAbstentionTriggerCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_RECOVERY_COUNT] = updated.peakConfidenceAbstentionRecoveryCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_LAST_CHANGED_AT] = updated.peakConfidenceAbstentionLastChangedAtMillis
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_FREEZE_COUNT] = updated.peakConfidenceAbstentionReasonFreezeCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_SAMPLES_COUNT] = updated.peakConfidenceAbstentionReasonLowSamplesCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_LOW_COVERAGE_COUNT] = updated.peakConfidenceAbstentionReasonLowCoverageCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_WAKE_VARIANCE_COUNT] = updated.peakConfidenceAbstentionReasonWakeVarianceCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_DIVERGENCE_COUNT] = updated.peakConfidenceAbstentionReasonDivergenceCount.coerceAtLeast(0)
+            prefs[Keys.PEAK_CONFIDENCE_ABSTENTION_REASON_OTHER_COUNT] = updated.peakConfidenceAbstentionReasonOtherCount.coerceAtLeast(0)
             prefs[Keys.MANUAL_PEAK_PROFILE_ENABLED] = updated.manualPeakProfileEnabled
             prefs[Keys.MANUAL_PEAK_PROFILE_TYPE] = updated.manualPeakProfileType
             prefs[Keys.MANUAL_PEAK_ANCHOR_MINUTE_OF_DAY] = updated.manualPeakAnchorMinuteOfDay.coerceIn(0, 1439)
+            prefs[Keys.MANUAL_PEAK_WINDOW_1_START_OFFSET] = updated.manualPeakWindow1StartOffsetMinutes.coerceIn(0, 1439)
+            prefs[Keys.MANUAL_PEAK_WINDOW_2_START_OFFSET] = updated.manualPeakWindow2StartOffsetMinutes.coerceIn(0, 1439)
+            prefs[Keys.MANUAL_PEAK_WINDOW_3_START_OFFSET] = updated.manualPeakWindow3StartOffsetMinutes.coerceIn(0, 1439)
             prefs[Keys.MANUAL_PEAK_WINDOW_1_DURATION] = updated.manualPeakWindow1DurationMinutes.coerceIn(30, 360)
             prefs[Keys.MANUAL_PEAK_WINDOW_2_DURATION] = updated.manualPeakWindow2DurationMinutes.coerceIn(30, 360)
             prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] = updated.manualPeakWindow3DurationMinutes.coerceIn(30, 360)
@@ -487,5 +603,9 @@ class UserPreferencesDataStore @Inject constructor(
         existing.forEach(::addTag)
         incoming.forEach(::addTag)
         return merged.sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+
+    suspend fun clearAll() {
+        context.dataStore.edit { it.clear() }
     }
 }

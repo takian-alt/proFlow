@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
+import com.neuroflow.app.data.local.entity.isRecurringWithAnchor
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.common.formatFullDate
@@ -485,17 +487,65 @@ fun FocusScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // If-Then Plan card — shows the user's implementation intention while working
-            if (task.ifThenPlan.isNotBlank()) {
+            // Step-by-step plan card — each line is a checklist step.
+            val planSteps = remember(task.ifThenPlan) {
+                StepByStepPlanCodec.parse(task.ifThenPlan)
+            }
+            if (planSteps.isNotEmpty()) {
+                val completedCount = planSteps.count { it.completed }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("🎯 YOUR PLAN", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32), fontSize = 11.sp)
+                        Text(
+                            "🪜 STEP-BY-STEP PLAN",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32),
+                            fontSize = 11.sp
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(task.ifThenPlan, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF1B5E20))
+                        Text(
+                            "$completedCount/${planSteps.size} steps completed",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF2E7D32),
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = {
+                                if (planSteps.isEmpty()) 0f else completedCount.toFloat() / planSteps.size.toFloat()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFF2E7D32),
+                            trackColor = Color(0xFF2E7D32).copy(alpha = 0.2f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        planSteps.forEachIndexed { index, step ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = step.completed,
+                                    onCheckedChange = { checked ->
+                                        viewModel.setStepCompleted(index, checked)
+                                    }
+                                )
+                                Text(
+                                    step.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF1B5E20),
+                                    textDecoration = if (step.completed) {
+                                        TextDecoration.LineThrough
+                                    } else {
+                                        TextDecoration.None
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -600,7 +650,7 @@ fun FocusScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             // Row 4: Deadline card
-            if (task.deadlineDate != null) {
+            if (task.deadlineDate != null && !task.isRecurringWithAnchor()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = deadlineCardColor),
@@ -626,11 +676,7 @@ fun FocusScreen(
             }
 
             // Row 5: Time block card (scheduled or recurring habit anchor)
-            val timeBlockMillis = when {
-                task.scheduledDate != null -> task.scheduledDate + (task.scheduledTime ?: 0)
-                task.recurrence != Recurrence.NONE && task.habitDate != null -> task.habitDate
-                else -> null
-            }
+            val timeBlockMillis = task.effectiveScheduleAnchorMillis()
             if (timeBlockMillis != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -638,7 +684,7 @@ fun FocusScreen(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        val timeBlockLabel = if (task.scheduledDate != null) "📅 SCHEDULED" else "🔁 RECURRENCE TIME"
+                        val timeBlockLabel = if (task.isRecurringWithAnchor()) "🔁 RECURRENCE TIME" else "📅 SCHEDULED"
                         Text(timeBlockLabel, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 12.sp)
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(

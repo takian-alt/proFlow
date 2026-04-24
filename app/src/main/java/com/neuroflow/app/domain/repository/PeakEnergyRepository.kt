@@ -41,7 +41,36 @@ class PeakEnergyRepository @Inject constructor(
         private const val ABORT_MINUTES = 12f
         private const val COMPLETION_PROXIMITY_MINUTES = 120L
         private const val MAX_DISTRACTION_SCORE = 100f
+        private const val FREEZE_DIVERGENCE_THRESHOLD = 0.45f
+        private const val FREEZE_MIN_SAMPLES = 60
+        private const val FREEZE_STREAK_TRIGGER = 3
+        private const val UNFREEZE_DIVERGENCE_THRESHOLD = 0.25f
+        private const val UNFREEZE_MIN_SAMPLES = 50
+        private const val GATE_MIN_SLEEP_COVERAGE = 0.30f
+        private const val GATE_MIN_BEHAVIOR_COVERAGE = 0.25f
+        private const val GATE_MIN_SAMPLES = 16
+        private const val GATE_MAX_WAKE_VARIANCE_MINUTES = 150
+        private const val GATE_MAX_DIVERGENCE = 0.55f
+        private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
     }
+
+    @Volatile
+    private var freezeGuardBootstrapped: Boolean = false
+
+    @Volatile
+    private var adaptiveFreezeState: Boolean = false
+
+    @Volatile
+    private var adaptiveFreezeDegradeStreak: Int = 0
+
+    @Volatile
+    private var lastFreezeGuardUpdateDay: Long = Long.MIN_VALUE
+
+    @Volatile
+    private var abstentionTelemetryBootstrapped: Boolean = false
+
+    @Volatile
+    private var confidenceAbstentionState: Boolean = false
     /**
      * Provides a flow of peak energy detection results based on current preferences.
      * Updates whenever user's chronotype or wake time changes.
@@ -59,6 +88,9 @@ class PeakEnergyRepository @Inject constructor(
             profileOverrideEnabled = prefs.manualPeakProfileEnabled,
             profileOverrideType = prefs.manualPeakProfileType,
             profileOverrideAnchorMinute = prefs.manualPeakAnchorMinuteOfDay,
+            manualWindow1StartOffsetMinutes = prefs.manualPeakWindow1StartOffsetMinutes,
+            manualWindow2StartOffsetMinutes = prefs.manualPeakWindow2StartOffsetMinutes,
+            manualWindow3StartOffsetMinutes = prefs.manualPeakWindow3StartOffsetMinutes,
             manualWindow1DurationMinutes = prefs.manualPeakWindow1DurationMinutes,
             manualWindow2DurationMinutes = prefs.manualPeakWindow2DurationMinutes,
             manualWindow3DurationMinutes = prefs.manualPeakWindow3DurationMinutes,
@@ -85,6 +117,9 @@ class PeakEnergyRepository @Inject constructor(
             profileOverrideEnabled = prefs.manualPeakProfileEnabled,
             profileOverrideType = prefs.manualPeakProfileType,
             profileOverrideAnchorMinute = prefs.manualPeakAnchorMinuteOfDay,
+            manualWindow1StartOffsetMinutes = prefs.manualPeakWindow1StartOffsetMinutes,
+            manualWindow2StartOffsetMinutes = prefs.manualPeakWindow2StartOffsetMinutes,
+            manualWindow3StartOffsetMinutes = prefs.manualPeakWindow3StartOffsetMinutes,
             manualWindow1DurationMinutes = prefs.manualPeakWindow1DurationMinutes,
             manualWindow2DurationMinutes = prefs.manualPeakWindow2DurationMinutes,
             manualWindow3DurationMinutes = prefs.manualPeakWindow3DurationMinutes,
@@ -106,6 +141,9 @@ class PeakEnergyRepository @Inject constructor(
         profileOverrideEnabled: Boolean,
         profileOverrideType: String,
         profileOverrideAnchorMinute: Int,
+        manualWindow1StartOffsetMinutes: Int,
+        manualWindow2StartOffsetMinutes: Int,
+        manualWindow3StartOffsetMinutes: Int,
         manualWindow1DurationMinutes: Int,
         manualWindow2DurationMinutes: Int,
         manualWindow3DurationMinutes: Int,
@@ -118,6 +156,9 @@ class PeakEnergyRepository @Inject constructor(
             enabled = profileOverrideEnabled,
             typeRaw = profileOverrideType,
             anchorMinute = profileOverrideAnchorMinute,
+            w1StartOffset = manualWindow1StartOffsetMinutes,
+            w2StartOffset = manualWindow2StartOffsetMinutes,
+            w3StartOffset = manualWindow3StartOffsetMinutes,
             w1Duration = manualWindow1DurationMinutes,
             w2Duration = manualWindow2DurationMinutes,
             w3Duration = manualWindow3DurationMinutes,
@@ -125,29 +166,48 @@ class PeakEnergyRepository @Inject constructor(
             w2Amplitude = manualWindow2Amplitude,
             w3Amplitude = manualWindow3Amplitude
         )
-        maybeAutoTuneMorningWeights()
         if (quizPeakEnabled && parsedQuizChronotype != null) {
+            val qualityGuard = evaluateAdaptiveFreezeGuard()
             val profileType = currentProfileType()
-            val morningSignals = if (
-                parsedQuizChronotype == MEQChronotypeDetector.Chronotype.DEFINITE_MORNING ||
-                parsedQuizChronotype == MEQChronotypeDetector.Chronotype.MODERATE_MORNING
-            ) {
-                loadMorningPersonalizationSignals(
+            var personalizationSignals = loadMorningPersonalizationSignals(
+                profileType = profileType,
+                wakeUpHour = wakeUpHour,
+                chronotype = parsedQuizChronotype,
+                profileOverride = profileOverride,
+                freezeAdaptiveMode = qualityGuard.freezeEnabled
+            )
+            val tuningUpdated = if (personalizationSignals.confidenceGatedAbstention) {
+                false
+            } else {
+                maybeAutoTuneMorningWeights(
+                    divergence = personalizationSignals.predictedVsObservedDivergence,
+                    sampleCount = personalizationSignals.sampleCountSinceLastTuning,
+                    lastTuningMillis = personalizationSignals.lastTuningUpdatedAtMillis,
+                    shouldTriggerAdaptiveTuning = personalizationSignals.shouldTriggerAdaptiveTuning
+                )
+            }
+            if (tuningUpdated) {
+                // Rebuild signals so detection uses the newly tuned coefficients immediately.
+                personalizationSignals = loadMorningPersonalizationSignals(
                     profileType = profileType,
                     wakeUpHour = wakeUpHour,
                     chronotype = parsedQuizChronotype,
-                    profileOverride = profileOverride
+                    profileOverride = profileOverride,
+                    freezeAdaptiveMode = qualityGuard.freezeEnabled
                 )
-            } else {
-                null
             }
+            syncAbstentionTelemetry(
+                abstain = personalizationSignals.confidenceGatedAbstention,
+                reason = personalizationSignals.abstentionReason,
+                reasonCategory = classifyAbstentionReason(personalizationSignals.abstentionReason)
+            )
             val meqResult = toMeqResult(parsedQuizChronotype)
             return PeakEnergyEngine.detect(
                 meqResult = meqResult,
                 wakeUpHour = wakeUpHour,
                 sleepHour = sleepHour,
                 sleepPressurePoints = sleepPressurePoints,
-                personalizationSignals = morningSignals
+                personalizationSignals = personalizationSignals
             )
         }
 
@@ -158,6 +218,7 @@ class PeakEnergyRepository @Inject constructor(
         val peakMinuteOfDay = midpointMinuteOfDay(manualPeakStart, manualPeakEnd)
         val safeWakeHour = normalizeHour(wakeUpHour)
         val offsetMinutes = minutesDifferenceWrapped(startMinute = safeWakeHour * 60, endMinute = peakMinuteOfDay)
+        syncAbstentionTelemetry(abstain = false, reason = "", reasonCategory = null)
 
         return PeakEnergyEngine.DetectionResult(
             chronotype = fallbackChronotype,
@@ -167,7 +228,8 @@ class PeakEnergyRepository @Inject constructor(
             peakMinuteOfDay = peakMinuteOfDay,
             peakValue = PeakEnergyEngine.PEAK_VALUE,
             confidence = 1f,
-            circadianProfile = PeakEnergyEngine.defaultCircadianProfile(fallbackChronotype)
+            circadianProfile = PeakEnergyEngine.defaultCircadianProfile(fallbackChronotype),
+            detectedAtMillis = System.currentTimeMillis()
         )
     }
 
@@ -176,6 +238,7 @@ class PeakEnergyRepository @Inject constructor(
         wakeUpHour: Int,
         chronotype: MEQChronotypeDetector.Chronotype,
         profileOverride: PeakEnergyEngine.ProfileOverride?,
+        freezeAdaptiveMode: Boolean,
         lookbackDays: Int = LOOKBACK_DAYS
     ): PeakEnergyEngine.MorningPersonalizationSignals {
         val allLogs = sleepLogRepository.getAll()
@@ -184,7 +247,10 @@ class PeakEnergyRepository @Inject constructor(
         if (allLogs.isEmpty() && allSessions.isEmpty()) {
             return PeakEnergyEngine.MorningPersonalizationSignals(
                 profileType = profileType,
-                profileOverride = profileOverride
+                profileOverride = profileOverride,
+                adaptiveFreezeMode = freezeAdaptiveMode,
+                confidenceGatedAbstention = true,
+                abstentionReason = "not enough sleep and focus history yet"
             )
         }
 
@@ -226,7 +292,24 @@ class PeakEnergyRepository @Inject constructor(
             slots = behavior.slots,
             baselineAnchorMinute = baselineAnchorMinuteOfDay
         )
+        val divergence = ((weeklyBacktestErrorMinutes ?: 0f) / 180f).coerceIn(0f, 1f)
+        val sampleCount = behavior.slots.sumOf { it.sampleCount }
+        val confidenceGate = evaluateConfidenceGate(
+            freezeAdaptiveMode = freezeAdaptiveMode,
+            profileOverride = profileOverride,
+            sleepLogCoverage = coverage,
+            behaviorCoverage = behavior.coverage,
+            wakeVarianceMinutes = wakeVarianceMinutes,
+            divergence = divergence,
+            sampleCount = sampleCount
+        )
         val prefs = preferencesDataStore.preferencesFlow.first()
+        val shouldTriggerAdaptiveTuning = !freezeAdaptiveMode && !confidenceGate.abstain && PeakEnergyEngine.shouldTriggerAdaptiveTuning(
+            divergence = divergence,
+            sampleCount = sampleCount,
+            lastTuningMillis = prefs.morningTuneUpdatedAtMillis,
+            nowMillis = System.currentTimeMillis()
+        )
         val tuning = PeakEnergyEngine.TuningCoefficients(
             sleepWeight = prefs.morningTuneSleepWeight,
             wakeWeight = prefs.morningTuneWakeWeight,
@@ -248,7 +331,278 @@ class PeakEnergyRepository @Inject constructor(
             driftMinutes = driftMinutes,
             weeklyBacktestErrorMinutes = weeklyBacktestErrorMinutes,
             tuning = tuning,
-            profileOverride = profileOverride
+            profileOverride = profileOverride,
+            predictedVsObservedDivergence = divergence,
+            lastTuningUpdatedAtMillis = prefs.morningTuneUpdatedAtMillis,
+            sampleCountSinceLastTuning = sampleCount,
+            shouldTriggerAdaptiveTuning = shouldTriggerAdaptiveTuning,
+            adaptiveFreezeMode = freezeAdaptiveMode,
+            confidenceGatedAbstention = confidenceGate.abstain,
+            abstentionReason = confidenceGate.reason
+        )
+    }
+
+    private enum class AbstentionReasonCategory {
+        FREEZE_SAFETY,
+        LOW_SAMPLES,
+        LOW_COVERAGE,
+        HIGH_WAKE_VARIANCE,
+        HIGH_DIVERGENCE,
+        OTHER
+    }
+
+    private data class ConfidenceGateDecision(
+        val abstain: Boolean,
+        val reason: String,
+        val reasonCategory: AbstentionReasonCategory? = null
+    )
+
+    private fun evaluateConfidenceGate(
+        freezeAdaptiveMode: Boolean,
+        profileOverride: PeakEnergyEngine.ProfileOverride?,
+        sleepLogCoverage: Float,
+        behaviorCoverage: Float,
+        wakeVarianceMinutes: Int?,
+        divergence: Float,
+        sampleCount: Int
+    ): ConfidenceGateDecision {
+        if (profileOverride?.enabled == true) {
+            return ConfidenceGateDecision(abstain = false, reason = "", reasonCategory = null)
+        }
+        if (freezeAdaptiveMode) {
+            return ConfidenceGateDecision(
+                abstain = true,
+                reason = "adaptive safety freeze is active while quality recovers",
+                reasonCategory = AbstentionReasonCategory.FREEZE_SAFETY
+            )
+        }
+        if (sampleCount < GATE_MIN_SAMPLES) {
+            return ConfidenceGateDecision(
+                abstain = true,
+                reason = "insufficient focus-session samples for reliable personalization",
+                reasonCategory = AbstentionReasonCategory.LOW_SAMPLES
+            )
+        }
+        if (sleepLogCoverage < GATE_MIN_SLEEP_COVERAGE && behaviorCoverage < GATE_MIN_BEHAVIOR_COVERAGE) {
+            return ConfidenceGateDecision(
+                abstain = true,
+                reason = "sleep and behavior coverage are both below reliability threshold",
+                reasonCategory = AbstentionReasonCategory.LOW_COVERAGE
+            )
+        }
+        if ((wakeVarianceMinutes ?: 0) > GATE_MAX_WAKE_VARIANCE_MINUTES) {
+            return ConfidenceGateDecision(
+                abstain = true,
+                reason = "wake time is too inconsistent for stable peak inference",
+                reasonCategory = AbstentionReasonCategory.HIGH_WAKE_VARIANCE
+            )
+        }
+        if (divergence > GATE_MAX_DIVERGENCE) {
+            return ConfidenceGateDecision(
+                abstain = true,
+                reason = "recent predicted-vs-observed drift is above safe limit",
+                reasonCategory = AbstentionReasonCategory.HIGH_DIVERGENCE
+            )
+        }
+        return ConfidenceGateDecision(abstain = false, reason = "", reasonCategory = null)
+    }
+
+    private fun classifyAbstentionReason(reason: String): AbstentionReasonCategory {
+        val normalized = reason.lowercase()
+        return when {
+            "freeze" in normalized -> AbstentionReasonCategory.FREEZE_SAFETY
+            "samples" in normalized -> AbstentionReasonCategory.LOW_SAMPLES
+            "coverage" in normalized -> AbstentionReasonCategory.LOW_COVERAGE
+            "wake" in normalized -> AbstentionReasonCategory.HIGH_WAKE_VARIANCE
+            "drift" in normalized || "divergence" in normalized -> AbstentionReasonCategory.HIGH_DIVERGENCE
+            else -> AbstentionReasonCategory.OTHER
+        }
+    }
+
+    private suspend fun syncAbstentionTelemetry(
+        abstain: Boolean,
+        reason: String,
+        reasonCategory: AbstentionReasonCategory?
+    ) {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!abstentionTelemetryBootstrapped) {
+            confidenceAbstentionState = prefs.peakConfidenceAbstentionEnabled
+            abstentionTelemetryBootstrapped = true
+        }
+
+        val normalizedReason = if (abstain) {
+            reason.ifBlank { "insufficient confidence for personalized prediction" }
+        } else {
+            ""
+        }
+
+        val transitionToAbstention = abstain && !confidenceAbstentionState
+        val transitionToRecovery = !abstain && confidenceAbstentionState
+        val reasonChanged = prefs.peakConfidenceAbstentionReason != normalizedReason
+        val stateChanged = prefs.peakConfidenceAbstentionEnabled != abstain
+
+        if (!transitionToAbstention && !transitionToRecovery && !reasonChanged && !stateChanged) {
+            confidenceAbstentionState = abstain
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        preferencesDataStore.updatePreferences {
+            it.copy(
+                peakConfidenceAbstentionEnabled = abstain,
+                peakConfidenceAbstentionReason = normalizedReason,
+                peakConfidenceAbstentionTriggerCount = if (transitionToAbstention) {
+                    it.peakConfidenceAbstentionTriggerCount + 1
+                } else {
+                    it.peakConfidenceAbstentionTriggerCount
+                },
+                peakConfidenceAbstentionRecoveryCount = if (transitionToRecovery) {
+                    it.peakConfidenceAbstentionRecoveryCount + 1
+                } else {
+                    it.peakConfidenceAbstentionRecoveryCount
+                },
+                peakConfidenceAbstentionReasonFreezeCount = if (
+                    transitionToAbstention && reasonCategory == AbstentionReasonCategory.FREEZE_SAFETY
+                ) {
+                    it.peakConfidenceAbstentionReasonFreezeCount + 1
+                } else {
+                    it.peakConfidenceAbstentionReasonFreezeCount
+                },
+                peakConfidenceAbstentionReasonLowSamplesCount = if (
+                    transitionToAbstention && reasonCategory == AbstentionReasonCategory.LOW_SAMPLES
+                ) {
+                    it.peakConfidenceAbstentionReasonLowSamplesCount + 1
+                } else {
+                    it.peakConfidenceAbstentionReasonLowSamplesCount
+                },
+                peakConfidenceAbstentionReasonLowCoverageCount = if (
+                    transitionToAbstention && reasonCategory == AbstentionReasonCategory.LOW_COVERAGE
+                ) {
+                    it.peakConfidenceAbstentionReasonLowCoverageCount + 1
+                } else {
+                    it.peakConfidenceAbstentionReasonLowCoverageCount
+                },
+                peakConfidenceAbstentionReasonWakeVarianceCount = if (
+                    transitionToAbstention && reasonCategory == AbstentionReasonCategory.HIGH_WAKE_VARIANCE
+                ) {
+                    it.peakConfidenceAbstentionReasonWakeVarianceCount + 1
+                } else {
+                    it.peakConfidenceAbstentionReasonWakeVarianceCount
+                },
+                peakConfidenceAbstentionReasonDivergenceCount = if (
+                    transitionToAbstention && reasonCategory == AbstentionReasonCategory.HIGH_DIVERGENCE
+                ) {
+                    it.peakConfidenceAbstentionReasonDivergenceCount + 1
+                } else {
+                    it.peakConfidenceAbstentionReasonDivergenceCount
+                },
+                peakConfidenceAbstentionReasonOtherCount = if (
+                    transitionToAbstention &&
+                        (reasonCategory == null || reasonCategory == AbstentionReasonCategory.OTHER)
+                ) {
+                    it.peakConfidenceAbstentionReasonOtherCount + 1
+                } else {
+                    it.peakConfidenceAbstentionReasonOtherCount
+                },
+                peakConfidenceAbstentionLastChangedAtMillis = if (
+                    transitionToAbstention || transitionToRecovery || reasonChanged || stateChanged
+                ) {
+                    now
+                } else {
+                    it.peakConfidenceAbstentionLastChangedAtMillis
+                }
+            )
+        }
+
+        confidenceAbstentionState = abstain
+    }
+
+    private data class AdaptiveFreezeGuard(
+        val freezeEnabled: Boolean,
+        val degradeStreak: Int
+    )
+
+    private suspend fun evaluateAdaptiveFreezeGuard(): AdaptiveFreezeGuard {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        if (!freezeGuardBootstrapped) {
+            adaptiveFreezeState = prefs.adaptivePeakFreezeEnabled
+            adaptiveFreezeDegradeStreak = prefs.peakQualityDegradeStreak.coerceAtLeast(0)
+            freezeGuardBootstrapped = true
+        }
+        val sessions = sessionRepository.getAllSessions()
+        val tasks = taskRepository.getAllTasks()
+        val nowMillis = System.currentTimeMillis()
+        val cutoffMillis = nowMillis - (LOOKBACK_DAYS * 24L * 60L * 60L * 1000L)
+        val profileType = currentProfileType()
+        val behavior = behaviorSignals(
+            sessions = sessions,
+            tasks = tasks,
+            cutoffMillis = cutoffMillis,
+            profileType = profileType,
+            lookbackDays = LOOKBACK_DAYS
+        )
+
+        val baselineAnchorMinute = ((normalizeHour(prefs.wakeUpHour) * 60) +
+            (PeakEnergyEngine.chronotypeOffset(
+                parseChronotype(prefs.quizChronotype ?: prefs.manualChronotype)
+                    ?: MEQChronotypeDetector.Chronotype.INTERMEDIATE
+            ) * 60f).roundToInt()) % (24 * 60)
+        val weeklyError = weeklyBacktestError(behavior.slots, baselineAnchorMinute)
+        val divergence = ((weeklyError ?: 0f) / 180f).coerceIn(0f, 1f)
+        val sampleCount = behavior.slots.sumOf { it.sampleCount }
+
+        val qualityBad = divergence >= FREEZE_DIVERGENCE_THRESHOLD && sampleCount >= FREEZE_MIN_SAMPLES
+        val qualityRecovered = divergence <= UNFREEZE_DIVERGENCE_THRESHOLD && sampleCount >= UNFREEZE_MIN_SAMPLES
+
+        val dayIndex = nowMillis / DAY_MILLIS
+        var stateChanged = false
+
+        if (dayIndex != lastFreezeGuardUpdateDay) {
+            when {
+                qualityBad -> {
+                    adaptiveFreezeDegradeStreak += 1
+                    stateChanged = true
+                }
+                qualityRecovered -> {
+                    if (adaptiveFreezeDegradeStreak != 0) stateChanged = true
+                    adaptiveFreezeDegradeStreak = 0
+                }
+            }
+
+            val newFreeze = if (qualityRecovered) {
+                false
+            } else {
+                adaptiveFreezeState || adaptiveFreezeDegradeStreak >= FREEZE_STREAK_TRIGGER
+            }
+            if (newFreeze != adaptiveFreezeState) {
+                adaptiveFreezeState = newFreeze
+                stateChanged = true
+            }
+
+            lastFreezeGuardUpdateDay = dayIndex
+        }
+
+        if (qualityRecovered && adaptiveFreezeState) {
+            adaptiveFreezeState = false
+            adaptiveFreezeDegradeStreak = 0
+            stateChanged = true
+        }
+
+        if (stateChanged &&
+            (adaptiveFreezeState != prefs.adaptivePeakFreezeEnabled ||
+                adaptiveFreezeDegradeStreak != prefs.peakQualityDegradeStreak)
+        ) {
+            preferencesDataStore.updatePreferences {
+                it.copy(
+                    adaptivePeakFreezeEnabled = adaptiveFreezeState,
+                    peakQualityDegradeStreak = adaptiveFreezeDegradeStreak.coerceAtLeast(0)
+                )
+            }
+        }
+
+        return AdaptiveFreezeGuard(
+            freezeEnabled = adaptiveFreezeState,
+            degradeStreak = adaptiveFreezeDegradeStreak
         )
     }
 
@@ -406,6 +760,9 @@ class PeakEnergyRepository @Inject constructor(
         enabled: Boolean,
         typeRaw: String,
         anchorMinute: Int,
+        w1StartOffset: Int,
+        w2StartOffset: Int,
+        w3StartOffset: Int,
         w1Duration: Int,
         w2Duration: Int,
         w3Duration: Int,
@@ -424,24 +781,34 @@ class PeakEnergyRepository @Inject constructor(
             profileType = profileType,
             anchorMinuteOfDay = anchorMinute.coerceIn(0, 1439),
             windows = listOf(
-                PeakEnergyEngine.PeakWindow(0, w1Duration.coerceIn(30, 360), w1Amplitude.coerceIn(0.2f, 1f)),
-                PeakEnergyEngine.PeakWindow(570, w2Duration.coerceIn(30, 360), w2Amplitude.coerceIn(0.2f, 1f)),
-                PeakEnergyEngine.PeakWindow(810, w3Duration.coerceIn(30, 360), w3Amplitude.coerceIn(0.2f, 1f))
+                PeakEnergyEngine.PeakWindow(w1StartOffset.coerceIn(0, 1439), w1Duration.coerceIn(30, 360), w1Amplitude.coerceIn(0.2f, 1f)),
+                PeakEnergyEngine.PeakWindow(w2StartOffset.coerceIn(0, 1439), w2Duration.coerceIn(30, 360), w2Amplitude.coerceIn(0.2f, 1f)),
+                PeakEnergyEngine.PeakWindow(w3StartOffset.coerceIn(0, 1439), w3Duration.coerceIn(30, 360), w3Amplitude.coerceIn(0.2f, 1f))
             )
         )
     }
 
-    private suspend fun maybeAutoTuneMorningWeights() {
+    private suspend fun maybeAutoTuneMorningWeights(
+        divergence: Float,
+        sampleCount: Int,
+        lastTuningMillis: Long,
+        shouldTriggerAdaptiveTuning: Boolean
+    ): Boolean {
         val prefs = preferencesDataStore.preferencesFlow.first()
         val now = System.currentTimeMillis()
-        val sevenDaysMs = 7L * 24L * 60L * 60L * 1000L
-        if (prefs.morningTuneUpdatedAtMillis > 0L && now - prefs.morningTuneUpdatedAtMillis < sevenDaysMs) return
+        val trigger = shouldTriggerAdaptiveTuning || PeakEnergyEngine.shouldTriggerAdaptiveTuning(
+            divergence = divergence,
+            sampleCount = sampleCount,
+            lastTuningMillis = lastTuningMillis,
+            nowMillis = now
+        )
+        if (!trigger) return false
 
         val sessions = sessionRepository.getAllSessions()
-        if (sessions.isEmpty()) return
+        if (sessions.isEmpty()) return false
         val lookbackStart = now - (LOOKBACK_DAYS * 24L * 60L * 60L * 1000L)
         val recent = sessions.filter { it.startedAt >= lookbackStart && it.endedAt != null }
-        if (recent.size < 8) return
+        if (recent.size < 8) return false
 
         val interruptionRate = recent
             .map { (it.pauseResumeCount + it.interruptionBurstCount).toFloat() / maxOf(it.durationMinutes, 1f) }
@@ -454,9 +821,12 @@ class PeakEnergyRepository @Inject constructor(
             .toFloat()
             .coerceIn(0f, 1f)
 
-        val deltaBehavior = ((qualityRate - interruptionRate) * 0.05f).coerceIn(-0.03f, 0.03f)
-        val deltaWake = ((interruptionRate - 0.25f) * 0.03f).coerceIn(-0.02f, 0.02f)
-        val deltaSleep = ((0.7f - qualityRate) * 0.02f).coerceIn(-0.015f, 0.015f)
+        // Phase 3 adaptive tuning: scale coefficient updates with observed divergence.
+        val divergenceBoost = (1f + divergence.coerceIn(0f, 1f) * 0.8f).coerceIn(1f, 1.8f)
+
+        val deltaBehavior = ((qualityRate - interruptionRate) * 0.05f * divergenceBoost).coerceIn(-0.035f, 0.035f)
+        val deltaWake = ((interruptionRate - 0.25f) * 0.03f * divergenceBoost).coerceIn(-0.025f, 0.025f)
+        val deltaSleep = ((0.7f - qualityRate) * 0.02f * divergenceBoost).coerceIn(-0.02f, 0.02f)
 
         val tunedSleep = (prefs.morningTuneSleepWeight + deltaSleep).coerceIn(0.15f, 0.45f)
         val tunedWake = (prefs.morningTuneWakeWeight + deltaWake).coerceIn(0.15f, 0.4f)
@@ -471,9 +841,10 @@ class PeakEnergyRepository @Inject constructor(
                 morningTuneBehaviorWeight = tunedBehavior / total,
                 morningTuneBaseWeight = tunedBase / total,
                 morningTuneUpdatedAtMillis = now,
-                morningTuneVersion = maxOf(1, it.morningTuneVersion)
+                morningTuneVersion = maxOf(1, it.morningTuneVersion) + 1
             )
         }
+        return true
     }
 
     private fun recencyWeight(timestampMillis: Long, lookbackDays: Int): Float {

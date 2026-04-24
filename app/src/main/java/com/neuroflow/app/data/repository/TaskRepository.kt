@@ -2,6 +2,7 @@ package com.neuroflow.app.data.repository
 
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.splitToLocalDateAndTime
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
@@ -47,6 +48,18 @@ private fun nextRecurringAnchorAfter(
     return cal.timeInMillis
 }
 
+private fun shiftDateAndOptionalTime(
+    date: Long?,
+    time: Long?,
+    deltaMs: Long
+): Pair<Long?, Long?> {
+    if (date == null) return null to null
+    val source = date + (time ?: 0L)
+    val shifted = source + deltaMs
+    val (shiftedDate, shiftedTime) = splitToLocalDateAndTime(shifted)
+    return shiftedDate to if (time == null) null else shiftedTime
+}
+
 @Singleton
 class TaskRepository @Inject constructor(
     private val taskDao: TaskDao,
@@ -59,7 +72,10 @@ class TaskRepository @Inject constructor(
     fun observeByStatus(status: TaskStatus): Flow<List<TaskEntity>> = taskDao.observeByStatus(status)
     fun observeTasksForDate(date: Long): Flow<List<TaskEntity>> {
         val dayStart = date.toDayStart()
-        val dayEnd = dayStart + 86_400_000L
+        val dayEnd = Calendar.getInstance().apply {
+            timeInMillis = dayStart
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
         return taskDao.observeTasksForDate(dayStart, dayEnd)
     }
     fun observeQuadrantCount(quadrant: Quadrant): Flow<Int> = taskDao.observeQuadrantCount(quadrant)
@@ -103,8 +119,12 @@ class TaskRepository @Inject constructor(
 
         if (task.recurrence == Recurrence.NONE) return null
 
-        // Anchor for recurrence progression: prefer habitDate, then scheduled/deadline, then now.
-        val currentAnchor = task.habitDate ?: task.scheduledDate ?: task.deadlineDate ?: now
+        // Anchor for recurrence progression: prefer habitDate, then scheduled/deadline with time, then now.
+        val currentAnchor =
+            task.habitDate
+                ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+                ?: task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
+                ?: now
         val nextAnchor = nextRecurringAnchorAfter(
             recurrence = task.recurrence,
             customDays = task.recurrenceIntervalDays,
@@ -112,6 +132,16 @@ class TaskRepository @Inject constructor(
             now = now
         )
         val deltaMs = nextAnchor - currentAnchor
+        val (nextDeadlineDate, nextDeadlineTime) = shiftDateAndOptionalTime(
+            date = task.deadlineDate,
+            time = task.deadlineTime,
+            deltaMs = deltaMs
+        )
+        val (nextScheduledDate, nextScheduledTime) = shiftDateAndOptionalTime(
+            date = task.scheduledDate,
+            time = task.scheduledTime,
+            deltaMs = deltaMs
+        )
 
         val newId = UUID.randomUUID().toString()
         insert(
@@ -120,8 +150,10 @@ class TaskRepository @Inject constructor(
                 status = TaskStatus.ACTIVE,
                 completedAt = null,
                 habitDate = nextAnchor,
-                deadlineDate = task.deadlineDate?.plus(deltaMs),
-                scheduledDate = task.scheduledDate?.plus(deltaMs),
+                deadlineDate = nextDeadlineDate,
+                deadlineTime = nextDeadlineTime,
+                scheduledDate = nextScheduledDate,
+                scheduledTime = nextScheduledTime,
                 isScheduleLocked = task.isScheduleLocked,
                 totalTimeTrackedMinutes = 0f,
                 sessionCount = 0,

@@ -23,6 +23,7 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPrefere
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.AppRepository
@@ -60,6 +61,7 @@ class LauncherViewModel @Inject constructor(
     private val iconPackManager: com.neuroflow.app.presentation.launcher.data.IconPackManager,
     private val hyperFocusDataStore: HyperFocusDataStore,
     private val peakEnergyRepository: PeakEnergyRepository,
+    private val energyScoreRepository: EnergyScoreRepository,
 ) : ViewModel() {
 
     init {
@@ -362,6 +364,9 @@ class LauncherViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val peakDetection = peakEnergyRepository.peakEnergyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val energy = energyScoreRepository.observeEnergy()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /**

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
@@ -13,6 +14,7 @@ import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.TaskScoringEngine
+import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -65,6 +67,7 @@ data class FocusUiState(
     // Manual time log sheet — shown when DONE is tapped with no tracked time
     val showManualTimeLog: Boolean = false,
     val completionAffirmation: String = "",
+    val energy: EnergyScoreRepository.EnergyUiModel? = null,
 )
 
 @HiltViewModel
@@ -77,6 +80,7 @@ class FocusViewModel @Inject constructor(
     private val woopManager: FocusWoopManager,
     private val completionManager: FocusCompletionManager,
     private val reminderScheduler: FocusReminderScheduler,
+    private val energyScoreRepository: EnergyScoreRepository,
     private val application: Application
 ) : ViewModel() {
 
@@ -107,6 +111,15 @@ class FocusViewModel @Inject constructor(
         startScoreTick()
         observeNextTask()
         restoreActiveSession()
+        observeEnergy()
+    }
+
+    private fun observeEnergy() {
+        viewModelScope.launch {
+            energyScoreRepository.observeEnergy().collect { energy ->
+                _uiState.update { it.copy(energy = energy) }
+            }
+        }
     }
 
     private var lastReminderSignature: Pair<Int, Long?>? = null
@@ -120,9 +133,7 @@ class FocusViewModel @Inject constructor(
                 if (task == null) {
                     lastReminderSignature = null
                 } else {
-                    val targetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
-                        ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-                        ?: task.habitDate
+                    val targetMs = task.effectiveReminderTargetMillis()
                     val signature = task.reminderFlags to targetMs
                     // Re-schedule on any effective reminder change, including flag reset to 0.
                     if (signature != lastReminderSignature) {
@@ -491,6 +502,27 @@ class FocusViewModel @Inject constructor(
         viewModelScope.launch {
             val task = taskRepository.getById(taskId) ?: return@launch
             taskRepository.update(task.copy(waitingFor = "", updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun setStepCompleted(stepIndex: Int, completed: Boolean) {
+        viewModelScope.launch {
+            val task = taskRepository.getById(taskId) ?: return@launch
+            if (task.ifThenPlan.isBlank()) return@launch
+
+            val updatedPlan = StepByStepPlanCodec.setStepCompleted(
+                raw = task.ifThenPlan,
+                index = stepIndex,
+                completed = completed
+            )
+            if (updatedPlan == task.ifThenPlan) return@launch
+
+            taskRepository.update(
+                task.copy(
+                    ifThenPlan = updatedPlan,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
         }
     }
 

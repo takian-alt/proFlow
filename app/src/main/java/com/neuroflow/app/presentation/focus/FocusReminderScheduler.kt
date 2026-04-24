@@ -5,6 +5,7 @@ import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.worker.TaskReminderWorker
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -20,10 +21,7 @@ class FocusReminderScheduler @Inject constructor() {
 
         if (!notificationsEnabled) return
 
-        val targetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
-            ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-            ?: task.habitDate
-            ?: return
+        val targetMs = task.effectiveReminderTargetMillis() ?: return
 
         val now = System.currentTimeMillis()
         val flags = task.reminderFlags

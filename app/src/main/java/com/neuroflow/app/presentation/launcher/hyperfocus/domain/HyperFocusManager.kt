@@ -331,13 +331,15 @@ class HyperFocusManagerImpl @Inject constructor(
 
         val now = System.currentTimeMillis()
         val expiresAt = now + 10 * 60 * 1000L // 10 minutes unlock (one-time per session)
-        var applied = false
+        // Default to true after the pre-checks above. If the atomic update lambda observes
+        // a conflicting state change, it flips this to false to avoid starting the timer.
+        var shouldStartService = true
 
         hyperFocusDataStore.update {
             if (!it.isActive || it.emergencyUsed || it.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                shouldStartService = false
                 it
             } else {
-                applied = true
                 it.copy(
                     activeUnlockExpiresAt = expiresAt,
                     emergencyUsed = true,
@@ -346,7 +348,7 @@ class HyperFocusManagerImpl @Inject constructor(
             }
         }
 
-        if (applied) {
+        if (shouldStartService) {
             runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
         }
     }

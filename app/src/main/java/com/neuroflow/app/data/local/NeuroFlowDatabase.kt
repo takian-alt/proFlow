@@ -5,12 +5,14 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
+import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
@@ -162,9 +164,47 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
     }
 }
 
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Phase 2 telemetry: energy prediction audit trail and backtesting data
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS energy_predictions (
+                id TEXT NOT NULL PRIMARY KEY,
+                predictedAtMillis INTEGER NOT NULL,
+                predictedAtDayOfWeek INTEGER NOT NULL,
+                predictedAtHourOfDay INTEGER NOT NULL,
+                peakDetectionAgeMillis INTEGER NOT NULL,
+                sleepLogAgeMillis INTEGER NOT NULL,
+                sessionDataAgeMillis INTEGER NOT NULL,
+                baselineRawEnergy REAL NOT NULL,
+                peakScore REAL NOT NULL,
+                fatiguePenalty REAL NOT NULL,
+                sleepPressurePoints INTEGER NOT NULL,
+                fatiguePercent INTEGER NOT NULL,
+                momentAdjustment REAL NOT NULL,
+                momentConfidence REAL NOT NULL,
+                momentSupportScore REAL NOT NULL,
+                momentPressureScore REAL NOT NULL,
+                adjustedRawEnergy REAL NOT NULL,
+                usableEnergy INTEGER NOT NULL,
+                chronotype TEXT NOT NULL,
+                wakeUpHour INTEGER NOT NULL,
+                peakMinuteOfDay INTEGER NOT NULL,
+                peakConfidence REAL NOT NULL,
+                recentFocusMinutes REAL NOT NULL,
+                recentInterruptionCount INTEGER NOT NULL,
+                recentAppSwitchCount INTEGER NOT NULL,
+                activeTaskCount INTEGER NOT NULL,
+                notificationCount INTEGER NOT NULL,
+                createdAtMillis INTEGER NOT NULL
+            )
+        """.trimIndent())
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class],
-    version = 13,
+    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class],
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -177,4 +217,5 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun unlockCodeDao(): UnlockCodeDao
     abstract fun hyperFocusSessionDao(): HyperFocusSessionDao
     abstract fun sleepLogDao(): SleepLogDao
+    abstract fun energyPredictionDao(): EnergyPredictionDao
 }

@@ -390,7 +390,7 @@ private fun HistoryDetailSheet(
                     2 -> "🚨 Critical"
                     else -> "None"
                 })
-                if (task.ifThenPlan.isNotBlank()) DetailRow("If-Then Plan", task.ifThenPlan)
+                if (task.ifThenPlan.isNotBlank()) DetailRow("Step-by-step Plan", task.ifThenPlan)
                 if (task.waitingFor.isNotBlank()) DetailRow("Waiting For", task.waitingFor)
                 if (task.dependsOnTaskIds.isNotBlank()) DetailRow("Depends On", task.dependsOnTaskIds)
             }

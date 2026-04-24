@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.receiver.NudgeSnoozeReceiver
@@ -39,9 +40,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
             if (task == null || task.status != TaskStatus.ACTIVE || task.sessionCount > 0) return Result.success()
 
             val now = System.currentTimeMillis()
-            val dueAt = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
-                ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-                ?: task.habitDate
+            val dueAt = task.effectiveReminderTargetMillis()
             // Don't nudge tasks that are clearly in the future.
             if (dueAt != null && dueAt > now + 10 * 60_000L) return Result.success()
 

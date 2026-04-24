@@ -1,6 +1,8 @@
 package com.neuroflow.app.domain.engine
 
 import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
+import com.neuroflow.app.data.local.entity.isRecurringWithAnchor
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
@@ -42,6 +44,8 @@ import kotlin.math.sqrt
  *    spreads meaningfully across 0–999 instead of saturating at 999 for most tasks
  *  - scoreBreakdown now uses effectivePeakStart/End (same as score()) — was using
  *    raw peakEnergyStart/End, causing breakdown to show different values than actual score
+ *  - peak context now resolves from profile windows (primary/secondary/tertiary)
+ *    when available, instead of relying only on a single hour window
  *  - distractionScore sentinel corrected: only boost when score > 0f (not >= 0f),
  *    so tasks with no usage data (-1f) and untracked tasks (0f) are correctly excluded
  *  - Frog boost now multiplied by weightFocusMode for consistency — weightFocusMode
@@ -60,9 +64,143 @@ object TaskScoringEngine {
     // LossAversion(130) + Anxiety(60) + Distraction(80) = ~2445
     private const val THEORETICAL_MAX = 2445f
 
+    private data class MinuteWindow(
+        val startMinuteOfDay: Int,
+        val durationMinutes: Int,
+        val amplitude: Float
+    )
+
+    private data class PeakContext(
+        val primaryStartHour: Int,
+        val activePeakAmplitude: Float
+    )
+
     private fun normalizeHour(hour: Int): Int {
         val normalized = hour % 24
         return if (normalized < 0) normalized + 24 else normalized
+    }
+
+    private fun normalizeMinute(minute: Int): Int {
+        val normalized = minute % (24 * 60)
+        return if (normalized < 0) normalized + (24 * 60) else normalized
+    }
+
+    private fun minuteOfDay(nowMillis: Long): Int {
+        val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    }
+
+    private fun isMinuteInWindow(minute: Int, startMinute: Int, durationMinutes: Int): Boolean {
+        if (durationMinutes <= 0) return false
+        val safeMinute = normalizeMinute(minute)
+        val safeStart = normalizeMinute(startMinute)
+        val endExclusive = safeStart + durationMinutes
+        return if (endExclusive <= 24 * 60) {
+            safeMinute in safeStart until endExclusive
+        } else {
+            safeMinute >= safeStart || safeMinute < (endExclusive % (24 * 60))
+        }
+    }
+
+    private fun parseChronotype(raw: String?): MEQChronotypeDetector.Chronotype? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            MEQChronotypeDetector.Chronotype.valueOf(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun resolveProfileMinuteWindows(prefs: UserPreferences): List<MinuteWindow> {
+        if (prefs.manualPeakProfileEnabled) {
+            val anchorMinute = normalizeMinute(prefs.manualPeakAnchorMinuteOfDay)
+            return listOf(
+                MinuteWindow(
+                    startMinuteOfDay = normalizeMinute(anchorMinute + prefs.manualPeakWindow1StartOffsetMinutes),
+                    durationMinutes = prefs.manualPeakWindow1DurationMinutes.coerceIn(30, 360),
+                    amplitude = prefs.manualPeakWindow1Amplitude.coerceIn(0.2f, 1f)
+                ),
+                MinuteWindow(
+                    startMinuteOfDay = normalizeMinute(anchorMinute + prefs.manualPeakWindow2StartOffsetMinutes),
+                    durationMinutes = prefs.manualPeakWindow2DurationMinutes.coerceIn(30, 360),
+                    amplitude = prefs.manualPeakWindow2Amplitude.coerceIn(0.2f, 1f)
+                ),
+                MinuteWindow(
+                    startMinuteOfDay = normalizeMinute(anchorMinute + prefs.manualPeakWindow3StartOffsetMinutes),
+                    durationMinutes = prefs.manualPeakWindow3DurationMinutes.coerceIn(30, 360),
+                    amplitude = prefs.manualPeakWindow3Amplitude.coerceIn(0.2f, 1f)
+                )
+            )
+        }
+
+        // Confidence-gated abstention disables adaptive peak windows so downstream
+        // ranking falls back to stable manual/default hour logic.
+        if (prefs.quizPeakEnabled && prefs.peakConfidenceAbstentionEnabled) {
+            return emptyList()
+        }
+
+        if (prefs.quizPeakEnabled && prefs.effectivePeakMinuteOfDay in 0 until (24 * 60)) {
+            val chronotype = parseChronotype(prefs.quizChronotype ?: prefs.manualChronotype)
+            val defaultWindows = chronotype?.let { PeakEnergyEngine.defaultCircadianProfile(it).windows }
+            if (!defaultWindows.isNullOrEmpty()) {
+                val anchorMinute = normalizeMinute(prefs.effectivePeakMinuteOfDay)
+                return defaultWindows.map { window ->
+                    MinuteWindow(
+                        startMinuteOfDay = normalizeMinute(anchorMinute + window.startMinuteOffset),
+                        durationMinutes = window.durationMinutes.coerceIn(30, 360),
+                        amplitude = window.amplitude.coerceIn(0.2f, 1f)
+                    )
+                }
+            }
+        }
+
+        return emptyList()
+    }
+
+    private fun peakAmplitudeTier(amplitude: Float): Float {
+        return when {
+            amplitude >= 0.9f -> 1.0f
+            amplitude >= 0.75f -> 0.75f
+            amplitude >= 0.55f -> 0.5f
+            else -> 0f
+        }
+    }
+
+    private fun resolvePeakContext(prefs: UserPreferences, nowMillis: Long): PeakContext {
+        val minuteWindows = resolveProfileMinuteWindows(prefs)
+        if (minuteWindows.isNotEmpty()) {
+            val nowMinute = minuteOfDay(nowMillis)
+            val activeAmplitude = minuteWindows
+                .filter { window ->
+                    isMinuteInWindow(
+                        minute = nowMinute,
+                        startMinute = window.startMinuteOfDay,
+                        durationMinutes = window.durationMinutes
+                    )
+                }
+                .maxOfOrNull { it.amplitude }
+                ?: 0f
+            return PeakContext(
+                primaryStartHour = (minuteWindows.first().startMinuteOfDay / 60).coerceIn(0, 23),
+                activePeakAmplitude = activeAmplitude
+            )
+        }
+
+        val hour = Calendar.getInstance().apply { timeInMillis = nowMillis }.get(Calendar.HOUR_OF_DAY)
+        val useQuizPeak = prefs.quizPeakEnabled &&
+            !prefs.peakConfidenceAbstentionEnabled &&
+            prefs.effectivePeakStart >= 0 &&
+            prefs.effectivePeakEnd >= 0
+        val (effectivePeakStart, effectivePeakEnd) = if (useQuizPeak) {
+            prefs.effectivePeakStart to prefs.effectivePeakEnd
+        } else {
+            prefs.peakEnergyStart to prefs.peakEnergyEnd
+        }
+        val inPeak = isHourInPeakWindow(hour, effectivePeakStart, effectivePeakEnd)
+        return PeakContext(
+            primaryStartHour = normalizeHour(effectivePeakStart),
+            activePeakAmplitude = if (inPeak) 1f else 0f
+        )
     }
 
     private fun isHourInPeakWindow(hour: Int, peakStartHour: Int, peakEndHour: Int): Boolean {
@@ -91,8 +229,8 @@ object TaskScoringEngine {
         } else 0
         if (blockedByCount > 0) return max(0f, 5f * (1f / blockedByCount))
 
-        val lockAnchorMs = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-            ?: task.habitDate
+        val recurringAnchorMode = task.isRecurringWithAnchor()
+        val lockAnchorMs = task.effectiveScheduleAnchorMillis()
         if (task.isScheduleLocked && lockAnchorMs != null) {
             val minutesUntilAnchor = (lockAnchorMs - nowMillis) / 60_000f
             // Locked tasks remain visible in task lists, but carry zero ranking priority
@@ -103,17 +241,10 @@ object TaskScoringEngine {
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
-
-        // Use quiz-derived peak only when enabled; otherwise fall back to manual setting.
-        val useQuizPeak = prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0
-        val (effectivePeakStart, effectivePeakEnd) = if (useQuizPeak) {
-            prefs.effectivePeakStart to prefs.effectivePeakEnd
-        } else {
-            prefs.peakEnergyStart to prefs.peakEnergyEnd
-        }
-
-        val isPeakHour = isHourInPeakWindow(hour, effectivePeakStart, effectivePeakEnd)
-        val isMorning = hour < effectivePeakStart
+        val peakContext = resolvePeakContext(prefs, nowMillis)
+        val peakTierScale = peakAmplitudeTier(peakContext.activePeakAmplitude)
+        val isPeakHour = peakTierScale > 0f
+        val isMorning = hour < peakContext.primaryStartHour
         val isLowEnergySlot = hour in 13..15
         val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
         val isWithinWorkDay = hour in prefs.workDayStart until prefs.workDayEnd
@@ -129,7 +260,7 @@ object TaskScoringEngine {
         } * prefs.weightQuadrant
 
         // ── 2. DEADLINE PRESSURE (Temporal Motivation Theory) ────────────────
-        if (task.deadlineDate != null) {
+        if (!recurringAnchorMode && task.deadlineDate != null) {
             val deadlineMs = task.deadlineDate + (task.deadlineTime ?: 0L)
             val hoursLeft = (deadlineMs - nowMillis) / 3_600_000f
             val deadlineScore = when {
@@ -149,7 +280,7 @@ object TaskScoringEngine {
         }
 
         // ── 3. SCHEDULED TIME PROXIMITY (GTD next-action window) ─────────────
-        if (task.scheduledDate != null) {
+        if (!recurringAnchorMode && task.scheduledDate != null) {
             val schedMs = task.scheduledDate + (task.scheduledTime ?: 0L)
             val minutesUntil = (schedMs - nowMillis) / 60_000f
             val schedScore = when {
@@ -196,9 +327,9 @@ object TaskScoringEngine {
         // ── 8. ENERGY MATCHING (Cognitive Load Theory) ───────────────────────
         val energyBonus = when {
             isPeakHour -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  70f
-                EnergyLevel.MEDIUM ->  20f
-                EnergyLevel.LOW    -> -35f
+                EnergyLevel.HIGH   ->  70f * peakTierScale
+                EnergyLevel.MEDIUM ->  20f * peakTierScale
+                EnergyLevel.LOW    -> -35f * peakTierScale
             }
             isLowEnergySlot -> when (task.energyLevel) {
                 EnergyLevel.LOW    ->  70f
@@ -220,7 +351,7 @@ object TaskScoringEngine {
         // ── 9. CIRCADIAN TASK-TYPE MATCHING ──────────────────────────────────
         val circadianBonus = when (task.taskType) {
             TaskType.ANALYTICAL -> when {
-                isPeakHour      ->  60f
+                isPeakHour      ->  60f * peakTierScale
                 isMorning       ->  30f
                 isLowEnergySlot -> -25f
                 else            ->   5f
@@ -228,18 +359,18 @@ object TaskScoringEngine {
             TaskType.CREATIVE -> when {
                 hour in 10..11  ->  55f
                 hour in 16..18  ->  45f
-                isPeakHour      ->  20f
+                isPeakHour      ->  20f * peakTierScale
                 isLowEnergySlot -> -10f
                 else            ->   0f
             }
             TaskType.ADMIN -> when {
                 isLowEnergySlot ->  50f
-                isPeakHour      -> -15f
+                isPeakHour      -> -15f * peakTierScale
                 else            ->  10f
             }
             TaskType.PHYSICAL -> when {
                 isMorning       ->  30f
-                isPeakHour      ->  20f
+                isPeakHour      ->  20f * peakTierScale
                 isLowEnergySlot -> -10f
                 else            ->  10f
             }
@@ -251,7 +382,7 @@ object TaskScoringEngine {
         if (task.isFrog) {
             val frogBase = when {
                 isMorning       -> 120f
-                isPeakHour      ->  90f
+                isPeakHour      ->  90f * peakTierScale
                 isLowEnergySlot ->  20f
                 else            ->  50f
             }
@@ -365,7 +496,7 @@ object TaskScoringEngine {
     }
 
     fun urgencyLabel(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): String {
-        if (task.deadlineDate != null) {
+        if (!task.isRecurringWithAnchor() && task.deadlineDate != null) {
             val hoursLeft = (task.deadlineDate + (task.deadlineTime ?: 0L) - nowMillis) / 3_600_000f
             return when {
                 hoursLeft < 0    -> "OVERDUE"
@@ -378,8 +509,7 @@ object TaskScoringEngine {
                 else             -> "Later"
             }
         }
-        val anchorMs = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-            ?: task.habitDate
+        val anchorMs = task.effectiveScheduleAnchorMillis()
         if (anchorMs != null) {
             val minutesUntil = (anchorMs - nowMillis) / 60_000f
             return when {
@@ -394,7 +524,7 @@ object TaskScoringEngine {
     }
 
     fun urgencyFraction(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Float {
-        if (task.deadlineDate != null) {
+        if (!task.isRecurringWithAnchor() && task.deadlineDate != null) {
             val hoursLeft = (task.deadlineDate + (task.deadlineTime ?: 0L) - nowMillis) / 3_600_000f
             return when {
                 hoursLeft <= 0   -> 1.0f
@@ -407,8 +537,7 @@ object TaskScoringEngine {
                 else             -> max(0f, 1f - hoursLeft / 720f)
             }
         }
-        val anchorMs = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-            ?: task.habitDate
+        val anchorMs = task.effectiveScheduleAnchorMillis()
         if (anchorMs != null) {
             val minutesUntil = (anchorMs - nowMillis) / 60_000f
             return when {
@@ -440,17 +569,10 @@ object TaskScoringEngine {
 
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
-
-        // Mirror score()'s peak resolution exactly (quiz toggle + fallback to manual).
-        val useQuizPeak = prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0
-        val (effectivePeakStart, effectivePeakEnd) = if (useQuizPeak) {
-            prefs.effectivePeakStart to prefs.effectivePeakEnd
-        } else {
-            prefs.peakEnergyStart to prefs.peakEnergyEnd
-        }
-
-        val isPeakHour = isHourInPeakWindow(hour, effectivePeakStart, effectivePeakEnd)
-        val isMorning = hour < effectivePeakStart
+        val peakContext = resolvePeakContext(prefs, nowMillis)
+        val peakTierScale = peakAmplitudeTier(peakContext.activePeakAmplitude)
+        val isPeakHour = peakTierScale > 0f
+        val isMorning = hour < peakContext.primaryStartHour
         val isLowEnergySlot = hour in 13..15
 
         val result = mutableListOf<Pair<String, Float>>()
@@ -466,7 +588,7 @@ object TaskScoringEngine {
         if (task.isFrog) {
             val base = when {
                 isMorning       -> 120f
-                isPeakHour      ->  90f
+                isPeakHour      ->  90f * peakTierScale
                 isLowEnergySlot ->  20f
                 else            ->  50f
             }

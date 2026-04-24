@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.StrictMode
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
+import com.neuroflow.app.data.local.DatabaseCleaner
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
@@ -18,17 +19,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltAndroidApp
 class NeuroFlowApplication : Application(), Configuration.Provider {
 
+    companion object {
+        private const val INSTALL_MARKER_FILE = "install_marker_v1"
+    }
+
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var appRepository: AppRepository
     @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var userPreferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
+    @Inject lateinit var databaseCleaner: DatabaseCleaner
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -58,6 +66,8 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                     .build()
             )
         }
+
+        enforceRestoreVersionPolicy()
 
         createNotificationChannels(this)
         scheduleDailyWorkers()
@@ -90,6 +100,23 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                 .filter { it.isNotBlank() }
             userPreferencesDataStore.mergeTagCatalog(allTags)
         }
+    }
+
+    private fun enforceRestoreVersionPolicy() {
+        val firstLaunchAfterInstall = markFirstLaunchAfterInstall()
+        runBlocking {
+            databaseCleaner.enforceRestoreVersionPolicy(firstLaunchAfterInstall)
+        }
+    }
+
+    private fun markFirstLaunchAfterInstall(): Boolean {
+        val marker = File(noBackupFilesDir, INSTALL_MARKER_FILE)
+        if (marker.exists()) return false
+        return runCatching {
+            marker.parentFile?.mkdirs()
+            marker.writeText("1")
+            true
+        }.getOrDefault(true)
     }
 
     private fun scheduleDailyWorkers() {

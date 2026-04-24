@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.data.local.UserPreferencesDataStore
@@ -236,6 +237,7 @@ class DeadlineEscalationWorker @AssistedInject constructor(
 
         val escalated = taskRepository.getActiveTasks().filter { task ->
             task.quadrant == com.neuroflow.app.domain.model.Quadrant.SCHEDULE &&
+            task.recurrence == com.neuroflow.app.domain.model.Recurrence.NONE &&
             !task.isScheduleLocked &&
             task.deadlineDate != null &&
             (task.deadlineDate + (task.deadlineTime ?: 0L) - now) in 0L..threshold
@@ -295,10 +297,7 @@ class TaskReminderWorker @AssistedInject constructor(
         val minutesBefore = inputData.getLong("minutesBefore", 0L)
         val expectedTargetMs = inputData.getLong("targetMs", -1L)
 
-        val actualTargetMs = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
-            ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-            ?: task.habitDate
-            ?: return Result.success()
+        val actualTargetMs = task.effectiveReminderTargetMillis() ?: return Result.success()
 
         // Skip stale reminder work if target moved significantly after scheduling.
         if (expectedTargetMs > 0 && kotlin.math.abs(actualTargetMs - expectedTargetMs) > 5 * 60_000L) {

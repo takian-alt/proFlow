@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.repository.TaskRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -76,11 +77,15 @@ class ScheduleViewModel @Inject constructor(
     private fun loadTasksForDate(date: Long) {
         viewModelScope.launch {
             taskRepository.observeTasksForDate(date).collect { tasks ->
+                val sortedTasks = tasks.sortedWith(
+                    compareBy<TaskEntity> { it.timelineStartMinuteOfDay() }
+                        .thenBy { it.createdAt }
+                )
                 // Keep locked tasks visible in the timeline so users can still see their time blocks.
-                val locked = tasks.filter { it.isScheduleLocked }
+                val locked = sortedTasks.filter { it.isScheduleLocked }
                 _uiState.update {
                     it.copy(
-                        tasksForDay = tasks,
+                        tasksForDay = sortedTasks,
                         lockedTasks = locked,
                         isLoading = false
                     )

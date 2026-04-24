@@ -5,6 +5,7 @@ import io.kotest.matchers.floats.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import kotlin.math.abs
 
 class PeakEnergyMorningCalibrationTest : StringSpec({
 
@@ -177,6 +178,102 @@ class PeakEnergyMorningCalibrationTest : StringSpec({
         shifted.peakMinuteOfDay shouldNotBe base.peakMinuteOfDay
     }
 
+    "behavior evidence can adapt peak 2 and peak 3 timing more than peak 1" {
+        val detected = PeakEnergyEngine.detect(
+            meqResult = morningResult(),
+            wakeUpHour = 6,
+            sleepHour = 22,
+            sleepPressurePoints = 850,
+            personalizationSignals = PeakEnergyEngine.MorningPersonalizationSignals(
+                averageSleepMinutes = 480,
+                wakeVarianceMinutes = 18,
+                sleepLogCoverage = 0.95f,
+                behaviorCoverage = 0.92f,
+                coldStartFactor = 1f,
+                baselineAnchorMinuteOfDay = 510,
+                behaviorSlots = listOf(
+                    PeakEnergyEngine.SlotPerformanceAggregate(
+                        bucketStartMinute = 510,
+                        qualityWeightedCompletionRate = 0.72f,
+                        abortRate = 0.16f,
+                        distractionRate = 0.28f,
+                        sampleCount = 7
+                    ),
+                    PeakEnergyEngine.SlotPerformanceAggregate(
+                        bucketStartMinute = 1170,
+                        qualityWeightedCompletionRate = 0.95f,
+                        abortRate = 0.05f,
+                        distractionRate = 0.08f,
+                        sampleCount = 22
+                    ),
+                    PeakEnergyEngine.SlotPerformanceAggregate(
+                        bucketStartMinute = 0,
+                        qualityWeightedCompletionRate = 0.93f,
+                        abortRate = 0.06f,
+                        distractionRate = 0.10f,
+                        sampleCount = 19
+                    )
+                )
+            )
+        )
+
+        val defaults = PeakEnergyEngine.defaultCircadianProfile(morningResult().chronotype).windows
+        val adapted = detected.circadianProfile.windows
+
+        val shift1 = abs(wrappedDelta(adapted[0].startMinuteOffset, defaults[0].startMinuteOffset))
+        val shift2 = abs(wrappedDelta(adapted[1].startMinuteOffset, defaults[1].startMinuteOffset))
+        val shift3 = abs(wrappedDelta(adapted[2].startMinuteOffset, defaults[2].startMinuteOffset))
+
+        (shift2 > shift1) shouldBe true
+        (shift3 > shift1) shouldBe true
+        (shift2 >= 10) shouldBe true
+        (shift3 >= 10) shouldBe true
+    }
+
+    "low behavior confidence dampens peak 2 and peak 3 adaptation" {
+        val highSignals = PeakEnergyEngine.MorningPersonalizationSignals(
+            averageSleepMinutes = 470,
+            wakeVarianceMinutes = 20,
+            sleepLogCoverage = 0.92f,
+            behaviorCoverage = 0.9f,
+            coldStartFactor = 1f,
+            baselineAnchorMinuteOfDay = 510,
+            behaviorSlots = listOf(
+                PeakEnergyEngine.SlotPerformanceAggregate(
+                    bucketStartMinute = 1170,
+                    qualityWeightedCompletionRate = 0.94f,
+                    abortRate = 0.05f,
+                    distractionRate = 0.09f,
+                    sampleCount = 20
+                ),
+                PeakEnergyEngine.SlotPerformanceAggregate(
+                    bucketStartMinute = 0,
+                    qualityWeightedCompletionRate = 0.92f,
+                    abortRate = 0.05f,
+                    distractionRate = 0.11f,
+                    sampleCount = 18
+                )
+            )
+        )
+        val lowSignals = highSignals.copy(
+            sleepLogCoverage = 0.2f,
+            behaviorCoverage = 0.12f,
+            coldStartFactor = 0.35f
+        )
+
+        val high = PeakEnergyEngine.detect(morningResult(), 6, 22, 900, highSignals)
+        val low = PeakEnergyEngine.detect(morningResult(), 6, 22, 900, lowSignals)
+        val defaults = PeakEnergyEngine.defaultCircadianProfile(morningResult().chronotype).windows
+
+        val highShift2 = abs(wrappedDelta(high.circadianProfile.windows[1].startMinuteOffset, defaults[1].startMinuteOffset))
+        val highShift3 = abs(wrappedDelta(high.circadianProfile.windows[2].startMinuteOffset, defaults[2].startMinuteOffset))
+        val lowShift2 = abs(wrappedDelta(low.circadianProfile.windows[1].startMinuteOffset, defaults[1].startMinuteOffset))
+        val lowShift3 = abs(wrappedDelta(low.circadianProfile.windows[2].startMinuteOffset, defaults[2].startMinuteOffset))
+
+        (lowShift2 < highShift2) shouldBe true
+        (lowShift3 < highShift3) shouldBe true
+    }
+
     "drift status is exposed in effective profile" {
         val detected = PeakEnergyEngine.detect(
             meqResult = morningResult(),
@@ -220,6 +317,37 @@ class PeakEnergyMorningCalibrationTest : StringSpec({
         detected.circadianProfile.windows.map { it.durationMinutes } shouldBe listOf(180, 120, 90)
         detected.effectiveProfile.profileType shouldBe PeakEnergyEngine.ProfileType.WEEKEND
     }
+
+    "confidence-gated abstention disables adaptive shifting and caps confidence" {
+        val detected = PeakEnergyEngine.detect(
+            meqResult = morningResult(),
+            wakeUpHour = 6,
+            sleepHour = 22,
+            sleepPressurePoints = 1200,
+            personalizationSignals = PeakEnergyEngine.MorningPersonalizationSignals(
+                averageSleepMinutes = 430,
+                wakeVarianceMinutes = 150,
+                sleepLogCoverage = 0.2f,
+                behaviorCoverage = 0.18f,
+                behaviorSlots = listOf(
+                    PeakEnergyEngine.SlotPerformanceAggregate(
+                        bucketStartMinute = 1140,
+                        qualityWeightedCompletionRate = 0.5f,
+                        abortRate = 0.45f,
+                        distractionRate = 0.55f,
+                        sampleCount = 5
+                    )
+                ),
+                confidenceGatedAbstention = true,
+                abstentionReason = "insufficient focus-session samples for reliable personalization"
+            )
+        )
+
+        detected.circadianProfile.phaseShiftMinutes shouldBe 0
+        (detected.confidence <= 0.4f) shouldBe true
+        detected.confidenceGatedAbstention shouldBe true
+        detected.effectiveProfile.confidenceGatedAbstention shouldBe true
+    }
 })
 
 private fun morningResult(): MEQChronotypeDetector.Result {
@@ -231,4 +359,13 @@ private fun morningResult(): MEQChronotypeDetector.Result {
         answeredQuestions = MEQChronotypeDetector.QUESTION_COUNT,
         confidence = 1f
     )
+}
+
+private fun wrappedDelta(a: Int, b: Int): Int {
+    val day = 24 * 60
+    val aa = ((a % day) + day) % day
+    val bb = ((b % day) + day) % day
+    val forward = (aa - bb + day) % day
+    val backward = forward - day
+    return if (abs(forward) <= abs(backward)) forward else backward
 }

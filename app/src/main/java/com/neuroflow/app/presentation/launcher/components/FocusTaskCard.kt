@@ -55,6 +55,7 @@ import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.formatFullDate
 import com.neuroflow.app.presentation.common.formatRelativeTime
@@ -95,6 +96,7 @@ fun FocusTaskCard(
     hasActiveTasks: Boolean = true,
     prefs: com.neuroflow.app.data.local.UserPreferences? = null,
     effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile? = null,
+    energy: EnergyScoreRepository.EnergyUiModel? = null,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
     onStopFocus: () -> Unit = {},
@@ -132,6 +134,7 @@ fun FocusTaskCard(
                 showTaskScore = theme.showTaskScore,
                 prefs = prefs,
                 effectivePeakProfile = effectivePeakProfile,
+                energy = energy,
                 onSkip = { onSkip(topTask.id) },
                 onStartFocus = { onStartFocus(topTask.id) },
                 onStopFocus = onStopFocus
@@ -235,6 +238,7 @@ private fun TaskContent(
     showTaskScore: Boolean,
     prefs: com.neuroflow.app.data.local.UserPreferences?,
     effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?,
+    energy: EnergyScoreRepository.EnergyUiModel?,
     onSkip: () -> Unit,
     onStartFocus: () -> Unit,
     onStopFocus: () -> Unit = {}
@@ -284,6 +288,12 @@ private fun TaskContent(
 
         PersonalizedPeakHint(
             prefs = prefs,
+            effectivePeakProfile = effectivePeakProfile
+        )
+
+        TaskEnergyGuidance(
+            taskEnergyLevel = task.energyLevel,
+            energy = energy,
             effectivePeakProfile = effectivePeakProfile
         )
 
@@ -378,6 +388,11 @@ private fun PersonalizedPeakHint(
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Text(
+                text = EnergyInsight.backtestSummary(effectivePeakProfile),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
                 text = EnergyInsight.profileModeLabel(
                     manualOverrideEnabled = prefs.manualPeakProfileEnabled,
                     profile = effectivePeakProfile
@@ -385,6 +400,111 @@ private fun PersonalizedPeakHint(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+        }
+    }
+}
+
+@Composable
+private fun TaskEnergyGuidance(
+    taskEnergyLevel: EnergyLevel,
+    energy: EnergyScoreRepository.EnergyUiModel?,
+    effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?
+) {
+    if (energy == null) return
+
+    val freshness = "${EnergyInsight.ageLabel(energy.overallFreshnessAgeMillis)} (${EnergyInsight.freshnessLabel(energy.overallFreshnessAgeMillis)})"
+    val stability = EnergyInsight.stabilityScore(
+        momentConfidence = energy.momentConfidence,
+        peakConfidence = energy.confidenceFactor,
+        freshnessAgeMillis = energy.overallFreshnessAgeMillis
+    )
+    val confidenceRationale = EnergyInsight.confidenceTierRationale(
+        momentConfidence = energy.momentConfidence,
+        peakConfidence = energy.confidenceFactor,
+        freshnessAgeMillis = energy.overallFreshnessAgeMillis
+    )
+    val peak1Confidence = EnergyInsight.windowConfidencePercent(effectivePeakProfile, 0)
+    val peak2Confidence = EnergyInsight.windowConfidencePercent(effectivePeakProfile, 1)
+    val peak3Confidence = EnergyInsight.windowConfidencePercent(effectivePeakProfile, 2)
+    val confidenceActions = EnergyInsight.confidenceImprovementActions(effectivePeakProfile)
+    val mismatchHint = EnergyInsight.taskEnergyMismatchHint(
+        taskEnergyLevel = taskEnergyLevel,
+        availableEnergy = energy.availableEnergy
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+        shape = MaterialTheme.shapes.small
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "Energy Score ${energy.availableEnergy}/100",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = "Baseline ${String.format("%.1f", energy.baselineRawEnergy)} • Moment ${String.format("%+.1f", energy.momentAdjustment)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = "Freshness $freshness • Stability ${stability}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = confidenceRationale,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = EnergyInsight.backtestSummary(effectivePeakProfile),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = "Peak confidence P1 ${peak1Confidence}% • P2 ${peak2Confidence}% • P3 ${peak3Confidence}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = EnergyInsight.whyEnergyChanged(
+                    momentAdjustment = energy.momentAdjustment,
+                    momentSummary = energy.momentSignalSummary
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = EnergyInsight.whatToDoNow(
+                    availableEnergy = energy.availableEnergy,
+                    fatigueZone = energy.fatigueZone,
+                    hasRecentData = energy.hasRecentData
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            confidenceActions.take(2).forEach { action ->
+                Text(
+                    text = "• $action",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            if (mismatchHint != null) {
+                Text(
+                    text = mismatchHint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }

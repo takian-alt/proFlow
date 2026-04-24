@@ -118,8 +118,10 @@ class SleepPressureRepository @Inject constructor(
     suspend fun refreshCurrentPressure(nowMillis: Long = System.currentTimeMillis()): Snapshot {
         val prefs = preferencesDataStore.preferencesFlow.first()
 
+        // Phase 1 boundary fix: use the preference-stored tracking start when valid
+        // Otherwise default to configured wake-up hour
         val trackingStart = if (prefs.sleepPressureTrackingStartedAtMillis > 0L &&
-            prefs.sleepPressureTrackingStartedAtMillis <= nowMillis
+            prefs.sleepPressureTrackingStartedAtMillis < nowMillis
         ) {
             prefs.sleepPressureTrackingStartedAtMillis
         } else {
@@ -198,6 +200,7 @@ class SleepPressureRepository @Inject constructor(
     }
 
     private fun minutesBetween(startMillis: Long, endMillis: Long): Int {
+        // Phase 1 boundary guard: prevent negative or zero duration calculations
         if (endMillis <= startMillis) return 0
         return ((endMillis - startMillis) / 60_000L).toInt().coerceAtLeast(0)
     }
@@ -221,6 +224,11 @@ class SleepPressureRepository @Inject constructor(
         trackingStart: Long,
         nowMillis: Long
     ): SleepInterval? {
+                // Phase 1: respect the auto-fallback flag from preferences
+                if (!prefs.autoFallbackSleepInsertionEnabled) {
+                    return null
+                }
+        
         val zoneId = ZoneId.systemDefault()
         val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
         val wakeHour = prefs.wakeUpHour.coerceIn(0, 23)
@@ -257,6 +265,7 @@ class SleepPressureRepository @Inject constructor(
             .toEpochMilli()
 
         if (defaultWakeEnd <= defaultSleepStart) {
+                        // Phase 1 boundary: handle cross-day sleep (e.g., 22:00 sleep to 06:00 wake)
             defaultWakeEnd += 24 * HOUR_MILLIS
         }
 
@@ -270,11 +279,13 @@ class SleepPressureRepository @Inject constructor(
 
         val boundedStart = maxOf(trackingStart, defaultSleepStart)
         val boundedEnd = minOf(nowMillis, defaultWakeEnd)
+        // Phase 1 boundary check: ensure end > start to avoid invalid time windows
         if (boundedEnd <= boundedStart) {
             return null
         }
 
         val duration = boundedEnd - boundedStart
+            // Phase 1 boundary guard: ensure duration is positive and within bounds
         if (duration < MIN_SLEEP_LOG_DURATION_MILLIS || duration > MAX_SLEEP_LOG_DURATION_MILLIS) {
             return null
         }

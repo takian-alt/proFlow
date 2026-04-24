@@ -27,6 +27,7 @@ import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +69,17 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
                     tuneSleep = uiState.preferences.morningTuneSleepWeight,
                     tuneWake = uiState.preferences.morningTuneWakeWeight,
                     tuneBehavior = uiState.preferences.morningTuneBehaviorWeight,
-                    tuneBase = uiState.preferences.morningTuneBaseWeight
+                    tuneBase = uiState.preferences.morningTuneBaseWeight,
+                    abstentionTriggerCount = uiState.preferences.peakConfidenceAbstentionTriggerCount,
+                    abstentionRecoveryCount = uiState.preferences.peakConfidenceAbstentionRecoveryCount,
+                    abstentionReason = uiState.preferences.peakConfidenceAbstentionReason,
+                    abstentionReasonFreezeCount = uiState.preferences.peakConfidenceAbstentionReasonFreezeCount,
+                    abstentionReasonLowSamplesCount = uiState.preferences.peakConfidenceAbstentionReasonLowSamplesCount,
+                    abstentionReasonLowCoverageCount = uiState.preferences.peakConfidenceAbstentionReasonLowCoverageCount,
+                    abstentionReasonWakeVarianceCount = uiState.preferences.peakConfidenceAbstentionReasonWakeVarianceCount,
+                    abstentionReasonDivergenceCount = uiState.preferences.peakConfidenceAbstentionReasonDivergenceCount,
+                    abstentionReasonOtherCount = uiState.preferences.peakConfidenceAbstentionReasonOtherCount,
+                    abstentionRateTrend7d = uiState.abstentionRateTrend7d
                 )
                 InterruptionTelemetryCard(
                     pauseResumeCount = uiState.interruptionPauseResumeCount,
@@ -100,7 +111,8 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
             val displayPeakEnd = if (useQuizPeak)
                 uiState.preferences.effectivePeakEnd else uiState.preferences.peakEnergyEnd
             PeakHourCard(summary, displayPeakStart, displayPeakEnd)
-            // Dynamic peak insight — show when detected peak differs from manual by ≥2h
+
+            // Peak info insight
             val detectedStart = uiState.preferences.detectedPeakStart
             val detectedEnd = uiState.preferences.detectedPeakEnd
             val detectedPeakMinuteOfDay = uiState.preferences.detectedPeakMinuteOfDay
@@ -110,22 +122,26 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
                 displayPeakStart * 60
             }
             val confidence = uiState.preferences.peakDetectionConfidence
-            if (detectedStart >= 0 && confidence > 0f) {
-                DynamicPeakCard(
-                    chronotype = uiState.preferences.quizChronotype ?: uiState.preferences.manualChronotype,
-                    manualStart = uiState.preferences.peakEnergyStart,
-                    manualEnd = uiState.preferences.peakEnergyEnd,
-                    detectedStart = detectedStart,
-                    detectedEnd = detectedEnd,
-                    detectedPeakMinuteOfDay = detectedPeakMinuteOfDay,
-                    effectiveStart = displayPeakStart,
-                    effectiveEnd = displayPeakEnd,
-                    effectivePeakMinuteOfDay = effectivePeakMinuteOfDay,
-                    quizPeakEnabled = uiState.preferences.quizPeakEnabled,
-                    confidence = confidence,
-                    effectiveProfile = uiState.energy?.effectivePeakProfile
-                )
-            }
+            val hasDetectedPeak =
+                detectedStart >= 0 &&
+                    detectedPeakMinuteOfDay in 0 until (24 * 60) &&
+                    confidence > 0f
+            DynamicPeakCard(
+                chronotype = uiState.preferences.quizChronotype ?: uiState.preferences.manualChronotype,
+                manualStart = uiState.preferences.peakEnergyStart,
+                manualEnd = uiState.preferences.peakEnergyEnd,
+                detectedStart = detectedStart,
+                detectedEnd = detectedEnd,
+                detectedPeakMinuteOfDay = detectedPeakMinuteOfDay,
+                effectiveStart = displayPeakStart,
+                effectiveEnd = displayPeakEnd,
+                effectivePeakMinuteOfDay = effectivePeakMinuteOfDay,
+                quizPeakEnabled = uiState.preferences.quizPeakEnabled,
+                confidence = confidence,
+                hasDetectedPeak = hasDetectedPeak,
+                effectiveProfile = uiState.energy?.effectivePeakProfile
+            )
+
             NeuroBoostCard(summary)
             if (summary.topProcrastinatedTasks.isNotEmpty()) ProcrastinationCard(summary)
             if (uiState.activeContracts.isNotEmpty() || uiState.archivedContracts.isNotEmpty()) {
@@ -177,7 +193,7 @@ private fun EnergyPulseCard(energy: EnergyScoreRepository.EnergyUiModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Available Energy", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Energy Score", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         "${energy.availableEnergy}/100",
                         style = MaterialTheme.typography.headlineMedium,
@@ -186,7 +202,7 @@ private fun EnergyPulseCard(energy: EnergyScoreRepository.EnergyUiModel) {
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("Internal Balance", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Adjusted Raw", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         String.format("%.1f", energy.rawEnergy),
                         fontWeight = FontWeight.Bold,
@@ -210,6 +226,36 @@ private fun EnergyPulseCard(energy: EnergyScoreRepository.EnergyUiModel) {
                 EnergyMetricChip("Fatigue Penalty", String.format("%.1f", energy.fatiguePenalty), fatigueColor)
                 EnergyMetricChip("Sleep Pressure", "${energy.sleepPressurePoints}", fatigueColor)
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                EnergyMetricChip("Baseline", String.format("%.1f", energy.baselineRawEnergy), Color(0xFF1565C0))
+                EnergyMetricChip(
+                    "Moment Δ",
+                    String.format("%+.1f", energy.momentAdjustment),
+                    if (energy.momentAdjustment >= 0f) Color(0xFF2E7D32) else Color(0xFFC62828)
+                )
+                EnergyMetricChip(
+                    "Moment Conf",
+                    "${(energy.momentConfidence * 100).toInt()}%",
+                    NeuroFlowColors.Purple
+                )
+            }
+
+            val weightedMoment = energy.momentAdjustment * energy.momentConfidence
+            Text(
+                "Formula: baseline = peak score - fatigue penalty. adjusted = baseline + (moment Δ × moment conf).",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Peak score = circadian capacity. Fatigue penalty = sleep-pressure drag. Moment Δ = short-term context boost/drag.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Current moment contribution: ${String.format("%+.1f", weightedMoment)}",
+                fontSize = 11.sp,
+                color = if (weightedMoment >= 0f) Color(0xFF2E7D32) else Color(0xFFC62828)
+            )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 
@@ -264,8 +310,34 @@ private fun EnergyPulseCard(energy: EnergyScoreRepository.EnergyUiModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            val freshness = "${EnergyInsight.ageLabel(energy.overallFreshnessAgeMillis)} (${EnergyInsight.freshnessLabel(energy.overallFreshnessAgeMillis)})"
+            val stability = EnergyInsight.stabilityScore(
+                momentConfidence = energy.momentConfidence,
+                peakConfidence = energy.confidenceFactor,
+                freshnessAgeMillis = energy.overallFreshnessAgeMillis
+            )
             Text(
-                "Available Energy is the user-facing 0-100 score. Internal Balance is peak score minus fatigue penalty.",
+                "Freshness $freshness • Stability ${stability}% • ${EnergyInsight.backtestSummary(energy.effectivePeakProfile)}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                EnergyInsight.confidenceTierRationale(
+                    momentConfidence = energy.momentConfidence,
+                    peakConfidence = energy.confidenceFactor,
+                    freshnessAgeMillis = energy.overallFreshnessAgeMillis
+                ),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Why energy changed: ${EnergyInsight.whyEnergyChanged(energy.momentAdjustment, energy.momentSignalSummary)}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "What to do now: ${EnergyInsight.whatToDoNow(energy.availableEnergy, energy.fatigueZone, energy.hasRecentData)}",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -784,6 +856,12 @@ private fun PeakHourCard(s: AnalyticsEngine.AnalyticsSummary, peakStart: Int, pe
             else -> "Most focus is happening off-peak. Protect your ${peakLabel}–${peakEndLabel} window."
         }
         Text(advice, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "This card tracks your primary peak window. See Peak Info for all peak windows and timings.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -845,10 +923,10 @@ private fun NeuroBoostCard(s: AnalyticsEngine.AnalyticsSummary) {
             Spacer(Modifier.height(10.dp))
         }
 
-        // If-Then plan usage
+        // Step-by-step plan usage
         if (s.ifThenPlanUsageRate > 0f) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                Text("📌 If-Then plan usage", fontSize = 13.sp)
+                Text("📌 Step-by-step plan usage", fontSize = 13.sp)
                 Text("${String.format("%.0f", s.ifThenPlanUsageRate)}%", fontWeight = FontWeight.Bold, fontSize = 13.sp,
                     color = NeuroFlowColors.Purple)
             }
@@ -933,6 +1011,7 @@ private fun DynamicPeakCard(
     effectivePeakMinuteOfDay: Int,
     quizPeakEnabled: Boolean,
     confidence: Float,
+    hasDetectedPeak: Boolean,
     effectiveProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?
 ) {
     fun normalizeMinuteOfDay(minuteOfDay: Int): Int {
@@ -959,27 +1038,111 @@ private fun DynamicPeakCard(
         return String.format("%d:%02d%s", displayHour, minute, amPm)
     }
 
-    val detectedPeakMinute = resolvePeakMinuteOfDay(detectedPeakMinuteOfDay, detectedStart)
-    val effectivePeakMinute = resolvePeakMinuteOfDay(effectivePeakMinuteOfDay, effectiveStart)
-    val pct = (confidence * 100).toInt()
-    val manualPeakMinute = normalizeMinuteOfDay(manualStart * 60)
-    val shifted = circularMinuteDistance(detectedPeakMinute, manualPeakMinute) >= 120
-    val isMorningType = EnergyInsight.isMorningType(chronotype)
+    fun minuteIsInsideWindow(minute: Int, startMinute: Int, durationMinutes: Int): Boolean {
+        if (durationMinutes <= 0) return false
+        val safeMinute = normalizeMinuteOfDay(minute)
+        val safeStart = normalizeMinuteOfDay(startMinute)
+        val endExclusive = safeStart + durationMinutes
+        return if (endExclusive <= 24 * 60) {
+            safeMinute in safeStart until endExclusive
+        } else {
+            safeMinute >= safeStart || safeMinute < (endExclusive % (24 * 60))
+        }
+    }
 
-    AnalyticsCard("⚡ Dynamic Peak Energy") {
+    fun minutesUntil(targetMinute: Int, nowMinute: Int): Int {
+        val safeTarget = normalizeMinuteOfDay(targetMinute)
+        val safeNow = normalizeMinuteOfDay(nowMinute)
+        val forward = safeTarget - safeNow
+        return if (forward >= 0) forward else forward + (24 * 60)
+    }
+
+    fun windowIntensityLabel(amplitude: Float): String {
+        return when {
+            amplitude >= 0.9f -> "Hard-work"
+            amplitude >= 0.7f -> "Deep-work"
+            else -> "Light-focus"
+        }
+    }
+
+    fun windowConfidenceColor(confidenceValue: Float): Color {
+        return when {
+            confidenceValue >= 0.8f -> Color(0xFF2E7D32)
+            confidenceValue >= 0.6f -> Color(0xFF1565C0)
+            else -> Color(0xFFC62828)
+        }
+    }
+
+    data class PeakWindowUi(
+        val index: Int,
+        val startMinute: Int,
+        val endMinute: Int,
+        val durationMinutes: Int,
+        val amplitude: Float,
+        val confidence: Float,
+        val isActiveNow: Boolean,
+        val minutesUntilStart: Int
+    )
+
+    val detectionConfidence = confidence.coerceIn(0f, 1f)
+    val detectedPeakMinute = if (hasDetectedPeak) {
+        resolvePeakMinuteOfDay(detectedPeakMinuteOfDay, detectedStart)
+    } else {
+        normalizeMinuteOfDay(manualStart * 60)
+    }
+    val effectivePeakMinute = resolvePeakMinuteOfDay(effectivePeakMinuteOfDay, effectiveStart)
+    val pct = (detectionConfidence * 100).toInt()
+    val manualPeakMinute = normalizeMinuteOfDay(manualStart * 60)
+    val shifted = hasDetectedPeak && circularMinuteDistance(detectedPeakMinute, manualPeakMinute) >= 120
+    val isMorningType = EnergyInsight.isMorningType(chronotype)
+    val nowMinuteOfDay = Calendar.getInstance().let {
+        it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
+    }
+    val profileWindows = effectiveProfile?.windows?.mapIndexed { index, window ->
+        val startMinute = normalizeMinuteOfDay(effectivePeakMinute + window.startMinuteOffset)
+        val endMinute = normalizeMinuteOfDay(startMinute + window.durationMinutes)
+        val activeNow = minuteIsInsideWindow(
+            minute = nowMinuteOfDay,
+            startMinute = startMinute,
+            durationMinutes = window.durationMinutes
+        )
+        PeakWindowUi(
+            index = index,
+            startMinute = startMinute,
+            endMinute = endMinute,
+            durationMinutes = window.durationMinutes,
+            amplitude = window.amplitude,
+            confidence = (effectiveProfile?.windowConfidences?.getOrNull(index) ?: detectionConfidence).coerceIn(0f, 1f),
+            isActiveNow = activeNow,
+            minutesUntilStart = if (activeNow) 0 else minutesUntil(startMinute, nowMinuteOfDay)
+        )
+    }.orEmpty()
+    val activeWindow = profileWindows.firstOrNull { it.isActiveNow }
+    val nextWindow = profileWindows.minByOrNull { if (it.isActiveNow) 0 else it.minutesUntilStart }
+
+    AnalyticsCard("⚡ Peak Info") {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text("Manual setting", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("${fmtHour(manualStart)}–${fmtHour(manualEnd)}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text("Detected from MEQ quiz", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                fmtMinuteOfDay(detectedPeakMinute),
-                fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                color = if (shifted) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-            )
+            if (hasDetectedPeak) {
+                Text(
+                    fmtMinuteOfDay(detectedPeakMinute),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (shifted) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                )
+            } else {
+                Text(
+                    "Not available yet",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        if (detectedEnd >= 0) {
+        if (hasDetectedPeak && detectedEnd >= 0) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                 Text("Detected hour window", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("${fmtHour(detectedStart)}–${fmtHour(detectedEnd)}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -992,6 +1155,72 @@ private fun DynamicPeakCard(
                 fontSize = 13.sp, fontWeight = FontWeight.Bold,
                 color = NeuroFlowColors.Purple
             )
+        }
+        if (profileWindows.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Today peak windows",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            profileWindows.forEach { window ->
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    val intensity = windowIntensityLabel(window.amplitude)
+                    val label = "Peak ${window.index + 1} ($intensity)"
+                    Text(
+                        label,
+                        fontSize = 12.sp,
+                        color = if (window.isActiveNow) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "${fmtMinuteOfDay(window.startMinute)}–${fmtMinuteOfDay(window.endMinute)} (${formatMinutes(window.durationMinutes)})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (window.isActiveNow) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), Arrangement.End) {
+                    Text(
+                        "${(window.confidence * 100).toInt()}% ${EnergyInsight.windowConfidenceTier(effectiveProfile, window.index)} confidence",
+                        fontSize = 11.sp,
+                        color = windowConfidenceColor(window.confidence)
+                    )
+                }
+            }
+            val peak2Confidence = profileWindows.getOrNull(1)?.confidence
+            val peak3Confidence = profileWindows.getOrNull(2)?.confidence
+            if (peak2Confidence != null || peak3Confidence != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    buildString {
+                        append("Peak 2 confidence ")
+                        append(peak2Confidence?.let { "${(it * 100).toInt()}%" } ?: "n/a")
+                        append(" • Peak 3 confidence ")
+                        append(peak3Confidence?.let { "${(it * 100).toInt()}%" } ?: "n/a")
+                    },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            when {
+                activeWindow != null -> {
+                    Text(
+                        "You are in Peak ${activeWindow.index + 1} now. Peak 1 is usually best for hardest work; later peaks are better for medium or lighter execution.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                nextWindow != null -> {
+                    Text(
+                        "Next peak: Peak ${nextWindow.index + 1} in ${formatMinutes(nextWindow.minutesUntilStart)} at ${fmtMinuteOfDay(nextWindow.startMinute)}.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
         if (isMorningType) {
             Spacer(Modifier.height(6.dp))
@@ -1013,7 +1242,7 @@ private fun DynamicPeakCard(
         }
         Spacer(Modifier.height(4.dp))
         LinearProgressIndicator(
-            progress = { confidence.coerceIn(0f, 1f) },
+            progress = { detectionConfidence },
             modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
             color = NeuroFlowColors.Purple
         )
@@ -1023,8 +1252,31 @@ private fun DynamicPeakCard(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        val confidenceActions = EnergyInsight.confidenceImprovementActions(effectiveProfile)
+        if (confidenceActions.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "How to raise confidence",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            confidenceActions.forEach { action ->
+                Text(
+                    "• $action",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
-        if (!quizPeakEnabled) {
+        if (!hasDetectedPeak) {
+            Text(
+                "Detected peak data is not available yet. Peak Info is using your manual peak window and adaptive profile windows when available.",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else if (!quizPeakEnabled) {
             Text(
                 "Quiz peak is turned off. Scoring is using your manual peak window.",
                 fontSize = 12.sp,
@@ -1053,6 +1305,26 @@ private fun circularMinuteDistance(a: Int, b: Int): Int {
     return minOf(diff, day - diff)
 }
 
+internal fun abstentionReasonMix(
+    freezeCount: Int,
+    lowSamplesCount: Int,
+    lowCoverageCount: Int,
+    wakeVarianceCount: Int,
+    divergenceCount: Int,
+    otherCount: Int
+): List<Pair<String, Int>> {
+    return listOf(
+        "Freeze safety" to freezeCount.coerceAtLeast(0),
+        "Low samples" to lowSamplesCount.coerceAtLeast(0),
+        "Low coverage" to lowCoverageCount.coerceAtLeast(0),
+        "Wake variance" to wakeVarianceCount.coerceAtLeast(0),
+        "High divergence" to divergenceCount.coerceAtLeast(0),
+        "Other" to otherCount.coerceAtLeast(0)
+    )
+        .filter { it.second > 0 }
+        .sortedByDescending { it.second }
+}
+
 @Composable
 private fun MorningCalibrationCard(
     profile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?,
@@ -1060,7 +1332,17 @@ private fun MorningCalibrationCard(
     tuneSleep: Float,
     tuneWake: Float,
     tuneBehavior: Float,
-    tuneBase: Float
+    tuneBase: Float,
+    abstentionTriggerCount: Int,
+    abstentionRecoveryCount: Int,
+    abstentionReason: String,
+    abstentionReasonFreezeCount: Int,
+    abstentionReasonLowSamplesCount: Int,
+    abstentionReasonLowCoverageCount: Int,
+    abstentionReasonWakeVarianceCount: Int,
+    abstentionReasonDivergenceCount: Int,
+    abstentionReasonOtherCount: Int,
+    abstentionRateTrend7d: List<Pair<String, Float>>
 ) {
     AnalyticsCard("Morning Calibration Diagnostics") {
         if (profile == null) {
@@ -1084,6 +1366,93 @@ private fun MorningCalibrationCard(
         Text(EnergyInsight.profileConfidenceLine(profile), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(4.dp))
         Text(EnergyInsight.backtestSummary(profile), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Abstention telemetry: triggered ${abstentionTriggerCount.coerceAtLeast(0)}x • recovered ${abstentionRecoveryCount.coerceAtLeast(0)}x",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (profile.confidenceGatedAbstention || abstentionReason.isNotBlank()) {
+            Text(
+                "Latest abstention reason: ${abstentionReason.ifBlank { "insufficient confidence for personalized prediction" }}",
+                fontSize = 11.sp,
+                color = if (profile.confidenceGatedAbstention) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        val reasonBreakdown = abstentionReasonMix(
+            freezeCount = abstentionReasonFreezeCount,
+            lowSamplesCount = abstentionReasonLowSamplesCount,
+            lowCoverageCount = abstentionReasonLowCoverageCount,
+            wakeVarianceCount = abstentionReasonWakeVarianceCount,
+            divergenceCount = abstentionReasonDivergenceCount,
+            otherCount = abstentionReasonOtherCount
+        )
+        val reasonTotal = reasonBreakdown.sumOf { it.second }
+        if (reasonTotal > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Abstention reason mix",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            reasonBreakdown.take(4).forEach { (label, count) ->
+                val pct = ((count.toFloat() / reasonTotal.toFloat()) * 100f).toInt().coerceIn(0, 100)
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    Text("• $label", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("$count ($pct%)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        val trend = abstentionRateTrend7d.takeIf { it.size == 7 } ?: emptyList()
+        if (trend.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "7-day abstention rate",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            val maxRate = trend.maxOfOrNull { it.second }?.coerceAtLeast(5f) ?: 5f
+            Row(
+                modifier = Modifier.fillMaxWidth().height(66.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                trend.forEach { (label, rateValue) ->
+                    val safeRate = rateValue.coerceIn(0f, 100f)
+                    val fraction = (safeRate / maxRate).coerceIn(0f, 1f)
+                    val barHeight = (fraction * 44f).dp.coerceAtLeast(2.dp)
+                    val barColor = when {
+                        safeRate >= 50f -> Color(0xFFC62828)
+                        safeRate >= 20f -> Color(0xFFEF6C00)
+                        else -> Color(0xFF2E7D32)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .width(14.dp)
+                                .height(barHeight)
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(barColor.copy(alpha = 0.78f))
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            label,
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            val latestRate = trend.lastOrNull()?.second?.coerceIn(0f, 100f) ?: 0f
+            val avgRate = trend.map { it.second.coerceIn(0f, 100f) }.average().toFloat()
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Latest ${latestRate.toInt()}% • Avg ${avgRate.toInt()}%",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text("Drift status", fontSize = 12.sp)
@@ -1102,6 +1471,12 @@ private fun MorningCalibrationCard(
             Text("Confidence behavior", fontSize = 12.sp)
             Text("${(profile.confidence.behaviorPerformance * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Sleep = sleep-log coverage and duration quality. Wake = wake-time regularity. Behavior = how task outcomes match predicted slots.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(8.dp))
         Text("Auto-tune weights", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
@@ -1110,6 +1485,25 @@ private fun MorningCalibrationCard(
             Text("Wake ${(tuneWake * 100).toInt()}%", fontSize = 12.sp)
             Text("Behavior ${(tuneBehavior * 100).toInt()}%", fontSize = 12.sp)
             Text("Base ${(tuneBase * 100).toInt()}%", fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "These weights control how strongly each signal can move your detected peak profile.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        val actions = EnergyInsight.confidenceImprovementActions(profile)
+        if (actions.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Confidence boosters", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp))
+            actions.forEach { action ->
+                Text(
+                    "• $action",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

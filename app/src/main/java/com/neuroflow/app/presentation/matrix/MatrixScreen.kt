@@ -22,11 +22,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.domain.engine.SleepPressureDetector
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.NewTaskSheet
 import com.neuroflow.app.presentation.common.getQuadrantBgColor
 import com.neuroflow.app.presentation.common.getQuadrantLabel
 import com.neuroflow.app.presentation.common.getQuadrantTextColor
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -152,11 +154,87 @@ fun MatrixScreen(
 
 @Composable
 private fun MatrixEnergyStrip(energy: EnergyScoreRepository.EnergyUiModel) {
+    fun normalizeMinuteOfDay(minuteOfDay: Int): Int {
+        val normalized = minuteOfDay % (24 * 60)
+        return if (normalized < 0) normalized + (24 * 60) else normalized
+    }
+
+    fun minuteIsInsideWindow(minute: Int, startMinute: Int, durationMinutes: Int): Boolean {
+        if (durationMinutes <= 0) return false
+        val safeMinute = normalizeMinuteOfDay(minute)
+        val safeStart = normalizeMinuteOfDay(startMinute)
+        val endExclusive = safeStart + durationMinutes
+        return if (endExclusive <= 24 * 60) {
+            safeMinute in safeStart until endExclusive
+        } else {
+            safeMinute >= safeStart || safeMinute < (endExclusive % (24 * 60))
+        }
+    }
+
+    fun minutesUntil(targetMinute: Int, nowMinute: Int): Int {
+        val safeTarget = normalizeMinuteOfDay(targetMinute)
+        val safeNow = normalizeMinuteOfDay(nowMinute)
+        val forward = safeTarget - safeNow
+        return if (forward >= 0) forward else forward + (24 * 60)
+    }
+
+    fun fmtMinuteOfDay(minuteOfDay: Int): String {
+        val normalized = normalizeMinuteOfDay(minuteOfDay)
+        val hour = normalized / 60
+        val minute = normalized % 60
+        val amPm = if (hour < 12) "am" else "pm"
+        val displayHour = if (hour == 0 || hour == 12) 12 else hour % 12
+        return String.format("%d:%02d%s", displayHour, minute, amPm)
+    }
+
+    fun formatMinutes(totalMinutes: Int): String {
+        val safe = totalMinutes.coerceAtLeast(0)
+        val hours = safe / 60
+        val minutes = safe % 60
+        return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+    }
+
     val fatigueColor = when (energy.fatigueZone) {
         SleepPressureDetector.FatigueZone.RESTED -> Color(0xFF43A047)
         SleepPressureDetector.FatigueZone.MODERATE -> Color(0xFFF9A825)
         SleepPressureDetector.FatigueZone.HIGH -> Color(0xFFF57C00)
         SleepPressureDetector.FatigueZone.CRITICAL -> Color(0xFFE53935)
+    }
+
+    data class PeakWindowUi(
+        val index: Int,
+        val startMinute: Int,
+        val endMinute: Int,
+        val isActiveNow: Boolean,
+        val minutesUntilStart: Int
+    )
+
+    val nowMinuteOfDay = Calendar.getInstance().let {
+        it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
+    }
+    val profileWindows = energy.effectivePeakProfile?.let { profile ->
+        profile.windows.mapIndexed { index, window ->
+            val startMinute = normalizeMinuteOfDay(profile.anchorMinuteOfDay + window.startMinuteOffset)
+            val endMinute = normalizeMinuteOfDay(startMinute + window.durationMinutes)
+            val activeNow = minuteIsInsideWindow(
+                minute = nowMinuteOfDay,
+                startMinute = startMinute,
+                durationMinutes = window.durationMinutes
+            )
+            PeakWindowUi(
+                index = index,
+                startMinute = startMinute,
+                endMinute = endMinute,
+                isActiveNow = activeNow,
+                minutesUntilStart = if (activeNow) 0 else minutesUntil(startMinute, nowMinuteOfDay)
+            )
+        }
+    }.orEmpty()
+    val activeWindow = profileWindows.firstOrNull { it.isActiveNow }
+    val nextWindow = if (activeWindow != null) {
+        profileWindows.filterNot { it.isActiveNow }.minByOrNull { it.minutesUntilStart }
+    } else {
+        profileWindows.minByOrNull { it.minutesUntilStart }
     }
 
     Card(
@@ -182,7 +260,7 @@ private fun MatrixEnergyStrip(energy: EnergyScoreRepository.EnergyUiModel) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Energy", fontWeight = FontWeight.Bold)
+                Text("Energy Score", fontWeight = FontWeight.Bold)
                 Text(
                     "${energy.availableEnergy}/100",
                     fontWeight = FontWeight.ExtraBold,
@@ -211,6 +289,70 @@ private fun MatrixEnergyStrip(energy: EnergyScoreRepository.EnergyUiModel) {
                     fontSize = 12.sp,
                     color = fatigueColor,
                     fontWeight = FontWeight.Bold
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Baseline ${String.format("%.1f", energy.baselineRawEnergy)}", fontSize = 12.sp)
+                Text(
+                    "Moment ${String.format("%+.1f", energy.momentAdjustment)}",
+                    fontSize = 12.sp,
+                    color = if (energy.momentAdjustment >= 0f) Color(0xFF2E7D32) else Color(0xFFC62828)
+                )
+            }
+            if (activeWindow != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Now in Peak ${activeWindow.index + 1} (${fmtMinuteOfDay(activeWindow.startMinute)}–${fmtMinuteOfDay(activeWindow.endMinute)})",
+                    fontSize = 12.sp,
+                    color = Color(0xFF2E7D32),
+                    fontWeight = FontWeight.Bold
+                )
+            } else if (nextWindow != null) {
+                Text(
+                    text = "Next Peak ${nextWindow.index + 1} in ${formatMinutes(nextWindow.minutesUntilStart)} (${fmtMinuteOfDay(nextWindow.startMinute)})",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            val freshness = "${EnergyInsight.ageLabel(energy.overallFreshnessAgeMillis)} (${EnergyInsight.freshnessLabel(energy.overallFreshnessAgeMillis)})"
+            val stability = EnergyInsight.stabilityScore(
+                momentConfidence = energy.momentConfidence,
+                peakConfidence = energy.confidenceFactor,
+                freshnessAgeMillis = energy.overallFreshnessAgeMillis
+            )
+            val peak1Confidence = EnergyInsight.windowConfidencePercent(energy.effectivePeakProfile, 0)
+            val peak2Confidence = EnergyInsight.windowConfidencePercent(energy.effectivePeakProfile, 1)
+            val peak3Confidence = EnergyInsight.windowConfidencePercent(energy.effectivePeakProfile, 2)
+            val confidenceActions = EnergyInsight.confidenceImprovementActions(energy.effectivePeakProfile)
+            Text(
+                text = "Freshness $freshness • Stability ${stability}%",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = EnergyInsight.backtestSummary(energy.effectivePeakProfile),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Peak confidence P1 ${peak1Confidence}% • P2 ${peak2Confidence}% • P3 ${peak3Confidence}%",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = EnergyInsight.whatToDoNow(
+                    availableEnergy = energy.availableEnergy,
+                    fatigueZone = energy.fatigueZone,
+                    hasRecentData = energy.hasRecentData
+                ),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            confidenceActions.take(2).forEach { action ->
+                Text(
+                    text = "• $action",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

@@ -1,5 +1,7 @@
 package com.neuroflow.app.presentation.settings
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +40,7 @@ fun SettingsScreen(
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
     val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
+    var showClearTelemetryDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -117,7 +121,7 @@ fun SettingsScreen(
             }
 
             // Work Schedule
-            SettingsSection("Work Schedule") {
+            SettingsCompactBox(title = "Work Schedule", collapsedByDefault = true) {
                 SettingsNumberRow("Work Day Start", prefs.workDayStart, 0, 23, formatHour = true) {
                     viewModel.updatePreferences { p -> p.copy(workDayStart = it) }
                 }
@@ -328,152 +332,338 @@ fun SettingsScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(12.dp))
-                Text("Profile Controls", fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.height(6.dp))
-                SettingsToggleRow(
-                    label = "Manual profile override",
-                    description = "Replace adaptive profile with your custom anchor, windows, and amplitudes",
-                    checked = prefs.manualPeakProfileEnabled,
-                    onCheckedChange = {
-                        viewModel.updatePreferences { p -> p.copy(manualPeakProfileEnabled = it) }
+                Spacer(modifier = Modifier.height(10.dp))
+                SettingsCompactBox(title = "Profile Controls", collapsedByDefault = true) {
+                    SettingsToggleRow(
+                        label = "Manual profile override",
+                        description = "Replace adaptive profile with your custom anchor, windows, and amplitudes",
+                        checked = prefs.manualPeakProfileEnabled,
+                        onCheckedChange = {
+                            viewModel.updatePreferences { p -> p.copy(manualPeakProfileEnabled = it) }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Profile type", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("AUTO", "WORKDAY", "WEEKEND").forEach { mode ->
+                            FilterChip(
+                                selected = prefs.manualPeakProfileType == mode,
+                                enabled = prefs.manualPeakProfileEnabled,
+                                onClick = { viewModel.updatePreferences { p -> p.copy(manualPeakProfileType = mode) } },
+                                label = { Text(mode.lowercase().replaceFirstChar { c -> c.uppercase() }) }
+                            )
+                        }
                     }
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Profile type", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("AUTO", "WORKDAY", "WEEKEND").forEach { mode ->
-                        FilterChip(
-                            selected = prefs.manualPeakProfileType == mode,
+
+                    val selectedChronotype = prefs.quizChronotype ?: prefs.manualChronotype
+                    val chronotypePreset = manualProfilePresetForChronotype(
+                        chronotype = selectedChronotype,
+                        wakeUpHour = prefs.wakeUpHour
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Chronotype presets", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = "Current preset: ${chronotypePreset.label}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
                             enabled = prefs.manualPeakProfileEnabled,
-                            onClick = { viewModel.updatePreferences { p -> p.copy(manualPeakProfileType = mode) } },
-                            label = { Text(mode.lowercase().replaceFirstChar { c -> c.uppercase() }) }
-                        )
+                            onClick = {
+                                val preset = manualProfilePresetForChronotype(
+                                    chronotype = "INTERMEDIATE",
+                                    wakeUpHour = prefs.wakeUpHour
+                                )
+                                viewModel.updatePreferences { p ->
+                                    p.copy(
+                                        manualPeakProfileType = "AUTO",
+                                        manualPeakAnchorMinuteOfDay = preset.anchorMinuteOfDay,
+                                        manualPeakWindow1StartOffsetMinutes = preset.window1StartOffsetMinutes,
+                                        manualPeakWindow2StartOffsetMinutes = preset.window2StartOffsetMinutes,
+                                        manualPeakWindow3StartOffsetMinutes = preset.window3StartOffsetMinutes,
+                                        manualPeakWindow1DurationMinutes = preset.window1DurationMinutes,
+                                        manualPeakWindow2DurationMinutes = preset.window2DurationMinutes,
+                                        manualPeakWindow3DurationMinutes = preset.window3DurationMinutes,
+                                        manualPeakWindow1Amplitude = preset.window1Amplitude,
+                                        manualPeakWindow2Amplitude = preset.window2Amplitude,
+                                        manualPeakWindow3Amplitude = preset.window3Amplitude
+                                    )
+                                }
+                            }
+                        ) {
+                            Text("Apply Intermediate")
+                        }
+                        OutlinedButton(
+                            enabled = prefs.manualPeakProfileEnabled,
+                            onClick = {
+                                val preset = manualProfilePresetForChronotype(
+                                    chronotype = "DEFINITE_EVENING",
+                                    wakeUpHour = prefs.wakeUpHour
+                                )
+                                viewModel.updatePreferences { p ->
+                                    p.copy(
+                                        manualPeakProfileType = "AUTO",
+                                        manualPeakAnchorMinuteOfDay = preset.anchorMinuteOfDay,
+                                        manualPeakWindow1StartOffsetMinutes = preset.window1StartOffsetMinutes,
+                                        manualPeakWindow2StartOffsetMinutes = preset.window2StartOffsetMinutes,
+                                        manualPeakWindow3StartOffsetMinutes = preset.window3StartOffsetMinutes,
+                                        manualPeakWindow1DurationMinutes = preset.window1DurationMinutes,
+                                        manualPeakWindow2DurationMinutes = preset.window2DurationMinutes,
+                                        manualPeakWindow3DurationMinutes = preset.window3DurationMinutes,
+                                        manualPeakWindow1Amplitude = preset.window1Amplitude,
+                                        manualPeakWindow2Amplitude = preset.window2Amplitude,
+                                        manualPeakWindow3Amplitude = preset.window3Amplitude
+                                    )
+                                }
+                            }
+                        ) {
+                            Text("Apply Night Owl")
+                        }
+                    }
+                    Text(
+                        text = "Presets use wake-up anchored peaks. You can edit each window start offset below.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    val anchorHour = (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
+                    val anchorMinute = (prefs.manualPeakAnchorMinuteOfDay % 60).coerceIn(0, 59)
+                    SettingsNumberRow(
+                        "Anchor Hour",
+                        anchorHour,
+                        0,
+                        23,
+                        formatHour = true,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) { hour ->
+                        viewModel.updatePreferences { p ->
+                            p.copy(manualPeakAnchorMinuteOfDay = hour * 60 + anchorMinute)
+                        }
+                    }
+                    SettingsNumberRow(
+                        "Anchor Minute",
+                        anchorMinute,
+                        0,
+                        59,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) { minute ->
+                        viewModel.updatePreferences { p ->
+                            p.copy(manualPeakAnchorMinuteOfDay = anchorHour * 60 + minute)
+                        }
+                    }
+                    SettingsNumberRow(
+                        "Window 1 Offset (min)",
+                        prefs.manualPeakWindow1StartOffsetMinutes,
+                        0,
+                        1439,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(manualPeakWindow1StartOffsetMinutes = it) }
+                    }
+                    SettingsNumberRow(
+                        "Window 2 Offset (min)",
+                        prefs.manualPeakWindow2StartOffsetMinutes,
+                        0,
+                        1439,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(manualPeakWindow2StartOffsetMinutes = it) }
+                    }
+                    SettingsNumberRow(
+                        "Window 3 Offset (min)",
+                        prefs.manualPeakWindow3StartOffsetMinutes,
+                        0,
+                        1439,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(manualPeakWindow3StartOffsetMinutes = it) }
+                    }
+                    SettingsNumberRow(
+                        "Window 1 Duration (min)",
+                        prefs.manualPeakWindow1DurationMinutes,
+                        30,
+                        360,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(manualPeakWindow1DurationMinutes = it) }
+                    }
+                    SettingsNumberRow(
+                        "Window 2 Duration (min)",
+                        prefs.manualPeakWindow2DurationMinutes,
+                        30,
+                        360,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(manualPeakWindow2DurationMinutes = it) }
+                    }
+                    SettingsNumberRow(
+                        "Window 3 Duration (min)",
+                        prefs.manualPeakWindow3DurationMinutes,
+                        30,
+                        360,
+                        enabled = prefs.manualPeakProfileEnabled
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(manualPeakWindow3DurationMinutes = it) }
+                    }
+                    SettingsFloatSliderRow(
+                        label = "Window 1 Amplitude",
+                        value = prefs.manualPeakWindow1Amplitude,
+                        enabled = prefs.manualPeakProfileEnabled,
+                        onValueChange = { viewModel.updatePreferences { p -> p.copy(manualPeakWindow1Amplitude = it) } }
+                    )
+                    SettingsFloatSliderRow(
+                        label = "Window 2 Amplitude",
+                        value = prefs.manualPeakWindow2Amplitude,
+                        enabled = prefs.manualPeakProfileEnabled,
+                        onValueChange = { viewModel.updatePreferences { p -> p.copy(manualPeakWindow2Amplitude = it) } }
+                    )
+                    SettingsFloatSliderRow(
+                        label = "Window 3 Amplitude",
+                        value = prefs.manualPeakWindow3Amplitude,
+                        enabled = prefs.manualPeakProfileEnabled,
+                        onValueChange = { viewModel.updatePreferences { p -> p.copy(manualPeakWindow3Amplitude = it) } }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Profile shape preview", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    ProfileWindowPreviewRow(
+                        label = "W1",
+                        startOffsetMinutes = prefs.manualPeakWindow1StartOffsetMinutes,
+                        durationMinutes = prefs.manualPeakWindow1DurationMinutes,
+                        amplitude = prefs.manualPeakWindow1Amplitude
+                    )
+                    ProfileWindowPreviewRow(
+                        label = "W2",
+                        startOffsetMinutes = prefs.manualPeakWindow2StartOffsetMinutes,
+                        durationMinutes = prefs.manualPeakWindow2DurationMinutes,
+                        amplitude = prefs.manualPeakWindow2Amplitude
+                    )
+                    ProfileWindowPreviewRow(
+                        label = "W3",
+                        startOffsetMinutes = prefs.manualPeakWindow3StartOffsetMinutes,
+                        durationMinutes = prefs.manualPeakWindow3DurationMinutes,
+                        amplitude = prefs.manualPeakWindow3Amplitude
+                    )
+                    OutlinedButton(
+                        enabled = prefs.manualPeakProfileEnabled,
+                        onClick = {
+                            val preset = manualProfilePresetForChronotype(
+                                chronotype = selectedChronotype,
+                                wakeUpHour = prefs.wakeUpHour
+                            )
+                            viewModel.updatePreferences { p ->
+                                p.copy(
+                                    manualPeakProfileType = "AUTO",
+                                    manualPeakAnchorMinuteOfDay = preset.anchorMinuteOfDay,
+                                    manualPeakWindow1StartOffsetMinutes = preset.window1StartOffsetMinutes,
+                                    manualPeakWindow2StartOffsetMinutes = preset.window2StartOffsetMinutes,
+                                    manualPeakWindow3StartOffsetMinutes = preset.window3StartOffsetMinutes,
+                                    manualPeakWindow1DurationMinutes = preset.window1DurationMinutes,
+                                    manualPeakWindow2DurationMinutes = preset.window2DurationMinutes,
+                                    manualPeakWindow3DurationMinutes = preset.window3DurationMinutes,
+                                    manualPeakWindow1Amplitude = preset.window1Amplitude,
+                                    manualPeakWindow2Amplitude = preset.window2Amplitude,
+                                    manualPeakWindow3Amplitude = preset.window3Amplitude
+                                )
+                            }
+                        }
+                    ) {
+                        Text("Reset to chronotype defaults")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.updatePreferences { p ->
+                                p.copy(
+                                    morningTuneSleepWeight = 0.30f,
+                                    morningTuneWakeWeight = 0.25f,
+                                    morningTuneBehaviorWeight = 0.25f,
+                                    morningTuneBaseWeight = 0.20f,
+                                    morningTuneUpdatedAtMillis = 0L
+                                )
+                            }
+                        }
+                    ) {
+                        Text("Reset auto-tune weights")
                     }
                 }
 
-                val anchorHour = (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
-                val anchorMinute = (prefs.manualPeakAnchorMinuteOfDay % 60).coerceIn(0, 59)
-                SettingsNumberRow(
-                    "Anchor Hour",
-                    anchorHour,
-                    0,
-                    23,
-                    formatHour = true,
-                    enabled = prefs.manualPeakProfileEnabled
-                ) { hour ->
-                    viewModel.updatePreferences { p ->
-                        p.copy(manualPeakAnchorMinuteOfDay = hour * 60 + anchorMinute)
-                    }
+                Spacer(modifier = Modifier.height(10.dp))
+                SettingsCompactBox(title = "Moment Sensitivity", collapsedByDefault = true) {
+                    Text(
+                        "Tune how strongly live context signals affect moment energy adjustments.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    SettingsFloatSliderRow(
+                        label = "Interruption sensitivity",
+                        value = prefs.momentInterruptionSensitivity,
+                        minValue = 0.5f,
+                        maxValue = 2.0f,
+                        onValueChange = {
+                            viewModel.updatePreferences { p -> p.copy(momentInterruptionSensitivity = it) }
+                        }
+                    )
+                    SettingsFloatSliderRow(
+                        label = "Notification sensitivity",
+                        value = prefs.momentNotificationSensitivity,
+                        minValue = 0.5f,
+                        maxValue = 2.0f,
+                        onValueChange = {
+                            viewModel.updatePreferences { p -> p.copy(momentNotificationSensitivity = it) }
+                        }
+                    )
+                    SettingsFloatSliderRow(
+                        label = "Task pressure sensitivity",
+                        value = prefs.momentTaskPressureSensitivity,
+                        minValue = 0.5f,
+                        maxValue = 2.0f,
+                        onValueChange = {
+                            viewModel.updatePreferences { p -> p.copy(momentTaskPressureSensitivity = it) }
+                        }
+                    )
                 }
-                SettingsNumberRow(
-                    "Anchor Minute",
-                    anchorMinute,
-                    0,
-                    59,
-                    enabled = prefs.manualPeakProfileEnabled
-                ) { minute ->
-                    viewModel.updatePreferences { p ->
-                        p.copy(manualPeakAnchorMinuteOfDay = anchorHour * 60 + minute)
-                    }
-                }
-                SettingsNumberRow(
-                    "Window 1 Duration (min)",
-                    prefs.manualPeakWindow1DurationMinutes,
-                    30,
-                    360,
-                    enabled = prefs.manualPeakProfileEnabled
-                ) {
-                    viewModel.updatePreferences { p -> p.copy(manualPeakWindow1DurationMinutes = it) }
-                }
-                SettingsNumberRow(
-                    "Window 2 Duration (min)",
-                    prefs.manualPeakWindow2DurationMinutes,
-                    30,
-                    360,
-                    enabled = prefs.manualPeakProfileEnabled
-                ) {
-                    viewModel.updatePreferences { p -> p.copy(manualPeakWindow2DurationMinutes = it) }
-                }
-                SettingsNumberRow(
-                    "Window 3 Duration (min)",
-                    prefs.manualPeakWindow3DurationMinutes,
-                    30,
-                    360,
-                    enabled = prefs.manualPeakProfileEnabled
-                ) {
-                    viewModel.updatePreferences { p -> p.copy(manualPeakWindow3DurationMinutes = it) }
-                }
-                SettingsFloatSliderRow(
-                    label = "Window 1 Amplitude",
-                    value = prefs.manualPeakWindow1Amplitude,
-                    enabled = prefs.manualPeakProfileEnabled,
-                    onValueChange = { viewModel.updatePreferences { p -> p.copy(manualPeakWindow1Amplitude = it) } }
-                )
-                SettingsFloatSliderRow(
-                    label = "Window 2 Amplitude",
-                    value = prefs.manualPeakWindow2Amplitude,
-                    enabled = prefs.manualPeakProfileEnabled,
-                    onValueChange = { viewModel.updatePreferences { p -> p.copy(manualPeakWindow2Amplitude = it) } }
-                )
-                SettingsFloatSliderRow(
-                    label = "Window 3 Amplitude",
-                    value = prefs.manualPeakWindow3Amplitude,
-                    enabled = prefs.manualPeakProfileEnabled,
-                    onValueChange = { viewModel.updatePreferences { p -> p.copy(manualPeakWindow3Amplitude = it) } }
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text("Profile shape preview", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ProfileWindowPreviewRow(
-                    label = "W1",
-                    durationMinutes = prefs.manualPeakWindow1DurationMinutes,
-                    amplitude = prefs.manualPeakWindow1Amplitude
-                )
-                ProfileWindowPreviewRow(
-                    label = "W2",
-                    durationMinutes = prefs.manualPeakWindow2DurationMinutes,
-                    amplitude = prefs.manualPeakWindow2Amplitude
-                )
-                ProfileWindowPreviewRow(
-                    label = "W3",
-                    durationMinutes = prefs.manualPeakWindow3DurationMinutes,
-                    amplitude = prefs.manualPeakWindow3Amplitude
-                )
-                OutlinedButton(
-                    enabled = prefs.manualPeakProfileEnabled,
-                    onClick = {
-                        viewModel.updatePreferences { p ->
-                            p.copy(
-                                manualPeakProfileType = "AUTO",
-                                manualPeakAnchorMinuteOfDay = 360,
-                                manualPeakWindow1DurationMinutes = 210,
-                                manualPeakWindow2DurationMinutes = 150,
-                                manualPeakWindow3DurationMinutes = 60,
-                                manualPeakWindow1Amplitude = 1.0f,
-                                manualPeakWindow2Amplitude = 0.8f,
-                                manualPeakWindow3Amplitude = 0.6f
-                            )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                SettingsCompactBox(title = "Telemetry & Privacy", collapsedByDefault = true) {
+                    SettingsToggleRow(
+                        label = "Energy telemetry (local only)",
+                        description = "Store prediction snapshots on-device for calibration and diagnostics",
+                        checked = prefs.energyTelemetryEnabled,
+                        onCheckedChange = {
+                            viewModel.updatePreferences { p -> p.copy(energyTelemetryEnabled = it) }
+                        }
+                    )
+                    if (prefs.energyTelemetryEnabled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Retention (days)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(7, 14, 30, 60, 90).forEach { days ->
+                                FilterChip(
+                                    selected = prefs.energyTelemetryRetentionDays == days,
+                                    onClick = {
+                                        viewModel.updatePreferences { p -> p.copy(energyTelemetryRetentionDays = days) }
+                                    },
+                                    label = { Text("$days") }
+                                )
+                            }
                         }
                     }
-                ) {
-                    Text("Reset to adaptive defaults")
-                }
-                OutlinedButton(
-                    onClick = {
-                        viewModel.updatePreferences { p ->
-                            p.copy(
-                                morningTuneSleepWeight = 0.30f,
-                                morningTuneWakeWeight = 0.25f,
-                                morningTuneBehaviorWeight = 0.25f,
-                                morningTuneBaseWeight = 0.20f,
-                                morningTuneUpdatedAtMillis = 0L
-                            )
-                        }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Telemetry remains on this device. It is never required for live scoring.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showClearTelemetryDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NeuroFlowColors.TrackingRed)
+                    ) {
+                        Icon(Icons.Filled.DeleteSweep, "Clear telemetry")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Clear Energy Telemetry")
                     }
-                ) {
-                    Text("Reset auto-tune weights")
                 }
             }
 
@@ -654,7 +844,11 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("Clear All Data?") },
-            text = { Text("This will permanently delete all tasks, sessions, and goals. This cannot be undone.") },
+            text = {
+                Text(
+                    "This will permanently delete all app data on this device and reset backup state so old data is not restored after reinstall. This cannot be undone."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.clearAllData()
@@ -664,6 +858,91 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    if (showClearTelemetryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearTelemetryDialog = false },
+            title = { Text("Clear Energy Telemetry?") },
+            text = {
+                Text("This removes saved energy predictions used for diagnostics and calibration. Live scoring will continue.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearEnergyTelemetry()
+                    showClearTelemetryDialog = false
+                }) { Text("Clear", color = NeuroFlowColors.TrackingRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearTelemetryDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+private data class ManualProfilePreset(
+    val label: String,
+    val anchorMinuteOfDay: Int,
+    val window1StartOffsetMinutes: Int,
+    val window2StartOffsetMinutes: Int,
+    val window3StartOffsetMinutes: Int,
+    val window1DurationMinutes: Int,
+    val window2DurationMinutes: Int,
+    val window3DurationMinutes: Int,
+    val window1Amplitude: Float,
+    val window2Amplitude: Float,
+    val window3Amplitude: Float
+)
+
+private fun manualProfilePresetForChronotype(
+    chronotype: String?,
+    wakeUpHour: Int
+): ManualProfilePreset {
+    val wakeMinute = wakeUpHour.coerceIn(0, 23) * 60
+    fun anchored(offsetMinutes: Int): Int = (wakeMinute + offsetMinutes).mod(24 * 60)
+
+    return when (chronotype) {
+        "INTERMEDIATE" -> ManualProfilePreset(
+            label = "Intermediate",
+            anchorMinuteOfDay = anchored(150), // +2.5h
+            window1StartOffsetMinutes = 0,
+            window2StartOffsetMinutes = 480,
+            window3StartOffsetMinutes = 720,
+            window1DurationMinutes = 210,      // 3.5h
+            window2DurationMinutes = 150,      // 2.5h
+            window3DurationMinutes = 60,       // 1h
+            window1Amplitude = 1.0f,
+            window2Amplitude = 0.78f,
+            window3Amplitude = 0.58f
+        )
+
+        "MODERATE_EVENING", "DEFINITE_EVENING" -> ManualProfilePreset(
+            label = "Night Owl",
+            anchorMinuteOfDay = anchored(330), // +5.5h
+            window1StartOffsetMinutes = 0,
+            window2StartOffsetMinutes = 330,
+            window3StartOffsetMinutes = 600,
+            window1DurationMinutes = 180,      // 3h
+            window2DurationMinutes = 240,      // 4h
+            window3DurationMinutes = 60,       // 1h
+            window1Amplitude = 1.0f,
+            window2Amplitude = 0.85f,
+            window3Amplitude = 0.6f
+        )
+
+        else -> ManualProfilePreset(
+            label = "Morning",
+            anchorMinuteOfDay = anchored(0),
+            window1StartOffsetMinutes = 0,
+            window2StartOffsetMinutes = 570,
+            window3StartOffsetMinutes = 810,
+            window1DurationMinutes = 210,
+            window2DurationMinutes = 150,
+            window3DurationMinutes = 60,
+            window1Amplitude = 1.0f,
+            window2Amplitude = 0.8f,
+            window3Amplitude = 0.6f
         )
     }
 }
@@ -678,6 +957,46 @@ private fun SettingsSection(title: String, content: @Composable ColumnScope.() -
             Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(12.dp))
             content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsCompactBox(
+    title: String,
+    collapsedByDefault: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by rememberSaveable(title, collapsedByDefault) { mutableStateOf(!collapsedByDefault) }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.height(2.dp))
+                content()
+            }
         }
     }
 }
@@ -745,9 +1064,11 @@ private fun SettingsFloatSliderRow(
     label: String,
     value: Float,
     enabled: Boolean = true,
+    minValue: Float = 0.2f,
+    maxValue: Float = 1f,
     onValueChange: (Float) -> Unit
 ) {
-    val safe = value.coerceIn(0.2f, 1f)
+    val safe = value.coerceIn(minValue, maxValue)
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontSize = 14.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -756,8 +1077,8 @@ private fun SettingsFloatSliderRow(
         Slider(
             value = safe,
             enabled = enabled,
-            onValueChange = { onValueChange(it.coerceIn(0.2f, 1f)) },
-            valueRange = 0.2f..1f
+            onValueChange = { onValueChange(it.coerceIn(minValue, maxValue)) },
+            valueRange = minValue..maxValue
         )
     }
 }
@@ -765,6 +1086,7 @@ private fun SettingsFloatSliderRow(
 @Composable
 private fun ProfileWindowPreviewRow(
     label: String,
+    startOffsetMinutes: Int,
     durationMinutes: Int,
     amplitude: Float
 ) {
@@ -774,7 +1096,7 @@ private fun ProfileWindowPreviewRow(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("$label ${durationMinutes}m", fontSize = 12.sp, modifier = Modifier.width(72.dp))
+        Text("$label +${startOffsetMinutes}m", fontSize = 12.sp, modifier = Modifier.width(80.dp))
         Box(
             modifier = Modifier
                 .weight(1f)
