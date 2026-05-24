@@ -9,6 +9,9 @@ import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.scheduler.TagEnergyDemand
+import com.neuroflow.app.domain.scheduler.TagPreferredWindow
+import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import java.util.Calendar
 import kotlin.math.exp
 import kotlin.math.max
@@ -214,6 +217,60 @@ object TaskScoringEngine {
         }
     }
 
+    private fun tagSuitabilityScore(task: TaskEntity, hour: Int, isLowEnergySlot: Boolean): Float {
+        val profiles = TaskTagSchedulingProfile.profilesFor(task.tags)
+        if (profiles.isEmpty()) return 0f
+
+        val aggregate = profiles.map { profile ->
+            var score = 0f
+            val tagEnergyMatch = when (profile.energyDemand) {
+                TagEnergyDemand.HIGH -> when (task.energyLevel) {
+                    EnergyLevel.HIGH -> 1f
+                    EnergyLevel.MEDIUM -> 0.4f
+                    EnergyLevel.LOW -> -0.4f
+                }
+                TagEnergyDemand.MEDIUM -> when (task.energyLevel) {
+                    EnergyLevel.HIGH -> 0.6f
+                    EnergyLevel.MEDIUM -> 1f
+                    EnergyLevel.LOW -> 0.2f
+                }
+                TagEnergyDemand.LOW -> when (task.energyLevel) {
+                    EnergyLevel.HIGH -> 0.2f
+                    EnergyLevel.MEDIUM -> 0.8f
+                    EnergyLevel.LOW -> 1f
+                }
+            }
+            score += tagEnergyMatch * 14f
+
+            if (profile.preferredContext != null && profile.preferredContext.equals(task.contextTag, ignoreCase = true)) {
+                score += 8f
+            }
+
+            val windowMatch = when (profile.preferredWindow) {
+                TagPreferredWindow.MORNING -> if (hour in 6..11) 1f else 0f
+                TagPreferredWindow.MIDDAY -> if (hour in 12..15) 1f else 0f
+                TagPreferredWindow.EVENING -> if (hour in 16..21) 1f else 0f
+                TagPreferredWindow.FLEXIBLE -> 0.4f
+            }
+            score += windowMatch * 10f
+
+            val durationHours = task.estimatedDurationMinutes / 60f
+            val fragmentationPenalty = if (durationHours >= 2.0f) {
+                (1f - profile.fragmentationTolerance).coerceIn(0f, 1f) * 12f
+            } else {
+                0f
+            }
+            score -= fragmentationPenalty
+
+            if (isLowEnergySlot && profile.energyDemand == TagEnergyDemand.HIGH) {
+                score -= 8f
+            }
+            score
+        }
+
+        return aggregate.average().toFloat()
+    }
+
     fun score(
         task: TaskEntity,
         prefs: UserPreferences,
@@ -414,24 +471,27 @@ object TaskScoringEngine {
         if (!isWithinWorkDay && task.contextTag == "@work") s -= 60f
         if (isWithinWorkDay && task.contextTag == "@work") s += 20f
 
-        // ── 15. RECENCY BIAS CORRECTION ──────────────────────────────────────
+        // ── 15. TAG SUITABILITY (scheduler-aligned additive fit) ─────────────
+        s += tagSuitabilityScore(task, hour, isLowEnergySlot)
+
+        // ── 16. RECENCY BIAS CORRECTION ──────────────────────────────────────
         val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f
         if (daysSinceCreated > 7 && task.sessionCount == 0) {
             s += min(daysSinceCreated * 2f, 40f)
         }
 
-        // ── 16. PROGRESS PRINCIPLE (Teresa Amabile) ──────────────────────────
+        // ── 17. PROGRESS PRINCIPLE (Teresa Amabile) ──────────────────────────
         if (task.sessionCount > 0) {
             s += min(task.sessionCount * 18f, 72f)
         }
 
-        // ── 17. IMPLEMENTATION INTENTIONS (Peter Gollwitzer) ─────────────────
+        // ── 18. IMPLEMENTATION INTENTIONS (Peter Gollwitzer) ─────────────────
         if (task.ifThenPlan.isNotBlank()) {
             val planBoost = 25f + (task.effortScore / 100f) * 55f
             s += planBoost
         }
 
-        // ── 18. ENJOYMENT AS CONTINUOUS MODIFIER (Temptation Bundling) ───────
+        // ── 19. ENJOYMENT AS CONTINUOUS MODIFIER (Temptation Bundling) ───────
         val enjoyNorm = task.enjoymentScore / 100f
         val effortN = task.effortScore / 100f
         val enjoymentModifier = when {
@@ -443,7 +503,7 @@ object TaskScoringEngine {
         }
         s += enjoymentModifier
 
-        // ── 19. COMMITMENT DEVICE (Social Accountability) ────────────────────
+        // ── 20. COMMITMENT DEVICE (Social Accountability) ────────────────────
         if (task.isPublicCommitment) s += 70f
 
         if (task.isScheduleLocked && lockAnchorMs != null) {
@@ -453,19 +513,19 @@ object TaskScoringEngine {
             else if (minutesUntil in -240f..120f) s += 30f
         }
 
-        // ── 20. LOSS AVERSION (Kahneman & Tversky) ───────────────────────────
+        // ── 21. LOSS AVERSION (Kahneman & Tversky) ───────────────────────────
         s += when (task.goalRiskLevel) {
             1 -> 60f
             2 -> 130f
             else -> 0f
         }
 
-        // ── 21. STRESS INOCULATION (Anxiety Task Anti-Avoidance) ─────────────
+        // ── 22. STRESS INOCULATION (Anxiety Task Anti-Avoidance) ─────────────
         if (task.isAnxietyTask) {
             s += 40f + if (enjoyNorm < 0.4f) 20f else 0f
         }
 
-        // ── 22. DISTRACTION-AWARE BOOST ───────────────────────────────────────
+        // ── 23. DISTRACTION-AWARE BOOST ───────────────────────────────────────
         // Only boost when a real score has been computed (> 0f).
         // distractionScore = -1f means not yet computed; 0f means no distractions recorded.
         if (task.distractionScore > 0f) {
@@ -602,6 +662,8 @@ object TaskScoringEngine {
         if (task.isAnxietyTask) result += "😰 Anxiety task surfaced" to 40f
         if (task.goalRiskLevel > 0) result += "⚠ Goal risk" to if (task.goalRiskLevel == 2) 130f else 60f
         if (task.waitingFor.isNotBlank()) result += "⏳ Waiting for (blocked)" to -999f
+        val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot)
+        if (tagFit != 0f) result += "🏷 Tag fit" to tagFit
         if (task.postponeCount > 0) result += "↩ Postponed ${task.postponeCount}x" to min(task.postponeCount * 30f, 180f)
         if (task.distractionScore > 0f) {
             val boost = DistractionEngine.priorityBoost(task.distractionScore)

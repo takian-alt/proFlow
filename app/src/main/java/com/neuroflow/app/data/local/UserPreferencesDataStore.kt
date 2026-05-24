@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import com.neuroflow.app.domain.model.AppTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -57,6 +58,12 @@ data class UserPreferences(
     val affirmations: List<String> = emptyList(),
     // Persistent task tag catalog shown in task creation and history filters
     val tagCatalog: List<String> = emptyList(),
+    // Auto scheduling controls
+    val autoSchedulingEnabled: Boolean = true,
+    val autoSchedulingHorizonDays: Int = 3,
+    val autoSchedulingBreakAfterCognitiveMinutes: Int = 90,
+    val autoSchedulingBreakDurationMinutes: Int = 15,
+    val autoSchedulingBackgroundThrottleMinutes: Int = 30,
     // Top 3 goals for the year (JSON array)
     val yearlyGoals: List<String> = emptyList(),
     // Top 3 goals for the current week (JSON array)
@@ -177,6 +184,11 @@ class UserPreferencesDataStore @Inject constructor(
         val QUIZ_PEAK_ENABLED = booleanPreferencesKey("quiz_peak_enabled")
         val AFFIRMATIONS = stringPreferencesKey("affirmations")
         val TAG_CATALOG = stringPreferencesKey("tag_catalog")
+        val AUTO_SCHEDULING_ENABLED = booleanPreferencesKey("auto_scheduling_enabled")
+        val AUTO_SCHEDULING_HORIZON_DAYS = intPreferencesKey("auto_scheduling_horizon_days")
+        val AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES = intPreferencesKey("auto_scheduling_break_after_cognitive_minutes")
+        val AUTO_SCHEDULING_BREAK_DURATION_MINUTES = intPreferencesKey("auto_scheduling_break_duration_minutes")
+        val AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES = intPreferencesKey("auto_scheduling_background_throttle_minutes")
         val YEARLY_GOALS = stringPreferencesKey("yearly_goals")
         val WEEKLY_GOALS = stringPreferencesKey("weekly_goals")
         val LAST_YEARLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_yearly_goal_shown_year")
@@ -280,7 +292,12 @@ class UserPreferencesDataStore @Inject constructor(
             effectivePeakMinuteOfDay = prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] ?: -1,
             quizPeakEnabled = prefs[Keys.QUIZ_PEAK_ENABLED] ?: true,
             affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
-            tagCatalog = parseAffirmations(prefs[Keys.TAG_CATALOG]),
+            tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
+            autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
+            autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(3, 3),
+            autoSchedulingBreakAfterCognitiveMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] ?: 90).coerceIn(30, 180),
+            autoSchedulingBreakDurationMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] ?: 15).coerceIn(5, 30),
+            autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(5, 120),
             yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
             weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
             lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
@@ -400,7 +417,12 @@ class UserPreferencesDataStore @Inject constructor(
                 effectivePeakMinuteOfDay = prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] ?: -1,
                 quizPeakEnabled = prefs[Keys.QUIZ_PEAK_ENABLED] ?: true,
                 affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
-                tagCatalog = parseAffirmations(prefs[Keys.TAG_CATALOG]),
+                tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
+                autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
+                autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(3, 3),
+                autoSchedulingBreakAfterCognitiveMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] ?: 90).coerceIn(30, 180),
+                autoSchedulingBreakDurationMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] ?: 15).coerceIn(5, 30),
+                autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(5, 120),
                 yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
                 weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
                 lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
@@ -500,7 +522,12 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] = updated.effectivePeakMinuteOfDay
             prefs[Keys.QUIZ_PEAK_ENABLED] = updated.quizPeakEnabled
             prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
-            prefs[Keys.TAG_CATALOG] = encodeAffirmations(updated.tagCatalog)
+            prefs[Keys.TAG_CATALOG] = encodeAffirmations(withStarterTagCatalog(updated.tagCatalog))
+            prefs[Keys.AUTO_SCHEDULING_ENABLED] = updated.autoSchedulingEnabled
+            prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] = updated.autoSchedulingHorizonDays.coerceIn(3, 3)
+            prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] = updated.autoSchedulingBreakAfterCognitiveMinutes.coerceIn(30, 180)
+            prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] = updated.autoSchedulingBreakDurationMinutes.coerceIn(5, 30)
+            prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] = updated.autoSchedulingBackgroundThrottleMinutes.coerceIn(5, 120)
             prefs[Keys.YEARLY_GOALS] = encodeAffirmations(updated.yearlyGoals)
             prefs[Keys.WEEKLY_GOALS] = encodeAffirmations(updated.weeklyGoals)
             prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] = updated.lastYearlyGoalShownYear
@@ -602,6 +629,24 @@ class UserPreferencesDataStore @Inject constructor(
 
         existing.forEach(::addTag)
         incoming.forEach(::addTag)
+        return withStarterTagCatalog(merged)
+    }
+
+    private fun withStarterTagCatalog(existing: List<String>): List<String> {
+        val merged = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+
+        fun addTag(tag: String) {
+            val cleaned = tag.trim()
+            if (cleaned.isBlank()) return
+            val key = cleaned.lowercase()
+            if (seen.add(key)) {
+                merged += cleaned
+            }
+        }
+
+        existing.forEach(::addTag)
+        TaskTagSchedulingProfile.starterTags.forEach(::addTag)
         return merged.sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 

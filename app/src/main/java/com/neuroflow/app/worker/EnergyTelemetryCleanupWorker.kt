@@ -1,12 +1,16 @@
 package com.neuroflow.app.worker
 
 import android.content.Context
+import androidx.hilt.work.HiltWorker
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.neuroflow.app.domain.repository.EnergyMetricsRepository
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -21,13 +25,12 @@ import kotlinx.coroutines.coroutineScope
  * - Runs daily (low frequency to avoid battery drain)
  * - Automatically restarted by WorkManager on device reboot
  */
-class EnergyTelemetryCleanupWorker(
-    context: Context,
-    params: androidx.work.WorkerParameters
+@HiltWorker
+class EnergyTelemetryCleanupWorker @AssistedInject constructor(
+    @Assisted context: Context,
+    @Assisted params: WorkerParameters,
+    private val energyMetricsRepository: EnergyMetricsRepository
 ) : CoroutineWorker(context, params) {
-    
-    @Inject
-    lateinit var energyMetricsRepository: EnergyMetricsRepository
 
     override suspend fun doWork(): Result = coroutineScope {
         return@coroutineScope try {

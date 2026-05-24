@@ -422,13 +422,29 @@ private fun TimelineRow(
                             ) {
                                 if (segment.startsInThisHour && adjustedHeight >= 24.dp) {
                                     Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
-                                        Text(
-                                            text = segment.task.title,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Medium,
-                                            color = getQuadrantTextColor(segment.task.quadrant),
-                                            maxLines = 1
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = segment.task.title,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = getQuadrantTextColor(segment.task.quadrant),
+                                                maxLines = 1
+                                            )
+                                            if (segment.task.isAutoScheduled) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                                ) {
+                                                    Text(
+                                                        text = "AUTO",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = getQuadrantTextColor(segment.task.quadrant),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                         if (adjustedHeight >= 36.dp) {
                                             Text(
                                                 text = segment.task.quadrant.name.replace("_", " "),

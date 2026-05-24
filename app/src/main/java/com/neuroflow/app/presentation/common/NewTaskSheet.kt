@@ -1,26 +1,80 @@
 package com.neuroflow.app.presentation.common
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.data.local.entity.localTimeOfDayOffset
-import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
@@ -28,9 +82,10 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NewTaskSheet(
     onDismiss: () -> Unit,
@@ -39,9 +94,13 @@ fun NewTaskSheet(
     prefilledQuadrant: Quadrant? = null,
     availableTasks: List<TaskEntity> = emptyList()
 ) {
-    val isEditing = editTask != null
+    val flowViewModel: NewTaskFlowViewModel = hiltViewModel()
     val tagViewModel: TaskTagViewModel = hiltViewModel()
-    val catalogTags by tagViewModel.tags.collectAsState()
+
+    val ui by flowViewModel.uiState.collectAsStateWithLifecycle()
+    val prefs by flowViewModel.preferences.collectAsStateWithLifecycle()
+    val catalogTags by tagViewModel.tags.collectAsStateWithLifecycle()
+
     val taskTags = remember(availableTasks) {
         availableTasks
             .flatMap { task -> task.tags.split(",") }
@@ -54,781 +113,265 @@ fun NewTaskSheet(
             .sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 
-    var title by remember { mutableStateOf(editTask?.title ?: "") }
-    var description by remember { mutableStateOf(editTask?.description ?: "") }
-    var tags by remember { mutableStateOf<List<String>>(editTask?.tags?.split(",")?.filter { it.isNotBlank() } ?: emptyList()) }
-    var selectedQuadrant by remember { mutableStateOf(editTask?.quadrant ?: prefilledQuadrant ?: Quadrant.DO_FIRST) }
-    var selectedPriority by remember { mutableStateOf(editTask?.priority ?: Priority.MEDIUM) }
-    var selectedRecurrence by remember { mutableStateOf(editTask?.recurrence ?: Recurrence.NONE) }
-    var customIntervalDays by remember { mutableIntStateOf(editTask?.recurrenceIntervalDays ?: 1) }
-    var deadlineDate by remember { mutableLongStateOf(editTask?.deadlineDate ?: 0L) }
-    var deadlineTime by remember { mutableLongStateOf(editTask?.deadlineTime ?: -1L) }
-    var scheduledDate by remember { mutableLongStateOf(editTask?.scheduledDate ?: 0L) }
-    var scheduledTime by remember { mutableLongStateOf(editTask?.scheduledTime ?: -1L) }
-    var isScheduleLocked by remember {
-        mutableStateOf(editTask?.isScheduleLocked ?: ((editTask?.recurrence ?: Recurrence.NONE) != Recurrence.NONE))
-    }
-    var habitDate by remember { mutableLongStateOf(editTask?.habitDate?.let(::startOfLocalDay) ?: 0L) }
-    var estimatedDuration by remember { mutableIntStateOf(editTask?.estimatedDurationMinutes ?: 0) }
-    var impactScore by remember { mutableFloatStateOf((editTask?.impactScore ?: 50).toFloat()) }
-    var valueScore by remember { mutableFloatStateOf((editTask?.valueScore ?: 50).toFloat()) }
-    var effortScore by remember { mutableFloatStateOf((editTask?.effortScore ?: 50).toFloat()) }
-    var reminderFlags by remember { mutableIntStateOf(editTask?.reminderFlags ?: 0) }
-    var waitingFor by remember { mutableStateOf(editTask?.waitingFor ?: "") }
-
-    // Neuro boost
-    var isFrog by remember { mutableStateOf(editTask?.isFrog ?: false) }
-    var energyLevel by remember { mutableStateOf(editTask?.energyLevel ?: EnergyLevel.MEDIUM) }
-    var contextTag by remember { mutableStateOf(editTask?.contextTag ?: "") }
-    var stepByStepPlan by remember { mutableStateOf(editTask?.ifThenPlan ?: "") }
-    var taskType by remember { mutableStateOf(editTask?.taskType ?: TaskType.ANALYTICAL) }
-    var enjoymentScore by remember { mutableFloatStateOf((editTask?.enjoymentScore ?: 50).toFloat()) }
-    var isPublicCommitment by remember { mutableStateOf(editTask?.isPublicCommitment ?: false) }
-    var isAnxietyTask by remember { mutableStateOf(editTask?.isAnxietyTask ?: false) }
-    var goalRiskLevel by remember { mutableIntStateOf(editTask?.goalRiskLevel ?: 0) }
-    var showNeuroBoost by remember { mutableStateOf(false) }
-    var showDepsDialog by remember { mutableStateOf(false) }
-    var showDiscardDraftDialog by remember { mutableStateOf(false) }
-    // Parse selected dep IDs into a set for easy toggle
-    var selectedDepIds by remember {
-        mutableStateOf(
-            editTask?.dependsOnTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
-        )
+    LaunchedEffect(editTask?.id, prefilledQuadrant, availableTasks.size) {
+        flowViewModel.initialize(editTask, prefilledQuadrant, availableTasks)
     }
 
-    var showTagDialog by remember { mutableStateOf(false) }
+    val stepCount = flowViewModel.totalStepCount()
+    val stepIndex = flowViewModel.currentStepIndex()
+    val progress = ((stepIndex + 1).toFloat() / stepCount.toFloat()).coerceIn(0f, 1f)
+
+    val hasDraftContent = ui.title.isNotBlank() ||
+        ui.description.isNotBlank() ||
+        ui.tags.isNotEmpty() ||
+        ui.waitingFor.isNotBlank() ||
+        ui.stepByStepPlan.isNotBlank() ||
+        ui.selectedDepIds.isNotEmpty() ||
+        ui.deadlineDate != null ||
+        ui.scheduledDate != null ||
+        ui.habitDate != null
+
+    var showDiscardDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    var showSchedDatePicker by remember { mutableStateOf(false) }
-    var showSchedTimePicker by remember { mutableStateOf(false) }
-    var showHabitDatePicker by remember { mutableStateOf(false) }
-    var showHabitTimePicker by remember { mutableStateOf(false) }
-    var habitTime by remember { mutableLongStateOf(editTask?.habitDate?.let(::localTimeOfDayOffset) ?: -1L) }
-    var datePickerTarget by remember { mutableStateOf("deadline") }
+    var dateTarget by remember { mutableStateOf("deadline") }
+    var timeTarget by remember { mutableStateOf("deadline") }
 
-    val hasDraftContent =
-        title.isNotBlank() ||
-            description.isNotBlank() ||
-            tags.isNotEmpty() ||
-            waitingFor.isNotBlank() ||
-            stepByStepPlan.isNotBlank() ||
-            selectedDepIds.isNotEmpty() ||
-            deadlineDate > 0L ||
-            scheduledDate > 0L ||
-            habitDate > 0L
-
-    val requestDismiss = {
+    fun requestDismiss() {
         if (hasDraftContent) {
-            showDiscardDraftDialog = true
+            showDiscardDialog = true
         } else {
+            flowViewModel.reset()
             onDismiss()
         }
     }
 
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { target ->
-            if (target == SheetValue.Hidden && hasDraftContent) {
-                showDiscardDraftDialog = true
-                false
-            } else {
-                true
-            }
-        }
-    )
-
-    LaunchedEffect(selectedRecurrence, isEditing) {
-        if (!isEditing && selectedRecurrence != Recurrence.NONE) {
-            isScheduleLocked = true
-        }
-    }
-
-    LaunchedEffect(taskTags) {
-        tagViewModel.seedFromTasks(taskTags)
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = requestDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+    Dialog(onDismissRequest = { requestDismiss() }) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(0.dp)
         ) {
-            // Header
-            Text(
-                text = if (isEditing) "Edit Task" else "New Task",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Task Name
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Task Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
-                )
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Description
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                label = { Text("Description") },
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
-                )
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // TAGS
-            SectionLabel("TAGS")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { showTagDialog = true }) {
-                    Icon(Icons.Filled.Add, "Add", modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add Tag")
-                }
-            }
-            if (tags.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+            Column(modifier = Modifier.fillMaxSize()) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    tags.forEach { tag ->
-                        InputChip(
-                            selected = false,
-                            onClick = { tags = tags.toMutableList().apply { remove(tag) } },
-                            label = { Text(tag) },
-                            trailingIcon = {
-                                Icon(Icons.Filled.Close, "Remove", modifier = Modifier.size(14.dp))
-                            }
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Quadrant dropdown
-            var quadrantExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = quadrantExpanded,
-                onExpandedChange = { quadrantExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = quadrantDisplayName(selectedQuadrant),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Quadrant") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = quadrantExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
-                    expanded = quadrantExpanded,
-                    onDismissRequest = { quadrantExpanded = false }
-                ) {
-                    Quadrant.entries.forEach { q ->
-                        DropdownMenuItem(
-                            text = { Text(quadrantDisplayName(q)) },
-                            onClick = {
-                                selectedQuadrant = q
-                                quadrantExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Priority dropdown
-            var priorityExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = priorityExpanded,
-                onExpandedChange = { priorityExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = priorityDisplayName(selectedPriority),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Priority") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = priorityExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
-                    expanded = priorityExpanded,
-                    onDismissRequest = { priorityExpanded = false }
-                ) {
-                    Priority.entries.forEach { p ->
-                        DropdownMenuItem(
-                            text = { Text(priorityDisplayName(p)) },
-                            onClick = {
-                                selectedPriority = p
-                                priorityExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Recurrence dropdown
-            var recurrenceExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = recurrenceExpanded,
-                onExpandedChange = { recurrenceExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = recurrenceDisplayName(selectedRecurrence),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Recurrence") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = recurrenceExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
-                    expanded = recurrenceExpanded,
-                    onDismissRequest = { recurrenceExpanded = false }
-                ) {
-                    Recurrence.entries.forEach { r ->
-                        DropdownMenuItem(
-                            text = { Text(recurrenceDisplayName(r)) },
-                            onClick = {
-                                selectedRecurrence = r
-                                recurrenceExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-            if (selectedRecurrence == Recurrence.CUSTOM) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Every", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedTextField(
-                        value = customIntervalDays.toString(),
-                        onValueChange = { v -> v.toIntOrNull()?.let { if (it > 0) customIntervalDays = it } },
-                        label = { Text("Days") },
-                        singleLine = true,
-                        modifier = Modifier.width(80.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = NeuroFlowColors.Purple,
-                            focusedLabelColor = NeuroFlowColors.Purple
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("day(s)", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // HABIT DATE — shown only for recurring tasks; this is the anchor that shifts each cycle
-            if (selectedRecurrence != Recurrence.NONE) {
-                SectionLabel("HABIT START DATE & TIME (first occurrence)")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { showHabitDatePicker = true }) {
-                        Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            if (habitDate > 0) formatDate(habitDate) else "Pick date",
-                            color = if (habitDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    OutlinedButton(onClick = { showHabitTimePicker = true }) {
-                        Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            if (habitTime >= 0) formatTime(habitTime) else "Pick time",
-                            color = if (habitTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // DEADLINE — hidden for recurring tasks (use habitDate instead)
-            if (selectedRecurrence == Recurrence.NONE) {
-                SectionLabel("DEADLINE (when it must be done)")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        datePickerTarget = "deadline"
-                        showDatePicker = true
+                    IconButton(onClick = {
+                        if (stepIndex == 0) requestDismiss() else flowViewModel.previousStep()
                     }) {
-                        Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            if (deadlineDate > 0) formatDate(deadlineDate) else "Date",
-                            color = if (deadlineDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                            text = if (ui.isEditing) "Edit Task" else "Create Task",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
                         )
-                    }
-                    OutlinedButton(onClick = {
-                        datePickerTarget = "deadline"
-                        showTimePicker = true
-                    }) {
-                        Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            if (deadlineTime >= 0) formatTime(deadlineTime) else "Time",
-                            color = if (deadlineTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
+                            text = "Step ${stepIndex + 1} of $stepCount",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // REMINDERS
-            SectionLabel("REMINDERS (before deadline/scheduled time)")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReminderChip("15 min", 1, reminderFlags) { reminderFlags = it }
-                ReminderChip("30 min", 2, reminderFlags) { reminderFlags = it }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReminderChip("1 hour", 4, reminderFlags) { reminderFlags = it }
-                ReminderChip("1 day", 8, reminderFlags) { reminderFlags = it }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // SCHEDULED — hidden for recurring tasks (habitDate is the anchor)
-            if (selectedRecurrence == Recurrence.NONE) {
-                SectionLabel("SCHEDULED (when you plan to do it)")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        datePickerTarget = "scheduled"
-                        showSchedDatePicker = true
-                    }) {
-                        Icon(Icons.Filled.CalendarMonth, "Date", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            if (scheduledDate > 0) formatDate(scheduledDate) else "Date",
-                            color = if (scheduledDate > 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    OutlinedButton(onClick = {
-                        datePickerTarget = "scheduled"
-                        showSchedTimePicker = true
-                    }) {
-                        Icon(Icons.Filled.Schedule, "Time", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            if (scheduledTime >= 0) formatTime(scheduledTime) else "Time",
-                            color = if (scheduledTime >= 0) NeuroFlowColors.Purple else MaterialTheme.colorScheme.onSurface
-                        )
+                    TextButton(onClick = { requestDismiss() }) {
+                        Text("Close")
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
 
-                // Lock schedule
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = isScheduleLocked,
-                        onCheckedChange = { isScheduleLocked = it }
-                    )
-                    Text("🔒 Lock Schedule (won't be auto-rescheduled)")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // ESTIMATED DURATION
-            SectionLabel("ESTIMATED DURATION")
-            var durationExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = durationExpanded,
-                onExpandedChange = { durationExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = durationDisplayName(estimatedDuration),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Duration") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = durationExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                )
-                ExposedDropdownMenu(
-                    expanded = durationExpanded,
-                    onDismissRequest = { durationExpanded = false }
-                ) {
-                    durationOptions.forEach { (label, minutes) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = {
-                                estimatedDuration = minutes
-                                durationExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // TASK SCORING
-            SectionLabel("TASK SCORING")
-
-            // Impact
-            Text("Strategic Impact (0-100)", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = impactScore.toInt().toString(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowColors.Purple,
-                    modifier = Modifier.width(40.dp)
-                )
-                Slider(
-                    value = impactScore,
-                    onValueChange = { impactScore = it },
-                    valueRange = 0f..100f,
-                    modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = NeuroFlowColors.Purple, activeTrackColor = NeuroFlowColors.Purple)
-                )
-            }
-
-            // Value
-            Text("Intrinsic Value (0-100)", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = valueScore.toInt().toString(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowColors.ScheduleText,
-                    modifier = Modifier.width(40.dp)
-                )
-                Slider(
-                    value = valueScore,
-                    onValueChange = { valueScore = it },
-                    valueRange = 0f..100f,
-                    modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = NeuroFlowColors.ScheduleText, activeTrackColor = NeuroFlowColors.ScheduleText)
-                )
-            }
-
-            // Effort
-            Text("Effort Required (0=easy, 100=hard)", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = effortScore.toInt().toString(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowColors.DelegateText,
-                    modifier = Modifier.width(40.dp)
-                )
-                Slider(
-                    value = effortScore,
-                    onValueChange = { effortScore = it },
-                    valueRange = 0f..100f,
-                    modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = NeuroFlowColors.DelegateText, activeTrackColor = NeuroFlowColors.DelegateText)
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Waiting for
-            OutlinedTextField(
-                value = waitingFor,
-                onValueChange = { waitingFor = it },
-                label = { Text("Waiting for (external dependency)") },
-                placeholder = { Text("e.g., Waiting for client approval") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
-                )
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Execution Plan Section
-            SectionLabel("EXECUTION PLAN")
-            Text("Dependencies", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            OutlinedButton(
-                onClick = { showDepsDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Add, "Pick tasks", modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    if (selectedDepIds.isEmpty()) "Select tasks this depends on"
-                    else "${selectedDepIds.size} task(s) selected"
-                )
-            }
-            if (selectedDepIds.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                val depTitles = availableTasks.filter { it.id in selectedDepIds }
-                depTitles.forEach { dep ->
-                    InputChip(
-                        selected = true,
-                        onClick = { selectedDepIds = selectedDepIds - dep.id },
-                        label = { Text(dep.title, maxLines = 1) },
-                        trailingIcon = {
-                            Icon(Icons.Filled.Close, "Remove", modifier = Modifier.size(14.dp))
-                        }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            OutlinedTextField(
-                value = stepByStepPlan,
-                onValueChange = { stepByStepPlan = it },
-                label = { Text("Step-by-step Plan") },
-                placeholder = { Text("Write one step per line") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3
-            )
-            Text(
-                "Each line becomes a checkbox in Focus mode.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Neuro Boost Section (collapsible)
-            TextButton(
-                onClick = { showNeuroBoost = !showNeuroBoost }
-            ) {
-                Text(
-                    if (showNeuroBoost) "🧠 Hide Neuro Boost ▲" else "🧠 Show Neuro Boost ▼",
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
                     color = NeuroFlowColors.Purple
                 )
-            }
 
-            if (showNeuroBoost) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Frog toggle
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = isFrog,
-                        onCheckedChange = { isFrog = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = NeuroFlowColors.Purple)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("🐸 Mark as Frog (hardest task first)")
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Energy Level
-                Text("Energy Level", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    EnergyLevel.entries.forEach { level ->
-                        FilterChip(
-                            selected = energyLevel == level,
-                            onClick = { energyLevel = level },
-                            label = {
-                                Text(
-                                    when (level) {
-                                        EnergyLevel.HIGH -> "🔴 High"
-                                        EnergyLevel.MEDIUM -> "🟡 Medium"
-                                        EnergyLevel.LOW -> "🟢 Low"
-                                    }
-                                )
-                            }
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Task Type (circadian matching)
-                Text("Task Type", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    TaskType.entries.forEach { type ->
-                        FilterChip(
-                            selected = taskType == type,
-                            onClick = { taskType = type },
-                            label = {
-                                Text(
-                                    when (type) {
-                                        TaskType.ANALYTICAL -> "🧠 Analytical"
-                                        TaskType.CREATIVE   -> "🎨 Creative"
-                                        TaskType.ADMIN      -> "📋 Admin"
-                                        TaskType.PHYSICAL   -> "💪 Physical"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Context tag
-                Text("Context Tag", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("@work", "@home", "@phone", "@computer", "@errands").forEach { tag ->
-                        FilterChip(
-                            selected = contextTag == tag,
-                            onClick = { contextTag = if (contextTag == tag) "" else tag },
-                            label = { Text(tag) }
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Enjoyment Score
-                Text("Enjoyment (0=dread, 100=love)", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = enjoymentScore.toInt().toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = NeuroFlowColors.Purple,
-                        modifier = Modifier.width(40.dp)
-                    )
-                    Slider(
-                        value = enjoymentScore,
-                        onValueChange = { enjoymentScore = it },
-                        valueRange = 0f..100f,
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(thumbColor = NeuroFlowColors.Purple, activeTrackColor = NeuroFlowColors.Purple)
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Public Commitment toggle
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = isPublicCommitment,
-                        onCheckedChange = { isPublicCommitment = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = NeuroFlowColors.Purple)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("📢 Public Commitment")
-                        Text("Told someone you'd do this", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Anxiety Task toggle
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = isAnxietyTask,
-                        onCheckedChange = { isAnxietyTask = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = NeuroFlowColors.Purple)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("😰 Anxiety Task")
-                        Text("You tend to avoid this — surface it early", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Goal Risk Level
-                Text("Goal Risk Level", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0 to "None", 1 to "⚠ At Risk", 2 to "🚨 Critical").forEach { (level, label) ->
-                        FilterChip(
-                            selected = goalRiskLevel == level,
-                            onClick = { goalRiskLevel = level },
-                            label = { Text(label) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Footer buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = requestDismiss) {
-                    Text("Cancel")
-                }
-                Button(
-                    onClick = {
-                        if (title.isNotBlank()) {
-                            tagViewModel.addTags(tags)
-                            val task = (editTask ?: TaskEntity(title = title)).copy(
-                                title = title,
-                                description = description,
-                                tags = tags.joinToString(","),
-                                quadrant = selectedQuadrant,
-                                priority = selectedPriority,
-                                recurrence = selectedRecurrence,
-                                recurrenceIntervalDays = customIntervalDays,
-                                habitDate = if (selectedRecurrence != Recurrence.NONE && habitDate > 0) {
-                                    // Merge date + time into a single epoch millis
-                                    val datePart = habitDate
-                                    val timePart = if (habitTime >= 0) habitTime else 0L
-                                    datePart + timePart
-                                } else null,
-                                deadlineDate = if (selectedRecurrence == Recurrence.NONE && deadlineDate > 0) deadlineDate else null,
-                                deadlineTime = if (selectedRecurrence == Recurrence.NONE && deadlineTime >= 0) deadlineTime else null,
-                                scheduledDate = if (selectedRecurrence == Recurrence.NONE && scheduledDate > 0) scheduledDate else null,
-                                scheduledTime = if (selectedRecurrence == Recurrence.NONE && scheduledTime >= 0) scheduledTime else null,
-                                isScheduleLocked = if (selectedRecurrence != Recurrence.NONE) true else isScheduleLocked,
-                                estimatedDurationMinutes = estimatedDuration,
-                                impactScore = impactScore.toInt(),
-                                valueScore = valueScore.toInt(),
-                                effortScore = effortScore.toInt(),
-                                reminderFlags = reminderFlags,
-                                waitingFor = waitingFor,
-                                isFrog = isFrog,
-                                energyLevel = energyLevel,
-                                taskType = taskType,
-                                contextTag = contextTag,
-                                ifThenPlan = stepByStepPlan,
-                                enjoymentScore = enjoymentScore.toInt(),
-                                isPublicCommitment = isPublicCommitment,
-                                isAnxietyTask = isAnxietyTask,
-                                goalRiskLevel = goalRiskLevel,
-                                dependsOnTaskIds = selectedDepIds.joinToString(","),
-                                updatedAt = System.currentTimeMillis()
-                            )
-                            onSave(task)
+                AnimatedContent(
+                    targetState = ui.currentStep,
+                    transitionSpec = {
+                        if (targetState.ordinal > initialState.ordinal) {
+                            (slideInHorizontally(animationSpec = tween(220)) { it / 3 } + fadeIn()) togetherWith
+                                (slideOutHorizontally(animationSpec = tween(220)) { -it / 4 } + fadeOut())
+                        } else {
+                            (slideInHorizontally(animationSpec = tween(220)) { -it / 3 } + fadeIn()) togetherWith
+                                (slideOutHorizontally(animationSpec = tween(220)) { it / 4 } + fadeOut())
                         }
                     },
-                    enabled = title.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = NeuroFlowColors.Purple
-                    ),
-                    shape = RoundedCornerShape(24.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) { step ->
+                    when (step) {
+                        NewTaskFlowStep.BASIC_INFO -> BasicInfoStep(
+                            title = ui.title,
+                            description = ui.description,
+                            onTitleChange = flowViewModel::updateTitle,
+                            onDescriptionChange = flowViewModel::updateDescription
+                        )
+
+                        NewTaskFlowStep.CLASSIFICATION -> ClassificationStep(
+                            quadrant = ui.quadrant,
+                            priority = ui.priority,
+                            energyLevel = ui.energyLevel,
+                            taskType = ui.taskType,
+                            isFrog = ui.isFrog,
+                            onQuadrantChange = flowViewModel::updateQuadrant,
+                            onPriorityChange = flowViewModel::updatePriority,
+                            onEnergyChange = flowViewModel::updateEnergyLevel,
+                            onTaskTypeChange = flowViewModel::updateTaskType,
+                            onFrogChange = flowViewModel::updateIsFrog
+                        )
+
+                        NewTaskFlowStep.TIMING -> TimingStep(
+                            recurrence = ui.recurrence,
+                            customIntervalDays = ui.customIntervalDays,
+                            deadlineDate = ui.deadlineDate,
+                            deadlineTime = ui.deadlineTime,
+                            scheduledDate = ui.scheduledDate,
+                            scheduledTime = ui.scheduledTime,
+                            habitDate = ui.habitDate,
+                            habitTime = ui.habitTime,
+                            reminderFlags = ui.reminderFlags,
+                            isScheduleLocked = ui.isScheduleLocked,
+                            onRecurrenceChange = flowViewModel::updateRecurrence,
+                            onCustomIntervalChange = flowViewModel::updateCustomIntervalDays,
+                            onDeadlineDateClick = {
+                                dateTarget = "deadline"
+                                showDatePicker = true
+                            },
+                            onDeadlineTimeClick = {
+                                timeTarget = "deadline"
+                                showTimePicker = true
+                            },
+                            onScheduledDateClick = {
+                                dateTarget = "scheduled"
+                                showDatePicker = true
+                            },
+                            onScheduledTimeClick = {
+                                timeTarget = "scheduled"
+                                showTimePicker = true
+                            },
+                            onHabitDateClick = {
+                                dateTarget = "habit"
+                                showDatePicker = true
+                            },
+                            onHabitTimeClick = {
+                                timeTarget = "habit"
+                                showTimePicker = true
+                            },
+                            onReminderFlagsChange = flowViewModel::updateReminderFlags,
+                            onScheduleLockedChange = flowViewModel::updateScheduleLocked
+                        )
+
+                        NewTaskFlowStep.RECURRENCE -> RecurrenceStep(
+                            recurrence = ui.recurrence,
+                            customIntervalDays = ui.customIntervalDays,
+                            habitDate = ui.habitDate,
+                            habitTime = ui.habitTime,
+                            onHabitDateClick = {
+                                dateTarget = "habit"
+                                showDatePicker = true
+                            },
+                            onHabitTimeClick = {
+                                timeTarget = "habit"
+                                showTimePicker = true
+                            }
+                        )
+
+                        NewTaskFlowStep.EFFORT -> EffortStep(
+                            estimatedDurationMinutes = ui.estimatedDurationMinutes,
+                            impactScore = ui.impactScore,
+                            valueScore = ui.valueScore,
+                            effortScore = ui.effortScore,
+                            enjoymentScore = ui.enjoymentScore,
+                            contextTag = ui.contextTag,
+                            isPublicCommitment = ui.isPublicCommitment,
+                            isAnxietyTask = ui.isAnxietyTask,
+                            goalRiskLevel = ui.goalRiskLevel,
+                            includeExecutionStep = ui.includeExecutionStep,
+                            onDurationChange = flowViewModel::updateEstimatedDuration,
+                            onImpactChange = flowViewModel::updateImpact,
+                            onValueChange = flowViewModel::updateValue,
+                            onEffortChange = flowViewModel::updateEffort,
+                            onEnjoymentChange = flowViewModel::updateEnjoyment,
+                            onContextChange = flowViewModel::updateContextTag,
+                            onPublicCommitmentChange = flowViewModel::updatePublicCommitment,
+                            onAnxietyChange = flowViewModel::updateAnxietyTask,
+                            onGoalRiskChange = flowViewModel::updateGoalRiskLevel,
+                            onIncludeExecutionChange = flowViewModel::setIncludeExecutionStep
+                        )
+
+                        NewTaskFlowStep.EXECUTION -> ExecutionStep(
+                            waitingFor = ui.waitingFor,
+                            stepByStepPlan = ui.stepByStepPlan,
+                            selectedDepIds = ui.selectedDepIds,
+                            availableTasks = availableTasks,
+                            editTaskId = editTask?.id,
+                            onWaitingForChange = flowViewModel::updateWaitingFor,
+                            onPlanChange = flowViewModel::updatePlan,
+                            onToggleDependency = flowViewModel::toggleDependency
+                        )
+
+                        NewTaskFlowStep.TAGS -> TagsStep(
+                            selectedTags = ui.tags,
+                            suggestedTags = suggestedTags,
+                            onAddTag = flowViewModel::addTag,
+                            onToggleTag = flowViewModel::toggleTag,
+                            onRemoveTag = flowViewModel::removeTag
+                        )
+
+                        NewTaskFlowStep.REVIEW -> ReviewStep(
+                            uiState = ui,
+                            autoSchedulePreview = flowViewModel.autoSchedulePreview(),
+                            autoSchedulingEnabled = prefs.autoSchedulingEnabled
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (isEditing) "Update" else "Add")
+                    TextButton(onClick = {
+                        if (stepIndex == 0) requestDismiss() else flowViewModel.previousStep()
+                    }) {
+                        Text(if (stepIndex == 0) "Cancel" else "Back")
+                    }
+                    Button(
+                        onClick = {
+                            val isLast = stepIndex == stepCount - 1
+                            if (isLast) {
+                                tagViewModel.addTags(ui.tags)
+                                onSave(flowViewModel.buildTaskPayload(editTask))
+                            } else {
+                                flowViewModel.nextStep()
+                            }
+                        },
+                        enabled = if (stepIndex == stepCount - 1) ui.title.isNotBlank() else flowViewModel.canMoveNext(),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                    ) {
+                        Text(if (stepIndex == stepCount - 1) if (ui.isEditing) "Update Task" else "Create Task" else "Next")
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
-    if (showDiscardDraftDialog) {
+    if (showDiscardDialog) {
         AlertDialog(
-            onDismissRequest = { showDiscardDraftDialog = false },
+            onDismissRequest = { showDiscardDialog = false },
             title = { Text("Discard task draft?") },
             text = { Text("You have unsaved changes. Keep editing or discard this draft.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showDiscardDraftDialog = false
+                        showDiscardDialog = false
+                        flowViewModel.reset()
                         onDismiss()
                     }
                 ) {
@@ -836,183 +379,29 @@ fun NewTaskSheet(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDiscardDraftDialog = false }) {
+                TextButton(onClick = { showDiscardDialog = false }) {
                     Text("Keep editing")
                 }
             }
         )
     }
 
-    // Dependency picker dialog
-    if (showDepsDialog) {
-        val otherTasks = availableTasks.filter { it.id != editTask?.id }
-        AlertDialog(
-            onDismissRequest = { showDepsDialog = false },
-            title = { Text("Select Dependencies") },
-            text = {
-                if (otherTasks.isEmpty()) {
-                    Text("No other active tasks available.")
-                } else {
-                    androidx.compose.foundation.lazy.LazyColumn(
-                        modifier = Modifier.heightIn(max = 400.dp)
-                    ) {
-                        items(otherTasks) { t ->
-                            val isSelected = t.id in selectedDepIds
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedDepIds = if (isSelected) selectedDepIds - t.id else selectedDepIds + t.id
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = {
-                                        selectedDepIds = if (isSelected) selectedDepIds - t.id else selectedDepIds + t.id
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(t.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                                    Text(
-                                        "${t.quadrant.name.replace("_", " ")} · ${t.priority.name}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showDepsDialog = false }) { Text("Done") }
-            }
-        )
-    }
-
-    // Tag dialog
-    if (showTagDialog) {
-        var newTag by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showTagDialog = false },
-            title = { Text("Add Tag") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = newTag,
-                        onValueChange = { newTag = it },
-                        label = { Text("Tag name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (suggestedTags.isNotEmpty()) {
-                        Text(
-                            "Select existing",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            suggestedTags.forEach { tag ->
-                                val isSelected = tags.any { it.equals(tag, ignoreCase = true) }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = {
-                                            tags = if (isSelected) {
-                                                tags.filterNot { it.equals(tag, ignoreCase = true) }
-                                            } else {
-                                                tags + tag
-                                            }
-                                        },
-                                        label = { Text(tag) }
-                                    )
-                                    IconButton(onClick = { tagViewModel.removeTag(tag) }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Close,
-                                            contentDescription = "Remove tag"
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val cleaned = newTag.trim()
-                    if (cleaned.isNotBlank() && tags.none { it.equals(cleaned, ignoreCase = true) }) {
-                        tags = tags.toMutableList().apply { add(cleaned) }
-                    }
-                    showTagDialog = false
-                }) { Text("Add") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTagDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    // Habit date picker
-    if (showHabitDatePicker) {
-        val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = if (habitDate > 0) habitDate else System.currentTimeMillis()
-        )
-        DatePickerDialog(
-            onDismissRequest = { showHabitDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis -> habitDate = utcMidnightToLocalMidnight(millis) }
-                    showHabitDatePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showHabitDatePicker = false }) { Text("Cancel") }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
-    }
-
-    // Habit time picker
-    if (showHabitTimePicker) {
-        val timePickerState = rememberTimePickerState(
-            initialHour = if (habitTime >= 0) (habitTime / 3600000).toInt() else 8,
-            initialMinute = if (habitTime >= 0) ((habitTime % 3600000) / 60000).toInt() else 0
-        )
-        AlertDialog(
-            onDismissRequest = { showHabitTimePicker = false },
-            title = { Text("Select Habit Time") },
-            text = { TimePicker(state = timePickerState) },
-            confirmButton = {
-                TextButton(onClick = {
-                    habitTime = timePickerState.hour * 3600000L + timePickerState.minute * 60000L
-                    showHabitTimePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showHabitTimePicker = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    // Date pickers
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState()
+        val initial = when (dateTarget) {
+            "scheduled" -> ui.scheduledDate
+            "habit" -> ui.habitDate
+            else -> ui.deadlineDate
+        } ?: System.currentTimeMillis()
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initial)
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis ->
-                        deadlineDate = utcMidnightToLocalMidnight(millis)
+                    val selected = datePickerState.selectedDateMillis?.let(::utcMidnightToLocalMidnight)
+                    when (dateTarget) {
+                        "scheduled" -> flowViewModel.updateScheduledDate(selected)
+                        "habit" -> flowViewModel.updateHabitDate(selected)
+                        else -> flowViewModel.updateDeadlineDate(selected)
                     }
                     showDatePicker = false
                 }) { Text("OK") }
@@ -1020,40 +409,31 @@ fun NewTaskSheet(
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
             }
-        ) {
-            DatePicker(state = datePickerState)
-        }
-    }
-
-    if (showSchedDatePicker) {
-        val datePickerState = rememberDatePickerState()
-        DatePickerDialog(
-            onDismissRequest = { showSchedDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis ->
-                        scheduledDate = utcMidnightToLocalMidnight(millis)
-                    }
-                    showSchedDatePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSchedDatePicker = false }) { Text("Cancel") }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
+        ) { DatePicker(state = datePickerState) }
     }
 
     if (showTimePicker) {
-        val timePickerState = rememberTimePickerState()
+        val initialMillis = when (timeTarget) {
+            "scheduled" -> ui.scheduledTime
+            "habit" -> ui.habitTime
+            else -> ui.deadlineTime
+        } ?: 0L
+        val timePickerState = rememberTimePickerState(
+            initialHour = (initialMillis / 3_600_000L).toInt().coerceIn(0, 23),
+            initialMinute = ((initialMillis % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59)
+        )
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
             title = { Text("Select Time") },
             text = { TimePicker(state = timePickerState) },
             confirmButton = {
                 TextButton(onClick = {
-                    deadlineTime = (timePickerState.hour * 3600000L + timePickerState.minute * 60000L)
+                    val selected = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
+                    when (timeTarget) {
+                        "scheduled" -> flowViewModel.updateScheduledTime(selected)
+                        "habit" -> flowViewModel.updateHabitTime(selected)
+                        else -> flowViewModel.updateDeadlineTime(selected)
+                    }
                     showTimePicker = false
                 }) { Text("OK") }
             },
@@ -1062,35 +442,600 @@ fun NewTaskSheet(
             }
         )
     }
+}
 
-    if (showSchedTimePicker) {
-        val timePickerState = rememberTimePickerState()
-        AlertDialog(
-            onDismissRequest = { showSchedTimePicker = false },
-            title = { Text("Select Time") },
-            text = { TimePicker(state = timePickerState) },
-            confirmButton = {
-                TextButton(onClick = {
-                    scheduledTime = (timePickerState.hour * 3600000L + timePickerState.minute * 60000L)
-                    showSchedTimePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSchedTimePicker = false }) { Text("Cancel") }
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BasicInfoStep(
+    title: String,
+    description: String,
+    onTitleChange: (String) -> Unit,
+    onDescriptionChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Basic Info", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            label = { Text("Task Name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NeuroFlowColors.Purple,
+                focusedLabelColor = NeuroFlowColors.Purple
+            )
+        )
+        OutlinedTextField(
+            value = description,
+            onValueChange = onDescriptionChange,
+            label = { Text("Description") },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NeuroFlowColors.Purple,
+                focusedLabelColor = NeuroFlowColors.Purple
+            )
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ClassificationStep(
+    quadrant: Quadrant,
+    priority: Priority,
+    energyLevel: EnergyLevel,
+    taskType: TaskType,
+    isFrog: Boolean,
+    onQuadrantChange: (Quadrant) -> Unit,
+    onPriorityChange: (Priority) -> Unit,
+    onEnergyChange: (EnergyLevel) -> Unit,
+    onTaskTypeChange: (TaskType) -> Unit,
+    onFrogChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Classification", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        DropdownField(
+            label = "Quadrant",
+            value = quadrantDisplayName(quadrant),
+            items = Quadrant.entries,
+            itemLabel = ::quadrantDisplayName,
+            onSelected = onQuadrantChange
+        )
+        DropdownField(
+            label = "Priority",
+            value = priorityDisplayName(priority),
+            items = Priority.entries,
+            itemLabel = ::priorityDisplayName,
+            onSelected = onPriorityChange
+        )
+
+        Text("Energy level", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EnergyLevel.entries.forEach { level ->
+                FilterChip(
+                    selected = energyLevel == level,
+                    onClick = { onEnergyChange(level) },
+                    label = { Text(level.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                )
             }
+        }
+
+        Text("Task type", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TaskType.entries.forEach { type ->
+                FilterChip(
+                    selected = taskType == type,
+                    onClick = { onTaskTypeChange(type) },
+                    label = { Text(type.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }) }
+                )
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = isFrog,
+                onCheckedChange = onFrogChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = NeuroFlowColors.Purple)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Mark as frog task")
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TimingStep(
+    recurrence: Recurrence,
+    customIntervalDays: Int,
+    deadlineDate: Long?,
+    deadlineTime: Long?,
+    scheduledDate: Long?,
+    scheduledTime: Long?,
+    habitDate: Long?,
+    habitTime: Long?,
+    reminderFlags: Int,
+    isScheduleLocked: Boolean,
+    onRecurrenceChange: (Recurrence) -> Unit,
+    onCustomIntervalChange: (Int) -> Unit,
+    onDeadlineDateClick: () -> Unit,
+    onDeadlineTimeClick: () -> Unit,
+    onScheduledDateClick: () -> Unit,
+    onScheduledTimeClick: () -> Unit,
+    onHabitDateClick: () -> Unit,
+    onHabitTimeClick: () -> Unit,
+    onReminderFlagsChange: (Int) -> Unit,
+    onScheduleLockedChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Timing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        DropdownField(
+            label = "Recurrence",
+            value = recurrenceDisplayName(recurrence),
+            items = Recurrence.entries,
+            itemLabel = ::recurrenceDisplayName,
+            onSelected = onRecurrenceChange
+        )
+
+        if (recurrence == Recurrence.CUSTOM) {
+            OutlinedTextField(
+                value = customIntervalDays.toString(),
+                onValueChange = { value ->
+                    value.toIntOrNull()?.let(onCustomIntervalChange)
+                },
+                label = { Text("Custom interval days") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        if (recurrence == Recurrence.NONE) {
+            Text("Deadline", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DateChip(deadlineDate, "Date", onDeadlineDateClick)
+                TimeChip(deadlineTime, "Time", onDeadlineTimeClick)
+            }
+
+            Text("Scheduled", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DateChip(scheduledDate, "Date", onScheduledDateClick)
+                TimeChip(scheduledTime, "Time", onScheduledTimeClick)
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = isScheduleLocked,
+                    onCheckedChange = onScheduleLockedChange
+                )
+                Text("Lock schedule")
+            }
+        } else {
+            Text("Recurring start", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DateChip(habitDate, "Start date", onHabitDateClick)
+                TimeChip(habitTime, "Start time", onHabitTimeClick)
+            }
+        }
+
+        Text("Reminders", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReminderChip("15 min", 1, reminderFlags, onReminderFlagsChange)
+            ReminderChip("30 min", 2, reminderFlags, onReminderFlagsChange)
+            ReminderChip("1 hour", 4, reminderFlags, onReminderFlagsChange)
+            ReminderChip("1 day", 8, reminderFlags, onReminderFlagsChange)
+        }
+    }
+}
+
+@Composable
+private fun RecurrenceStep(
+    recurrence: Recurrence,
+    customIntervalDays: Int,
+    habitDate: Long?,
+    habitTime: Long?,
+    onHabitDateClick: () -> Unit,
+    onHabitTimeClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Recurrence Anchor", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Pick the first occurrence. Anchor is timezone-safe and used for all recurrence cycles.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text("Pattern: ${recurrenceDisplayName(recurrence)}${if (recurrence == Recurrence.CUSTOM) " every $customIntervalDays days" else ""}")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DateChip(habitDate, "Start date", onHabitDateClick)
+            TimeChip(habitTime, "Start time", onHabitTimeClick)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EffortStep(
+    estimatedDurationMinutes: Int,
+    impactScore: Float,
+    valueScore: Float,
+    effortScore: Float,
+    enjoymentScore: Float,
+    contextTag: String,
+    isPublicCommitment: Boolean,
+    isAnxietyTask: Boolean,
+    goalRiskLevel: Int,
+    includeExecutionStep: Boolean,
+    onDurationChange: (Int) -> Unit,
+    onImpactChange: (Float) -> Unit,
+    onValueChange: (Float) -> Unit,
+    onEffortChange: (Float) -> Unit,
+    onEnjoymentChange: (Float) -> Unit,
+    onContextChange: (String) -> Unit,
+    onPublicCommitmentChange: (Boolean) -> Unit,
+    onAnxietyChange: (Boolean) -> Unit,
+    onGoalRiskChange: (Int) -> Unit,
+    onIncludeExecutionChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Effort + Estimate", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        DropdownField(
+            label = "Estimated duration",
+            value = durationDisplayName(estimatedDurationMinutes),
+            items = durationOptions,
+            itemLabel = { it.first },
+            onSelected = { onDurationChange(it.second) }
+        )
+
+        SliderField("Strategic impact", impactScore, onImpactChange)
+        SliderField("Intrinsic value", valueScore, onValueChange)
+        SliderField("Effort required", effortScore, onEffortChange)
+        SliderField("Enjoyment", enjoymentScore, onEnjoymentChange)
+
+        Text("Context", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("@work", "@home", "@phone", "@computer", "@errands").forEach { tag ->
+                FilterChip(
+                    selected = contextTag == tag,
+                    onClick = { onContextChange(if (contextTag == tag) "" else tag) },
+                    label = { Text(tag) }
+                )
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = isPublicCommitment, onCheckedChange = onPublicCommitmentChange)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Public commitment")
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = isAnxietyTask, onCheckedChange = onAnxietyChange)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Anxiety task")
+        }
+
+        Text("Goal risk", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0 to "None", 1 to "At Risk", 2 to "Critical").forEach { (level, label) ->
+                FilterChip(
+                    selected = goalRiskLevel == level,
+                    onClick = { onGoalRiskChange(level) },
+                    label = { Text(label) }
+                )
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = includeExecutionStep, onCheckedChange = onIncludeExecutionChange)
+            Text("Add execution/dependency details")
+        }
+    }
+}
+
+@Composable
+private fun ExecutionStep(
+    waitingFor: String,
+    stepByStepPlan: String,
+    selectedDepIds: Set<String>,
+    availableTasks: List<TaskEntity>,
+    editTaskId: String?,
+    onWaitingForChange: (String) -> Unit,
+    onPlanChange: (String) -> Unit,
+    onToggleDependency: (String) -> Unit
+) {
+    val candidates = remember(availableTasks, editTaskId) { availableTasks.filter { it.id != editTaskId } }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Execution", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        OutlinedTextField(
+            value = waitingFor,
+            onValueChange = onWaitingForChange,
+            label = { Text("Waiting for") },
+            placeholder = { Text("External dependency") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = stepByStepPlan,
+            onValueChange = onPlanChange,
+            label = { Text("Step-by-step plan") },
+            placeholder = { Text("One step per line") },
+            minLines = 4,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Text("Dependencies", style = MaterialTheme.typography.labelLarge)
+        if (candidates.isEmpty()) {
+            Text("No other active tasks available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                candidates.forEach { task ->
+                    val selected = selectedDepIds.contains(task.id)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleDependency(task.id) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onToggleDependency(task.id) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(task.title)
+                            Text(
+                                "${task.quadrant.name.replace('_', ' ')} · ${task.priority.name}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TagsStep(
+    selectedTags: List<String>,
+    suggestedTags: List<String>,
+    onAddTag: (String) -> Unit,
+    onToggleTag: (String) -> Unit,
+    onRemoveTag: (String) -> Unit
+) {
+    var newTag by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Tags", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = newTag,
+                onValueChange = { newTag = it },
+                label = { Text("Add tag") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            Button(onClick = {
+                onAddTag(newTag)
+                newTag = ""
+            }) {
+                Text("Add")
+            }
+        }
+
+        if (selectedTags.isNotEmpty()) {
+            Text("Selected", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                selectedTags.forEach { tag ->
+                    InputChip(
+                        selected = true,
+                        onClick = { onRemoveTag(tag) },
+                        label = { Text(tag) },
+                        trailingIcon = {
+                            Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(14.dp))
+                        }
+                    )
+                }
+            }
+        }
+
+        if (suggestedTags.isNotEmpty()) {
+            Text("Suggested taxonomy", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                suggestedTags.forEach { tag ->
+                    val isSelected = selectedTags.any { it.equals(tag, ignoreCase = true) }
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onToggleTag(tag) },
+                        label = { Text(tag) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewStep(
+    uiState: NewTaskFlowUiState,
+    autoSchedulePreview: AutoSchedulePreview,
+    autoSchedulingEnabled: Boolean
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Review", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        ReviewItem("Title", uiState.title)
+        if (uiState.description.isNotBlank()) ReviewItem("Description", uiState.description)
+        ReviewItem("Quadrant", quadrantDisplayName(uiState.quadrant))
+        ReviewItem("Priority", priorityDisplayName(uiState.priority))
+        ReviewItem("Recurrence", recurrenceDisplayName(uiState.recurrence))
+        if (uiState.recurrence != Recurrence.NONE) {
+            ReviewItem(
+                "Anchor",
+                "${uiState.habitDate?.let(::formatDate) ?: "Not set"} ${uiState.habitTime?.let(::formatTime) ?: ""}".trim()
+            )
+        }
+        if (uiState.recurrence == Recurrence.NONE) {
+            ReviewItem(
+                "Manual schedule",
+                listOfNotNull(
+                    uiState.scheduledDate?.let(::formatDate),
+                    uiState.scheduledTime?.let(::formatTime)
+                ).joinToString(" ").ifBlank { "Not set" }
+            )
+        }
+        ReviewItem("Tags", if (uiState.tags.isEmpty()) "None" else uiState.tags.joinToString(", "))
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            tonalElevation = 2.dp,
+            color = if (autoSchedulePreview.willAutoSchedule) Color(0xFFDFF6E7) else Color(0xFFFFF0E2)
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = if (autoSchedulePreview.willAutoSchedule) "Auto-scheduling preview" else "Auto-scheduling not applied",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(autoSchedulePreview.reason)
+                if (autoSchedulingEnabled && uiState.recurrence == Recurrence.NONE && uiState.scheduledDate == null) {
+                    Text(
+                        "Task has no manual schedule; scheduler will attempt placement when worker runs.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewItem(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> DropdownField(
+    label: String,
+    value: String,
+    items: List<T>,
+    itemLabel: (T) -> String,
+    onSelected: (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            items.forEach { item ->
+                DropdownMenuItem(
+                    text = { Text(itemLabel(item)) },
+                    onClick = {
+                        onSelected(item)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SliderField(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("$label (${value.toInt()})", style = MaterialTheme.typography.labelMedium)
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0f..100f,
+            colors = SliderDefaults.colors(
+                thumbColor = NeuroFlowColors.Purple,
+                activeTrackColor = NeuroFlowColors.Purple
+            )
         )
     }
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
+private fun DateChip(dateMillis: Long?, placeholder: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick) {
+        Icon(Icons.Filled.CalendarMonth, contentDescription = "Date", modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(if (dateMillis != null) formatDate(dateMillis) else placeholder)
+    }
+}
+
+@Composable
+private fun TimeChip(timeMillis: Long?, placeholder: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick) {
+        Icon(Icons.Filled.Schedule, contentDescription = "Time", modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(if (timeMillis != null) formatTime(timeMillis) else placeholder)
+    }
 }
 
 @Composable
@@ -1100,49 +1045,61 @@ private fun ReminderChip(
     currentFlags: Int,
     onFlagsChange: (Int) -> Unit
 ) {
-    val isSelected = (currentFlags and flag) != 0
+    val selected = (currentFlags and flag) != 0
     FilterChip(
-        selected = isSelected,
+        selected = selected,
         onClick = {
-            onFlagsChange(if (isSelected) currentFlags xor flag else currentFlags or flag)
+            onFlagsChange(if (selected) currentFlags xor flag else currentFlags or flag)
         },
         label = { Text(label) },
-        leadingIcon = if (isSelected) {
-            { Icon(Icons.Filled.Check, "Selected", modifier = Modifier.size(16.dp)) }
+        leadingIcon = if (selected) {
+            { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
         } else null
     )
 }
 
 private fun quadrantDisplayName(q: Quadrant) = when (q) {
-    Quadrant.DO_FIRST  -> "Q1: Do First"
-    Quadrant.SCHEDULE  -> "Q2: Schedule"
-    Quadrant.DELEGATE  -> "Q3: Delegate"
+    Quadrant.DO_FIRST -> "Q1: Do First"
+    Quadrant.SCHEDULE -> "Q2: Schedule"
+    Quadrant.DELEGATE -> "Q3: Delegate"
     Quadrant.ELIMINATE -> "Q4: Eliminate"
 }
 
 private fun priorityDisplayName(p: Priority) = when (p) {
-    Priority.HIGH   -> "🔴 High Priority"
-    Priority.MEDIUM -> "🟠 Medium Priority"
-    Priority.LOW    -> "🟡 Low Priority"
+    Priority.HIGH -> "High"
+    Priority.MEDIUM -> "Medium"
+    Priority.LOW -> "Low"
 }
 
 private fun recurrenceDisplayName(r: Recurrence) = when (r) {
-    Recurrence.NONE    -> "🔕 No Repeat"
-    Recurrence.DAILY   -> "📅 Daily"
-    Recurrence.WEEKLY  -> "📅 Weekly"
-    Recurrence.MONTHLY -> "📅 Monthly"
-    Recurrence.CUSTOM  -> "📅 Custom"
+    Recurrence.NONE -> "No Repeat"
+    Recurrence.DAILY -> "Daily"
+    Recurrence.WEEKLY -> "Weekly"
+    Recurrence.MONTHLY -> "Monthly"
+    Recurrence.CUSTOM -> "Custom"
 }
 
 private val durationOptions = listOf(
-    "0 Mins" to 0, "1 Min" to 1, "5 Mins" to 5, "15 Mins" to 15,
-    "30 Mins" to 30, "45 Mins" to 45, "1 Hour" to 60, "1.5 Hours" to 90,
-    "2 Hours" to 120, "3 Hours" to 180, "4 Hours" to 240,
-    "6 Hours" to 360, "8 Hours" to 480, "10 Hours" to 600
+    "0 Mins" to 0,
+    "1 Min" to 1,
+    "5 Mins" to 5,
+    "15 Mins" to 15,
+    "30 Mins" to 30,
+    "45 Mins" to 45,
+    "1 Hour" to 60,
+    "1.5 Hours" to 90,
+    "2 Hours" to 120,
+    "3 Hours" to 180,
+    "4 Hours" to 240,
+    "6 Hours" to 360,
+    "8 Hours" to 480,
+    "10 Hours" to 600
 )
 
 private fun durationDisplayName(minutes: Int): String = durationOptions
-    .firstOrNull { it.second == minutes }?.first ?: "$minutes Mins"
+    .firstOrNull { it.second == minutes }
+    ?.first
+    ?: "$minutes Mins"
 
 private fun formatDate(millis: Long): String {
     val sdf = SimpleDateFormat("MM/dd", Locale.getDefault())
@@ -1150,8 +1107,8 @@ private fun formatDate(millis: Long): String {
 }
 
 private fun formatTime(millis: Long): String {
-    val hours = (millis / 3600000).toInt()
-    val minutes = ((millis % 3600000) / 60000).toInt()
+    val hours = (millis / 3_600_000L).toInt()
+    val minutes = ((millis % 3_600_000L) / 60_000L).toInt()
     val amPm = if (hours < 12) "AM" else "PM"
     val displayHour = if (hours == 0) 12 else if (hours > 12) hours - 12 else hours
     return String.format("%d:%02d %s", displayHour, minutes, amPm)
@@ -1160,7 +1117,7 @@ private fun formatTime(millis: Long): String {
 private fun utcMidnightToLocalMidnight(utcMillis: Long): Long {
     val utcCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
     utcCal.timeInMillis = utcMillis
-    
+
     val localCal = java.util.Calendar.getInstance()
     localCal.set(java.util.Calendar.YEAR, utcCal.get(java.util.Calendar.YEAR))
     localCal.set(java.util.Calendar.MONTH, utcCal.get(java.util.Calendar.MONTH))

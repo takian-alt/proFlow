@@ -76,6 +76,7 @@ data class TaskEntity(
     val isPublicCommitment: Boolean = false, // commitment device — social accountability
     val isAnxietyTask: Boolean = false,  // stress inoculation — prevents avoidance spiral
     val goalRiskLevel: Int = 0,          // 0=none, 1=at risk, 2=critical — loss aversion boost
+    val isAutoScheduled: Boolean = false,
 
     // Habit anchor date — for recurring tasks this is always set and shifts by the recurrence interval
     // on each completion. Independent of deadline/scheduledDate so habits work without a deadline.

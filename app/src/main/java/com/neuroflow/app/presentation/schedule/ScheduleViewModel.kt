@@ -110,6 +110,7 @@ class ScheduleViewModel @Inject constructor(
                 task.copy(
                     scheduledDate = _uiState.value.selectedDate,
                     scheduledTime = (hour * 3_600_000L),
+                    isAutoScheduled = false,
                     updatedAt = System.currentTimeMillis()
                 )
             )

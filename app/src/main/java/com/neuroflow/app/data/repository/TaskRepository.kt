@@ -6,7 +6,11 @@ import com.neuroflow.app.data.local.entity.splitToLocalDateAndTime
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
+import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
 import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
@@ -63,7 +67,8 @@ private fun shiftDateAndOptionalTime(
 @Singleton
 class TaskRepository @Inject constructor(
     private val taskDao: TaskDao,
-    private val hyperFocusManager: Lazy<HyperFocusManager>
+    private val hyperFocusManager: Lazy<HyperFocusManager>,
+    private val workManager: WorkManager
 ) {
     fun observeAll(): Flow<List<TaskEntity>> = taskDao.observeAll()
     fun observeActiveTasks(): Flow<List<TaskEntity>> = taskDao.observeActiveTasks()
@@ -92,13 +97,63 @@ class TaskRepository @Inject constructor(
     suspend fun insert(task: TaskEntity) {
         taskDao.insert(task)
     }
-    suspend fun update(task: TaskEntity) = taskDao.update(task)
+    suspend fun update(task: TaskEntity) {
+        val old = taskDao.getById(task.id)
+        taskDao.update(task)
+
+        // Trigger rescheduling if relevant fields changed
+        if (old != null && shouldTriggerReschedule(old, task)) {
+            enqueueAutoSchedulingRecheck()
+        }
+    }
+
+    private fun shouldTriggerReschedule(old: TaskEntity, new: TaskEntity): Boolean {
+        return old.deadlineDate != new.deadlineDate ||
+               old.deadlineTime != new.deadlineTime ||
+               old.priority != new.priority ||
+               old.estimatedDurationMinutes != new.estimatedDurationMinutes ||
+               old.effortScore != new.effortScore ||
+               old.tags != new.tags ||
+               old.taskType != new.taskType ||
+               old.energyLevel != new.energyLevel ||
+               // Task was unscheduled (manual or incomplete)
+               (old.scheduledDate != null && new.scheduledDate == null)
+    }
+
+    suspend fun markIncomplete(task: TaskEntity, timeSpentMinutes: Int) {
+        update(task.copy(
+            scheduledDate = null,
+            scheduledTime = null,
+            totalTimeTrackedMinutes = task.totalTimeTrackedMinutes + timeSpentMinutes,
+            updatedAt = System.currentTimeMillis()
+        ))
+        // Rescheduling trigger already called in update()
+    }
+
+    suspend fun postponeTask(task: TaskEntity) {
+        update(task.copy(
+            postponeCount = task.postponeCount + 1,
+            scheduledDate = null,
+            scheduledTime = null,
+            updatedAt = System.currentTimeMillis()
+        ))
+        // Rescheduling trigger already called in update()
+    }
     suspend fun delete(task: TaskEntity) {
         if (hyperFocusManager.get().isTaskDeletionBlocked(task.id)) return
         taskDao.delete(task)
     }
     suspend fun deleteAll() = taskDao.deleteAll()
     suspend fun resetEstimationErrors() = taskDao.resetEstimationErrors()
+
+    private fun enqueueAutoSchedulingRecheck() {
+        val request = OneTimeWorkRequestBuilder<ScheduleAutoTasksWorker>().build()
+        workManager.enqueueUniqueWork(
+            "${ScheduleAutoTasksWorker.WORK_NAME}_trigger",
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
 
     /**
      * Marks [task] as completed and, if it has recurrence, inserts the next occurrence.
@@ -116,6 +171,7 @@ class TaskRepository @Inject constructor(
             )
         )
         hyperFocusManager.get().onTaskCompleted()
+        enqueueAutoSchedulingRecheck()
 
         if (task.recurrence == Recurrence.NONE) return null
 

@@ -3,6 +3,7 @@ package com.neuroflow.app.di
 import android.content.Context
 import android.content.pm.LauncherApps
 import androidx.room.Room
+import androidx.work.WorkManager
 import com.neuroflow.app.data.local.MIGRATION_1_2
 import com.neuroflow.app.data.local.MIGRATION_2_3
 import com.neuroflow.app.data.local.MIGRATION_3_4
@@ -16,6 +17,7 @@ import com.neuroflow.app.data.local.MIGRATION_10_11
 import com.neuroflow.app.data.local.MIGRATION_11_12
 import com.neuroflow.app.data.local.MIGRATION_12_13
 import com.neuroflow.app.data.local.MIGRATION_13_14
+import com.neuroflow.app.data.local.MIGRATION_14_15
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.GoalDao
@@ -58,7 +60,8 @@ object AppModule {
                 MIGRATION_10_11,
                 MIGRATION_11_12,
                 MIGRATION_12_13,
-                MIGRATION_13_14
+                MIGRATION_13_14,
+                MIGRATION_14_15
             )
             .build()
     }
@@ -99,4 +102,8 @@ object AppModule {
     @Singleton
     fun provideLauncherApps(@ApplicationContext context: Context): LauncherApps =
         context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+
+    @Provides
+    @Singleton
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager = WorkManager.getInstance(context)
 }

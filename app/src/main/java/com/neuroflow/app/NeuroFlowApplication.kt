@@ -10,13 +10,16 @@ import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
 import com.neuroflow.app.worker.DistractionSyncWorker
 import com.neuroflow.app.worker.createNotificationChannels
 import com.neuroflow.app.worker.scheduleNotificationWorkers
+import com.neuroflow.app.worker.EnergyTelemetryCleanupScheduler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -37,6 +40,7 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
     @Inject lateinit var userPreferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
     @Inject lateinit var databaseCleaner: DatabaseCleaner
+    @Inject lateinit var energyTelemetryCleanupScheduler: EnergyTelemetryCleanupScheduler
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -140,8 +144,42 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             widgetUpdateRequest
         )
 
+        // ScheduleAutoTasksWorker — runs periodically (configurable throttle) to auto-schedule eligible tasks
+        // Gated by autoSchedulingEnabled preference
+        applicationScope.launch {
+            val prefs = userPreferencesDataStore.preferencesFlow.first()
+            if (prefs.autoSchedulingEnabled) {
+                val throttleMinutes = prefs.autoSchedulingBackgroundThrottleMinutes
+                val autoScheduleRequest = ScheduleAutoTasksWorker.buildPeriodicWorkRequest(throttleMinutes)
+                workManager.enqueueUniquePeriodicWork(
+                    ScheduleAutoTasksWorker.WORK_NAME,
+                    ExistingPeriodicWorkPolicy.KEEP,
+                    autoScheduleRequest
+                )
+            }
+        }
+
+        // Foreground refresh loop — while app process is alive, request a scheduler pass every 5 minutes.
+        // Background periodic work remains the fallback when the app process is not active.
+        applicationScope.launch {
+            while (true) {
+                val prefs = userPreferencesDataStore.preferencesFlow.first()
+                if (prefs.autoSchedulingEnabled) {
+                    workManager.enqueueUniqueWork(
+                        ScheduleAutoTasksWorker.FOREGROUND_TICK_WORK_NAME,
+                        ExistingWorkPolicy.KEEP,
+                        ScheduleAutoTasksWorker.buildOneTimeWorkRequest()
+                    )
+                }
+                delay(TimeUnit.MINUTES.toMillis(5))
+            }
+        }
+
         // DistractionSyncWorker — runs once daily to refresh per-task distraction scores
         // Silently skips if PACKAGE_USAGE_STATS permission is not granted
         DistractionSyncWorker.schedulePeriodic(this)
+
+        // EnergyTelemetryCleanupWorker — runs once daily to enforce retention policy on prediction database
+        energyTelemetryCleanupScheduler.scheduleCleanup()
     }
 }
