@@ -378,12 +378,15 @@ object TaskScoringEngine {
     ): Float {
         if (task.status != TaskStatus.ACTIVE) return 0f
 
+        // Hard block: tasks waiting on an external dependency are not actionable
+        if (task.waitingFor.isNotBlank()) return 0f
+
         // Hard block: if task has unresolved dependencies, score near-zero
         val blockedByCount = if (task.dependsOnTaskIds.isNotBlank() && allActiveTasks.isNotEmpty()) {
             val depIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
             depIds.count { depId -> allActiveTasks.any { it.id == depId && it.status == TaskStatus.ACTIVE } }
         } else 0
-        if (blockedByCount > 0) return max(0f, 5f * (1f / blockedByCount))
+        if (blockedByCount > 0) return 0f
 
         val recurringAnchorMode = task.isRecurringWithAnchor()
         val lockAnchorMs = task.effectiveScheduleAnchorMillis()
@@ -404,6 +407,7 @@ object TaskScoringEngine {
         val isLowEnergySlot = hour in 13..15
         val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
         val isWithinWorkDay = hour in prefs.workDayStart until prefs.workDayEnd
+        val effortNorm = task.effortScore / 100f
 
         var s = 0f
 
@@ -416,6 +420,9 @@ object TaskScoringEngine {
         } * prefs.weightQuadrant
 
         // ── 2. DEADLINE PRESSURE (Temporal Motivation Theory) ────────────────
+        // W1+W6 fix: Deadline urgency is now effort-weighted so trivial tasks with close
+        // deadlines don't dominate high-effort important tasks. A 5-min review due tomorrow
+        // no longer outranks a 5-hour research project due in 2 weeks.
         if (!recurringAnchorMode && task.deadlineDate != null) {
             val deadlineMs = task.deadlineDate + (task.deadlineTime ?: 0L)
             val hoursLeft = (deadlineMs - nowMillis) / 3_600_000f
@@ -432,7 +439,15 @@ object TaskScoringEngine {
                 hoursLeft < 720  -> 20f
                 else             -> max(5f, 15f * exp(-hoursLeft / 720f))
             }
-            s += deadlineScore * prefs.weightDeadlineUrgency
+            // Effort-weighted multiplier: easy tasks (effort<30) get dampened urgency (0.6x),
+            // hard tasks (effort>70) get amplified urgency (up to 1.25x).
+            // This prevents "review spreadsheet due tomorrow" from dominating "deep research due in 2 weeks".
+            val effortMultiplier = when {
+                effortNorm < 0.3f -> 0.6f + effortNorm     // 0.6–0.9 for easy tasks
+                effortNorm > 0.7f -> 1.0f + (effortNorm - 0.7f) * 0.83f  // 1.0–1.25 for hard tasks
+                else -> 1.0f                                // 1.0 for medium tasks
+            }
+            s += deadlineScore * effortMultiplier * prefs.weightDeadlineUrgency
         }
 
         // ── 3. SCHEDULED TIME PROXIMITY (GTD next-action window) ─────────────
@@ -461,12 +476,19 @@ object TaskScoringEngine {
 
         // ── 5. STRATEGIC IMPACT + INTRINSIC VALUE (Self-Determination Theory) ─
         // Weighted composite: impact slightly more important for prioritization.
+        // W1 fix: Add importance floor — high-impact tasks always get a minimum score boost
+        // regardless of deadline distance, preventing them from being buried by trivial urgent tasks.
         val importanceScore = (task.impactScore * 0.55f + task.valueScore * 0.45f)
         s += importanceScore * prefs.weightImpact
+        // Importance floor: tasks with composite ≥ 65 get a guaranteed minimum boost (30-60 pts)
+        // that ensures they remain visible even when deadline-driven tasks dominate.
+        if (importanceScore >= 65f) {
+            val floorBoost = ((importanceScore - 65f) / 35f) * 60f  // 0–60 pts scaled
+            s += floorBoost
+        }
 
         // ── 6. EFFORT × CONTEXT (BJ Fogg + Eat the Frog) ────────────────────
         // weightFocusMode governs all focus-related boosts (effort + frog below)
-        val effortNorm = task.effortScore / 100f
         val effortBoost = when {
             effortNorm < 0.3f -> (1f - effortNorm) * 60f
             effortNorm > 0.7f && (isPeakHour || isMorning) -> effortNorm * 55f
@@ -729,6 +751,18 @@ object TaskScoringEngine {
     ): List<Pair<String, Float>> {
         if (task.status != TaskStatus.ACTIVE) return emptyList()
 
+        // Blocked tasks score 0 — show a single explanatory entry instead of a full breakdown
+        if (task.waitingFor.isNotBlank()) {
+            return listOf("⏳ Waiting for external dependency (blocked)" to 0f)
+        }
+        val blockedByCount = if (task.dependsOnTaskIds.isNotBlank() && allActiveTasks.isNotEmpty()) {
+            val depIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            depIds.count { depId -> allActiveTasks.any { it.id == depId && it.status == TaskStatus.ACTIVE } }
+        } else 0
+        if (blockedByCount > 0) {
+            return listOf("🔗 Blocked by $blockedByCount incomplete dependency task(s)" to 0f)
+        }
+
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val peakContext = resolvePeakContext(prefs, nowMillis)
@@ -738,6 +772,7 @@ object TaskScoringEngine {
         val isLowEnergySlot = hour in 13..15
 
         val result = mutableListOf<Pair<String, Float>>()
+        val effortNorm = task.effortScore / 100f
 
         val quadrantBase = when (task.quadrant) {
             Quadrant.DO_FIRST  -> 300f
@@ -746,6 +781,35 @@ object TaskScoringEngine {
             Quadrant.ELIMINATE -> 20f
         } * prefs.weightQuadrant
         result += "Quadrant (${task.quadrant.name})" to quadrantBase
+
+        if (!task.isRecurringWithAnchor() && task.deadlineDate != null) {
+            val deadlineMs = task.deadlineDate + (task.deadlineTime ?: 0L)
+            val hoursLeft = (deadlineMs - nowMillis) / 3_600_000f
+            val deadlineScore = when {
+                hoursLeft < 0    -> 500f
+                hoursLeft < 1    -> 420f
+                hoursLeft < 4    -> 340f
+                hoursLeft < 12   -> 260f
+                hoursLeft < 24   -> 200f
+                hoursLeft < 48   -> 150f
+                hoursLeft < 72   -> 110f
+                hoursLeft < 168  -> 70f
+                hoursLeft < 336  -> 40f
+                hoursLeft < 720  -> 20f
+                else             -> max(5f, 15f * exp(-hoursLeft / 720f))
+            }
+            val effortMultiplier = when {
+                effortNorm < 0.3f -> 0.6f + effortNorm
+                effortNorm > 0.7f -> 1.0f + (effortNorm - 0.7f) * 0.83f
+                else -> 1.0f
+            }
+            result += "Deadline pressure" to deadlineScore * effortMultiplier * prefs.weightDeadlineUrgency
+        }
+
+        val importanceScore = task.impactScore * 0.55f + task.valueScore * 0.45f
+        if (importanceScore >= 65f) {
+            result += "High-impact floor" to ((importanceScore - 65f) / 35f) * 60f
+        }
 
         if (task.isFrog) {
             val base = when {
@@ -763,7 +827,6 @@ object TaskScoringEngine {
         if (task.isScheduleLocked) result += "🔒 Schedule locked" to 30f
         if (task.isAnxietyTask) result += "😰 Anxiety task surfaced" to 40f
         if (task.goalRiskLevel > 0) result += "⚠ Goal risk" to if (task.goalRiskLevel == 2) 130f else 60f
-        if (task.waitingFor.isNotBlank()) result += "⏳ Waiting for (blocked)" to -999f
         val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot)
         if (tagFit != 0f) result += "🏷 Tag fit" to tagFit
         val categoryFit = categorySuitabilityScore(task, hour, prefs)
@@ -785,16 +848,37 @@ object TaskScoringEngine {
      * Threshold: composite score >= 50 (out of 100) = important.
      */
     fun autoAssignQuadrant(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Quadrant {
+        // Blocked tasks (waiting for external dependency) are not actionable — put in SCHEDULE
+        // so they don't surface as DO_FIRST when the user can't act on them yet.
+        if (task.waitingFor.isNotBlank()) return Quadrant.SCHEDULE
+
         val hoursLeft = if (task.deadlineDate != null)
             (task.deadlineDate + (task.deadlineTime ?: 0L) - nowMillis) / 3_600_000f
         else Float.MAX_VALUE
 
-        val isUrgent = hoursLeft < 72 || task.priority == Priority.HIGH
+        // W10 fix: Effort-scaled urgency threshold — hard tasks need more lead time.
+        // A 30-minute admin task is urgent at 72 hours, but a 5-hour research project
+        // should be flagged urgent at 120+ hours to leave time for proper work.
+        val effortN = task.effortScore / 100f
+        val urgencyHorizon = when {
+            effortN >= 0.8f -> 120f  // Hard tasks: urgent within 5 days
+            effortN >= 0.6f -> 96f   // Medium-hard tasks: urgent within 4 days
+            else -> 72f              // Easy tasks: original 3-day threshold
+        }
+        val isUrgent = hoursLeft < urgencyHorizon || task.priority == Priority.HIGH
 
-        // Mirror the score() composite so quadrant assignment stays consistent
+        // W10 fix: Graduated importance with buffer zone (45-55 instead of hard 50).
+        // Tasks scoring 45-55 get a probability-weighted classification instead of
+        // a 2-point difference changing quadrant.
         val importanceComposite = task.impactScore * 0.55f + task.valueScore * 0.45f
-        val isImportant = importanceComposite >= 50f ||
-            task.goalId != null || task.isFrog || task.isPublicCommitment || task.goalRiskLevel > 0
+        val isImportant = when {
+            importanceComposite >= 55f -> true           // Clearly important
+            importanceComposite >= 45f -> {              // Buffer zone: use supporting signals
+                task.goalId != null || task.isFrog || task.isPublicCommitment ||
+                    task.goalRiskLevel > 0 || task.effortScore >= 70
+            }
+            else -> task.goalId != null || task.isFrog || task.isPublicCommitment || task.goalRiskLevel > 0
+        }
 
         return when {
             isUrgent && isImportant   -> Quadrant.DO_FIRST

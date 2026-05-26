@@ -2,9 +2,11 @@ package com.neuroflow.app.domain.repository
 
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.SessionRepository
+import com.neuroflow.app.data.repository.SleepLogRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.MEQChronotypeDetector
 import com.neuroflow.app.domain.engine.PeakEnergyEngine
@@ -73,11 +75,15 @@ class EnergyScoreRepositoryContractTest : StringSpec({
             val energyMetricsRepository = mockk<EnergyMetricsRepository>(relaxed = true)
             coEvery { energyMetricsRepository.enforceRetentionPolicy(any(), any()) } returns 0
 
+            val sleepLogRepository = mockk<SleepLogRepository>()
+            every { sleepLogRepository.observeAll() } returns MutableStateFlow(emptyList())
+
             val repository = EnergyScoreRepository(
                 preferencesDataStore = preferencesDataStore,
                 peakEnergyRepository = peakEnergyRepository,
                 sessionRepository = sessionRepository,
                 taskRepository = taskRepository,
+                sleepLogRepository = sleepLogRepository,
                 notificationBadgeManager = badgeManager,
                 energyMetricsRepository = energyMetricsRepository
             )
@@ -134,11 +140,15 @@ class EnergyScoreRepositoryContractTest : StringSpec({
             val energyMetricsRepository = mockk<EnergyMetricsRepository>(relaxed = true)
             coEvery { energyMetricsRepository.enforceRetentionPolicy(any(), any()) } returns 0
 
+            val sleepLogRepository2 = mockk<SleepLogRepository>()
+            every { sleepLogRepository2.observeAll() } returns MutableStateFlow(emptyList())
+
             val repository = EnergyScoreRepository(
                 preferencesDataStore = preferencesDataStore,
                 peakEnergyRepository = peakEnergyRepository,
                 sessionRepository = sessionRepository,
                 taskRepository = taskRepository,
+                sleepLogRepository = sleepLogRepository2,
                 notificationBadgeManager = badgeManager,
                 energyMetricsRepository = energyMetricsRepository
             )

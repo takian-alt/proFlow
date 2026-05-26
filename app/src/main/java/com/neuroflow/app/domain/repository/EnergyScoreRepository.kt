@@ -1,5 +1,6 @@
 package com.neuroflow.app.domain.repository
 
+import com.neuroflow.app.data.repository.SleepLogRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
@@ -24,6 +25,7 @@ class EnergyScoreRepository @Inject constructor(
     private val peakEnergyRepository: PeakEnergyRepository,
     private val sessionRepository: SessionRepository,
     private val taskRepository: TaskRepository,
+    private val sleepLogRepository: SleepLogRepository,
     private val notificationBadgeManager: NotificationBadgeManager,
     private val energyMetricsRepository: EnergyMetricsRepository
 ) {
@@ -38,7 +40,8 @@ class EnergyScoreRepository @Inject constructor(
     private data class MomentSignalContext(
         val sessions: List<TimeSessionEntity>,
         val tasks: List<TaskEntity>,
-        val badgeCounts: Map<String, Int>
+        val badgeCounts: Map<String, Int>,
+        val latestSleepLogEndAt: Long?  // null = no sleep logs recorded yet
     )
 
     data class EnergyUiModel(
@@ -83,12 +86,14 @@ class EnergyScoreRepository @Inject constructor(
         val momentSignals = combine(
             sessionRepository.observeAll(),
             taskRepository.observeAll(),
+            sleepLogRepository.observeAll(),
             notificationBadgeManager.badgeCounts
-        ) { sessions, tasks, badgeCounts ->
+        ) { sessions, tasks, sleepLogs, badgeCounts ->
             MomentSignalContext(
                 sessions = sessions,
                 tasks = tasks,
-                badgeCounts = badgeCounts
+                badgeCounts = badgeCounts,
+                latestSleepLogEndAt = sleepLogs.maxByOrNull { it.endAt }?.endAt
             )
         }
 
@@ -125,7 +130,9 @@ class EnergyScoreRepository @Inject constructor(
                 .maxByOrNull { it.updatedAt }
                 ?.let { (nowMillis - it.updatedAt).coerceAtLeast(0L) }
                 ?: Long.MAX_VALUE
-            val sleepLogDataAgeMillis = 0L
+            val sleepLogDataAgeMillis = momentSignals.latestSleepLogEndAt
+                ?.let { (nowMillis - it).coerceAtLeast(0L) }
+                ?: Long.MAX_VALUE  // No sleep logs = maximally stale
             val overallFreshnessAgeMillis = maxOf(
                 (nowMillis - peakDetection.detectedAtMillis).coerceAtLeast(0L),
                 sessionDataAgeMillis,

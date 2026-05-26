@@ -52,14 +52,38 @@ class AutoSchedulingEngine @Inject constructor(
         val circadianBonus: Float
     ) {
         companion object {
-            fun from(energyScore: Int, momentConfidence: Float, circadianFactor: Float): EnergyProfile {
-                val zone = when (energyScore) {
-                    in 80..100 -> EnergyZone.PEAK
-                    in 60..79 -> EnergyZone.HIGH
-                    in 40..59 -> EnergyZone.MODERATE
-                    in 1..39 -> EnergyZone.LOW
-                    else -> EnergyZone.CRITICAL
+            fun from(
+                energyScore: Int,
+                momentConfidence: Float,
+                circadianFactor: Float,
+                hourKey: Int = -1,
+                // W11 fix: hysteresis state is now passed in per planning cycle instead of
+                // living in a companion-object map. This eliminates the shared-mutable-state
+                // race condition while preserving the hysteresis behaviour.
+                hysteresisState: MutableMap<Int, EnergyZone> = mutableMapOf()
+            ): EnergyProfile {
+                val previousZone = if (hourKey >= 0) hysteresisState[hourKey] else null
+                val zone = when {
+                    // Upward transitions require crossing ABOVE the upper hysteresis threshold
+                    previousZone == EnergyZone.HIGH && energyScore >= 83 -> EnergyZone.PEAK
+                    previousZone == EnergyZone.MODERATE && energyScore >= 63 -> EnergyZone.HIGH
+                    previousZone == EnergyZone.LOW && energyScore >= 43 -> EnergyZone.MODERATE
+                    previousZone == EnergyZone.CRITICAL && energyScore >= 23 -> EnergyZone.LOW
+                    // Downward transitions require dropping BELOW the lower hysteresis threshold
+                    previousZone == EnergyZone.PEAK && energyScore >= 77 -> EnergyZone.PEAK
+                    previousZone == EnergyZone.HIGH && energyScore >= 57 -> EnergyZone.HIGH
+                    previousZone == EnergyZone.MODERATE && energyScore >= 37 -> EnergyZone.MODERATE
+                    previousZone == EnergyZone.LOW && energyScore >= 17 -> EnergyZone.LOW
+                    // No hysteresis context — use standard thresholds
+                    else -> when (energyScore) {
+                        in 80..100 -> EnergyZone.PEAK
+                        in 60..79 -> EnergyZone.HIGH
+                        in 40..59 -> EnergyZone.MODERATE
+                        in 1..39 -> EnergyZone.LOW
+                        else -> EnergyZone.CRITICAL
+                    }
                 }
+                if (hourKey >= 0) hysteresisState[hourKey] = zone
                 return EnergyProfile(zone, momentConfidence, circadianFactor)
             }
         }
@@ -198,9 +222,12 @@ class AutoSchedulingEngine @Inject constructor(
                     continue
                 }
 
-                // **Mis-planning prevention: Check energy-demand mismatch**
-                if (!isEnergyDemandSatisfied(task, slot)) {
-                    continue // Skip this slot, too risky for this task
+                // **W3 fix: Soft energy penalty instead of binary rejection**
+                // Tasks that marginally fail energy checks get a fit-score penalty
+                // instead of outright rejection. Only hard-block extreme mismatches.
+                val (energyAllowed, energyPenalty) = energyDemandFitPenalty(task, slot)
+                if (!energyAllowed) {
+                    continue // Hard block: extreme mismatch (e.g., ANALYTICAL in CRITICAL)
                 }
 
                 val fitScore = scoreTaskSlotFit(
@@ -210,7 +237,8 @@ class AutoSchedulingEngine @Inject constructor(
                     tagProfiles = tagProfiles,
                     deadlinePressure = deadlinePressure,
                     prefs = prefs,
-                    nowMillis = nowMillis
+                    nowMillis = nowMillis,
+                    energyPenalty = energyPenalty
                 )
                 fitScoresByTask.getOrPut(task.id) { mutableListOf() }.add(fitScore)
             }
@@ -221,7 +249,11 @@ class AutoSchedulingEngine @Inject constructor(
         val blockedSlotIndices = mutableSetOf<Int>()
         val highCognitiveMinutesByDay = mutableMapOf<Int, Int>()
         val highCognitiveHoursByDay = mutableMapOf<Int, MutableSet<Int>>()
+        // W5 fix: Track cognitive minutes as a session cluster, not per-task.
+        // Only trigger a break when the accumulated cluster exceeds the threshold.
         val highCognitiveMinutesSinceBreakByDay = mutableMapOf<Int, Int>()
+        // W7 fix: Track assigned categories per slot for cohesion bonus
+        val assignedCategoryBySlot = mutableMapOf<Int, TaskCategory>()
         val breakPolicy = resolveBreakPolicy(prefs)
 
         sortedTasks.forEach { task ->
@@ -316,13 +348,23 @@ class AutoSchedulingEngine @Inject constructor(
 
             // Select the best candidate from the highest-priority category that has options
             // Priority: today+preferred > today+fallback > future+preferred > future+fallback
-            // Within each category, choose the slot with the HIGHEST fit score (best energy/breaks/tags)
-            val chosen = todayPreferredCandidates.maxByOrNull { it.first.overallScore }
-                ?: todayFallbackCandidates.maxByOrNull { it.first.overallScore }
-                ?: futurePreferredCandidates.maxByOrNull { it.first.overallScore }
-                ?: futureFallbackCandidates.maxByOrNull { it.first.overallScore }
+            // Within each category, choose the slot with the HIGHEST effective fit score.
+            // W7: cohesion bonus is applied here (not in pre-pass) so later tasks cluster by category.
+            val tagProfilesForTask = TaskTagSchedulingProfile.profilesFor(task.tags)
+            fun effectiveFitScore(fit: TaskSlotFitScore): Float =
+                (fit.overallScore + categoryCohesionBonus(task, fit.slotIndex, tagProfilesForTask, assignedCategoryBySlot))
+                    .coerceIn(0f, 1f)
+
+            val chosen = todayPreferredCandidates.maxByOrNull { effectiveFitScore(it.first) }
+                ?: todayFallbackCandidates.maxByOrNull { effectiveFitScore(it.first) }
+                ?: futurePreferredCandidates.maxByOrNull { effectiveFitScore(it.first) }
+                ?: futureFallbackCandidates.maxByOrNull { effectiveFitScore(it.first) }
                 ?: return@forEach
-            val fitScore = chosen.first
+            val baseFitScore = chosen.first
+            val cohesionBonus = categoryCohesionBonus(task, baseFitScore.slotIndex, tagProfilesForTask, assignedCategoryBySlot)
+            val fitScore = baseFitScore.copy(
+                overallScore = (baseFitScore.overallScore + cohesionBonus).coerceIn(0f, 1f)
+            )
             val estimatedDuration = chosen.second
             val slot = horizon.slots[fitScore.slotIndex]
 
@@ -358,6 +400,16 @@ class AutoSchedulingEngine @Inject constructor(
                 durationMinutes = estimatedDuration,
                 blockedSlotIndices = blockedSlotIndices
             )
+
+            // W7 fix: Track assigned category for cohesion bonus in subsequent assignments
+            val taskCategory = task.determineCategory()
+            val neededSlots = slotSpanForDuration(estimatedDuration)
+            for (offset in 0 until neededSlots) {
+                val idx = fitScore.slotIndex + offset
+                if (idx < horizon.slots.size) {
+                    assignedCategoryBySlot[idx] = taskCategory
+                }
+            }
 
             trackCognitiveLoad(
                 task = task,
@@ -477,7 +529,7 @@ class AutoSchedulingEngine @Inject constructor(
             if (today.isNotEmpty()) today else candidates
         }
         val bestCandidate = prioritizedCandidates
-            .maxByOrNull { (_, slot) ->
+            .maxByOrNull { (slotIdx, slot) ->
                 // Rank slots: prefer PEAK energy when under deadline pressure
                 val energyBonus = when (slot.energyProfile.zone) {
                     EnergyZone.PEAK -> 2.0f * pressureAdjustment
@@ -495,7 +547,13 @@ class AutoSchedulingEngine @Inject constructor(
                         nowMillis = nowMillis
                     )
                 } ?: 0.7f
-                energyBonus + dayBonus + (deadlineBufferBonus * 1.2f)
+                // W13 fix: Include category and chronotype fit in replan slot ranking
+                // so replanned tasks get optimal time placement, not just energy-based.
+                val tagProfiles = TaskTagSchedulingProfile.profilesFor(task.tags)
+                val categoryFitBonus = calculateCategoryFit(task, slot, prefs)
+                val chronoFitBonus = calculateChronotypeTaskFit(task, slot, prefs, tagProfiles)
+                energyBonus + dayBonus + (deadlineBufferBonus * 1.2f) +
+                    (categoryFitBonus * 0.4f) + (chronoFitBonus * 0.3f)
             } ?: return null
 
         val slotIndex = bestCandidate.index
@@ -572,40 +630,61 @@ class AutoSchedulingEngine @Inject constructor(
     // ==================== Private Implementation ====================
 
     /**
-     * Mis-planning prevention: Check if slot energy level satisfies task requirements.
-     * High-effort tasks must land in PEAK or HIGH energy slots.
-     * Medium-effort tasks need at least MODERATE energy.
-     * Low-effort tasks can land anywhere.
+     * W3 fix: Converted from binary accept/reject to soft scoring penalty.
+     * Instead of outright rejecting tasks from energy-mismatched slots, returns a
+     * fit penalty (0.0 = perfect match, negative = penalty). Duration and effort
+     * are factored — a 15-minute admin task in a LOW slot gets a small penalty,
+     * while a 3-hour analytical task gets heavily penalized.
      *
-     * Uses fuzzy boundaries to avoid cliff effects at zone thresholds.
+     * Returns a Pair: first = whether the task is allowed at all (hard block for extreme
+     * mismatches), second = fit penalty to add to the scoring.
      */
-    private fun isEnergyDemandSatisfied(task: TaskEntity, slot: TimeSlot): Boolean {
+    private fun energyDemandFitPenalty(task: TaskEntity, slot: TimeSlot): Pair<Boolean, Float> {
+        // Hard block: ANALYTICAL tasks in CRITICAL/LOW energy are always rejected
         if (task.taskType == com.neuroflow.app.domain.model.TaskType.ANALYTICAL &&
             slot.energyProfile.zone !in listOf(EnergyZone.PEAK, EnergyZone.HIGH, EnergyZone.MODERATE)
         ) {
-            return false
+            return false to 0f
         }
 
-        // Use fuzzy boundaries: allow tasks near threshold to be scheduled
-        // This prevents 1-point energy differences from blocking scheduling
         val energyScore = slot.availableEnergy
+        // Duration factor: short tasks (≤20 min) are more forgivable in mismatched slots
+        val durationMinutes = if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 30
+        val durationFactor = when {
+            durationMinutes <= 15 -> 0.3f   // Very short: minimal penalty
+            durationMinutes <= 30 -> 0.5f   // Short: reduced penalty
+            durationMinutes <= 60 -> 0.8f   // Medium: moderate penalty
+            else -> 1.0f                     // Long: full penalty
+        }
 
         return when {
-            // High-effort tasks (80+): need PEAK or HIGH energy
-            // Fuzzy boundary: accept if energy >= 55 (5-point buffer below HIGH threshold)
-            task.effortScore >= 80 -> {
-                energyScore >= 55 || slot.energyProfile.zone in listOf(EnergyZone.PEAK, EnergyZone.HIGH)
+            // High-effort tasks (80+): best in PEAK/HIGH, penalized elsewhere
+            task.effortScore >= 80 -> when {
+                energyScore >= 60 || slot.energyProfile.zone in listOf(EnergyZone.PEAK, EnergyZone.HIGH) -> true to 0f
+                energyScore >= 40 -> true to (-0.08f * durationFactor)  // Moderate penalty
+                energyScore >= 20 -> true to (-0.15f * durationFactor)  // Heavy penalty
+                else -> false to 0f  // Hard block: critical energy for hard task
             }
 
-            // Medium-effort tasks (60-79): need at least MODERATE energy
-            // Fuzzy boundary: accept if energy >= 35 (5-point buffer below MODERATE threshold)
-            task.effortScore >= 60 -> {
-                energyScore >= 35 || slot.energyProfile.zone in listOf(EnergyZone.PEAK, EnergyZone.HIGH, EnergyZone.MODERATE)
+            // Medium-effort tasks (60-79): flexible, penalized in LOW/CRITICAL
+            task.effortScore >= 60 -> when {
+                energyScore >= 40 || slot.energyProfile.zone in listOf(EnergyZone.PEAK, EnergyZone.HIGH, EnergyZone.MODERATE) -> true to 0f
+                energyScore >= 20 -> true to (-0.06f * durationFactor)
+                else -> true to (-0.12f * durationFactor)
             }
 
-            // Low-effort tasks: flexible, can land anywhere
-            else -> true
+            // Low-effort tasks: can land anywhere with minimal/no penalty
+            else -> true to 0f
         }
+    }
+
+    /**
+     * Backward-compatible wrapper: returns true if the task can be scheduled in the slot.
+     * Uses energyDemandFitPenalty internally but preserves the boolean interface for
+     * code paths that only need accept/reject (e.g., replanIncompleteTask).
+     */
+    private fun isEnergyDemandSatisfied(task: TaskEntity, slot: TimeSlot): Boolean {
+        return energyDemandFitPenalty(task, slot).first
     }
 
     /**
@@ -758,6 +837,15 @@ class AutoSchedulingEngine @Inject constructor(
             // FIX #6: For long-running tasks, allow cross-day scheduling
             if (!allowCrossDay && slot.dayIndex != dayIndex) return false
 
+            // W9 fix: When cross-day scheduling is allowed, validate that each slot
+            // falls within working hours. Tasks >3 hours shouldn't scatter across sleep hours.
+            if (allowCrossDay && slot.dayIndex != dayIndex) {
+                // hourOfDay is the actual clock hour of the slot.
+                // Slots outside the planning window (built from resolveDailyPlanningWindow)
+                // shouldn't exist in the horizon, but double-check for safety.
+                if (slot.hourOfDay < 6 || slot.hourOfDay > 22) return false
+            }
+
             if (slot.availableCapacityMinutes <= 0) return false
             if (idx in blockedSlotIndices) return false
             if (busySlotStartMillis.contains(slot.startMillis)) return false
@@ -800,7 +888,13 @@ class AutoSchedulingEngine @Inject constructor(
             // (no day index check - let long tasks span days)
 
             blockedSlotIndices += idx
-            slot.assignedMinutes = slot.availableCapacityMinutes
+            // W12 fix: Track actual minutes consumed per slot instead of flagging full capacity.
+            // This allows subsequent tasks to use remaining capacity in partially-filled slots.
+            val minutesToAssign = min(
+                durationMinutes - (offset * 60),  // Remaining task minutes for this slot
+                slot.availableCapacityMinutes - slot.assignedMinutes  // Available space in slot
+            ).coerceAtLeast(0)
+            slot.assignedMinutes += minutesToAssign
         }
     }
 
@@ -857,8 +951,11 @@ class AutoSchedulingEngine @Inject constructor(
             }
 
             blockedSlotIndices += idx
-            slot.reservedBreakMinutes = minOf(60, slot.availableCapacityMinutes)
-            remainingBreak -= 60
+            // W14 fix: Reserve only the actual break minutes needed, not the full 60-minute slot.
+            // Previously this always reserved 60 min even when break policy only needed 15 min.
+            val actualReserved = minOf(remainingBreak, slot.availableCapacityMinutes)
+            slot.reservedBreakMinutes = actualReserved
+            remainingBreak -= actualReserved
             slotsReserved++
             idx++
         }
@@ -884,6 +981,11 @@ class AutoSchedulingEngine @Inject constructor(
         prefs: UserPreferences,
         energyScoreFn: suspend (Long) -> Pair<Int, Float>
     ): CapacityHorizon {
+        // W11 fix: Create a fresh hysteresis map per planning cycle (instance-level, not shared).
+        // This eliminates the companion-object shared-state race condition while preserving
+        // the zone-hysteresis behaviour across sequential slot creation within one cycle.
+        val hysteresisState = mutableMapOf<Int, EnergyZone>()
+
         val slots = mutableListOf<TimeSlot>()
         val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
@@ -952,7 +1054,9 @@ class AutoSchedulingEngine @Inject constructor(
 
                 // Query energy for this hour
                 val (energyScore, confidence) = energyScoreFn(slotStartMillis)
-                val energyProfile = EnergyProfile.from(energyScore, confidence, 0.0f)
+                // W11 fix: Pass hourKey and per-cycle hysteresisState for zone tracking
+                val slotHourKey = dayIdx * 24 + dayCal.get(Calendar.HOUR_OF_DAY)
+                val energyProfile = EnergyProfile.from(energyScore, confidence, 0.0f, slotHourKey, hysteresisState)
 
                 // Capacity is time-based only — all slots get full 60-minute capacity.
                 // Energy zone affects utilization limits (in planAutoSchedule), not available time.
@@ -996,9 +1100,14 @@ class AutoSchedulingEngine @Inject constructor(
         tagProfiles: List<TagSchedulingProfile>,
         deadlinePressure: DeadlinePressure,
         prefs: UserPreferences,
-        nowMillis: Long
+        nowMillis: Long,
+        energyPenalty: Float = 0f,
+        assignedCategoryBySlot: Map<Int, TaskCategory> = emptyMap()
     ): TaskSlotFitScore {
         var score = 0.0f
+
+        // W3 fix: Apply energy demand soft penalty from energyDemandFitPenalty()
+        score += energyPenalty
 
         // 1. Energy match: task energy demand vs slot energy availability (adjusted weight: 0.13)
         val taskEnergyDemand = when {
@@ -1146,6 +1255,8 @@ class AutoSchedulingEngine @Inject constructor(
             score += 0.05f
         }
 
+        score += categoryCohesionBonus(task, slotIndex, tagProfiles, assignedCategoryBySlot)
+
         return TaskSlotFitScore(
             taskId = task.id,
             slotIndex = slotIndex,
@@ -1155,6 +1266,26 @@ class AutoSchedulingEngine @Inject constructor(
             deadlineUrgency = deadlineUrgency,
             fragmentationTolerance = fragmentationTolerance
         )
+    }
+
+    private fun categoryCohesionBonus(
+        task: TaskEntity,
+        slotIndex: Int,
+        tagProfiles: List<TagSchedulingProfile>,
+        assignedCategoryBySlot: Map<Int, TaskCategory>
+    ): Float {
+        if (assignedCategoryBySlot.isEmpty()) return 0f
+        val taskCategory = task.determineCategory()
+        val adjacentSameCategory = listOf(slotIndex - 1, slotIndex + 1).count { adjIdx ->
+            assignedCategoryBySlot[adjIdx] == taskCategory
+        }
+        if (adjacentSameCategory == 0) return 0f
+        val fragTolerance = if (tagProfiles.isNotEmpty()) {
+            tagProfiles.map { it.fragmentationTolerance }.average().toFloat()
+        } else {
+            0.5f
+        }
+        return adjacentSameCategory * 0.04f * (1f - fragTolerance)
     }
 
     private fun calculateCategoryFit(
@@ -1631,6 +1762,15 @@ class AutoSchedulingEngine @Inject constructor(
         val baseBudget = calculateDailyCognitiveBudgetMinutes(prefs)
         val budget = if (urgentDeadline) (baseBudget * 1.2f).roundToInt() else baseBudget
         val used = highCognitiveMinutesByDay[slot.dayIndex] ?: 0
+
+        // Long-task exception: if the task itself exceeds the daily budget, allow it through
+        // as long as no other cognitive work has been assigned yet that day. Without this,
+        // tasks longer than the budget (e.g. a 6-hour deep-work block) can never be scheduled.
+        val isLongTask = durationMinutes > budget
+        if (isLongTask) {
+            return used == 0  // Only allow if the day is still cognitively empty
+        }
+
         if (used + durationMinutes > budget) {
             return false
         }
@@ -1639,16 +1779,8 @@ class AutoSchedulingEngine @Inject constructor(
         val sameDayHighHours = highCognitiveHoursByDay[slot.dayIndex].orEmpty()
         val hasAdjacentBefore = (slot.hourOfDay - 1 in sameDayHighHours)
 
-        // Look ahead: check if the next hour slot would be assigned to a high-effort task
-        // by examining remaining unblocked slots on the same day
-        val hasAdjacentAfter = slots.any { futureSlot ->
-            futureSlot.dayIndex == slot.dayIndex &&
-                futureSlot.hourOfDay == slot.hourOfDay + 1 &&
-                slots.indexOf(futureSlot) !in blockedSlotIndices &&
-                futureSlot.availableCapacityMinutes > 0
-        }
-
-        val adjacentHeavy = hasAdjacentBefore || (slot.hourOfDay + 1 in sameDayHighHours)
+        val hasAdjacentAfter = slot.hourOfDay + 1 in sameDayHighHours
+        val adjacentHeavy = hasAdjacentBefore || hasAdjacentAfter
         if (!urgentDeadline && adjacentHeavy) {
             return false
         }
@@ -1818,17 +1950,31 @@ class AutoSchedulingEngine @Inject constructor(
             }
         }
 
-        // Detect circular dependencies using DFS
+        // Detect circular dependencies using DFS; block every task in the cycle.
         val visited = mutableSetOf<String>()
-        val recursionStack = mutableSetOf<String>()
+        val recursionStack = mutableListOf<String>()
+
+        fun markCycleFrom(taskId: String) {
+            val cycleStart = recursionStack.indexOf(taskId)
+            if (cycleStart < 0) return
+            recursionStack.subList(cycleStart, recursionStack.size).forEach { cycleTaskId ->
+                if (blocked.add(cycleTaskId)) {
+                    android.util.Log.w(
+                        "AutoSchedulingEngine",
+                        "Task $cycleTaskId blocked: circular dependency detected"
+                    )
+                }
+            }
+        }
 
         fun hasCycle(taskId: String): Boolean {
-            if (recursionStack.contains(taskId)) {
-                return true // Cycle detected
+            if (taskId in recursionStack) {
+                markCycleFrom(taskId)
+                return true
             }
 
-            if (visited.contains(taskId)) {
-                return false // Already checked this path
+            if (taskId in visited) {
+                return false
             }
 
             visited.add(taskId)
@@ -1841,133 +1987,16 @@ class AutoSchedulingEngine @Inject constructor(
                 }
             }
 
-            recursionStack.remove(taskId)
+            recursionStack.removeAt(recursionStack.lastIndex)
             return false
         }
 
-        // Check all tasks for circular dependencies
         for (taskId in taskMap.keys) {
-            if (taskId !in visited && hasCycle(taskId)) {
-                blocked.add(taskId)
-                android.util.Log.w(
-                    "AutoSchedulingEngine",
-                    "Task $taskId blocked: circular dependency detected"
-                )
+            if (taskId !in visited) {
+                hasCycle(taskId)
             }
         }
 
         return blocked
-    }
-
-    /**
-     * Check if task has any incomplete dependencies that would block scheduling.
-     * Returns true if task can be scheduled (no blockers), false if blocked.
-     *
-     * @deprecated Use detectBlockedTasks() for better performance with multiple tasks
-     */
-    private fun hasNoDependencyBlockers(task: TaskEntity, allTasks: List<TaskEntity>): Boolean {
-        // Check for external dependency (waitingFor field)
-        if (task.waitingFor.isNotBlank()) {
-            android.util.Log.i(
-                "AutoSchedulingEngine",
-                "Dependency check failed for task ${task.id}: waiting for external dependency '${task.waitingFor}'"
-            )
-            return false
-        }
-
-        // If no task dependencies, task is not blocked
-        if (task.dependsOnTaskIds.isBlank()) {
-            return true
-        }
-
-        // Parse comma-separated dependency IDs
-        val dependencies = task.dependsOnTaskIds.split(",")
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-
-        // If no valid dependencies after parsing, task is not blocked
-        if (dependencies.isEmpty()) {
-            return true
-        }
-
-        // Check for self-reference
-        if (dependencies.contains(task.id)) {
-            android.util.Log.w(
-                "AutoSchedulingEngine",
-                "Dependency check failed for task ${task.id}: self-reference detected"
-            )
-            return false
-        }
-
-        // Build task map for efficient lookup
-        val taskMap = allTasks.associateBy { it.id }
-
-        // Verify all dependency tasks exist and are completed
-        for (depId in dependencies) {
-            val depTask = taskMap[depId]
-
-            // If dependency task doesn't exist, task is blocked
-            if (depTask == null) {
-                android.util.Log.w(
-                    "AutoSchedulingEngine",
-                    "Dependency check failed for task ${task.id}: dependency task '$depId' not found"
-                )
-                return false
-            }
-
-            // If dependency task is not completed, task is blocked
-            if (depTask.status != TaskStatus.COMPLETED) {
-                android.util.Log.i(
-                    "AutoSchedulingEngine",
-                    "Dependency check failed for task ${task.id}: dependency task '$depId' not completed (status: ${depTask.status})"
-                )
-                return false
-            }
-        }
-
-        // Check for circular dependencies using depth-first search
-        val visited = mutableSetOf<String>()
-        val recursionStack = mutableSetOf<String>()
-
-        fun hasCycle(taskId: String): Boolean {
-            if (recursionStack.contains(taskId)) {
-                return true // Cycle detected
-            }
-
-            if (visited.contains(taskId)) {
-                return false // Already checked this path
-            }
-
-            visited.add(taskId)
-            recursionStack.add(taskId)
-
-            val currentTask = taskMap[taskId]
-            if (currentTask != null && currentTask.dependsOnTaskIds.isNotBlank()) {
-                val currentDeps = currentTask.dependsOnTaskIds.split(",")
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-
-                for (depId in currentDeps) {
-                    if (hasCycle(depId)) {
-                        return true
-                    }
-                }
-            }
-
-            recursionStack.remove(taskId)
-            return false
-        }
-
-        // Check if this task is part of a circular dependency
-        if (hasCycle(task.id)) {
-            android.util.Log.w(
-                "AutoSchedulingEngine",
-                "Dependency check failed for task ${task.id}: circular dependency detected"
-            )
-            return false
-        }
-
-        // All checks passed - task has no dependency blockers
-        return true
     }
 }

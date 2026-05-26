@@ -294,7 +294,7 @@ class UserPreferencesDataStore @Inject constructor(
             affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
             tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
             autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
-            autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(3, 3),
+            autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(1, 7),
             autoSchedulingBreakAfterCognitiveMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] ?: 90).coerceIn(30, 180),
             autoSchedulingBreakDurationMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] ?: 15).coerceIn(5, 30),
             autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(5, 120),
@@ -419,7 +419,7 @@ class UserPreferencesDataStore @Inject constructor(
                 affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
                 tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
                 autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
-                autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(3, 3),
+                autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(1, 7),
                 autoSchedulingBreakAfterCognitiveMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] ?: 90).coerceIn(30, 180),
                 autoSchedulingBreakDurationMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] ?: 15).coerceIn(5, 30),
                 autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(5, 120),
@@ -524,7 +524,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
             prefs[Keys.TAG_CATALOG] = encodeAffirmations(withStarterTagCatalog(updated.tagCatalog))
             prefs[Keys.AUTO_SCHEDULING_ENABLED] = updated.autoSchedulingEnabled
-            prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] = updated.autoSchedulingHorizonDays.coerceIn(3, 3)
+            prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] = updated.autoSchedulingHorizonDays.coerceIn(1, 7)
             prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] = updated.autoSchedulingBreakAfterCognitiveMinutes.coerceIn(30, 180)
             prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] = updated.autoSchedulingBreakDurationMinutes.coerceIn(5, 30)
             prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] = updated.autoSchedulingBackgroundThrottleMinutes.coerceIn(5, 120)
