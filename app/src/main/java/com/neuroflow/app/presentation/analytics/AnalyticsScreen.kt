@@ -418,7 +418,7 @@ private fun TodayCard(s: AnalyticsEngine.AnalyticsSummary) {    AnalyticsCard("T
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
             StatColumn(if (h > 0) "${h}h ${m}m" else "${m}m", "Focus Time")
             StatColumn("${s.completedToday}", "Completed")
-            StatColumn("${s.totalSessions}", "Total Sessions")
+            StatColumn("${s.sessionsToday}", "Sessions")
         }
     }
 }

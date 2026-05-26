@@ -131,12 +131,14 @@ object AnalyticsEngine {
         // Quadrant / priority breakdown
         val tasksByQuadrant: Map<Quadrant, Int>,
         val tasksByPriority: Map<Priority, Int>,
+        val completedTodayByQuadrant: Map<Quadrant, Int>,
         val totalRemainingMinutes: Int,
         // Time tracking
         val focusMinutesToday: Float,
         val focusMinutesTotal: Float,
         val avgSessionMinutes: Float,
         val totalSessions: Int,
+        val sessionsToday: Int,
         val mostFocusedTaskTitle: String?,
         val sevenDayTrend: List<Pair<String, Float>>,
         // Estimation accuracy
@@ -199,6 +201,9 @@ object AnalyticsEngine {
         // ── Quadrant / priority ──────────────────────────────────────────────
         val tasksByQuadrant = Quadrant.entries.associateWith { q -> allTasks.count { it.quadrant == q } }
         val tasksByPriority = Priority.entries.associateWith { p -> allTasks.count { it.priority == p } }
+        val completedTodayByQuadrant = Quadrant.entries.associateWith { q ->
+            completed.count { it.quadrant == q && (it.completedAt ?: 0L) >= todayStart }
+        }
         val totalRemainingMinutes = active.sumOf { it.estimatedDurationMinutes }
 
         // ── Session stats ────────────────────────────────────────────────────
@@ -206,10 +211,10 @@ object AnalyticsEngine {
         val focusMinutesToday = closedSessions
             .filter { it.startedAt >= todayStart }
             .sumOf { it.durationMinutes.toDouble() }.toFloat()
+        val sessionsToday = closedSessions.count { it.startedAt >= todayStart }
         val focusMinutesTotal = closedSessions.sumOf { it.durationMinutes.toDouble() }.toFloat()
         val avgSessionMinutes = if (closedSessions.isNotEmpty())
             focusMinutesTotal / closedSessions.size else 0f
-
         // Most focused task (most total tracked minutes)
         val mostFocusedTask = allTasks
             .filter { it.totalTimeTrackedMinutes > 0f }
@@ -346,11 +351,13 @@ object AnalyticsEngine {
             completedToday = completedToday,
             tasksByQuadrant = tasksByQuadrant,
             tasksByPriority = tasksByPriority,
+            completedTodayByQuadrant = completedTodayByQuadrant,
             totalRemainingMinutes = totalRemainingMinutes,
             focusMinutesToday = focusMinutesToday,
             focusMinutesTotal = focusMinutesTotal,
             avgSessionMinutes = avgSessionMinutes,
             totalSessions = closedSessions.size,
+            sessionsToday = sessionsToday,
             mostFocusedTaskTitle = mostFocusedTask?.title,
             sevenDayTrend = sevenDayTrend,
             overallMape = overallMape,

@@ -32,11 +32,21 @@ object MomentEnergyEngine {
                 window60m.focusMinutes / 12f,
                 window180m.focusMinutes / 36f
             )
-            
+
+            // Guard: empty trajectory — no data to compute trend
+            if (focusTrajectory.isEmpty()) return 0.0f
+
             // Calculate trend: positive diff = improving focus quality
             val diffs = focusTrajectory.zipWithNext { a, b -> b - a }
+
+            // Guard: no differences (single element trajectory)
+            if (diffs.isEmpty()) return 0.0f
+
             val avgDiff = diffs.average().toFloat()
-            
+
+            // Guard: NaN or infinite result (e.g. from degenerate float inputs)
+            if (avgDiff.isNaN() || avgDiff.isInfinite()) return 0.0f
+
             // Clip to [-1, 1] to prevent extreme outliers
             return avgDiff.coerceIn(-1f, 1f)
         }
@@ -50,10 +60,23 @@ object MomentEnergyEngine {
                 window60m.interruptionCount / 12f,
                 window180m.interruptionCount / 36f
             )
-            
+
+            // Guard: empty trajectory — no data to compute trend
+            if (interruptionTrajectory.isEmpty()) return 0.0f
+
             val diffs = interruptionTrajectory.zipWithNext { a, b -> b - a }
+
+            // Guard: no differences (single element trajectory)
+            if (diffs.isEmpty()) return 0.0f
+
             val avgDiff = diffs.average().toFloat()
-            
+
+            // Guard: NaN or infinite result
+            if (avgDiff.isNaN() || avgDiff.isInfinite()) return 0.0f
+
+            // Guard: zero (avoids returning -0.0f from negation)
+            if (avgDiff == 0.0f) return 0.0f
+
             // Negative trend = decreasing interruptions = good
             return (-avgDiff).coerceIn(-1f, 1f)
         }
@@ -135,7 +158,7 @@ object MomentEnergyEngine {
 
         val densityFactor = (0.40f + supportScore * 0.45f + peakConfidence * 0.15f).coerceIn(0.25f, 1f)
         val calmFactor = (1f - interruptionLoad * 0.35f - notificationLoad * 0.15f).coerceIn(0.45f, 1f)
-        
+
         // Phase 1 staleness guard: downweight confidence if peak detection confidence is low (< 0.4)
         // This prevents moment adjustments from being applied when baseline peak is unreliable
         val peakStalenessGuard = if (peakConfidence < 0.4f) {
@@ -143,7 +166,7 @@ object MomentEnergyEngine {
         } else {
             1f
         }
-        
+
         // Phase 3: Trend strength amplifies confidence when momentum is positive (improving focus)
         // Dampens when momentum is negative (degrading focus) to prevent false optimism
         val trendWeighting = if (trendStrength > 0f) {
@@ -151,7 +174,7 @@ object MomentEnergyEngine {
         } else {
             1f + (trendStrength * 0.15f)  // -0% to -15% confidence penalty for negative trends
         }
-        
+
         // Phase 1 staleness guard: downweight confidence if input signals are stale (>5 minutes old)
         // Stale signals mean moment adjustments are less reliable and should not override baseline
         val SIGNAL_FRESHNESS_THRESHOLD_MILLIS = 5 * 60_000L
@@ -161,7 +184,7 @@ object MomentEnergyEngine {
         } else {
             1f
         }
-        
+
         val confidence = (densityFactor * calmFactor * peakStalenessGuard * signalStalenessGuard * trendWeighting).coerceIn(0.35f, 0.98f)
 
         val adjustment = ((supportScore - pressureScore) * MAX_ADJUSTMENT).coerceIn(-MAX_ADJUSTMENT, MAX_ADJUSTMENT)

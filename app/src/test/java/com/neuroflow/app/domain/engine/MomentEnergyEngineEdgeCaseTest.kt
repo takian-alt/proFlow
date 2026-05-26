@@ -32,6 +32,53 @@ class MomentEnergyEngineEdgeCaseTest : StringSpec({
         lowPeakConfidence.confidence shouldBeLessThan highPeakConfidence.confidence
     }
 
+    // Requirement 6: trendStrength() guards
+    "trendStrength returns 0 for all-zero focus windows (NaN guard)" {
+        val features = MomentEnergyEngine.MultiHorizonFeatures(
+            window5m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window15m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window30m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window60m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window180m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0)
+        )
+        features.trendStrength() shouldBe 0.0f
+    }
+
+    "trendStrength result is clamped to [-1, 1] for extreme focus values" {
+        val features = MomentEnergyEngine.MultiHorizonFeatures(
+            window5m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window15m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window30m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window60m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window180m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(Float.MAX_VALUE, 0, 0)
+        )
+        val result = features.trendStrength()
+        (result >= -1f && result <= 1f) shouldBe true
+    }
+
+    "cumulativeInterruptionTrend returns 0 for all-zero interruption windows" {
+        val features = MomentEnergyEngine.MultiHorizonFeatures(
+            window5m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window15m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window30m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window60m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window180m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0)
+        )
+        features.cumulativeInterruptionTrend() shouldBe 0.0f
+    }
+
+    "cumulativeInterruptionTrend result is clamped to [-1, 1] for extreme interruption values" {
+        val features = MomentEnergyEngine.MultiHorizonFeatures(
+            window5m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, Int.MAX_VALUE, 0),
+            window15m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window30m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window60m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0),
+            window180m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(0f, 0, 0)
+        )
+        val result = features.cumulativeInterruptionTrend()
+        (result >= -1f && result <= 1f) shouldBe true
+    }
+
     "positive multi-horizon trend increases confidence over negative trend" {
         val positiveTrend = MomentEnergyEngine.predict(
             supportiveSnapshot(

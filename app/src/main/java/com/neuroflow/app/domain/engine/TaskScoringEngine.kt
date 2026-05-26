@@ -12,6 +12,8 @@ import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.TagEnergyDemand
 import com.neuroflow.app.domain.scheduler.TagPreferredWindow
 import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
+import com.neuroflow.app.domain.scheduler.TaskCategory
+import com.neuroflow.app.domain.scheduler.determineCategory
 import java.util.Calendar
 import kotlin.math.exp
 import kotlin.math.max
@@ -271,6 +273,103 @@ object TaskScoringEngine {
         return aggregate.average().toFloat()
     }
 
+    private fun categorySuitabilityScore(task: TaskEntity, hour: Int, prefs: UserPreferences): Float {
+        val category = task.determineCategory()
+
+        val quizPeak = prefs.quizPeakEnabled &&
+            !prefs.peakConfidenceAbstentionEnabled &&
+            prefs.effectivePeakStart >= 0 &&
+            prefs.effectivePeakEnd >= 0
+        val (effectivePeakStart, effectivePeakEnd) = if (quizPeak) {
+            prefs.effectivePeakStart to prefs.effectivePeakEnd
+        } else {
+            prefs.peakEnergyStart to prefs.peakEnergyEnd
+        }
+        val isPeakHour = isHourInPeakWindow(hour, effectivePeakStart, effectivePeakEnd)
+
+        // Chronotype-aware windows — same logic as AutoSchedulingEngine.calculateCategoryFit()
+        val wakeHour = prefs.wakeUpHour.coerceIn(0, 23)
+        val morningWindowEnd = (wakeHour + 3).coerceAtMost(23)
+        val isMorningWindow = hour in wakeHour..morningWindowEnd
+
+        // Late-afternoon window relative to chronotype peak end
+        val chronotypeEnd = when (prefs.quizChronotype ?: prefs.manualChronotype) {
+            "DEFINITE_MORNING"  -> 11
+            "MODERATE_MORNING"  -> 12
+            "INTERMEDIATE"      -> 14
+            "MODERATE_EVENING"  -> 18
+            "DEFINITE_EVENING"  -> 21
+            else                -> effectivePeakEnd.coerceIn(11, 21)
+        }
+        val afternoonWindowStart = (chronotypeEnd - 5).coerceAtLeast(12)
+        val afternoonWindowEnd = (chronotypeEnd - 1).coerceAtLeast(afternoonWindowStart + 1)
+        val isAfternoonWindow = hour in afternoonWindowStart..afternoonWindowEnd
+
+        val sleepHour = prefs.sleepHour.coerceIn(18, 27)
+        val windDownStart = (sleepHour - 2).coerceIn(18, 23)
+        val isWindDown = hour >= windDownStart
+
+        return when (category) {
+            TaskCategory.MINDFULNESS -> {
+                // Mindfulness: right after waking or wind-down. Avoid cognitive peak.
+                when {
+                    isMorningWindow -> 35f
+                    isWindDown -> 30f
+                    isPeakHour -> -25f
+                    else -> 10f
+                }
+            }
+            TaskCategory.EXERCISE -> {
+                // Exercise: morning (cortisol peak) or late afternoon (body temp peak).
+                when {
+                    isMorningWindow -> 35f
+                    isAfternoonWindow -> 30f
+                    isPeakHour -> -20f  // Cognitive peak wasted on physical work
+                    hour in morningWindowEnd..afternoonWindowStart -> 15f
+                    else -> -15f
+                }
+            }
+            TaskCategory.PHYSICAL -> {
+                // Physical: manual tasks, errands. Avoid cognitive peaks.
+                when {
+                    isPeakHour -> -25f
+                    hour in (wakeHour + 1)..(sleepHour.coerceAtMost(22) - 1) -> 30f
+                    else -> 10f
+                }
+            }
+            TaskCategory.ANALYTICAL, TaskCategory.HARD_WORK -> {
+                // Analytical & Hard Work: High cognitive demand. Must be in peak.
+                when {
+                    isPeakHour -> 50f
+                    hour in wakeHour..(wakeHour + 4) -> 25f  // Early morning still good
+                    else -> -20f
+                }
+            }
+            TaskCategory.CREATIVE -> {
+                // Creative: post-peak or late afternoon.
+                val isPostPeak = hour in chronotypeEnd..(chronotypeEnd + 3).coerceAtMost(23)
+                when {
+                    isPostPeak -> 40f
+                    isAfternoonWindow -> 35f
+                    isPeakHour -> 20f
+                    else -> 10f
+                }
+            }
+            TaskCategory.ROUTINE -> {
+                // Routine/Admin: energy valleys. Post-lunch dip relative to wake time.
+                val dipStart = (wakeHour + 6).coerceIn(12, 15)
+                val dipEnd = (dipStart + 2).coerceAtMost(17)
+                val inPostLunchDip = hour in dipStart..dipEnd
+                when {
+                    inPostLunchDip -> 45f
+                    isPeakHour -> -20f
+                    else -> 20f
+                }
+            }
+            TaskCategory.FLEXIBLE -> 15f
+        }
+    }
+
     fun score(
         task: TaskEntity,
         prefs: UserPreferences,
@@ -474,6 +573,9 @@ object TaskScoringEngine {
         // ── 15. TAG SUITABILITY (scheduler-aligned additive fit) ─────────────
         s += tagSuitabilityScore(task, hour, isLowEnergySlot)
 
+        // ── 15.5 CATEGORY SUITABILITY (scheduler-aligned additive fit) ───────
+        s += categorySuitabilityScore(task, hour, prefs)
+
         // ── 16. RECENCY BIAS CORRECTION ──────────────────────────────────────
         val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f
         if (daysSinceCreated > 7 && task.sessionCount == 0) {
@@ -664,6 +766,8 @@ object TaskScoringEngine {
         if (task.waitingFor.isNotBlank()) result += "⏳ Waiting for (blocked)" to -999f
         val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot)
         if (tagFit != 0f) result += "🏷 Tag fit" to tagFit
+        val categoryFit = categorySuitabilityScore(task, hour, prefs)
+        if (categoryFit != 0f) result += "🏷 Category suitability" to categoryFit
         if (task.postponeCount > 0) result += "↩ Postponed ${task.postponeCount}x" to min(task.postponeCount * 30f, 180f)
         if (task.distractionScore > 0f) {
             val boost = DistractionEngine.priorityBoost(task.distractionScore)

@@ -208,9 +208,24 @@ val MIGRATION_14_15 = object : Migration(14, 15) {
     }
 }
 
+val MIGRATION_15_16 = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add lastAutoScheduledAt column for replanning cooldown mechanism
+        db.execSQL("ALTER TABLE tasks ADD COLUMN lastAutoScheduledAt INTEGER")
+    }
+}
+
+val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add explicit scheduling category — nullable TEXT so existing tasks default to null
+        // (category is inferred at runtime from tags/taskType when null)
+        db.execSQL("ALTER TABLE tasks ADD COLUMN schedulingCategory TEXT")
+    }
+}
+
 @Database(
     entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class],
-    version = 15,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

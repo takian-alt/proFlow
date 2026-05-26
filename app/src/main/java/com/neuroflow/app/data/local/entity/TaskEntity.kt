@@ -77,6 +77,7 @@ data class TaskEntity(
     val isAnxietyTask: Boolean = false,  // stress inoculation — prevents avoidance spiral
     val goalRiskLevel: Int = 0,          // 0=none, 1=at risk, 2=critical — loss aversion boost
     val isAutoScheduled: Boolean = false,
+    val lastAutoScheduledAt: Long? = null, // timestamp when task was last auto-scheduled (for replanning cooldown)
 
     // Habit anchor date — for recurring tasks this is always set and shifts by the recurrence interval
     // on each completion. Independent of deadline/scheduledDate so habits work without a deadline.
@@ -88,5 +89,9 @@ data class TaskEntity(
 
     // Digital Wellbeing distraction score (0–100), refreshed by DistractionSyncWorker
     // -1 = not yet computed (no usage data / permission not granted)
-    val distractionScore: Float = -1f
+    val distractionScore: Float = -1f,
+
+    // Explicit scheduling category — overrides tag-inferred category when set.
+    // Null means the category is inferred at runtime from tags/taskType via determineCategory().
+    val schedulingCategory: String? = null
 )

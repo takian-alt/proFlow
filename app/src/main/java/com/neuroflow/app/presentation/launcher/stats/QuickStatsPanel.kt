@@ -295,25 +295,25 @@ private fun QuadrantBreakdownCard(summary: AnalyticsEngine.AnalyticsSummary) {
 
             QuadrantRow(
                 quadrant = Quadrant.DO_FIRST,
-                count = summary.tasksByQuadrant[Quadrant.DO_FIRST] ?: 0,
+                count = summary.completedTodayByQuadrant[Quadrant.DO_FIRST] ?: 0,
                 label = "Do First",
                 color = MaterialTheme.colorScheme.error
             )
             QuadrantRow(
                 quadrant = Quadrant.SCHEDULE,
-                count = summary.tasksByQuadrant[Quadrant.SCHEDULE] ?: 0,
+                count = summary.completedTodayByQuadrant[Quadrant.SCHEDULE] ?: 0,
                 label = "Schedule",
                 color = MaterialTheme.colorScheme.primary
             )
             QuadrantRow(
                 quadrant = Quadrant.DELEGATE,
-                count = summary.tasksByQuadrant[Quadrant.DELEGATE] ?: 0,
+                count = summary.completedTodayByQuadrant[Quadrant.DELEGATE] ?: 0,
                 label = "Delegate",
                 color = MaterialTheme.colorScheme.tertiary
             )
             QuadrantRow(
                 quadrant = Quadrant.ELIMINATE,
-                count = summary.tasksByQuadrant[Quadrant.ELIMINATE] ?: 0,
+                count = summary.completedTodayByQuadrant[Quadrant.ELIMINATE] ?: 0,
                 label = "Eliminate",
                 color = MaterialTheme.colorScheme.secondary
             )

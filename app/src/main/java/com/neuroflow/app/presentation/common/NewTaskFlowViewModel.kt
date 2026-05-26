@@ -235,6 +235,13 @@ class NewTaskFlowViewModel @Inject constructor(
                 state.recurrence == Recurrence.NONE && (state.scheduledDate != null || state.scheduledTime != null) -> false
                 else -> existing?.isAutoScheduled ?: false
             },
+            lastAutoScheduledAt = when {
+                // If user manually changed the schedule, reset lastAutoScheduledAt to allow immediate replanning
+                existing?.isAutoScheduled == true &&
+                    (state.scheduledDate != existing.scheduledDate || state.scheduledTime != existing.scheduledTime) -> null
+                // Otherwise preserve existing value
+                else -> existing?.lastAutoScheduledAt
+            },
             isScheduleLocked = if (state.recurrence != Recurrence.NONE) true else state.isScheduleLocked,
             estimatedDurationMinutes = state.estimatedDurationMinutes,
             impactScore = state.impactScore.toInt(),

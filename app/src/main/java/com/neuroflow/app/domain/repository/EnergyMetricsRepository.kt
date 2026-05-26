@@ -9,7 +9,7 @@ import java.util.UUID
 
 /**
  * Phase 2: Repository for energy telemetry and audit trails.
- * 
+ *
  * Manages local energy prediction snapshots for backtesting, calibration validation,
  * and non-invasive audit trails. Enforces retention policies (30-day raw, 90-day
  * aggregated metrics) to keep storage bounded.
@@ -59,11 +59,11 @@ class EnergyMetricsRepository @Inject constructor(
         activeTaskCount: Int,
         notificationCount: Int
     ) {
-        val zoneOffset = java.time.ZoneId.systemDefault().rules.getStandardOffset(java.time.Instant.now())
-        val instant = java.time.Instant.ofEpochMilli(predictedAtMillis).atZone(zoneOffset)
-        val dayOfWeek = instant.dayOfWeek.value    // 1=Monday .. 7=Sunday, convert from ISO
+        val instant = java.time.Instant.ofEpochMilli(predictedAtMillis)
+            .atZone(java.time.ZoneId.systemDefault())
+        val dayOfWeek = instant.dayOfWeek.value    // 1=Monday .. 7=Sunday (ISO-8601)
         val hourOfDay = instant.hour
-        
+
         val entity = EnergyPredictionEntity(
             id = UUID.randomUUID().toString(),
             predictedAtMillis = predictedAtMillis,
@@ -94,7 +94,7 @@ class EnergyMetricsRepository @Inject constructor(
             notificationCount = notificationCount,
             createdAtMillis = System.currentTimeMillis()
         )
-        
+
         energyPredictionDao.insert(entity)
     }
 
@@ -129,7 +129,7 @@ class EnergyMetricsRepository @Inject constructor(
     /**
      * Clean up old energy predictions according to retention policy.
      * Phase 2 data hygiene: keep 30 days of raw data, aggregate beyond 30 days.
-     * 
+     *
      * Returns: count of records deleted
      */
     suspend fun enforceRetentionPolicy(

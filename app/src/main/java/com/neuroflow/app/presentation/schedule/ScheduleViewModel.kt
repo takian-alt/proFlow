@@ -98,6 +98,7 @@ class ScheduleViewModel @Inject constructor(
     fun scheduleTask(task: TaskEntity, hour: Int) {
         if (task.isScheduleLocked) return
         viewModelScope.launch {
+            // Build the full scheduled timestamp using Calendar (DST-safe)
             val cal = Calendar.getInstance().apply {
                 timeInMillis = _uiState.value.selectedDate
                 set(Calendar.HOUR_OF_DAY, hour)
@@ -105,12 +106,25 @@ class ScheduleViewModel @Inject constructor(
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }
-            val slotMillis = cal.timeInMillis
+            val scheduledMillis = cal.timeInMillis
+
+            // Split into date and time components (DST-safe)
+            val dateCal = Calendar.getInstance().apply {
+                timeInMillis = scheduledMillis
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val scheduledDate = dateCal.timeInMillis
+            val scheduledTime = scheduledMillis - scheduledDate
+
             taskRepository.update(
                 task.copy(
-                    scheduledDate = _uiState.value.selectedDate,
-                    scheduledTime = (hour * 3_600_000L),
+                    scheduledDate = scheduledDate,
+                    scheduledTime = scheduledTime,
                     isAutoScheduled = false,
+                    lastAutoScheduledAt = null,  // Reset cooldown when user manually reschedules
                     updatedAt = System.currentTimeMillis()
                 )
             )
