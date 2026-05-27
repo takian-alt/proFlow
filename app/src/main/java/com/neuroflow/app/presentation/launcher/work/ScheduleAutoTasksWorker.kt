@@ -317,11 +317,13 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val (scheduledDate, scheduledTime) = splitMillisToDateAndTime(decision.scheduledStartMillis)
 
             // Update task with scheduled date/time
+            // NOTE: Do NOT overwrite estimatedDurationMinutes with decision.estimatedDurationMinutes
+            // The decision duration is a scheduling-adjusted value (accounting for energy levels, task type, etc.)
+            // We preserve the original estimatedDurationMinutes to maintain the task's original estimate
             val updatedTask = taskToUpdate.copy(
                 scheduledDate = scheduledDate,
                 scheduledTime = scheduledTime,
                 isAutoScheduled = true,
-                estimatedDurationMinutes = decision.estimatedDurationMinutes,
                 lastAutoScheduledAt = nowMillis,  // Track when task was auto-scheduled for replanning cooldown
                 updatedAt = nowMillis
             )
