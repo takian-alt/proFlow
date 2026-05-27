@@ -366,7 +366,7 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
         }
     }
 
-    "auto fallback sleep does not apply when there was an update yesterday" {
+    "auto fallback sleep applies even when sleepPressureLastComputedAtMillis was set yesterday" {
         runTest {
             val zoneId = ZoneId.systemDefault()
             val today = LocalDate.of(2026, 4, 13)
@@ -386,14 +386,30 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
 
             val sleepLogRepository = mockk<SleepLogRepository>()
             coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+            coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                val start = firstArg<Long>()
+                val end = secondArg<Long>()
+                SleepLogEntity(
+                    id = "auto-fallback",
+                    startAt = start,
+                    endAt = end,
+                    durationMinutes = ((end - start) / 60_000L).toInt(),
+                    source = "AUTO_DEFAULT",
+                    notes = "",
+                    createdAt = trackingStart
+                )
+            }
 
             val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
             val snapshot = repository.refreshCurrentPressure(now)
 
-            // Yesterday had update, so no fallback -> pure awake.
-            snapshot.pressurePoints shouldBe 2580
-            coVerify(exactly = 0) {
-                sleepLogRepository.addLog(any(), any(), any(), any())
+            // sleepPressureLastComputedAtMillis being set yesterday (from a prior app open) must NOT
+            // block the auto fallback — only a manual sleep log should block it.
+            // Awake 00:00->23:00 = 1380; default sleep 23:00->06:00 gives recovery 1302;
+            // awake 06:00->19:00 = 780 => total 858.
+            snapshot.pressurePoints shouldBe 858
+            coVerify(exactly = 1) {
+                sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
             }
         }
     }

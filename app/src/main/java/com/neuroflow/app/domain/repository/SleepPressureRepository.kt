@@ -228,7 +228,7 @@ class SleepPressureRepository @Inject constructor(
                 if (!prefs.autoFallbackSleepInsertionEnabled) {
                     return null
                 }
-        
+
         val zoneId = ZoneId.systemDefault()
         val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
         val wakeHour = prefs.wakeUpHour.coerceIn(0, 23)
@@ -241,14 +241,6 @@ class SleepPressureRepository @Inject constructor(
             .toEpochMilli()
 
         if (nowMillis < todayWake + (AUTO_FALLBACK_AFTER_WAKE_MINUTES * 60_000L)) {
-            return null
-        }
-
-        val startOfToday = now.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
-        val startOfYesterday = now.toLocalDate().minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
-
-        val hasUpdateYesterday = prefs.sleepPressureLastComputedAtMillis in startOfYesterday until startOfToday
-        if (hasUpdateYesterday) {
             return null
         }
 
