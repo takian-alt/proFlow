@@ -526,6 +526,7 @@ private fun PortraitLayout(
                     },
                     onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
+                    onEmergencyReset = { viewModel.triggerEmergencyReset() },
                     modifier = Modifier.fillMaxWidth()
                 )
                 HabitQuickRow(

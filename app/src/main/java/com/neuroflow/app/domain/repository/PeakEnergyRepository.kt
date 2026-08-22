@@ -737,6 +737,7 @@ class PeakEnergyRepository @Inject constructor(
             (it.qualityWeightedCompletionRate * 0.6f) + ((1f - it.abortRate) * 0.25f) + ((1f - it.distractionRate) * 0.15f)
         } ?: return 0
         val day = 24 * 60
+        // Window 1 (morning) target is baselineAnchorMinute
         val forward = (top.bucketStartMinute - baselineAnchorMinute + day) % day
         val signed = if (forward > day / 2) forward - day else forward
         return (signed * 0.2f).roundToInt().coerceIn(-35, 35)
@@ -747,13 +748,26 @@ class PeakEnergyRepository @Inject constructor(
         baselineAnchorMinute: Int
     ): Float? {
         if (slots.isEmpty()) return null
-        val top = slots.maxByOrNull {
-            (it.qualityWeightedCompletionRate * 0.6f) + ((1f - it.abortRate) * 0.25f) + ((1f - it.distractionRate) * 0.15f)
-        } ?: return null
+        // Standard window offsets relative to baselineAnchor (0, 570, 810 min)
+        val defaultWindowStartMinutes = listOf(
+            baselineAnchorMinute,
+            (baselineAnchorMinute + 570) % (24 * 60),
+            (baselineAnchorMinute + 810) % (24 * 60)
+        )
         val day = 24 * 60
-        val forward = (top.bucketStartMinute - baselineAnchorMinute + day) % day
-        val signed = if (forward > day / 2) forward - day else forward
-        return abs(signed).toFloat()
+
+        // Find min distance from each performance slot to its nearest window target
+        val minDivergences = slots.map { slot ->
+            val slotMin = slot.bucketStartMinute
+            val closestWindowDist = defaultWindowStartMinutes.minOf { target ->
+                val fwd = (slotMin - target + day) % day
+                val signed = if (fwd > day / 2) fwd - day else fwd
+                abs(signed)
+            }
+            closestWindowDist.toFloat()
+        }
+
+        return if (minDivergences.isNotEmpty()) minDivergences.average().toFloat() else null
     }
 
     private fun buildProfileOverride(

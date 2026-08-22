@@ -101,6 +101,7 @@ fun FocusTaskCard(
     onStartFocus: (String) -> Unit,
     onStopFocus: () -> Unit = {},
     onClearSkipped: () -> Unit = {},
+    onEmergencyReset: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val theme = LocalLauncherTheme.current
@@ -137,7 +138,8 @@ fun FocusTaskCard(
                 energy = energy,
                 onSkip = { onSkip(topTask.id) },
                 onStartFocus = { onStartFocus(topTask.id) },
-                onStopFocus = onStopFocus
+                onStopFocus = onStopFocus,
+                onEmergencyReset = onEmergencyReset
             )
         }
     }
@@ -241,7 +243,8 @@ private fun TaskContent(
     energy: EnergyScoreRepository.EnergyUiModel?,
     onSkip: () -> Unit,
     onStartFocus: () -> Unit,
-    onStopFocus: () -> Unit = {}
+    onStopFocus: () -> Unit = {},
+    onEmergencyReset: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -331,10 +334,11 @@ private fun TaskContent(
                 onStopFocus = onStopFocus
             )
         } else {
-            // Start Focus and Skip buttons
+            // Start Focus, Skip, and Reset buttons
             ActionButtons(
                 onStartFocus = onStartFocus,
-                onSkip = onSkip
+                onSkip = onSkip,
+                onEmergencyReset = onEmergencyReset
             )
         }
     }
@@ -777,12 +781,23 @@ private fun InProgressState(
 @Composable
 private fun ActionButtons(
     onStartFocus: () -> Unit,
-    onSkip: () -> Unit
+    onSkip: () -> Unit,
+    onEmergencyReset: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
     ) {
+        // Emergency Reset button
+        OutlinedButton(
+            onClick = onEmergencyReset,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error
+            )
+        ) {
+            Text("⚡ Reset", style = MaterialTheme.typography.labelMedium)
+        }
+
         // Skip button
         OutlinedButton(
             onClick = onSkip,

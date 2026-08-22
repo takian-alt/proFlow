@@ -423,9 +423,6 @@ object PeakEnergyEngine {
             return baseWindows.map { normalizeMinuteOfDay(it.startMinuteOffset) }
         }
 
-        val behaviorReliability = ((signals?.behaviorCoverage ?: 0f) * 0.7f + (signals?.sleepLogCoverage ?: 0f) * 0.3f)
-            .coerceIn(0f, 1f)
-
         return baseWindows.mapIndexed { index, window ->
             val expectedStartMinute = normalizeMinuteOfDay(
                 baselineAnchorMinute + phaseShiftMinutes + window.startMinuteOffset
@@ -452,7 +449,7 @@ object PeakEnergyEngine {
                 searchRadiusMinutes = searchRadius
             )
 
-            val shifted = (weightedShift * behaviorReliability * coldStartDampening * windowAdaptScale)
+            val shifted = (weightedShift * coldStartDampening * windowAdaptScale)
                 .roundToInt()
                 .coerceIn(-maxShift, maxShift)
 

@@ -622,6 +622,34 @@ class LauncherViewModel @Inject constructor(
     }
 
     /**
+     * Instant Frictionless One-Tap Recovery:
+     * Reshuffles remaining tasks without punishing streaks or clogging the calendar.
+     */
+    fun triggerEmergencyReset() {
+        viewModelScope.launch {
+            val allActive = taskRepository.getAllTasks().filter { it.status == com.neuroflow.app.domain.model.TaskStatus.ACTIVE }
+            val now = System.currentTimeMillis()
+            val resetPlan = com.neuroflow.app.domain.engine.FreshStartEngine.buildEmergencyResetPlan(allActive, now)
+
+            // 1. Push non-essential / low-priority tasks to Backlog (clear schedule time)
+            resetPlan.tasksPushedToBacklog.forEach { task ->
+                taskRepository.update(
+                    task.copy(
+                        scheduledDate = null,
+                        scheduledTime = null,
+                        isAutoScheduled = false
+                    )
+                )
+            }
+
+            // 2. Clear skipped tasks so top task renders immediately
+            pinnedAppsDataStore.updatePreferences { prefs ->
+                prefs.copy(skippedTaskIds = emptySet())
+            }
+        }
+    }
+
+    /**
      * Complete habit: call TaskRepository.completeAndRecur.
      * Marks task completed and creates next occurrence if recurring.
      */

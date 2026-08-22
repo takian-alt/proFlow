@@ -14,6 +14,7 @@ import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
 import com.neuroflow.app.worker.DistractionSyncWorker
 import com.neuroflow.app.worker.createNotificationChannels
 import com.neuroflow.app.worker.scheduleNotificationWorkers
+import com.neuroflow.app.worker.scheduleSleepPressureRefreshWorker
 import com.neuroflow.app.worker.EnergyTelemetryCleanupScheduler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -181,5 +182,11 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
 
         // EnergyTelemetryCleanupWorker — runs once daily to enforce retention policy on prediction database
         energyTelemetryCleanupScheduler.scheduleCleanup()
+
+        // SleepPressureRefreshWorker — runs once daily to refresh sleep pressure and create automatic fallback sleep logs
+        applicationScope.launch {
+            val prefs = userPreferencesDataStore.preferencesFlow.first()
+            scheduleSleepPressureRefreshWorker(this@NeuroFlowApplication, prefs)
+        }
     }
 }

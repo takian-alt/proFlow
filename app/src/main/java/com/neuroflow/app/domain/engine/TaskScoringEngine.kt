@@ -212,10 +212,11 @@ object TaskScoringEngine {
         val h = normalizeHour(hour)
         val start = normalizeHour(peakStartHour)
         val end = normalizeHour(peakEndHour)
-        return if (start <= end) {
-            h in start..end
+        if (start == end) return true
+        return if (start < end) {
+            h in start until end
         } else {
-            h >= start || h <= end
+            h >= start || h < end
         }
     }
 
@@ -464,7 +465,8 @@ object TaskScoringEngine {
                 minutesUntil < 1440 -> 35f
                 else                -> 8f
             }
-            s += schedScore * prefs.weightDeadlineUrgency
+            val schedWeight = if (task.deadlineDate != null) prefs.weightDeadlineUrgency else 1.0f
+            s += schedScore * schedWeight
         }
 
         // ── 4. PRIORITY LEVEL ────────────────────────────────────────────────
@@ -621,7 +623,7 @@ object TaskScoringEngine {
         val enjoymentModifier = when {
             enjoyNorm < 0.3f && effortN > 0.6f -> 40f
             enjoyNorm < 0.3f -> 20f
-            enjoyNorm > 0.7f && effortN > 0.6f -> 25f
+            enjoyNorm > 0.7f && effortN > 0.6f -> 20f
             enjoyNorm > 0.7f -> 15f
             else -> 0f
         }
@@ -632,9 +634,9 @@ object TaskScoringEngine {
 
         if (task.isScheduleLocked && lockAnchorMs != null) {
             val minutesUntil = (lockAnchorMs - nowMillis) / 60_000f
-            if (minutesUntil in -30f..10f) s += 160f
-            else if (minutesUntil in -120f..60f) s += 80f
-            else if (minutesUntil in -240f..120f) s += 30f
+            if (minutesUntil >= -30f && minutesUntil < 10f) s += 160f
+            else if (minutesUntil >= -120f && minutesUntil < 60f) s += 80f
+            else if (minutesUntil >= -240f && minutesUntil < 120f) s += 30f
         }
 
         // ── 21. LOSS AVERSION (Kahneman & Tversky) ───────────────────────────
@@ -765,14 +767,19 @@ object TaskScoringEngine {
 
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
         val peakContext = resolvePeakContext(prefs, nowMillis)
         val peakTierScale = peakAmplitudeTier(peakContext.activePeakAmplitude)
         val isPeakHour = peakTierScale > 0f
         val isMorning = hour < peakContext.primaryStartHour
         val isLowEnergySlot = hour in 13..15
+        val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
+        val isWithinWorkDay = hour in prefs.workDayStart until prefs.workDayEnd
 
         val result = mutableListOf<Pair<String, Float>>()
         val effortNorm = task.effortScore / 100f
+        val effortN = effortNorm
+        val enjoyNorm = task.enjoymentScore / 100f
 
         val quadrantBase = when (task.quadrant) {
             Quadrant.DO_FIRST  -> 300f
@@ -806,9 +813,107 @@ object TaskScoringEngine {
             result += "Deadline pressure" to deadlineScore * effortMultiplier * prefs.weightDeadlineUrgency
         }
 
-        val importanceScore = task.impactScore * 0.55f + task.valueScore * 0.45f
+        if (!task.isRecurringWithAnchor() && task.scheduledDate != null) {
+            val schedMs = task.scheduledDate + (task.scheduledTime ?: 0L)
+            val minutesUntil = (schedMs - nowMillis) / 60_000f
+            val schedScore = when {
+                minutesUntil < -120 -> 5f
+                minutesUntil < -30  -> 40f
+                minutesUntil < 0    -> 130f
+                minutesUntil < 15   -> 170f
+                minutesUntil < 60   -> 110f
+                minutesUntil < 240  -> 65f
+                minutesUntil < 1440 -> 35f
+                else                -> 8f
+            }
+            val schedWeight = if (task.deadlineDate != null) prefs.weightDeadlineUrgency else 1.0f
+            result += "Scheduled proximity" to schedScore * schedWeight
+        }
+
+        val priorityScore = when (task.priority) {
+            Priority.HIGH   -> 150f
+            Priority.MEDIUM -> 75f
+            Priority.LOW    -> 20f
+        } * prefs.weightPriorityLevel
+        result += "Priority level (${task.priority.name})" to priorityScore
+
+        val importanceScore = (task.impactScore * 0.55f + task.valueScore * 0.45f)
+        result += "Strategic impact & value" to importanceScore * prefs.weightImpact
         if (importanceScore >= 65f) {
             result += "High-impact floor" to ((importanceScore - 65f) / 35f) * 60f
+        }
+
+        val effortBoost = when {
+            effortNorm < 0.3f -> (1f - effortNorm) * 60f
+            effortNorm > 0.7f && (isPeakHour || isMorning) -> effortNorm * 55f
+            effortNorm > 0.7f -> -(effortNorm * 20f)
+            else -> 0f
+        }
+        val weightedEffort = effortBoost * prefs.weightFocusMode
+        if (weightedEffort != 0f) {
+            result += "Effort-matching nudge" to weightedEffort
+        }
+
+        if (task.estimatedDurationMinutes in 1..90) {
+            val durationScore = max(0f, 40f - task.estimatedDurationMinutes * 0.3f) * prefs.weightDuration
+            if (durationScore != 0f) {
+                result += "Quick-win duration boost" to durationScore
+            }
+        }
+
+        val energyBonus = when {
+            isPeakHour -> when (task.energyLevel) {
+                EnergyLevel.HIGH   ->  70f * peakTierScale
+                EnergyLevel.MEDIUM ->  20f * peakTierScale
+                EnergyLevel.LOW    -> -35f * peakTierScale
+            }
+            isLowEnergySlot -> when (task.energyLevel) {
+                EnergyLevel.LOW    ->  70f
+                EnergyLevel.MEDIUM ->  15f
+                EnergyLevel.HIGH   -> -35f
+            }
+            isMorning -> when (task.energyLevel) {
+                EnergyLevel.HIGH   ->  30f
+                EnergyLevel.MEDIUM ->  10f
+                EnergyLevel.LOW    ->   0f
+            }
+            else -> when (task.energyLevel) {
+                EnergyLevel.MEDIUM ->  10f
+                else               ->   0f
+            }
+        }
+        if (energyBonus != 0f) {
+            result += "Energy matching" to energyBonus
+        }
+
+        val circadianBonus = when (task.taskType) {
+            TaskType.ANALYTICAL -> when {
+                isPeakHour      ->  60f * peakTierScale
+                isMorning       ->  30f
+                isLowEnergySlot -> -25f
+                else            ->   5f
+            }
+            TaskType.CREATIVE -> when {
+                hour in 10..11  ->  55f
+                hour in 16..18  ->  45f
+                isPeakHour      ->  20f * peakTierScale
+                isLowEnergySlot -> -10f
+                else            ->   0f
+            }
+            TaskType.ADMIN -> when {
+                isLowEnergySlot ->  50f
+                isPeakHour      -> -15f * peakTierScale
+                else            ->  10f
+            }
+            TaskType.PHYSICAL -> when {
+                isMorning       ->  30f
+                isPeakHour      ->  20f * peakTierScale
+                isLowEnergySlot -> -10f
+                else            ->  10f
+            }
+        }
+        if (circadianBonus != 0f) {
+            result += "Circadian task matching" to circadianBonus
         }
 
         if (task.isFrog) {
@@ -820,21 +925,98 @@ object TaskScoringEngine {
             }
             result += "🐸 Frog task" to base * (0.5f + task.effortScore / 200f) * prefs.weightFocusMode
         }
+
+        if (task.postponeCount > 0) {
+            result += "↩ Postponed ${task.postponeCount}x" to min(task.postponeCount * 30f, 180f)
+        }
+
+        if (task.isHabitual && task.habitStreak > 0) {
+            result += "Habit streak protection" to min(task.habitStreak * 12f, 100f)
+        }
+
+        val unblockCount = allActiveTasks.count { other ->
+            other.id != task.id &&
+            other.dependsOnTaskIds.split(",").any { it.trim() == task.id }
+        }
+        if (unblockCount > 0) {
+            result += "Dependency unblocker" to sqrt(unblockCount.toFloat()) * 80f
+        }
+
+        var contextAdjust = 0f
+        if (isWeekend && task.contextTag == "@work") contextAdjust -= 50f
+        if (!isWeekend && task.contextTag == "@home") contextAdjust -= 15f
+        if (task.contextTag == "@computer" && !isWeekend) contextAdjust += 10f
+        if (!isWithinWorkDay && task.contextTag == "@work") contextAdjust -= 60f
+        if (isWithinWorkDay && task.contextTag == "@work") contextAdjust += 20f
+        if (contextAdjust != 0f) {
+            result += "Context alignment (${task.contextTag})" to contextAdjust
+        }
+
+        val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot)
+        if (tagFit != 0f) {
+            result += "🏷 Tag fit" to tagFit
+        }
+
+        val categoryFit = categorySuitabilityScore(task, hour, prefs)
+        if (categoryFit != 0f) {
+            result += "🏷 Category suitability" to categoryFit
+        }
+
+        val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f
+        if (daysSinceCreated > 7 && task.sessionCount == 0) {
+            result += "Anti-staleness surfacing" to min(daysSinceCreated * 2f, 40f)
+        }
+
+        if (task.sessionCount > 0) {
+            result += "Progress momentum" to min(task.sessionCount * 18f, 72f)
+        }
+
         if (task.ifThenPlan.isNotBlank()) {
             result += "🎯 If-then plan" to (25f + task.effortScore / 100f * 55f)
         }
-        if (task.isPublicCommitment) result += "📢 Public commitment" to 70f
-        if (task.isScheduleLocked) result += "🔒 Schedule locked" to 30f
-        if (task.isAnxietyTask) result += "😰 Anxiety task surfaced" to 40f
-        if (task.goalRiskLevel > 0) result += "⚠ Goal risk" to if (task.goalRiskLevel == 2) 130f else 60f
-        val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot)
-        if (tagFit != 0f) result += "🏷 Tag fit" to tagFit
-        val categoryFit = categorySuitabilityScore(task, hour, prefs)
-        if (categoryFit != 0f) result += "🏷 Category suitability" to categoryFit
-        if (task.postponeCount > 0) result += "↩ Postponed ${task.postponeCount}x" to min(task.postponeCount * 30f, 180f)
+
+        val enjoymentModifier = when {
+            enjoyNorm < 0.3f && effortN > 0.6f -> 40f
+            enjoyNorm < 0.3f -> 20f
+            enjoyNorm > 0.7f && effortN > 0.6f -> 20f
+            enjoyNorm > 0.7f -> 15f
+            else -> 0f
+        }
+        if (enjoymentModifier != 0f) {
+            result += "Enjoyment motivation" to enjoymentModifier
+        }
+
+        if (task.isPublicCommitment) {
+            result += "📢 Public commitment" to 70f
+        }
+
+        val lockAnchorMs = task.effectiveScheduleAnchorMillis()
+        if (task.isScheduleLocked && lockAnchorMs != null) {
+            val minutesUntil = (lockAnchorMs - nowMillis) / 60_000f
+            val lockScore = when {
+                minutesUntil >= -30f && minutesUntil < 10f -> 160f
+                minutesUntil >= -120f && minutesUntil < 60f -> 80f
+                minutesUntil >= -240f && minutesUntil < 120f -> 30f
+                else -> 0f
+            }
+            if (lockScore != 0f) {
+                result += "🔒 Schedule locked" to lockScore
+            }
+        }
+
+        if (task.goalRiskLevel > 0) {
+            result += "⚠ Goal risk" to if (task.goalRiskLevel == 2) 130f else 60f
+        }
+
+        if (task.isAnxietyTask) {
+            result += "😰 Anxiety task surfaced" to (40f + if (enjoyNorm < 0.4f) 20f else 0f)
+        }
+
         if (task.distractionScore > 0f) {
             val boost = DistractionEngine.priorityBoost(task.distractionScore)
-            if (boost > 0f) result += "📵 ${DistractionEngine.label(task.distractionScore)}" to boost
+            if (boost > 0f) {
+                result += "📵 ${DistractionEngine.label(task.distractionScore)}" to boost
+            }
         }
 
         return result.sortedByDescending { it.second }

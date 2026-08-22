@@ -16,6 +16,7 @@ import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataSto
 import com.neuroflow.app.worker.FocusWidgetUpdateWorker
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.worker.scheduleNotificationWorkers
+import com.neuroflow.app.worker.scheduleSleepPressureRefreshWorker
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +77,7 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 val prefs = userPreferencesDataStore.preferencesFlow.first()
                 scheduleNotificationWorkers(context, prefs)
+                scheduleSleepPressureRefreshWorker(context, prefs)
                 val hfPrefs = hyperFocusDataStore.current()
                 DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, hfPrefs.isActive)
                 DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(

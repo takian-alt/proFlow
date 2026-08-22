@@ -106,21 +106,31 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             val busySlotStartMillis = buildBusySlotIndex(allTasks, nowMillis)
 
-            // Missed tasks: scheduled in the past
+            // 30-minute post-scheduled-end grace period threshold (30 * 60 * 1000L)
+            val THIRTY_MINUTES_MILLIS = 30 * 60_000L
+
+            // Uncompleted / Missed tasks: Active tasks where scheduled end time + 30 minutes has passed.
+            // Applies to ALL scheduled tasks (whether manual or auto-scheduled), provided the task is unlocked.
             val missedTasks = allTasks.filter { task ->
                 task.status == TaskStatus.ACTIVE &&
+                    !task.isScheduleLocked &&
                     task.scheduledDate != null &&
                     task.scheduledTime != null &&
-                    (task.scheduledDate + task.scheduledTime) < nowMillis
+                    let {
+                        val scheduledStart = task.scheduledDate + task.scheduledTime
+                        val estimatedDuration = if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 30
+                        val scheduledEnd = scheduledStart + (estimatedDuration * 60_000L)
+                        nowMillis > (scheduledEnd + THIRTY_MINUTES_MILLIS)
+                    }
             }.filterNot { it.id in blockedTaskIds }
 
-            // Auto-scheduled tasks that may need replanning
+            // Auto-scheduled tasks that may need replanning (future active tasks)
             val autoScheduledTasks = allTasks.filter { task ->
                 task.status == TaskStatus.ACTIVE &&
                     task.scheduledDate != null &&
                     task.scheduledTime != null &&
                     task.isAutoScheduled &&  // Only replan auto-scheduled tasks
-                    (task.scheduledDate + task.scheduledTime) >= nowMillis  // Future tasks only
+                    (task.scheduledDate + task.scheduledTime) >= nowMillis
             }.filterNot { it.id in blockedTaskIds }
 
             val peakDetection = peakEnergyRepository.getPeakEnergyDetection()

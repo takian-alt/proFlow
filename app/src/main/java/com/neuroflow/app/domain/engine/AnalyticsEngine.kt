@@ -84,15 +84,17 @@ object AnalyticsEngine {
 
     private fun peakWindowsForDay(dayStartMillis: Long, peakStartHour: Int, peakEndHour: Int): List<Pair<Long, Long>> {
         val hourMs = 3_600_000L
-        val dayEndMillis = dayStartMillis + 24 * hourMs
         val start = normalizeHour(peakStartHour)
         val end = normalizeHour(peakEndHour)
 
         return if (start <= end) {
             listOf(dayStartMillis + start * hourMs to dayStartMillis + (end + 1) * hourMs)
         } else {
+            // Night window: e.g. 22:00 to 02:00
+            // Day 1: 22:00 to 24:00 (dayStart + 22h to dayStart + 24h)
+            // Day 2: 00:00 to 03:00 (dayStart to dayStart + 3h)
             listOf(
-                dayStartMillis + start * hourMs to dayEndMillis,
+                dayStartMillis + start * hourMs to dayStartMillis + 24 * hourMs,
                 dayStartMillis to dayStartMillis + (end + 1) * hourMs
             )
         }

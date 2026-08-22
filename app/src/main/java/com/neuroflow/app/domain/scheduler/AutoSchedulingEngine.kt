@@ -346,20 +346,27 @@ class AutoSchedulingEngine @Inject constructor(
                 }
             }
 
-            // Select the best candidate from the highest-priority category that has options
-            // Priority: today+preferred > today+fallback > future+preferred > future+fallback
-            // Within each category, choose the slot with the HIGHEST effective fit score.
-            // W7: cohesion bonus is applied here (not in pre-pass) so later tasks cluster by category.
+            // Select candidate balancing timing preference with score quality.
+            // Preferred slots are chosen if fit score is high; fallback slots are used only if quality is acceptable.
             val tagProfilesForTask = TaskTagSchedulingProfile.profilesFor(task.tags)
             fun effectiveFitScore(fit: TaskSlotFitScore): Float =
                 (fit.overallScore + categoryCohesionBonus(task, fit.slotIndex, tagProfilesForTask, assignedCategoryBySlot))
                     .coerceIn(0f, 1f)
 
-            val chosen = todayPreferredCandidates.maxByOrNull { effectiveFitScore(it.first) }
-                ?: todayFallbackCandidates.maxByOrNull { effectiveFitScore(it.first) }
-                ?: futurePreferredCandidates.maxByOrNull { effectiveFitScore(it.first) }
-                ?: futureFallbackCandidates.maxByOrNull { effectiveFitScore(it.first) }
-                ?: return@forEach
+            val bestTodayPref = todayPreferredCandidates.maxByOrNull { effectiveFitScore(it.first) }
+            val bestFuturePref = futurePreferredCandidates.maxByOrNull { effectiveFitScore(it.first) }
+            val bestTodayFallback = todayFallbackCandidates.maxByOrNull { effectiveFitScore(it.first) }
+            val bestFutureFallback = futureFallbackCandidates.maxByOrNull { effectiveFitScore(it.first) }
+
+            // Pick candidate: prefer future preferred slot over today's fallback if future fit score is significantly higher (> 0.25 delta)
+            val chosen = when {
+                bestTodayPref != null -> bestTodayPref
+                bestFuturePref != null && (bestTodayFallback == null || effectiveFitScore(bestFuturePref.first) > effectiveFitScore(bestTodayFallback.first) + 0.25f) -> bestFuturePref
+                bestTodayFallback != null -> bestTodayFallback
+                bestFuturePref != null -> bestFuturePref
+                else -> bestFutureFallback
+            } ?: return@forEach
+
             val baseFitScore = chosen.first
             val cohesionBonus = categoryCohesionBonus(task, baseFitScore.slotIndex, tagProfilesForTask, assignedCategoryBySlot)
             val fitScore = baseFitScore.copy(
@@ -393,7 +400,7 @@ class AutoSchedulingEngine @Inject constructor(
                 )
             )
 
-            // Reserve all occupied slot-hours for this assignment.
+            // Reserve occupied slot-hours for this assignment.
             occupyTaskSlots(
                 slots = horizon.slots,
                 startIndex = fitScore.slotIndex,
@@ -420,8 +427,8 @@ class AutoSchedulingEngine @Inject constructor(
             )
 
             if (isCognitivelyIntense(task)) {
-                val dayIndex = slot.dayIndex
-                val accumulated = (highCognitiveMinutesSinceBreakByDay[dayIndex] ?: 0) + estimatedDuration
+                // Continuous tracker across day boundaries using key -1 for global continuous streak
+                val accumulated = (highCognitiveMinutesSinceBreakByDay[-1] ?: 0) + estimatedDuration
                 if (accumulated >= breakPolicy.intervalMinutes) {
                     val breakReserved = reserveBreakSlotsAfterTask(
                         slots = horizon.slots,
@@ -432,16 +439,15 @@ class AutoSchedulingEngine @Inject constructor(
                         nowMillis = nowMillis
                     )
                     if (breakReserved) {
-                        highCognitiveMinutesSinceBreakByDay[dayIndex] = 0
+                        highCognitiveMinutesSinceBreakByDay[-1] = 0
                     } else {
-                        // Break reservation failed - don't reset counter
                         android.util.Log.w(
                             "AutoSchedulingEngine",
                             "Break reservation failed for task ${task.id} - cognitive load continues to accumulate"
                         )
                     }
                 } else {
-                    highCognitiveMinutesSinceBreakByDay[dayIndex] = accumulated
+                    highCognitiveMinutesSinceBreakByDay[-1] = accumulated
                 }
             }
         }
@@ -887,14 +893,21 @@ class AutoSchedulingEngine @Inject constructor(
             // Allow cross-day occupation for long tasks
             // (no day index check - let long tasks span days)
 
-            blockedSlotIndices += idx
-            // W12 fix: Track actual minutes consumed per slot instead of flagging full capacity.
-            // This allows subsequent tasks to use remaining capacity in partially-filled slots.
             val minutesToAssign = min(
                 durationMinutes - (offset * 60),  // Remaining task minutes for this slot
                 slot.availableCapacityMinutes - slot.assignedMinutes  // Available space in slot
             ).coerceAtLeast(0)
+
             slot.assignedMinutes += minutesToAssign
+
+            // Only block slot if utilization has hit capacity limits
+            val limit = when (slot.energyProfile.zone) {
+                EnergyZone.CRITICAL -> 0.50f
+                else -> 0.70f
+            }
+            if (calculateSlotUtilization(slot) >= limit) {
+                blockedSlotIndices += idx
+            }
         }
     }
 
@@ -1597,16 +1610,23 @@ class AutoSchedulingEngine @Inject constructor(
         val baseInterval = prefs.autoSchedulingBreakAfterCognitiveMinutes.coerceIn(30, 180)
         val baseDuration = prefs.autoSchedulingBreakDurationMinutes.coerceIn(5, 30)
 
+        // Convert raw pressure points (0..14400) to a 0..100 fatigue percentage before
+        // comparing against thresholds. Directly comparing raw points against percentage
+        // thresholds (e.g. >= 75) would only ever trigger for < 2 minutes of wake time.
+        val fatigue = com.neuroflow.app.domain.engine.SleepPressureDetector.fatiguePercent(
+            prefs.sleepPressurePoints
+        )
+
         return when {
-            prefs.sleepPressurePoints >= 75 -> BreakPolicy(
+            fatigue >= 75 -> BreakPolicy(
                 intervalMinutes = min(baseInterval, 75),
                 durationMinutes = max(baseDuration, 20)
             )
-            prefs.sleepPressurePoints >= 60 -> BreakPolicy(
+            fatigue >= 60 -> BreakPolicy(
                 intervalMinutes = min(baseInterval, 90),
                 durationMinutes = max(baseDuration, 15)
             )
-            prefs.sleepPressurePoints <= 30 -> BreakPolicy(
+            fatigue <= 30 -> BreakPolicy(
                 intervalMinutes = max(baseInterval, 120),
                 durationMinutes = max(baseDuration, 10)
             )
@@ -1786,7 +1806,11 @@ class AutoSchedulingEngine @Inject constructor(
         }
 
         val nearBedtime = slot.hourOfDay >= (prefs.sleepHour - 2).coerceAtLeast(18)
-        if (!urgentDeadline && prefs.sleepPressurePoints >= 70 && nearBedtime) {
+        // Convert raw pressure points to a 0..100 fatigue percentage before thresholding.
+        val fatigue = com.neuroflow.app.domain.engine.SleepPressureDetector.fatiguePercent(
+            prefs.sleepPressurePoints
+        )
+        if (!urgentDeadline && fatigue >= 70 && nearBedtime) {
             return false
         }
 
@@ -1814,10 +1838,14 @@ class AutoSchedulingEngine @Inject constructor(
     }
 
     private fun calculateDailyCognitiveBudgetMinutes(prefs: UserPreferences): Int {
+        // Convert raw pressure points to a 0..100 fatigue percentage before thresholding.
+        val fatigue = com.neuroflow.app.domain.engine.SleepPressureDetector.fatiguePercent(
+            prefs.sleepPressurePoints
+        )
         val base = when {
-            prefs.sleepPressurePoints >= 80 -> 75
-            prefs.sleepPressurePoints >= 65 -> 100
-            prefs.sleepPressurePoints >= 50 -> 130
+            fatigue >= 80 -> 75
+            fatigue >= 65 -> 100
+            fatigue >= 50 -> 130
             else -> 170
         }
 
@@ -1833,7 +1861,10 @@ class AutoSchedulingEngine @Inject constructor(
     }
 
     private fun calculateSleepPressureFit(task: TaskEntity, slot: TimeSlot, prefs: UserPreferences): Float {
-        val pressure = prefs.sleepPressurePoints.coerceIn(0, 100)
+        // Convert raw pressure points to a 0..100 fatigue percentage before thresholding.
+        val pressure = com.neuroflow.app.domain.engine.SleepPressureDetector.fatiguePercent(
+            prefs.sleepPressurePoints
+        ).coerceIn(0, 100)
         val lateEvening = slot.hourOfDay >= (prefs.sleepHour - 2).coerceAtLeast(18)
         if (!lateEvening || pressure < 40) return 1.0f
 

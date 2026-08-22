@@ -136,11 +136,11 @@ class SleepPressureRepository @Inject constructor(
             .map { SleepInterval(it.startAt, it.endAt) }
             .toMutableList()
 
-        buildAutoFallbackSleepInterval(
+        buildAutoFallbackSleepIntervals(
             prefs = prefs,
             trackingStart = trackingStart,
             nowMillis = nowMillis
-        )?.let { fallback ->
+        ).forEach { fallback ->
             val persisted = sleepLogRepository.addLog(
                 startAt = fallback.startAt,
                 endAt = fallback.endAt,
@@ -219,79 +219,80 @@ class SleepPressureRepository @Inject constructor(
         return anchor.toInstant().toEpochMilli()
     }
 
-    private suspend fun buildAutoFallbackSleepInterval(
+    private suspend fun buildAutoFallbackSleepIntervals(
         prefs: UserPreferences,
         trackingStart: Long,
         nowMillis: Long
-    ): SleepInterval? {
-                // Phase 1: respect the auto-fallback flag from preferences
-                if (!prefs.autoFallbackSleepInsertionEnabled) {
-                    return null
-                }
+    ): List<SleepInterval> {
+        if (!prefs.autoFallbackSleepInsertionEnabled) {
+            return emptyList()
+        }
 
         val zoneId = ZoneId.systemDefault()
         val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
         val wakeHour = prefs.wakeUpHour.coerceIn(0, 23)
         val sleepHour = prefs.sleepHour.coerceIn(0, 23)
 
-        val todayWake = now.toLocalDate()
-            .atTime(wakeHour, 0)
-            .atZone(zoneId)
-            .toInstant()
-            .toEpochMilli()
+        val result = mutableListOf<SleepInterval>()
 
-        if (nowMillis < todayWake + (AUTO_FALLBACK_AFTER_WAKE_MINUTES * 60_000L)) {
-            return null
+        // Check up to 7 past days for missing automatic fallback sleep logs
+        for (dayOffset in 1..7) {
+            val targetDate = now.toLocalDate().minusDays(dayOffset.toLong())
+
+            val targetWake = targetDate
+                .atTime(wakeHour, 0)
+                .atZone(zoneId)
+                .toInstant()
+                .toEpochMilli()
+
+            // 12-hour post-wake delay check relative to target wake time
+            if (nowMillis < targetWake + (AUTO_FALLBACK_AFTER_WAKE_MINUTES * 60_000L)) {
+                continue
+            }
+
+            val defaultSleepStart = targetDate
+                .atTime(sleepHour, 0)
+                .atZone(zoneId)
+                .toInstant()
+                .toEpochMilli()
+
+            var defaultWakeEnd = targetDate
+                .atTime(wakeHour, 0)
+                .atZone(zoneId)
+                .toInstant()
+                .toEpochMilli()
+
+            if (defaultWakeEnd <= defaultSleepStart) {
+                defaultWakeEnd += 24 * HOUR_MILLIS
+            }
+
+            val logsInWindow = sleepLogRepository.getOverlapping(defaultSleepStart, nowMillis)
+            val hasManualLogSinceDefaultSleep = logsInWindow.any { it.source == "MANUAL" }
+            if (hasManualLogSinceDefaultSleep) {
+                continue
+            }
+
+            val boundedStart = maxOf(trackingStart, defaultSleepStart)
+            val boundedEnd = minOf(nowMillis, defaultWakeEnd)
+            if (boundedEnd <= boundedStart) {
+                continue
+            }
+
+            val duration = boundedEnd - boundedStart
+            if (duration < MIN_SLEEP_LOG_DURATION_MILLIS || duration > MAX_SLEEP_LOG_DURATION_MILLIS) {
+                continue
+            }
+
+            val overlapsExisting = logsInWindow.any {
+                it.endAt > boundedStart && it.startAt < boundedEnd
+            }
+            if (overlapsExisting) {
+                continue
+            }
+
+            result.add(SleepInterval(startAt = boundedStart, endAt = boundedEnd))
         }
 
-        val defaultSleepStart = now.toLocalDate().minusDays(1)
-            .atTime(sleepHour, 0)
-            .atZone(zoneId)
-            .toInstant()
-            .toEpochMilli()
-
-        var defaultWakeEnd = now.toLocalDate().minusDays(1)
-            .atTime(wakeHour, 0)
-            .atZone(zoneId)
-            .toInstant()
-            .toEpochMilli()
-
-        if (defaultWakeEnd <= defaultSleepStart) {
-                        // Phase 1 boundary: handle cross-day sleep (e.g., 22:00 sleep to 06:00 wake)
-            defaultWakeEnd += 24 * HOUR_MILLIS
-        }
-
-        // If user has logged manually at any time since the default sleep-hour window started,
-        // skip auto fallback because user interaction implies manual intent.
-        val logsSinceDefaultSleep = sleepLogRepository.getOverlapping(defaultSleepStart, nowMillis)
-        val hasManualLogSinceDefaultSleep = logsSinceDefaultSleep.any { it.source == "MANUAL" }
-        if (hasManualLogSinceDefaultSleep) {
-            return null
-        }
-
-        val boundedStart = maxOf(trackingStart, defaultSleepStart)
-        val boundedEnd = minOf(nowMillis, defaultWakeEnd)
-        // Phase 1 boundary check: ensure end > start to avoid invalid time windows
-        if (boundedEnd <= boundedStart) {
-            return null
-        }
-
-        val duration = boundedEnd - boundedStart
-            // Phase 1 boundary guard: ensure duration is positive and within bounds
-        if (duration < MIN_SLEEP_LOG_DURATION_MILLIS || duration > MAX_SLEEP_LOG_DURATION_MILLIS) {
-            return null
-        }
-
-        val overlapsExisting = logsSinceDefaultSleep.any {
-            it.endAt > boundedStart && it.startAt < boundedEnd
-        }
-        if (overlapsExisting) {
-            return null
-        }
-
-        return SleepInterval(
-            startAt = boundedStart,
-            endAt = boundedEnd
-        )
+        return result
     }
 }

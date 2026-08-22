@@ -163,7 +163,13 @@ class DailyPlanWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        // Use a stable ID per worker type so daily plan notifications are updated in place
+        // rather than accumulating as separate notifications.
+        manager.notify(NOTIFICATION_ID_DAILY_PLAN, notification)
+    }
+
+    companion object {
+        private const val NOTIFICATION_ID_DAILY_PLAN = 10_000
     }
 }
 
@@ -176,7 +182,7 @@ class StreakCheckWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val prefs = preferencesDataStore.preferencesFlow.first()
+        var prefs = preferencesDataStore.preferencesFlow.first()
         if (!prefs.streakNotificationsEnabled) return Result.success()
         val today = java.util.Calendar.getInstance().apply {
             set(java.util.Calendar.HOUR_OF_DAY, 0)
@@ -193,6 +199,9 @@ class StreakCheckWorker @AssistedInject constructor(
         // If nothing was completed today AND last active was before yesterday → streak is broken
         if (!completedToday && prefs.lastActiveDate < yesterday && prefs.dailyStreak > 0) {
             preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
+            // Re-read prefs so the risk-notification check below uses the updated streak value,
+            // not the stale pre-reset value that still shows the old (broken) streak count.
+            prefs = preferencesDataStore.preferencesFlow.first()
         }
 
         // Notify if streak is at risk (active streak, nothing done today yet, evening check)
@@ -216,7 +225,13 @@ class StreakCheckWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        // Use a stable ID per worker type so the same notification is updated (not duplicated)
+        manager.notify(NOTIFICATION_ID_STREAK, notification)
+    }
+
+    companion object {
+        // Stable notification ID: streak check always updates the same notification slot
+        private const val NOTIFICATION_ID_STREAK = 10_001
     }
 }
 
@@ -274,7 +289,13 @@ class DeadlineEscalationWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        // Use a stable ID per worker type so repeat escalation runs update the same notification
+        // instead of spamming a new one every 4 hours.
+        manager.notify(NOTIFICATION_ID_ESCALATION, notification)
+    }
+
+    companion object {
+        private const val NOTIFICATION_ID_ESCALATION = 10_002
     }
 }
 
@@ -334,6 +355,9 @@ class TaskReminderWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        // Use a stable ID derived from the task ID so each task gets exactly one reminder
+        // notification slot that is updated (not duplicated) on re-delivery.
+        val taskId = inputData.getString("taskId") ?: ""
+        manager.notify(taskId.hashCode(), notification)
     }
 }
