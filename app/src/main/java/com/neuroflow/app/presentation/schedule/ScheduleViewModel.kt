@@ -81,15 +81,13 @@ class ScheduleViewModel @Inject constructor(
                 ExistingWorkPolicy.REPLACE,
                 workRequest
             )
-            workManager.getWorkInfoByIdFlow(workRequest.id).collect { workInfo ->
-                if (workInfo != null && workInfo.state.isFinished) {
-                    _uiState.update {
-                        it.copy(
-                            isAutoScheduling = false,
-                            autoScheduleResultMessage = "Auto-scheduling complete"
-                        )
-                    }
-                }
+            workManager.getWorkInfoByIdFlow(workRequest.id)
+                .firstOrNull { it != null && it.state.isFinished }
+            _uiState.update {
+                it.copy(
+                    isAutoScheduling = false,
+                    autoScheduleResultMessage = "Auto-scheduling complete"
+                )
             }
         }
     }

@@ -13,10 +13,15 @@ object AutoSchedulingContracts {
         return (task.scheduledDate != null || task.scheduledTime != null) && !task.isAutoScheduled
     }
 
-    fun isMutableByAutoScheduler(task: TaskEntity): Boolean {
-        return !task.isScheduleLocked &&
-               task.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE &&
-               (!hasManualScheduleData(task) || task.isAutoScheduled)
+    fun isMutableByAutoScheduler(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {
+        if (task.isScheduleLocked || task.quadrant == com.neuroflow.app.domain.model.Quadrant.ELIMINATE) {
+            return false
+        }
+        val isPastSchedule = task.scheduledDate?.let { date ->
+            val time = task.scheduledTime ?: 0L
+            (date + time) < nowMillis
+        } ?: false
+        return !hasManualScheduleData(task) || task.isAutoScheduled || isPastSchedule
     }
 
     /**

@@ -185,3 +185,24 @@ fun TaskEntity.determineCategory(): TaskCategory {
         }
     }
 }
+
+fun TaskEntity.isNonWorkOrErrandTask(): Boolean {
+    val category = determineCategory()
+    if (category in listOf(TaskCategory.MINDFULNESS, TaskCategory.EXERCISE, TaskCategory.PHYSICAL)) {
+        return true
+    }
+
+    val tagsList = tags.split(',')
+        .map { it.trim().trimStart('@').lowercase(Locale.getDefault()) }
+        .filter { it.isNotBlank() }
+
+    val nonWorkKeywords = listOf(
+        "errand", "errands", "chore", "chores", "personal", "life", "home",
+        "household", "cleaning", "maintenance", "shopping", "groceries", "health",
+        "routine", "leisure", "break", "family", "social", "meditation", "mindfulness",
+        "exercise", "workout", "gym", "running", "walking", "stretching", "non-work",
+        "not work", "not-work", "off-hours"
+    )
+
+    return tagsList.any { tag -> nonWorkKeywords.any { kw -> tag.contains(kw) } }
+}

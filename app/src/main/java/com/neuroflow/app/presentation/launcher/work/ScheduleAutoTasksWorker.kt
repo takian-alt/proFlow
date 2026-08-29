@@ -111,40 +111,52 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 !AutoSchedulingContracts.hasManualScheduleData(task)
             }.filterNot { it.id in blockedTaskIds }
 
-            val busySlotStartMillis = buildBusySlotIndex(allTasks, nowMillis)
-
             // Post-scheduled-end grace period threshold: 5 min when auto-schedule toggle is ON, 30 min default
             val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
 
-            // Uncompleted / Missed tasks: Active tasks where scheduled end time + grace period has passed.
-            // Applies ONLY to auto-scheduled tasks (manual schedules are immutable by autoscheduler).
+            // Past / Missed incomplete tasks (scheduled in past or past end + grace period)
             val missedTasks = allTasks.filter { task ->
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
-                    task.isAutoScheduled &&
                     task.scheduledDate != null &&
                     task.scheduledTime != null &&
                     let {
                         val scheduledStart = task.scheduledDate + task.scheduledTime
                         val estimatedDuration = if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 30
                         val scheduledEnd = scheduledStart + (estimatedDuration * 60_000L)
-                        nowMillis > (scheduledEnd + gracePeriodMillis)
+                        nowMillis > (scheduledEnd + gracePeriodMillis) || (forceReplan && scheduledStart < nowMillis)
                     }
             }.filterNot { it.id in blockedTaskIds }
 
-            // Auto-scheduled tasks that may need replanning (future active tasks)
-            val autoScheduledTasks = allTasks.filter { task ->
+            // Auto-scheduled tasks eligible for replanning (future active tasks)
+            val replanCandidates = allTasks.filter { task ->
                 task.status == TaskStatus.ACTIVE &&
+                    !task.isScheduleLocked &&
                     task.scheduledDate != null &&
                     task.scheduledTime != null &&
-                    task.isAutoScheduled &&  // Only replan auto-scheduled tasks
-                    (task.scheduledDate + task.scheduledTime) >= nowMillis
+                    (task.scheduledDate + task.scheduledTime) >= nowMillis &&
+                    shouldReplanAutoScheduledTask(task, nowMillis, prefs, forceReplan)
             }.filterNot { it.id in blockedTaskIds }
+
+            // Combine all tasks needing assignment into a single unified queue
+            val targetTasksMap = LinkedHashMap<String, com.neuroflow.app.data.local.entity.TaskEntity>()
+            (unscheduledTasks + missedTasks + replanCandidates).forEach { t ->
+                targetTasksMap[t.id] = t.copy(scheduledDate = null, scheduledTime = null)
+            }
+            val targetTasks = targetTasksMap.values.toList()
+
+            if (targetTasks.isEmpty()) {
+                return Result.success()
+            }
+
+            // Fixed tasks are tasks NOT being rescheduled (e.g. locked tasks, manual future schedules, completed tasks)
+            val fixedTasks = allTasks.filterNot { targetTasksMap.containsKey(it.id) }
+            val currentBusySlotStartMillis = buildBusySlotIndex(fixedTasks, nowMillis).toMutableSet()
+            val currentBusyIntervals = buildBusyIntervals(fixedTasks, nowMillis).toMutableList()
 
             val peakDetection = peakEnergyRepository.getPeakEnergyDetection()
 
-            // FIX #1: Capture energy snapshot at worker start for consistency
-            // This prevents race conditions where energy changes during multi-task scheduling
+            // Capture energy snapshot at worker start for consistency
             val energySnapshotMillis = System.currentTimeMillis()
             val liveEnergyModel = energyScoreRepository.observeEnergy(refreshIntervalMillis = 0).first()
 
@@ -159,8 +171,6 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
                 val projectedEnergy = baseline.usableEnergy.coerceIn(0f, 100f)
 
-                // FIX #1: Calculate hours ahead from snapshot time, not current time
-                // This ensures consistent energy blending throughout the scheduling run
                 val hoursAhead = ((slotMillis - energySnapshotMillis).coerceAtLeast(0L) / 3_600_000f)
                 val liveWeight = when {
                     hoursAhead <= 2f -> 0.35f
@@ -169,16 +179,14 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                     else -> 0.0f
                 }
 
-                // Check if live energy data is stale (>5 minutes old)
                 val SIGNAL_FRESHNESS_THRESHOLD_MILLIS = 5 * 60_000L
                 val isLiveDataStale = liveEnergyModel.overallFreshnessAgeMillis > SIGNAL_FRESHNESS_THRESHOLD_MILLIS
 
-                // Reduce live weight if data is stale
                 val effectiveLiveWeight = if (isLiveDataStale) {
                     val staleFactor = if (liveEnergyModel.overallFreshnessAgeMillis > 10 * 60_000L) {
-                        0.25f  // Very stale (>10 min): reduce to 25%
+                        0.25f
                     } else {
-                        0.5f   // Moderately stale (5-10 min): reduce to 50%
+                        0.5f
                     }
                     liveWeight * staleFactor
                 } else {
@@ -195,118 +203,22 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                         liveEnergyModel.momentConfidence.coerceIn(0f, 1f) * (effectiveLiveWeight * 0.5f)
                     ).coerceIn(0.2f, 1f)
 
-                // Log energy blending weights at DEBUG level
-                android.util.Log.d(
-                    "ScheduleAutoTasks",
-                    "Energy blending for slot at ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(slotMillis))}: " +
-                            "hoursAhead=${String.format("%.1f", hoursAhead)}, " +
-                            "liveWeight=${String.format("%.2f", liveWeight)}, " +
-                            "effectiveLiveWeight=${String.format("%.2f", effectiveLiveWeight)}, " +
-                            "baselineWeight=${String.format("%.2f", 1f - effectiveLiveWeight)}, " +
-                            "baseline=${String.format("%.1f", projectedEnergy)}, " +
-                            "live=${liveEnergyModel.availableEnergy}, " +
-                            "blended=${String.format("%.1f", blendedEnergy)}, " +
-                            "dataStale=$isLiveDataStale (age=${liveEnergyModel.overallFreshnessAgeMillis / 60_000}min)"
-                )
-
                 Pair(blendedEnergy.roundToInt(), blendedConfidence)
             }
 
-            // Track dynamic busy slots across sequential planning phases in the same worker run
-            val currentBusySlotStartMillis = busySlotStartMillis.toMutableSet()
-
-            // Replan missed tasks first to keep past assignments from becoming stale.
-            val missedDecisions = missedTasks.mapNotNull { missedTask ->
-                val estimatedWorkDone = missedTask.lastSessionDurationMinutes?.roundToInt()
-                    ?: missedTask.totalTimeTrackedMinutes.roundToInt()
-
-                val missedTaskSlots = buildTaskOccupiedSlots(missedTask)
-
-                autoSchedulingEngine.replanIncompleteTask(
-                    missedTask,
-                    timeSpentMinutes = estimatedWorkDone,
-                    nowMillis = nowMillis,
-                    energyScoreFn = energyScoreFn,
-                    busySlotStartMillis = currentBusySlotStartMillis - missedTaskSlots,
-                    allActiveTasks = allTasks
-                )?.also { decision ->
-                    currentBusySlotStartMillis.removeAll(missedTaskSlots)
-                    currentBusySlotStartMillis.addAll(buildDecisionOccupiedSlots(decision))
-                }
-            }
-            if (missedDecisions.isNotEmpty()) {
-                applyDecisionsTransactionally(missedDecisions, allTasks)
-            }
-
-            // Replan existing auto-scheduled tasks if conditions warrant it
-            // This enables true dynamic scheduling - tasks move to better slots as conditions change
-            val replanCandidates = autoScheduledTasks.filter { task ->
-                shouldReplanAutoScheduledTask(task, nowMillis, prefs, forceReplan)
-            }
-
-            if (replanCandidates.isNotEmpty()) {
-                // Temporarily unschedule these tasks for replanning
-                val unscheduledForReplan = replanCandidates.map { it.copy(
-                    scheduledDate = null,
-                    scheduledTime = null
-                )}
-
-                val replanSlots = replanCandidates.flatMap { buildTaskOccupiedSlots(it) }.toSet()
-                // Remove old slots of replan candidates from current busy set
-                currentBusySlotStartMillis.removeAll(replanSlots)
-
-                // Replan them with current conditions
-                val replanDecisions = autoSchedulingEngine.planAutoSchedule(
-                    unscheduledTasks = unscheduledForReplan,
-                    nowMillis = nowMillis,
-                    energyScoreFn = energyScoreFn,
-                    busySlotStartMillis = currentBusySlotStartMillis,
-                    allActiveTasks = allTasks
-                )
-
-                if (replanDecisions.isNotEmpty()) {
-                    applyDecisionsTransactionally(replanDecisions, allTasks)
-                    replanDecisions.forEach { decision ->
-                        currentBusySlotStartMillis.addAll(buildDecisionOccupiedSlots(decision))
-                    }
-                }
-
-                // Restore busy slots for candidates that were NOT rescheduled
-                val replannedIds = replanDecisions.map { it.taskId }.toSet()
-                replanCandidates.filterNot { it.id in replannedIds }.forEach { unreplanned ->
-                    currentBusySlotStartMillis.addAll(buildTaskOccupiedSlots(unreplanned))
-                }
-            }
-
-            if (unscheduledTasks.isEmpty()) {
-                return Result.success()
-            }
-
-            // Filter unscheduled tasks to exclude any that were already scheduled during replanning
-            val pendingUnscheduledTasks = unscheduledTasks.filter { task ->
-                val currentTaskState = taskRepository.getById(task.id) ?: task
-                !AutoSchedulingContracts.hasManualScheduleData(currentTaskState)
-            }
-
-            if (pendingUnscheduledTasks.isEmpty()) {
-                return Result.success()
-            }
-
-            // Generate scheduling decisions for fresh unscheduled work using updated busy slot set
+            // Generate scheduling decisions for all target tasks in a single prioritized pass
             val decisions = autoSchedulingEngine.planAutoSchedule(
-                unscheduledTasks = pendingUnscheduledTasks,
+                unscheduledTasks = targetTasks,
                 nowMillis = nowMillis,
                 energyScoreFn = energyScoreFn,
                 busySlotStartMillis = currentBusySlotStartMillis,
-                allActiveTasks = allTasks
+                busyIntervals = currentBusyIntervals,
+                allActiveTasks = fixedTasks
             )
 
-            if (decisions.isEmpty()) {
-                return Result.success()
+            if (decisions.isNotEmpty()) {
+                applyDecisionsTransactionally(decisions, allTasks)
             }
-
-            // Apply decisions transactionally
-            applyDecisionsTransactionally(decisions, allTasks)
 
             Result.success()
         } catch (e: Exception) {
@@ -359,12 +271,11 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             // Re-verify that task is still active and mutable by auto-scheduler
             if (freshTask.status != TaskStatus.ACTIVE ||
-                freshTask.isScheduleLocked ||
-                AutoSchedulingContracts.hasManualScheduleData(freshTask)
+                !AutoSchedulingContracts.isMutableByAutoScheduler(freshTask, nowMillis)
             ) {
                 android.util.Log.w(
                     "ScheduleAutoTasks",
-                    "Skipping auto-schedule update for task ${decision.taskId}: state changed concurrently in DB"
+                    "Skipping auto-schedule update for task ${decision.taskId}: state changed concurrently or immutable"
                 )
                 return@forEach
             }
@@ -375,6 +286,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val updatedTask = freshTask.copy(
                 scheduledDate = scheduledDate,
                 scheduledTime = scheduledTime,
+                estimatedDurationMinutes = if (freshTask.estimatedDurationMinutes <= 0) decision.estimatedDurationMinutes else freshTask.estimatedDurationMinutes,
                 isAutoScheduled = true,
                 lastAutoScheduledAt = nowMillis,  // Track when task was auto-scheduled for replanning cooldown
                 updatedAt = nowMillis
@@ -423,6 +335,21 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             "Applied decision: task=${decision.taskId}, slot=${decision.assignedSlotIndex}, " +
                     "reason=${decision.assignmentReason}, wasApplied=${decision.telemetry.wasApplied}"
         )
+    }
+
+    private fun buildTaskOccupiedInterval(task: com.neuroflow.app.data.local.entity.TaskEntity): AutoSchedulingEngine.TimeInterval? {
+        val scheduledDate = task.scheduledDate ?: return null
+        val scheduledTime = task.scheduledTime ?: return null
+        val startMillis = scheduledDate + scheduledTime
+        val estimated = task.estimatedDurationMinutes.coerceAtLeast(15)
+        val endMillis = startMillis + (estimated * 60_000L)
+        return AutoSchedulingEngine.TimeInterval(startMillis, endMillis)
+    }
+
+    private fun buildDecisionOccupiedInterval(decision: AutoSchedulingEngine.ScheduleDecision): AutoSchedulingEngine.TimeInterval {
+        val start = decision.scheduledStartMillis
+        val end = start + (decision.estimatedDurationMinutes * 60_000L)
+        return AutoSchedulingEngine.TimeInterval(start, end)
     }
 
     private fun buildTaskOccupiedSlots(task: com.neuroflow.app.data.local.entity.TaskEntity): Set<Long> {
@@ -480,6 +407,21 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             repeat(slotCount) { idx ->
                 busy += cal.timeInMillis
                 cal.add(java.util.Calendar.HOUR_OF_DAY, 1)  // DST-safe hour advancement
+            }
+        }
+        return busy
+    }
+
+    private fun buildBusyIntervals(
+        tasks: List<com.neuroflow.app.data.local.entity.TaskEntity>,
+        nowMillis: Long
+    ): List<AutoSchedulingEngine.TimeInterval> {
+        val busy = mutableListOf<AutoSchedulingEngine.TimeInterval>()
+        tasks.forEach { task ->
+            buildTaskOccupiedInterval(task)?.let { interval ->
+                if (interval.endMillis >= nowMillis - 60 * 60 * 1000L) {
+                    busy.add(interval)
+                }
             }
         }
         return busy
