@@ -259,5 +259,5 @@ fun getQuadrantLabel(quadrant: Quadrant): String = when (quadrant) {
     Quadrant.DO_FIRST  -> "DO FIRST"
     Quadrant.SCHEDULE  -> "SCHEDULE"
     Quadrant.DELEGATE  -> "DELEGATE"
-    Quadrant.ELIMINATE -> "ELIMINATE"
+    Quadrant.ELIMINATE -> "ON HOLD"
 }

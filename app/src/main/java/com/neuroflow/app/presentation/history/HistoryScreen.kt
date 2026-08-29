@@ -327,7 +327,7 @@ private fun HistoryDetailSheet(
                     "DO_FIRST"  -> "Q1: Do First"
                     "SCHEDULE"  -> "Q2: Schedule"
                     "DELEGATE"  -> "Q3: Delegate"
-                    "ELIMINATE" -> "Q4: Eliminate"
+                    "ELIMINATE" -> "Q4: On Hold"
                     else        -> task.quadrant.name
                 })
                 DetailRow("Priority", task.priority.name)

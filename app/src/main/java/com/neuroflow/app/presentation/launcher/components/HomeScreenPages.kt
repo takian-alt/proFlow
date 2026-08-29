@@ -897,7 +897,7 @@ private fun QuadrantCard(s: AnalyticsEngine.AnalyticsSummary) {
                 Triple("Do First", Quadrant.DO_FIRST, MaterialTheme.colorScheme.error),
                 Triple("Schedule", Quadrant.SCHEDULE, MaterialTheme.colorScheme.primary),
                 Triple("Delegate", Quadrant.DELEGATE, MaterialTheme.colorScheme.secondary),
-                Triple("Eliminate", Quadrant.ELIMINATE, MaterialTheme.colorScheme.outline)
+                Triple("On Hold", Quadrant.ELIMINATE, MaterialTheme.colorScheme.outline)
             ).forEach { (label, quadrant, color) ->
                 val count = s.tasksByQuadrant[quadrant] ?: 0
                 val fraction = count.toFloat() / total

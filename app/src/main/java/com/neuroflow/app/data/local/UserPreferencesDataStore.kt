@@ -60,6 +60,7 @@ data class UserPreferences(
     val tagCatalog: List<String> = emptyList(),
     // Auto scheduling controls
     val autoSchedulingEnabled: Boolean = true,
+    val isAutoScheduleToggleOn: Boolean = false,
     val autoSchedulingHorizonDays: Int = 3,
     val autoSchedulingBreakAfterCognitiveMinutes: Int = 90,
     val autoSchedulingBreakDurationMinutes: Int = 15,
@@ -185,6 +186,7 @@ class UserPreferencesDataStore @Inject constructor(
         val AFFIRMATIONS = stringPreferencesKey("affirmations")
         val TAG_CATALOG = stringPreferencesKey("tag_catalog")
         val AUTO_SCHEDULING_ENABLED = booleanPreferencesKey("auto_scheduling_enabled")
+        val IS_AUTO_SCHEDULE_TOGGLE_ON = booleanPreferencesKey("is_auto_schedule_toggle_on")
         val AUTO_SCHEDULING_HORIZON_DAYS = intPreferencesKey("auto_scheduling_horizon_days")
         val AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES = intPreferencesKey("auto_scheduling_break_after_cognitive_minutes")
         val AUTO_SCHEDULING_BREAK_DURATION_MINUTES = intPreferencesKey("auto_scheduling_break_duration_minutes")
@@ -294,10 +296,11 @@ class UserPreferencesDataStore @Inject constructor(
             affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
             tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
             autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
+            isAutoScheduleToggleOn = prefs[Keys.IS_AUTO_SCHEDULE_TOGGLE_ON] ?: false,
             autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(1, 7),
             autoSchedulingBreakAfterCognitiveMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] ?: 90).coerceIn(30, 180),
             autoSchedulingBreakDurationMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] ?: 15).coerceIn(5, 30),
-            autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(5, 120),
+            autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(15, 240),
             yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
             weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
             lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
@@ -419,10 +422,11 @@ class UserPreferencesDataStore @Inject constructor(
                 affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
                 tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
                 autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
+                isAutoScheduleToggleOn = prefs[Keys.IS_AUTO_SCHEDULE_TOGGLE_ON] ?: false,
                 autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(1, 7),
                 autoSchedulingBreakAfterCognitiveMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] ?: 90).coerceIn(30, 180),
                 autoSchedulingBreakDurationMinutes = (prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] ?: 15).coerceIn(5, 30),
-                autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(5, 120),
+                autoSchedulingBackgroundThrottleMinutes = (prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] ?: 30).coerceIn(15, 240),
                 yearlyGoals = parseAffirmations(prefs[Keys.YEARLY_GOALS]),
                 weeklyGoals = parseAffirmations(prefs[Keys.WEEKLY_GOALS]),
                 lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
@@ -524,10 +528,11 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
             prefs[Keys.TAG_CATALOG] = encodeAffirmations(withStarterTagCatalog(updated.tagCatalog))
             prefs[Keys.AUTO_SCHEDULING_ENABLED] = updated.autoSchedulingEnabled
+            prefs[Keys.IS_AUTO_SCHEDULE_TOGGLE_ON] = updated.isAutoScheduleToggleOn
             prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] = updated.autoSchedulingHorizonDays.coerceIn(1, 7)
             prefs[Keys.AUTO_SCHEDULING_BREAK_AFTER_COGNITIVE_MINUTES] = updated.autoSchedulingBreakAfterCognitiveMinutes.coerceIn(30, 180)
             prefs[Keys.AUTO_SCHEDULING_BREAK_DURATION_MINUTES] = updated.autoSchedulingBreakDurationMinutes.coerceIn(5, 30)
-            prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] = updated.autoSchedulingBackgroundThrottleMinutes.coerceIn(5, 120)
+            prefs[Keys.AUTO_SCHEDULING_BACKGROUND_THROTTLE_MINUTES] = updated.autoSchedulingBackgroundThrottleMinutes.coerceIn(15, 240)
             prefs[Keys.YEARLY_GOALS] = encodeAffirmations(updated.yearlyGoals)
             prefs[Keys.WEEKLY_GOALS] = encodeAffirmations(updated.weeklyGoals)
             prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] = updated.lastYearlyGoalShownYear
@@ -595,6 +600,12 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] = updated.manualPeakWindow1Amplitude.coerceIn(0.2f, 1f)
             prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] = updated.manualPeakWindow2Amplitude.coerceIn(0.2f, 1f)
             prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] = updated.manualPeakWindow3Amplitude.coerceIn(0.2f, 1f)
+        }
+    }
+
+    suspend fun setAutoScheduleToggleOn(enabled: Boolean) {
+        updatePreferences { prefs ->
+            prefs.copy(isAutoScheduleToggleOn = enabled)
         }
     }
 

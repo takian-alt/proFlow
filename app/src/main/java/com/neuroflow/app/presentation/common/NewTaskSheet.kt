@@ -7,9 +7,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -17,13 +19,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
@@ -41,6 +47,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -241,26 +248,32 @@ fun NewTaskSheet(
                                 dateTarget = "deadline"
                                 showDatePicker = true
                             },
+                            onDeadlineDateClear = { flowViewModel.updateDeadlineDate(null) },
                             onDeadlineTimeClick = {
                                 timeTarget = "deadline"
                                 showTimePicker = true
                             },
+                            onDeadlineTimeClear = { flowViewModel.updateDeadlineTime(null) },
                             onScheduledDateClick = {
                                 dateTarget = "scheduled"
                                 showDatePicker = true
                             },
+                            onScheduledDateClear = { flowViewModel.updateScheduledDate(null) },
                             onScheduledTimeClick = {
                                 timeTarget = "scheduled"
                                 showTimePicker = true
                             },
+                            onScheduledTimeClear = { flowViewModel.updateScheduledTime(null) },
                             onHabitDateClick = {
                                 dateTarget = "habit"
                                 showDatePicker = true
                             },
+                            onHabitDateClear = { flowViewModel.updateHabitDate(null) },
                             onHabitTimeClick = {
                                 timeTarget = "habit"
                                 showTimePicker = true
                             },
+                            onHabitTimeClear = { flowViewModel.updateHabitTime(null) },
                             onReminderFlagsChange = flowViewModel::updateReminderFlags,
                             onScheduleLockedChange = flowViewModel::updateScheduleLocked
                         )
@@ -274,10 +287,12 @@ fun NewTaskSheet(
                                 dateTarget = "habit"
                                 showDatePicker = true
                             },
+                            onHabitDateClear = { flowViewModel.updateHabitDate(null) },
                             onHabitTimeClick = {
                                 timeTarget = "habit"
                                 showTimePicker = true
-                            }
+                            },
+                            onHabitTimeClear = { flowViewModel.updateHabitTime(null) }
                         )
 
                         NewTaskFlowStep.EFFORT -> EffortStep(
@@ -387,24 +402,37 @@ fun NewTaskSheet(
     }
 
     if (showDatePicker) {
-        val initial = when (dateTarget) {
+        val currentDateVal = when (dateTarget) {
             "scheduled" -> ui.scheduledDate
             "habit" -> ui.habitDate
             else -> ui.deadlineDate
-        } ?: System.currentTimeMillis()
+        }
+        val initial = currentDateVal ?: System.currentTimeMillis()
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initial)
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                TextButton(onClick = {
-                    val selected = datePickerState.selectedDateMillis?.let(::utcMidnightToLocalMidnight)
-                    when (dateTarget) {
-                        "scheduled" -> flowViewModel.updateScheduledDate(selected)
-                        "habit" -> flowViewModel.updateHabitDate(selected)
-                        else -> flowViewModel.updateDeadlineDate(selected)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (currentDateVal != null) {
+                        TextButton(onClick = {
+                            when (dateTarget) {
+                                "scheduled" -> flowViewModel.updateScheduledDate(null)
+                                "habit" -> flowViewModel.updateHabitDate(null)
+                                else -> flowViewModel.updateDeadlineDate(null)
+                            }
+                            showDatePicker = false
+                        }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
                     }
-                    showDatePicker = false
-                }) { Text("OK") }
+                    TextButton(onClick = {
+                        val selected = datePickerState.selectedDateMillis?.let(::utcMidnightToLocalMidnight)
+                        when (dateTarget) {
+                            "scheduled" -> flowViewModel.updateScheduledDate(selected)
+                            "habit" -> flowViewModel.updateHabitDate(selected)
+                            else -> flowViewModel.updateDeadlineDate(selected)
+                        }
+                        showDatePicker = false
+                    }) { Text("OK") }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
@@ -413,11 +441,12 @@ fun NewTaskSheet(
     }
 
     if (showTimePicker) {
-        val initialMillis = when (timeTarget) {
+        val currentTimeVal = when (timeTarget) {
             "scheduled" -> ui.scheduledTime
             "habit" -> ui.habitTime
             else -> ui.deadlineTime
-        } ?: 0L
+        }
+        val initialMillis = currentTimeVal ?: 0L
         val timePickerState = rememberTimePickerState(
             initialHour = (initialMillis / 3_600_000L).toInt().coerceIn(0, 23),
             initialMinute = ((initialMillis % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59)
@@ -427,15 +456,27 @@ fun NewTaskSheet(
             title = { Text("Select Time") },
             text = { TimePicker(state = timePickerState) },
             confirmButton = {
-                TextButton(onClick = {
-                    val selected = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
-                    when (timeTarget) {
-                        "scheduled" -> flowViewModel.updateScheduledTime(selected)
-                        "habit" -> flowViewModel.updateHabitTime(selected)
-                        else -> flowViewModel.updateDeadlineTime(selected)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (currentTimeVal != null) {
+                        TextButton(onClick = {
+                            when (timeTarget) {
+                                "scheduled" -> flowViewModel.updateScheduledTime(null)
+                                "habit" -> flowViewModel.updateHabitTime(null)
+                                else -> flowViewModel.updateDeadlineTime(null)
+                            }
+                            showTimePicker = false
+                        }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
                     }
-                    showTimePicker = false
-                }) { Text("OK") }
+                    TextButton(onClick = {
+                        val selected = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
+                        when (timeTarget) {
+                            "scheduled" -> flowViewModel.updateScheduledTime(selected)
+                            "habit" -> flowViewModel.updateHabitTime(selected)
+                            else -> flowViewModel.updateDeadlineTime(selected)
+                        }
+                        showTimePicker = false
+                    }) { Text("OK") }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
@@ -571,11 +612,17 @@ private fun TimingStep(
     onRecurrenceChange: (Recurrence) -> Unit,
     onCustomIntervalChange: (Int) -> Unit,
     onDeadlineDateClick: () -> Unit,
+    onDeadlineDateClear: () -> Unit,
     onDeadlineTimeClick: () -> Unit,
+    onDeadlineTimeClear: () -> Unit,
     onScheduledDateClick: () -> Unit,
+    onScheduledDateClear: () -> Unit,
     onScheduledTimeClick: () -> Unit,
+    onScheduledTimeClear: () -> Unit,
     onHabitDateClick: () -> Unit,
+    onHabitDateClear: () -> Unit,
     onHabitTimeClick: () -> Unit,
+    onHabitTimeClear: () -> Unit,
     onReminderFlagsChange: (Int) -> Unit,
     onScheduleLockedChange: (Boolean) -> Unit
 ) {
@@ -608,16 +655,65 @@ private fun TimingStep(
         }
 
         if (recurrence == Recurrence.NONE) {
-            Text("Deadline", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DateChip(deadlineDate, "Date", onDeadlineDateClick)
-                TimeChip(deadlineTime, "Time", onDeadlineTimeClick)
+            val isAutoScheduleMode = scheduledDate == null && scheduledTime == null && !isScheduleLocked
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isAutoScheduleMode) NeuroFlowColors.Purple.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                border = BorderStroke(1.dp, if (isAutoScheduleMode) NeuroFlowColors.Purple.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚡ ", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Auto-Schedule Optimal Time",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            if (isAutoScheduleMode)
+                                "Auto-scheduler will automatically place this task into your best energy window."
+                            else
+                                "Manual schedule set. Turn ON to let AI pick the best time slot.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = isAutoScheduleMode,
+                        onCheckedChange = { enableAuto ->
+                            if (enableAuto) {
+                                onScheduledDateClear()
+                                onScheduledTimeClear()
+                                onScheduleLockedChange(false)
+                            } else {
+                                onScheduleLockedChange(true)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = NeuroFlowColors.Purple)
+                    )
+                }
             }
 
-            Text("Scheduled", style = MaterialTheme.typography.labelLarge)
+            Text("Deadline", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DateChip(scheduledDate, "Date", onScheduledDateClick)
-                TimeChip(scheduledTime, "Time", onScheduledTimeClick)
+                DateChip(deadlineDate, "Date", onDeadlineDateClick, onClear = onDeadlineDateClear)
+                TimeChip(deadlineTime, "Time", onDeadlineTimeClick, onClear = onDeadlineTimeClear)
+            }
+
+            Text("Manual Scheduled Time (Optional)", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DateChip(scheduledDate, "Date", onScheduledDateClick, onClear = onScheduledDateClear)
+                TimeChip(scheduledTime, "Time", onScheduledTimeClick, onClear = onScheduledTimeClear)
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -625,13 +721,13 @@ private fun TimingStep(
                     checked = isScheduleLocked,
                     onCheckedChange = onScheduleLockedChange
                 )
-                Text("Lock schedule")
+                Text("Lock manual schedule")
             }
         } else {
             Text("Recurring start", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DateChip(habitDate, "Start date", onHabitDateClick)
-                TimeChip(habitTime, "Start time", onHabitTimeClick)
+                DateChip(habitDate, "Start date", onHabitDateClick, onClear = onHabitDateClear)
+                TimeChip(habitTime, "Start time", onHabitTimeClick, onClear = onHabitTimeClear)
             }
         }
 
@@ -652,7 +748,9 @@ private fun RecurrenceStep(
     habitDate: Long?,
     habitTime: Long?,
     onHabitDateClick: () -> Unit,
-    onHabitTimeClick: () -> Unit
+    onHabitDateClear: () -> Unit,
+    onHabitTimeClick: () -> Unit,
+    onHabitTimeClear: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -668,8 +766,8 @@ private fun RecurrenceStep(
         )
         Text("Pattern: ${recurrenceDisplayName(recurrence)}${if (recurrence == Recurrence.CUSTOM) " every $customIntervalDays days" else ""}")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DateChip(habitDate, "Start date", onHabitDateClick)
-            TimeChip(habitTime, "Start time", onHabitTimeClick)
+            DateChip(habitDate, "Start date", onHabitDateClick, onClear = onHabitDateClear)
+            TimeChip(habitTime, "Start time", onHabitTimeClick, onClear = onHabitTimeClear)
         }
     }
 }
@@ -847,52 +945,112 @@ private fun TagsStep(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Tags", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Tags & Context", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Tags auto-match energy profiles, peak windows, and context to place your task at the ideal time.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = newTag,
-                onValueChange = { newTag = it },
-                label = { Text("Add tag") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-            Button(onClick = {
-                onAddTag(newTag)
-                newTag = ""
-            }) {
-                Text("Add")
+        // Custom Tag Input Field
+        OutlinedTextField(
+            value = newTag,
+            onValueChange = { newTag = it },
+            label = { Text("Add custom tag (e.g. #coding, @home)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NeuroFlowColors.Purple,
+                focusedLabelColor = NeuroFlowColors.Purple
+            ),
+            trailingIcon = {
+                if (newTag.isNotBlank()) {
+                    IconButton(onClick = {
+                        onAddTag(newTag)
+                        newTag = ""
+                    }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Add Tag", tint = NeuroFlowColors.Purple)
+                    }
+                }
             }
-        }
+        )
 
+        // Active / Selected Tags Container
         if (selectedTags.isNotEmpty()) {
-            Text("Selected", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                selectedTags.forEach { tag ->
-                    InputChip(
-                        selected = true,
-                        onClick = { onRemoveTag(tag) },
-                        label = { Text(tag) },
-                        trailingIcon = {
-                            Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(14.dp))
-                        }
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Selected Tags (${selectedTags.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    selectedTags.forEach { tag ->
+                        val displayTag = if (tag.startsWith("#") || tag.startsWith("@")) tag else "#$tag"
+                        InputChip(
+                            selected = true,
+                            onClick = { onRemoveTag(tag) },
+                            label = { Text(displayTag, fontWeight = FontWeight.Medium) },
+                            trailingIcon = {
+                                Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(14.dp))
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeuroFlowColors.Purple.copy(alpha = 0.18f),
+                                selectedLabelColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
                 }
             }
         }
 
-        if (suggestedTags.isNotEmpty()) {
-            Text("Suggested taxonomy", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                suggestedTags.forEach { tag ->
-                    val isSelected = selectedTags.any { it.equals(tag, ignoreCase = true) }
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onToggleTag(tag) },
-                        label = { Text(tag) }
-                    )
+        // Categorized Suggested Taxonomy
+        Text("Popular Taxonomy & Energy Profiles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+
+        val taxonomyGroups = remember(suggestedTags) {
+            listOf(
+                "🧠 High Focus & Deep Work" to listOf("deep work", "coding", "study", "learning", "writing", "finance"),
+                "🏃 Health & Wellness" to listOf("exercise", "workout", "gym", "mindfulness", "meditation", "yoga"),
+                "💻 Work & Admin" to listOf("admin", "meetings", "planning", "review", "@computer", "@work"),
+                "🏡 Life & Errands" to listOf("chores", "household", "errands", "physical", "@home", "@errands")
+            )
+        }
+
+        taxonomyGroups.forEach { (groupTitle, groupTags) ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(groupTitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    groupTags.forEach { tag ->
+                        val isSelected = selectedTags.any { it.equals(tag, ignoreCase = true) }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onToggleTag(tag) },
+                            label = { Text(tag) },
+                            leadingIcon = if (isSelected) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            } else null
+                        )
+                    }
+                }
+            }
+        }
+
+        val otherSuggested = suggestedTags.filterNot { tag ->
+            taxonomyGroups.any { (_, group) -> group.any { g -> g.equals(tag, ignoreCase = true) } }
+        }
+        if (otherSuggested.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("More Suggested", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    otherSuggested.forEach { tag ->
+                        val isSelected = selectedTags.any { it.equals(tag, ignoreCase = true) }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onToggleTag(tag) },
+                            label = { Text(tag) }
+                        )
+                    }
                 }
             }
         }
@@ -947,7 +1105,7 @@ private fun ReviewStep(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(autoSchedulePreview.reason)
-                if (autoSchedulingEnabled && uiState.recurrence == Recurrence.NONE && uiState.scheduledDate == null) {
+                if (autoSchedulingEnabled && autoSchedulePreview.willAutoSchedule && uiState.recurrence == Recurrence.NONE && uiState.scheduledDate == null && uiState.scheduledTime == null) {
                     Text(
                         "Task has no manual schedule; scheduler will attempt placement when worker runs.",
                         style = MaterialTheme.typography.labelMedium,
@@ -1021,20 +1179,102 @@ private fun SliderField(
 }
 
 @Composable
-private fun DateChip(dateMillis: Long?, placeholder: String, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick) {
-        Icon(Icons.Filled.CalendarMonth, contentDescription = "Date", modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(if (dateMillis != null) formatDate(dateMillis) else placeholder)
+private fun DateChip(
+    dateMillis: Long?,
+    placeholder: String,
+    onClick: () -> Unit,
+    onClear: (() -> Unit)? = null
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (dateMillis != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        border = BorderStroke(1.dp, if (dateMillis != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                Icons.Filled.CalendarMonth,
+                contentDescription = "Date",
+                modifier = Modifier.size(16.dp),
+                tint = if (dateMillis != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                if (dateMillis != null) formatDate(dateMillis) else placeholder,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (dateMillis != null) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (dateMillis != null && onClear != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onClear),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Clear Date",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun TimeChip(timeMillis: Long?, placeholder: String, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick) {
-        Icon(Icons.Filled.Schedule, contentDescription = "Time", modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(if (timeMillis != null) formatTime(timeMillis) else placeholder)
+private fun TimeChip(
+    timeMillis: Long?,
+    placeholder: String,
+    onClick: () -> Unit,
+    onClear: (() -> Unit)? = null
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (timeMillis != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        border = BorderStroke(1.dp, if (timeMillis != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                Icons.Filled.Schedule,
+                contentDescription = "Time",
+                modifier = Modifier.size(16.dp),
+                tint = if (timeMillis != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                if (timeMillis != null) formatTime(timeMillis) else placeholder,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (timeMillis != null) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (timeMillis != null && onClear != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onClear),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Clear Time",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1062,7 +1302,7 @@ private fun quadrantDisplayName(q: Quadrant) = when (q) {
     Quadrant.DO_FIRST -> "Q1: Do First"
     Quadrant.SCHEDULE -> "Q2: Schedule"
     Quadrant.DELEGATE -> "Q3: Delegate"
-    Quadrant.ELIMINATE -> "Q4: Eliminate"
+    Quadrant.ELIMINATE -> "Q4: On Hold"
 }
 
 private fun priorityDisplayName(p: Priority) = when (p) {

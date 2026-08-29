@@ -129,7 +129,7 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                     "DO FIRST — urgent and important. These need your attention today.",
                     "SCHEDULE — important but not urgent. Plan time for these.",
                     "DELEGATE — urgent but low impact. Handle quickly or hand off.",
-                    "ELIMINATE — neither urgent nor important. Let them go.",
+                    "ON HOLD — parked tasks. Kept on hold until you decide to schedule or plan them.",
                     "Tap any task to open it in Focus Mode. Tap a quadrant header to see all tasks in it.",
                     "The ✦ badge shows the highest-scored task — that's your recommended next action."
                 )

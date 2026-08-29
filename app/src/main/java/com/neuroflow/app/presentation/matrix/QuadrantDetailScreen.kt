@@ -152,5 +152,5 @@ private fun emptyStateMessage(quadrant: Quadrant): String = when (quadrant) {
     Quadrant.DO_FIRST  -> "🎯 No urgent & important tasks!\nYou're on top of things."
     Quadrant.SCHEDULE  -> "📅 Nothing scheduled yet.\nPlan your important tasks here."
     Quadrant.DELEGATE  -> "🤝 No tasks to delegate.\nFocus on what matters most to you."
-    Quadrant.ELIMINATE -> "✨ Nothing to eliminate!\nYou're staying focused."
+    Quadrant.ELIMINATE -> "⏸️ Nothing on hold.\nPark unscheduled tasks here until you're ready to plan them."
 }

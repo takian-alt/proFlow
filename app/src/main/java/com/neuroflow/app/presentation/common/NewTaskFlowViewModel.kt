@@ -214,11 +214,19 @@ class NewTaskFlowViewModel @Inject constructor(
             null
         }
 
+        val resolvedQuadrant = if (state.quadrant == Quadrant.ELIMINATE &&
+            (state.scheduledDate != null || state.deadlineDate != null || state.recurrence != Recurrence.NONE)
+        ) {
+            if (state.priority == Priority.HIGH) Quadrant.DO_FIRST else Quadrant.SCHEDULE
+        } else {
+            state.quadrant
+        }
+
         return (existing ?: TaskEntity(title = state.title)).copy(
             title = state.title,
             description = state.description,
             tags = state.tags.joinToString(","),
-            quadrant = state.quadrant,
+            quadrant = resolvedQuadrant,
             priority = state.priority,
             recurrence = state.recurrence,
             recurrenceIntervalDays = state.customIntervalDays,
@@ -228,6 +236,8 @@ class NewTaskFlowViewModel @Inject constructor(
             scheduledDate = if (state.recurrence == Recurrence.NONE) state.scheduledDate else null,
             scheduledTime = if (state.recurrence == Recurrence.NONE) state.scheduledTime else null,
             isAutoScheduled = when {
+                state.isScheduleLocked -> false
+                state.scheduledDate == null && state.scheduledTime == null -> true
                 existing?.isAutoScheduled == true &&
                     state.scheduledDate == existing.scheduledDate &&
                     state.scheduledTime == existing.scheduledTime &&

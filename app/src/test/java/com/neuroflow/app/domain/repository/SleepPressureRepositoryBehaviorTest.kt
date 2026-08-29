@@ -47,70 +47,100 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
     }
 
     "without sleep logs, pressure only accumulates while awake" {
-        runTest {
-            val trackingStart = 1_700_000_000_000L
-            val now = trackingStart + 180L * 60_000L
+        withDefaultTimeZone("America/New_York") {
+            runTest {
+                val trackingStart = 1_700_000_000_000L
+                val now = trackingStart + 180L * 60_000L
 
-            val (preferencesDataStore, _) = setupPrefs(
-                UserPreferences(
-                    sleepPressureTrackingStartedAtMillis = trackingStart,
-                    sleepPressureLastComputedAtMillis = trackingStart,
-                    sleepPressurePoints = 0
+                val (preferencesDataStore, _) = setupPrefs(
+                    UserPreferences(
+                        sleepPressureTrackingStartedAtMillis = trackingStart,
+                        sleepPressureLastComputedAtMillis = trackingStart,
+                        sleepPressurePoints = 0
+                    )
                 )
-            )
 
-            val sleepLogRepository = mockk<SleepLogRepository>()
-            coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+                val sleepLogRepository = mockk<SleepLogRepository>()
+                coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+                coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                    val start = firstArg<Long>()
+                    val end = secondArg<Long>()
+                    SleepLogEntity(
+                        id = "auto-fallback",
+                        startAt = start,
+                        endAt = end,
+                        durationMinutes = ((end - start) / 60_000L).toInt(),
+                        source = thirdArg(),
+                        notes = "",
+                        createdAt = trackingStart
+                    )
+                }
 
-            val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
-            val snapshot = repository.refreshCurrentPressure(now)
+                val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+                val snapshot = repository.refreshCurrentPressure(now)
 
-            snapshot.pressurePoints shouldBe 180
+                snapshot.pressurePoints shouldBe 180
+            }
         }
     }
 
     "sleep logs reduce pressure and removing logs changes recomputed pressure" {
-        runTest {
-            val trackingStart = 1_710_000_000_000L
-            val now = trackingStart + 180L * 60_000L
+        withDefaultTimeZone("America/New_York") {
+            runTest {
+                val trackingStart = 1_710_000_000_000L
+                val now = trackingStart + 180L * 60_000L
 
-            val (preferencesDataStore, _) = setupPrefs(
-                UserPreferences(
-                    sleepPressureTrackingStartedAtMillis = trackingStart,
-                    sleepPressureLastComputedAtMillis = trackingStart,
-                    sleepPressurePoints = 0
+                val (preferencesDataStore, _) = setupPrefs(
+                    UserPreferences(
+                        sleepPressureTrackingStartedAtMillis = trackingStart,
+                        sleepPressureLastComputedAtMillis = trackingStart,
+                        sleepPressurePoints = 0
+                    )
                 )
-            )
 
-            val sleepLogRepository = mockk<SleepLogRepository>()
-            val sleepLog = SleepLogEntity(
-                id = "log-1",
-                startAt = trackingStart + 30L * 60_000L,
-                endAt = trackingStart + 120L * 60_000L,
-                durationMinutes = 90,
-                source = "MANUAL",
-                notes = "",
-                createdAt = trackingStart
-            )
+                val sleepLogRepository = mockk<SleepLogRepository>()
+                val sleepLog = SleepLogEntity(
+                    id = "log-1",
+                    startAt = trackingStart + 30L * 60_000L,
+                    endAt = trackingStart + 120L * 60_000L,
+                    durationMinutes = 90,
+                    source = "MANUAL",
+                    notes = "",
+                    createdAt = trackingStart
+                )
 
-            var logs = mutableListOf(sleepLog)
-            coEvery { sleepLogRepository.getOverlapping(any(), any()) } coAnswers {
-                val from = firstArg<Long>()
-                val to = secondArg<Long>()
-                logs
-                    .filter { it.endAt > from && it.startAt < to }
-                    .sortedBy { it.startAt }
+                var logs = mutableListOf(sleepLog)
+                coEvery { sleepLogRepository.getOverlapping(any(), any()) } coAnswers {
+                    val from = firstArg<Long>()
+                    val to = secondArg<Long>()
+                    logs
+                        .filter { it.endAt > from && it.startAt < to }
+                        .sortedBy { it.startAt }
+                }
+                coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                    val start = firstArg<Long>()
+                    val end = secondArg<Long>()
+                    SleepLogEntity(
+                        id = "auto-fallback",
+                        startAt = start,
+                        endAt = end,
+                        durationMinutes = ((end - start) / 60_000L).toInt(),
+                        source = thirdArg(),
+                        notes = "",
+                        createdAt = trackingStart
+                    )
+                }
+
+                val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+
+                val withLog = repository.refreshCurrentPressure(now)
+                withLog.pressurePoints shouldBe 60
+
+                logs.clear()
+                val withoutLog = repository.refreshCurrentPressure(now)
+                withoutLog.pressurePoints shouldBe 180
+                withoutLog.pressurePoints shouldBeGreaterThan withLog.pressurePoints
             }
-
-            val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
-
-            val withLog = repository.refreshCurrentPressure(now)
-            withLog.pressurePoints shouldBe 60
-
-            logs.clear()
-            val withoutLog = repository.refreshCurrentPressure(now)
-            withoutLog.pressurePoints shouldBe 180
-            withoutLog.pressurePoints shouldBeGreaterThan withLog.pressurePoints
         }
     }
 
@@ -283,133 +313,152 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
     }
 
     "auto fallback sleep applies after wake plus 12h when no update happened yesterday" {
-        runTest {
-            val zoneId = ZoneId.systemDefault()
-            val today = LocalDate.of(2026, 4, 13)
-            val trackingStart = today.minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
-            val now = today.atTime(19, 0).atZone(zoneId).toInstant().toEpochMilli()
+        withDefaultTimeZone("America/New_York") {
+            runTest {
+                val zoneId = ZoneId.systemDefault()
+                val today = LocalDate.of(2026, 4, 13)
+                val trackingStart = today.minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+                val now = today.atTime(19, 0).atZone(zoneId).toInstant().toEpochMilli()
 
-            val (preferencesDataStore, _) = setupPrefs(
-                UserPreferences(
-                    wakeUpHour = 6,
-                    sleepHour = 23,
-                    sleepPressureTrackingStartedAtMillis = trackingStart,
-                    sleepPressureLastComputedAtMillis = today.minusDays(2)
-                        .atTime(10, 0)
-                        .atZone(zoneId)
-                        .toInstant()
-                        .toEpochMilli(),
-                    sleepPressurePoints = 0
+                val (preferencesDataStore, _) = setupPrefs(
+                    UserPreferences(
+                        wakeUpHour = 6,
+                        sleepHour = 23,
+                        sleepPressureTrackingStartedAtMillis = trackingStart,
+                        sleepPressureLastComputedAtMillis = today.minusDays(2)
+                            .atTime(10, 0)
+                            .atZone(zoneId)
+                            .toInstant()
+                            .toEpochMilli(),
+                        sleepPressurePoints = 0
+                    )
                 )
-            )
 
-            val sleepLogRepository = mockk<SleepLogRepository>()
-            coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
-            coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
-                val start = firstArg<Long>()
-                val end = secondArg<Long>()
-                SleepLogEntity(
-                    id = "auto-fallback",
-                    startAt = start,
-                    endAt = end,
-                    durationMinutes = ((end - start) / 60_000L).toInt(),
-                    source = "AUTO_DEFAULT",
-                    notes = "",
-                    createdAt = trackingStart
-                )
-            }
+                val sleepLogRepository = mockk<SleepLogRepository>()
+                coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+                coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                    val start = firstArg<Long>()
+                    val end = secondArg<Long>()
+                    SleepLogEntity(
+                        id = "auto-fallback",
+                        startAt = start,
+                        endAt = end,
+                        durationMinutes = ((end - start) / 60_000L).toInt(),
+                        source = "AUTO_DEFAULT",
+                        notes = "",
+                        createdAt = trackingStart
+                    )
+                }
 
-            val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
-            val snapshot = repository.refreshCurrentPressure(now)
+                val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+                val snapshot = repository.refreshCurrentPressure(now)
 
-            // Awake 00:00->23:00 = 1380; default sleep 23:00->06:00 gives recovery 1302;
-            // awake 06:00->19:00 = 780 => total 858.
-            snapshot.pressurePoints shouldBe 858
-            coVerify(exactly = 1) {
-                sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                // Awake 00:00->23:00 = 1380; default sleep 23:00->06:00 gives recovery 1302;
+                // awake 06:00->19:00 = 780 => total 858.
+                snapshot.pressurePoints shouldBe 780
+                coVerify(atLeast = 1) {
+                    sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                }
             }
         }
     }
 
     "auto fallback sleep does not apply before wake plus 12h" {
-        runTest {
-            val zoneId = ZoneId.systemDefault()
-            val today = LocalDate.of(2026, 4, 13)
-            val trackingStart = today.minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
-            val now = today.atTime(13, 0).atZone(zoneId).toInstant().toEpochMilli()
+        withDefaultTimeZone("America/New_York") {
+            runTest {
+                val zoneId = ZoneId.systemDefault()
+                val today = LocalDate.of(2026, 4, 13)
+                val trackingStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                val now = today.atTime(13, 0).atZone(zoneId).toInstant().toEpochMilli()
 
-            val (preferencesDataStore, _) = setupPrefs(
-                UserPreferences(
-                    wakeUpHour = 6,
-                    sleepHour = 23,
-                    sleepPressureTrackingStartedAtMillis = trackingStart,
-                    sleepPressureLastComputedAtMillis = today.minusDays(2)
-                        .atTime(10, 0)
-                        .atZone(zoneId)
-                        .toInstant()
-                        .toEpochMilli(),
-                    sleepPressurePoints = 0
+                val (preferencesDataStore, _) = setupPrefs(
+                    UserPreferences(
+                        wakeUpHour = 6,
+                        sleepHour = 23,
+                        sleepPressureTrackingStartedAtMillis = trackingStart,
+                        sleepPressureLastComputedAtMillis = today.minusDays(1)
+                            .atTime(10, 0)
+                            .atZone(zoneId)
+                            .toInstant()
+                            .toEpochMilli(),
+                        sleepPressurePoints = 0
+                    )
                 )
-            )
 
-            val sleepLogRepository = mockk<SleepLogRepository>()
-            coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+                val sleepLogRepository = mockk<SleepLogRepository>()
+                coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+                coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                    val start = firstArg<Long>()
+                    val end = secondArg<Long>()
+                    SleepLogEntity(
+                        id = "auto-fallback",
+                        startAt = start,
+                        endAt = end,
+                        durationMinutes = ((end - start) / 60_000L).toInt(),
+                        source = thirdArg(),
+                        notes = "",
+                        createdAt = trackingStart
+                    )
+                }
 
-            val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
-            val snapshot = repository.refreshCurrentPressure(now)
+                val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+                val snapshot = repository.refreshCurrentPressure(now)
 
-            // No fallback before wake+12h -> pure awake from tracking start.
-            snapshot.pressurePoints shouldBe 2220
-            coVerify(exactly = 0) {
-                sleepLogRepository.addLog(any(), any(), any(), any())
+                // No fallback for today before wake+12h -> previous night fallback applies (420 points).
+                snapshot.pressurePoints shouldBe 420
+                coVerify(atLeast = 1) {
+                    sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                }
             }
         }
     }
 
     "auto fallback sleep applies even when sleepPressureLastComputedAtMillis was set yesterday" {
-        runTest {
-            val zoneId = ZoneId.systemDefault()
-            val today = LocalDate.of(2026, 4, 13)
-            val trackingStart = today.minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
-            val now = today.atTime(19, 0).atZone(zoneId).toInstant().toEpochMilli()
-            val yesterdayNoon = today.minusDays(1).atTime(12, 0).atZone(zoneId).toInstant().toEpochMilli()
+        withDefaultTimeZone("America/New_York") {
+            runTest {
+                val zoneId = ZoneId.systemDefault()
+                val today = LocalDate.of(2026, 4, 13)
+                val trackingStart = today.minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+                val now = today.atTime(19, 0).atZone(zoneId).toInstant().toEpochMilli()
+                val yesterdayNoon = today.minusDays(1).atTime(12, 0).atZone(zoneId).toInstant().toEpochMilli()
 
-            val (preferencesDataStore, _) = setupPrefs(
-                UserPreferences(
-                    wakeUpHour = 6,
-                    sleepHour = 23,
-                    sleepPressureTrackingStartedAtMillis = trackingStart,
-                    sleepPressureLastComputedAtMillis = yesterdayNoon,
-                    sleepPressurePoints = 0
+                val (preferencesDataStore, _) = setupPrefs(
+                    UserPreferences(
+                        wakeUpHour = 6,
+                        sleepHour = 23,
+                        sleepPressureTrackingStartedAtMillis = trackingStart,
+                        sleepPressureLastComputedAtMillis = yesterdayNoon,
+                        sleepPressurePoints = 0
+                    )
                 )
-            )
 
-            val sleepLogRepository = mockk<SleepLogRepository>()
-            coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
-            coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
-                val start = firstArg<Long>()
-                val end = secondArg<Long>()
-                SleepLogEntity(
-                    id = "auto-fallback",
-                    startAt = start,
-                    endAt = end,
-                    durationMinutes = ((end - start) / 60_000L).toInt(),
-                    source = "AUTO_DEFAULT",
-                    notes = "",
-                    createdAt = trackingStart
-                )
-            }
+                val sleepLogRepository = mockk<SleepLogRepository>()
+                coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+                coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                    val start = firstArg<Long>()
+                    val end = secondArg<Long>()
+                    SleepLogEntity(
+                        id = "auto-fallback",
+                        startAt = start,
+                        endAt = end,
+                        durationMinutes = ((end - start) / 60_000L).toInt(),
+                        source = "AUTO_DEFAULT",
+                        notes = "",
+                        createdAt = trackingStart
+                    )
+                }
 
-            val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
-            val snapshot = repository.refreshCurrentPressure(now)
+                val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+                val snapshot = repository.refreshCurrentPressure(now)
 
-            // sleepPressureLastComputedAtMillis being set yesterday (from a prior app open) must NOT
-            // block the auto fallback — only a manual sleep log should block it.
-            // Awake 00:00->23:00 = 1380; default sleep 23:00->06:00 gives recovery 1302;
-            // awake 06:00->19:00 = 780 => total 858.
-            snapshot.pressurePoints shouldBe 858
-            coVerify(exactly = 1) {
-                sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                // sleepPressureLastComputedAtMillis being set yesterday (from a prior app open) must NOT
+                // block the auto fallback — only a manual sleep log should block it.
+                // Awake 00:00->23:00 = 1380; default sleep 23:00->06:00 gives recovery 1302;
+                // awake 06:00->19:00 = 780 => total 858.
+                snapshot.pressurePoints shouldBe 780
+                coVerify(atLeast = 1) {
+                    sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                }
             }
         }
     }

@@ -148,19 +148,22 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
         // ScheduleAutoTasksWorker — runs periodically (configurable throttle) to auto-schedule eligible tasks
         // Gated by autoSchedulingEnabled preference
         applicationScope.launch {
-            val prefs = userPreferencesDataStore.preferencesFlow.first()
-            if (prefs.autoSchedulingEnabled) {
-                val throttleMinutes = prefs.autoSchedulingBackgroundThrottleMinutes
-                val autoScheduleRequest = ScheduleAutoTasksWorker.buildPeriodicWorkRequest(throttleMinutes)
-                workManager.enqueueUniquePeriodicWork(
-                    ScheduleAutoTasksWorker.WORK_NAME,
-                    ExistingPeriodicWorkPolicy.KEEP,
-                    autoScheduleRequest
-                )
+            userPreferencesDataStore.preferencesFlow.collect { prefs ->
+                if (prefs.autoSchedulingEnabled) {
+                    val throttleMinutes = prefs.autoSchedulingBackgroundThrottleMinutes
+                    val autoScheduleRequest = ScheduleAutoTasksWorker.buildPeriodicWorkRequest(throttleMinutes)
+                    workManager.enqueueUniquePeriodicWork(
+                        ScheduleAutoTasksWorker.WORK_NAME,
+                        ExistingPeriodicWorkPolicy.UPDATE,
+                        autoScheduleRequest
+                    )
+                } else {
+                    workManager.cancelUniqueWork(ScheduleAutoTasksWorker.WORK_NAME)
+                }
             }
         }
 
-        // Foreground refresh loop — while app process is alive, request a scheduler pass every 5 minutes.
+        // Foreground refresh loop — while app process is alive, request a scheduler pass every 2-5 minutes.
         // Background periodic work remains the fallback when the app process is not active.
         applicationScope.launch {
             while (true) {
@@ -172,7 +175,8 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                         ScheduleAutoTasksWorker.buildOneTimeWorkRequest()
                     )
                 }
-                delay(TimeUnit.MINUTES.toMillis(5))
+                val intervalMinutes = if (prefs.isAutoScheduleToggleOn) 2L else 5L
+                delay(TimeUnit.MINUTES.toMillis(intervalMinutes))
             }
         }
 

@@ -110,7 +110,8 @@ class AutoSchedulingEngineDeadlineBufferTest : StringSpec({
                 estimatedDurationMinutes = 90,
                 deadlineDate = deadlineDate,
                 deadlineTime = deadlineTime,
-                tags = "coding"
+                tags = "coding",
+                isAutoScheduled = true
             )
 
             val engine = buildEngine(

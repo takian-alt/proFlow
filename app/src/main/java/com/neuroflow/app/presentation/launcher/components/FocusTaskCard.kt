@@ -522,7 +522,7 @@ private fun QuadrantBadge(quadrant: Quadrant) {
         Quadrant.DO_FIRST -> "Do First" to MaterialTheme.colorScheme.error
         Quadrant.SCHEDULE -> "Schedule" to MaterialTheme.colorScheme.primary
         Quadrant.DELEGATE -> "Delegate" to MaterialTheme.colorScheme.tertiary
-        Quadrant.ELIMINATE -> "Eliminate" to MaterialTheme.colorScheme.surfaceVariant
+        Quadrant.ELIMINATE -> "On Hold" to MaterialTheme.colorScheme.surfaceVariant
     }
 
     Surface(

@@ -119,7 +119,7 @@ object TaskTagSchedulingProfile {
             .mapNotNull { profileFor(it) }
     }
 
-    private fun normalize(tag: String): String = tag.trim().lowercase(Locale.getDefault())
+    private fun normalize(tag: String): String = tag.trim().trimStart('@').lowercase(Locale.getDefault())
 }
 
 fun TaskEntity.determineCategory(): TaskCategory {
@@ -133,7 +133,7 @@ fun TaskEntity.determineCategory(): TaskCategory {
     }
 
     val tagsList = tags.split(',')
-        .map { it.trim().lowercase(Locale.getDefault()) }
+        .map { it.trim().trimStart('@').lowercase(Locale.getDefault()) }
         .filter { it.isNotBlank() }
 
     // 1. Try to find a matching tag and use its profile category if available
@@ -146,17 +146,35 @@ fun TaskEntity.determineCategory(): TaskCategory {
 
     // 2. Explicit keywords fallback (catches custom tags not in profilesByTag)
     return when {
-        tagsList.any { it in listOf("mindfulness", "meditation", "breathwork", "yoga", "reflection", "journaling", "journal", "mental health") } -> {
+        tagsList.any { tag ->
+            listOf("mindfulness", "meditation", "breathwork", "yoga", "reflection", "journaling", "journal", "mental health", "calm").any { tag.contains(it) }
+        } -> {
             TaskCategory.MINDFULNESS
         }
-        tagsList.any { it in listOf("exercise", "workout", "gym", "running", "run", "cardio", "fitness", "training", "sports", "stretching", "walking") } -> {
+        tagsList.any { tag ->
+            listOf("exercise", "workout", "gym", "running", "run", "cardio", "fitness", "training", "sports", "stretching", "walking", "swim").any { tag.contains(it) }
+        } -> {
             TaskCategory.EXERCISE
         }
-        tagsList.any { it in listOf("hard work", "deep work", "coding", "programming", "writing", "study", "learning", "finance", "focus") } -> {
+        tagsList.any { tag ->
+            listOf("hard work", "deep work", "coding", "programming", "dev", "software", "writing", "study", "learning", "finance", "focus", "math", "research", "analysis").any { tag.contains(it) }
+        } -> {
             TaskCategory.HARD_WORK
         }
-        tagsList.any { it in listOf("physical", "chores", "errands", "household", "cleaning", "maintenance") } -> {
+        tagsList.any { tag ->
+            listOf("creative", "design", "art", "ui", "ux", "drafting", "music", "painting", "drawing", "brainstorm").any { tag.contains(it) }
+        } -> {
+            TaskCategory.CREATIVE
+        }
+        tagsList.any { tag ->
+            listOf("physical", "chores", "errands", "household", "cleaning", "maintenance", "laundry", "repairs").any { tag.contains(it) }
+        } -> {
             TaskCategory.PHYSICAL
+        }
+        tagsList.any { tag ->
+            listOf("admin", "meetings", "email", "bills", "invoices", "paperwork", "review", "planning", "organize").any { tag.contains(it) }
+        } -> {
+            TaskCategory.ROUTINE
         }
         // 3. Fall back to TaskType mapping
         else -> when (taskType) {

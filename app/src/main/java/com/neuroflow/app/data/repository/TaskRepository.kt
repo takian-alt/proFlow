@@ -17,6 +17,7 @@ import java.util.Calendar
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 
 private fun Long.toDayStart(): Long {
     val cal = Calendar.getInstance().apply { timeInMillis = this@toDayStart }
@@ -63,7 +64,6 @@ private fun shiftDateAndOptionalTime(
     val (shiftedDate, shiftedTime) = splitToLocalDateAndTime(shifted)
     return shiftedDate to if (time == null) null else shiftedTime
 }
-
 @Singleton
 class TaskRepository @Inject constructor(
     private val taskDao: TaskDao,
@@ -96,6 +96,9 @@ class TaskRepository @Inject constructor(
 
     suspend fun insert(task: TaskEntity) {
         taskDao.insert(task)
+        if (!AutoSchedulingContracts.hasManualScheduleData(task) && task.status != TaskStatus.COMPLETED) {
+            enqueueAutoSchedulingRecheck()
+        }
     }
     suspend fun update(task: TaskEntity) {
         val old = taskDao.getById(task.id)

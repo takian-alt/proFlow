@@ -93,7 +93,7 @@ object EnergyScoreEngine {
     ): Float {
         val wrapped = wrapMinutes(minutesSincePeak)
         val windows = profile?.windows ?: DEFAULT_WINDOWS
-        val maxPotentialAmplitude = windows.sumOf { it.amplitude.toDouble() }.toFloat().coerceAtLeast(1.0f)
+        val maxPotentialAmplitude = windows.maxOfOrNull { it.amplitude }?.coerceAtLeast(1.0f) ?: 1.0f
         val combined = windows.sumOf { window ->
             peakWindow(
                 minute = wrapped,

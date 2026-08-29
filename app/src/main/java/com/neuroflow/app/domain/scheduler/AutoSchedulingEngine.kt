@@ -147,7 +147,8 @@ class AutoSchedulingEngine @Inject constructor(
         unscheduledTasks: List<TaskEntity>,
         nowMillis: Long,
         energyScoreFn: suspend (Long) -> Pair<Int, Float>,
-        busySlotStartMillis: Set<Long> = emptySet()
+        busySlotStartMillis: Set<Long> = emptySet(),
+        allActiveTasks: List<TaskEntity> = emptyList()
     ): List<ScheduleDecision> {
         // Build dependency graph once for all tasks (performance optimization)
         val taskMap = unscheduledTasks.associateBy { it.id }
@@ -195,7 +196,7 @@ class AutoSchedulingEngine @Inject constructor(
             val deadlinePressure = calculateDeadlinePressure(task, nowMillis)
 
             for ((slotIndex, slot) in horizon.slots.withIndex()) {
-                if (slot.startMillis <= nowMillis) {
+                if (slot.endMillis <= nowMillis + 20 * 60_000L) {
                     continue
                 }
 
@@ -208,7 +209,7 @@ class AutoSchedulingEngine @Inject constructor(
                 }
 
                 val deadlineMillis = task.deadlineDate?.plus(task.deadlineTime ?: 0L)
-                if (deadlineMillis != null && slot.startMillis > deadlineMillis) {
+                if (deadlineMillis != null && deadlineMillis >= nowMillis && slot.startMillis > deadlineMillis) {
                     continue
                 }
 
@@ -247,8 +248,11 @@ class AutoSchedulingEngine @Inject constructor(
         // Greedy assignment: iterate by task urgency and select best viable slot per task.
         val decisions = mutableListOf<ScheduleDecision>()
         val blockedSlotIndices = mutableSetOf<Int>()
-        val highCognitiveMinutesByDay = mutableMapOf<Int, Int>()
-        val highCognitiveHoursByDay = mutableMapOf<Int, MutableSet<Int>>()
+        
+        val (highCognitiveMinutesByDay, highCognitiveHoursByDay) = calculateExistingCognitiveLoad(
+            allActiveTasks, nowMillis, prefs.autoSchedulingHorizonDays
+        )
+
         // W5 fix: Track cognitive minutes as a session cluster, not per-task.
         // Only trigger a break when the accumulated cluster exceeds the threshold.
         val highCognitiveMinutesSinceBreakByDay = mutableMapOf<Int, Int>()
@@ -298,7 +302,7 @@ class AutoSchedulingEngine @Inject constructor(
                         durationMinutes = estimatedDuration,
                         blockedSlotIndices = blockedSlotIndices,
                         busySlotStartMillis = busySlotStartMillis,
-                        allowCrossDay = isLongRunningTask  // Allow long tasks to span days
+                        allowCrossDay = false  // Keep tasks strictly within single-day slot boundaries
                     )
                 ) {
                     return@forEach
@@ -361,8 +365,7 @@ class AutoSchedulingEngine @Inject constructor(
             // Pick candidate: prefer future preferred slot over today's fallback if future fit score is significantly higher (> 0.25 delta)
             val chosen = when {
                 bestTodayPref != null -> bestTodayPref
-                bestFuturePref != null && (bestTodayFallback == null || effectiveFitScore(bestFuturePref.first) > effectiveFitScore(bestTodayFallback.first) + 0.25f) -> bestFuturePref
-                bestTodayFallback != null -> bestTodayFallback
+                bestTodayFallback != null && (bestFuturePref == null || effectiveFitScore(bestTodayFallback.first) >= 0.35f) -> bestTodayFallback
                 bestFuturePref != null -> bestFuturePref
                 else -> bestFutureFallback
             } ?: return@forEach
@@ -375,11 +378,14 @@ class AutoSchedulingEngine @Inject constructor(
             val estimatedDuration = chosen.second
             val slot = horizon.slots[fitScore.slotIndex]
 
+            val taskStartOffsetMillis = slot.assignedMinutes * 60_000L
+            val scheduledStartMillis = slot.startMillis + taskStartOffsetMillis
+
             decisions.add(
                 ScheduleDecision(
                     taskId = fitScore.taskId,
                     assignedSlotIndex = fitScore.slotIndex,
-                    scheduledStartMillis = slot.startMillis,
+                    scheduledStartMillis = scheduledStartMillis,
                     estimatedDurationMinutes = estimatedDuration,
                     assignmentReason = buildAssignmentReason(fitScore),
                     fitScore = fitScore,
@@ -467,18 +473,19 @@ class AutoSchedulingEngine @Inject constructor(
         timeSpentMinutes: Int, // How long was worked on before incompleteness detected
         nowMillis: Long,
         energyScoreFn: suspend (Long) -> Pair<Int, Float>,
-        busySlotStartMillis: Set<Long> = emptySet()
+        busySlotStartMillis: Set<Long> = emptySet(),
+        allActiveTasks: List<TaskEntity> = emptyList()
     ): ScheduleDecision? {
         val prefs = preferencesDataStore.preferencesFlow.first()
         if (!prefs.autoSchedulingEnabled) {
             return null
         }
 
-        // Respect locked tasks - don't replan them even if missed
-        if (task.isScheduleLocked) {
+        // Respect locked tasks and manual schedules - don't replan them automatically
+        if (task.isScheduleLocked || !task.isAutoScheduled || (AutoSchedulingContracts.hasManualScheduleData(task) && !task.isAutoScheduled)) {
             android.util.Log.i(
                 "AutoSchedulingEngine",
-                "Replanning skipped for task ${task.id}: task is locked"
+                "Replanning skipped for task ${task.id}: task is locked or manually scheduled"
             )
             return null
         }
@@ -898,7 +905,8 @@ class AutoSchedulingEngine @Inject constructor(
                 slot.availableCapacityMinutes - slot.assignedMinutes  // Available space in slot
             ).coerceAtLeast(0)
 
-            slot.assignedMinutes += minutesToAssign
+            // Add assigned minutes + 10-minute practical transition buffer between tasks
+            slot.assignedMinutes = (slot.assignedMinutes + minutesToAssign + 10).coerceAtMost(slot.availableCapacityMinutes)
 
             // Only block slot if utilization has hit capacity limits
             val limit = when (slot.energyProfile.zone) {
@@ -963,13 +971,20 @@ class AutoSchedulingEngine @Inject constructor(
                 continue
             }
 
-            blockedSlotIndices += idx
-            // W14 fix: Reserve only the actual break minutes needed, not the full 60-minute slot.
-            // Previously this always reserved 60 min even when break policy only needed 15 min.
             val actualReserved = minOf(remainingBreak, slot.availableCapacityMinutes)
-            slot.reservedBreakMinutes = actualReserved
+            slot.reservedBreakMinutes += actualReserved
             remainingBreak -= actualReserved
             slotsReserved++
+
+            // Only block slot if utilization has hit capacity limits
+            val limit = when (slot.energyProfile.zone) {
+                EnergyZone.CRITICAL -> 0.50f
+                else -> 0.70f
+            }
+            if (calculateSlotUtilization(slot) >= limit) {
+                blockedSlotIndices += idx
+            }
+
             idx++
         }
 
@@ -1053,30 +1068,34 @@ class AutoSchedulingEngine @Inject constructor(
             while (hoursIterated < totalHoursInWindow) {
                 val slotStartMillis = dayCal.timeInMillis
 
-                // Skip if slot is in the past (safety check)
-                if (slotStartMillis <= nowMillis) {
-                    dayCal.add(Calendar.HOUR_OF_DAY, 1)
-                    hoursIterated++
-                    continue
-                }
-
                 val slotEndMillis = Calendar.getInstance().apply {
                     timeInMillis = slotStartMillis
                     add(Calendar.HOUR_OF_DAY, 1)
                 }.timeInMillis
 
+                // Skip if entire slot is in the past or has <15 usable minutes remaining (after 5m buffer)
+                if (slotEndMillis <= nowMillis + 20 * 60_000L) {
+                    dayCal.add(Calendar.HOUR_OF_DAY, 1)
+                    hoursIterated++
+                    continue
+                }
+
+                // If slot started in the past, trim start to 5 minutes from now
+                val effectiveStartMillis = if (slotStartMillis < nowMillis) {
+                    nowMillis + 5 * 60_000L
+                } else {
+                    slotStartMillis
+                }
+
+                val availableCapacityMinutes = ((slotEndMillis - effectiveStartMillis) / 60_000L).toInt().coerceAtMost(60)
+
                 // Query energy for this hour
-                val (energyScore, confidence) = energyScoreFn(slotStartMillis)
-                // W11 fix: Pass hourKey and per-cycle hysteresisState for zone tracking
+                val (energyScore, confidence) = energyScoreFn(effectiveStartMillis)
                 val slotHourKey = dayIdx * 24 + dayCal.get(Calendar.HOUR_OF_DAY)
                 val energyProfile = EnergyProfile.from(energyScore, confidence, 0.0f, slotHourKey, hysteresisState)
 
-                // Capacity is time-based only — all slots get full 60-minute capacity.
-                // Energy zone affects utilization limits (in planAutoSchedule), not available time.
-                val availableCapacityMinutes = 60
-
                 val slot = TimeSlot(
-                    startMillis = slotStartMillis,
+                    startMillis = effectiveStartMillis,
                     endMillis = slotEndMillis,
                     dayIndex = dayIdx,
                     hourOfDay = dayCal.get(Calendar.HOUR_OF_DAY),
@@ -1180,7 +1199,7 @@ class AutoSchedulingEngine @Inject constructor(
                 val contextMatch = when {
                     profile.preferredContext.isNullOrBlank() -> 0.85f
                     task.contextTag.isBlank() -> 0.6f
-                    profile.preferredContext.equals(task.contextTag, ignoreCase = true) -> 1.0f
+                    profile.preferredContext.trimStart('@').equals(task.contextTag.trimStart('@'), ignoreCase = true) -> 1.0f
                     else -> 0.35f
                 }
 
@@ -1226,9 +1245,23 @@ class AutoSchedulingEngine @Inject constructor(
         val priorityPressure = (priorityLevelScore(task) * 0.6f + impactPriorityBlend(task) * 0.4f).coerceIn(0f, 1f)
         score += priorityPressure * 0.08f
 
-        // 6. Temporal proximity: all else equal, choose the nearest viable free slot (adjusted weight: 0.08)
+        // 6. Temporal proximity & Front-loading: heavily favor today & tomorrow over procrastinating to future days
         val proximity = calculateProximityScore(slot.startMillis, nowMillis)
-        score += proximity * 0.08f
+        val hoursFromNow = ((slot.startMillis - nowMillis).coerceAtLeast(0L) / 3_600_000f)
+        val timeProximityBonus = maxOf(0f, 1.0f - (hoursFromNow / 24.0f)) * 0.15f
+        val dayFrontLoadScore = when (slot.dayIndex) {
+            0 -> 1.0f    // Today: strong preference when free
+            1 -> 0.65f   // Tomorrow
+            2 -> 0.30f   // Day 2
+            else -> 0.10f // Day 3+
+        }
+
+        // Overdue emergency boost: if task's deadline is in the past, heavily reward today's slots
+        val isOverdue = task.deadlineDate?.let { (it + (task.deadlineTime ?: 0L)) < nowMillis } ?: false
+        val overdueBonus = if (isOverdue && slot.dayIndex == 0) 0.35f else 0.0f
+        val dayPenalty = slot.dayIndex * 0.15f
+
+        score += (proximity * 0.08f) + timeProximityBonus + (dayFrontLoadScore * 0.20f) + overdueBonus - dayPenalty
 
         // 6.5 Priority timing fit: keep high-priority work from drifting too far out (adjusted weight: 0.06)
         val priorityTimingFit = calculatePriorityTimingFit(task, slot.startMillis, nowMillis)
@@ -1511,7 +1544,14 @@ class AutoSchedulingEngine @Inject constructor(
 
         val preferred = nowMillis + priorityWindowMillis
         if (deadlineMillis == null) {
-            return preferred
+            val endOfTodayCal = Calendar.getInstance().apply {
+                timeInMillis = nowMillis
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+            return maxOf(nowMillis + (12L * 3600_000L), endOfTodayCal.timeInMillis)
         }
 
         val safetyBufferMinutes = calculateDeadlineSafetyBufferMinutes(
@@ -1595,9 +1635,8 @@ class AutoSchedulingEngine @Inject constructor(
         return when {
             minutesBeforeDeadline < 30 -> 0.2f
             minutesBeforeDeadline < targetBuffer / 2 -> 0.45f
-            minutesBeforeDeadline <= targetBuffer + 60 -> 1.0f
-            minutesBeforeDeadline <= targetBuffer + 240 -> 0.82f
-            else -> 0.65f
+            minutesBeforeDeadline < targetBuffer -> 0.75f
+            else -> 1.0f
         }
     }
 
@@ -1815,6 +1854,42 @@ class AutoSchedulingEngine @Inject constructor(
         }
 
         return true
+    }
+
+    private fun calculateExistingCognitiveLoad(
+        allActiveTasks: List<TaskEntity>,
+        nowMillis: Long,
+        horizonDays: Int
+    ): Pair<MutableMap<Int, Int>, MutableMap<Int, MutableSet<Int>>> {
+        val highCognitiveMinutesByDay = mutableMapOf<Int, Int>()
+        val highCognitiveHoursByDay = mutableMapOf<Int, MutableSet<Int>>()
+
+        val startOfToday = Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        allActiveTasks.forEach { task ->
+            if (task.status == com.neuroflow.app.domain.model.TaskStatus.ACTIVE && task.scheduledDate != null && task.scheduledTime != null) {
+                val scheduledStartMillis = task.scheduledDate + task.scheduledTime
+                if (scheduledStartMillis >= nowMillis) {
+                    val dayIndex = ((task.scheduledDate - startOfToday) / 86400000L).toInt()
+                    if (dayIndex in 0 until horizonDays) {
+                        if (isCognitivelyIntense(task)) {
+                            val duration = task.estimatedDurationMinutes.takeIf { it > 0 } ?: 30
+                            highCognitiveMinutesByDay[dayIndex] = (highCognitiveMinutesByDay[dayIndex] ?: 0) + duration
+                            
+                            val hourOfDay = Calendar.getInstance().apply { timeInMillis = scheduledStartMillis }.get(Calendar.HOUR_OF_DAY)
+                            highCognitiveHoursByDay.getOrPut(dayIndex) { mutableSetOf() }.add(hourOfDay)
+                        }
+                    }
+                }
+            }
+        }
+        return Pair(highCognitiveMinutesByDay, highCognitiveHoursByDay)
     }
 
     private fun trackCognitiveLoad(

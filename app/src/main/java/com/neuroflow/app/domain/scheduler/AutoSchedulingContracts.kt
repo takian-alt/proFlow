@@ -10,11 +10,13 @@ import com.neuroflow.app.data.local.entity.startOfLocalDay
 object AutoSchedulingContracts {
 
     fun hasManualScheduleData(task: TaskEntity): Boolean {
-        return task.scheduledDate != null || task.scheduledTime != null
+        return (task.scheduledDate != null || task.scheduledTime != null) && !task.isAutoScheduled
     }
 
     fun isMutableByAutoScheduler(task: TaskEntity): Boolean {
-        return !task.isScheduleLocked && !hasManualScheduleData(task) && hasDeadlineData(task)
+        return !task.isScheduleLocked &&
+               task.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE &&
+               (!hasManualScheduleData(task) || task.isAutoScheduled)
     }
 
     /**
