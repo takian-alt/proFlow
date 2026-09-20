@@ -50,6 +50,10 @@ fun mapPreferencesToTheme(
             com.neuroflow.app.presentation.launcher.domain.ClockStyle.DIGITAL
         com.neuroflow.app.presentation.launcher.data.ClockStyle.MINIMAL ->
             com.neuroflow.app.presentation.launcher.domain.ClockStyle.MINIMAL
+        com.neuroflow.app.presentation.launcher.data.ClockStyle.STACKED ->
+            com.neuroflow.app.presentation.launcher.domain.ClockStyle.STACKED
+        com.neuroflow.app.presentation.launcher.data.ClockStyle.SMART_PILL ->
+            com.neuroflow.app.presentation.launcher.domain.ClockStyle.SMART_PILL
     }
 
     // Map IconShape enum from PinnedAppsDataStore to domain enum
@@ -86,7 +90,8 @@ fun mapPreferencesToTheme(
         iconPackPackageName = preferences.iconPackPackageName,
         iconShape = iconShape,
         drawerColumns = preferences.drawerColumns,
-        distractionDimmingEnabled = preferences.distractionDimmingEnabled // Phase 5: enabled
+        distractionDimmingEnabled = preferences.distractionDimmingEnabled, // Phase 5: enabled
+        themedIconsEnabled = preferences.themedIconsEnabled
     )
 }
 

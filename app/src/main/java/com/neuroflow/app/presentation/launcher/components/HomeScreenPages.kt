@@ -73,11 +73,11 @@ fun LeftPage(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Soft gray background
+    // Dynamic theme-aware background
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF2F3F5))
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.5f))
     ) {
         Column(
             modifier = Modifier
@@ -143,7 +143,7 @@ fun LeftPage(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(
                         modifier = Modifier
@@ -155,12 +155,12 @@ fun LeftPage(
                         Text(
                             "No blocks visible",
                             style = MaterialTheme.typography.titleSmall,
-                            color = Color(0xFF374151)
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             "Open settings to enable at least one Focus Space block.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF6B7280),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
                         TextButton(onClick = { showSettings = true }) {
@@ -213,8 +213,8 @@ private fun SubliminalBlock(affirmations: List<String>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -223,7 +223,7 @@ private fun SubliminalBlock(affirmations: List<String>) {
             Text(
                 "✨ Affirmation",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF6B7280)
+                color = MaterialTheme.colorScheme.primary
             )
             AnimatedContent(
                 targetState = index,
@@ -234,7 +234,7 @@ private fun SubliminalBlock(affirmations: List<String>) {
                     text = currentMessages[i % currentMessages.size],
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF1F2937),
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -253,8 +253,8 @@ private fun QuickNoteBlock(note: String, onSave: (String) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -268,7 +268,7 @@ private fun QuickNoteBlock(note: String, onSave: (String) -> Unit) {
                 Text(
                     "📝 Quick Note",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF6B7280)
+                    color = MaterialTheme.colorScheme.primary
                 )
                 if (editing) {
                     TextButton(
@@ -303,7 +303,7 @@ private fun QuickNoteBlock(note: String, onSave: (String) -> Unit) {
                 Text(
                     text = text.ifBlank { "Tap Edit to add a note..." },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (text.isBlank()) Color(0xFFD1D5DB) else Color(0xFF374151),
+                    color = if (text.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface,
                     minLines = 2
                 )
             }
@@ -318,8 +318,8 @@ private fun WoopBlock(woop: com.neuroflow.app.data.local.entity.WoopEntity?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -328,13 +328,13 @@ private fun WoopBlock(woop: com.neuroflow.app.data.local.entity.WoopEntity?) {
             Text(
                 "🎯 WOOP",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF6B7280)
+                color = MaterialTheme.colorScheme.primary
             )
             if (woop == null || (woop.wish.isBlank() && woop.outcome.isBlank())) {
                 Text(
                     "No WOOP set for your current task.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFD1D5DB)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
                 WoopRow("Wish", woop.wish)
@@ -393,8 +393,8 @@ private fun DistractionTop3Block(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -408,14 +408,14 @@ private fun DistractionTop3Block(
                 Text(
                     "📵 Most Distracting Apps",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF6B7280)
+                    color = MaterialTheme.colorScheme.primary
                 )
                 if (hasPermission) {
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
-                            color = Color(0xFF9CA3AF)
+                            color = MaterialTheme.colorScheme.primary
                         )
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -428,7 +428,7 @@ private fun DistractionTop3Block(
                                     Icon(
                                         imageVector = Icons.Filled.Clear,
                                         contentDescription = "Reset",
-                                        tint = Color(0xFF9CA3AF),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -441,7 +441,7 @@ private fun DistractionTop3Block(
                                 Icon(
                                     imageVector = Icons.Filled.Refresh,
                                     contentDescription = "Refresh",
-                                    tint = Color(0xFF9CA3AF),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -455,7 +455,7 @@ private fun DistractionTop3Block(
                     Text(
                         "Enable Usage Access so NeuroFlow can detect which apps interrupt your focus most.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF6B7280)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Button(
                         onClick = {
@@ -463,10 +463,7 @@ private fun DistractionTop3Block(
                                 .openUsagePermissionSettings(context)
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF6366F1)
-                        )
+                        shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(
                             "Grant Access",
@@ -483,7 +480,7 @@ private fun DistractionTop3Block(
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp,
-                            color = Color(0xFF6366F1)
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -491,14 +488,14 @@ private fun DistractionTop3Block(
                     Text(
                         "No data yet — start a focus session to begin tracking.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF6B7280)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 else -> {
                     tasks.forEachIndexed { index, app ->
                         DistractionAppRow(rank = index + 1, app = app)
                         if (index < tasks.lastIndex) {
-                            HorizontalDivider(color = Color(0xFFF3F4F6), thickness = 1.dp)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 1.dp)
                         }
                     }
                 }
@@ -513,7 +510,7 @@ private fun DistractionAppRow(
     app: com.neuroflow.app.domain.engine.DistractionEngine.AppDistractionResult
 ) {
     val barColor = when {
-        app.score >= 75f -> Color(0xFFEF4444)
+        app.score >= 75f -> MaterialTheme.colorScheme.error
         app.score >= 50f -> Color(0xFFF97316)
         app.score >= 25f -> Color(0xFFEAB308)
         else             -> Color(0xFF22C55E)
@@ -556,14 +553,14 @@ private fun DistractionAppRow(
                     text = app.appLabel,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF1F2937),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = "$timeLabel · ${app.openCount}×",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF9CA3AF),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }
@@ -573,7 +570,7 @@ private fun DistractionAppRow(
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFFF3F4F6))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Box(
                     modifier = Modifier

@@ -35,9 +35,11 @@ import com.neuroflow.app.presentation.launcher.theme.ProvideLauncherTheme
 import com.neuroflow.app.presentation.launcher.theme.mapPreferencesToTheme
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.neuroflow.app.domain.engine.AnalyticsEngine
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.neuroflow.app.domain.engine.FreshStartEngine
+import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.presentation.common.NewChapterCard
+import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
 import kotlinx.coroutines.launch
 
 /**
@@ -83,6 +85,7 @@ class LauncherActivity : FragmentActivity() {
 
     // State for drawer and panels
     private var isAppDrawerOpen by mutableStateOf(false)
+    private var isQuickStatsOpen by mutableStateOf(false)
     private var isLauncherSettingsOpen by mutableStateOf(false)
     internal var isRewardsOpen by mutableStateOf(false)
     internal var isPlanningOpen by mutableStateOf(false)
@@ -146,42 +149,65 @@ class LauncherActivity : FragmentActivity() {
             onSwipeUp = { isAppDrawerOpen = true },
             onSwipeDown = { attemptNotificationShadeExpansion() },
             onSwipeLeft = { },
-            onSwipeRight = { },
+            onSwipeRight = {
+                viewModel.refreshAnalyticsSummary()
+                isQuickStatsOpen = true
+            },
             onLongPress = { isLauncherSettingsOpen = true },
+            onDoubleTap = {
+                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+                val admin = android.content.ComponentName(this, com.neuroflow.app.receiver.DeviceAdminReceiver::class.java)
+                if (dpm != null && dpm.isAdminActive(admin)) {
+                    try {
+                        dpm.lockNow()
+                    } catch (e: Exception) {
+                        viewModel.refreshAnalyticsSummary()
+                        isQuickStatsOpen = !isQuickStatsOpen
+                    }
+                } else {
+                    viewModel.refreshAnalyticsSummary()
+                    isQuickStatsOpen = !isQuickStatsOpen
+                }
+            },
             isDraggingIcon = { viewModel.isDraggingIcon.value }
         )
 
         // Set content with crash recovery fallback
-        // Note: Compose doesn't support try-catch around composables.
-        // For crash recovery, SafeHomeScreen.kt exists as a minimal fallback,
-        // but actual crash handling would need to be implemented at the
-        // Application level using Thread.setDefaultUncaughtExceptionHandler
         setContent {
             val windowSizeClass = calculateWindowSizeClass(this)
             val launcherPrefs by viewModel.launcherTheme.collectAsStateWithLifecycle()
             val userPrefs by viewModel.userPreferences.collectAsStateWithLifecycle()
+            val analyticsSummary by viewModel.analyticsSummary.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
 
-            // Map preferences to theme
-            val launcherTheme = launcherPrefs?.let { prefs ->
-                mapPreferencesToTheme(
-                    preferences = prefs,
-                    isDarkTheme = false // TODO: Get from system or user preference
-                )
-            } ?: com.neuroflow.app.presentation.launcher.domain.LauncherTheme()
+            val isSystemDark = isSystemInDarkTheme()
+            val isDarkTheme = when (userPrefs?.theme) {
+                AppTheme.LIGHT -> false
+                AppTheme.DARK -> true
+                else -> isSystemDark
+            }
 
-            ProvideLauncherTheme(theme = launcherTheme) {
-                // Main home screen
-                HomeScreen(
-                    windowSizeClass = windowSizeClass,
-                    viewModel = viewModel,
-                    gestureHandler = gestureHandler,
-                    onRegisterNavigateHome = { navigateToMainPage = it },
-                    onPageChanged = { page ->
-                        isPagerOnMainPage = (page == 1)
-                    }
-                )
+            NeuroFlowTheme(darkTheme = isDarkTheme) {
+                // Map preferences to theme
+                val launcherTheme = launcherPrefs?.let { prefs ->
+                    mapPreferencesToTheme(
+                        preferences = prefs,
+                        isDarkTheme = isDarkTheme
+                    )
+                } ?: com.neuroflow.app.presentation.launcher.domain.LauncherTheme()
+
+                ProvideLauncherTheme(theme = launcherTheme) {
+                    // Main home screen
+                    HomeScreen(
+                        windowSizeClass = windowSizeClass,
+                        viewModel = viewModel,
+                        gestureHandler = gestureHandler,
+                        onRegisterNavigateHome = { navigateToMainPage = it },
+                        onPageChanged = { page ->
+                            isPagerOnMainPage = (page == 1)
+                        }
+                    )
 
                 // FreshStart overlay (Requirement 25.1, 25.4)
                 // Display NewChapterCard as full-screen overlay when fresh start detected
@@ -271,8 +297,25 @@ class LauncherActivity : FragmentActivity() {
                         onDismiss = { isPlanningOpen = false }
                     )
                 }
+
+                // QuickStatsPanel overlay
+                QuickStatsPanel(
+                    visible = isQuickStatsOpen,
+                    summary = analyticsSummary,
+                    onDismiss = { isQuickStatsOpen = false },
+                    onOpenFullAnalytics = {
+                        isQuickStatsOpen = false
+                        startActivity(
+                            Intent(this@LauncherActivity, MainActivity::class.java).apply {
+                                action = "com.procus.ACTION_OPEN_ANALYTICS"
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                        )
+                    }
+                )
             }
         }
+    }
 
         handleIncomingNavigationIntent(intent)
     }
@@ -291,6 +334,7 @@ class LauncherActivity : FragmentActivity() {
         val shouldOpenPlanning = intent?.getBooleanExtra(EXTRA_OPEN_PLANNING, false) == true
 
         // Close overlays and snap back to main page when home button pressed
+        isQuickStatsOpen = false
         isAppDrawerOpen = false
         isLauncherSettingsOpen = false
         isRewardsOpen = false
@@ -382,6 +426,7 @@ class LauncherActivity : FragmentActivity() {
      */
     private fun handleBackPressed() {
         when {
+            isQuickStatsOpen -> isQuickStatsOpen = false
             isAppDrawerOpen -> isAppDrawerOpen = false
             isLauncherSettingsOpen -> isLauncherSettingsOpen = false
             isRewardsOpen -> isRewardsOpen = false

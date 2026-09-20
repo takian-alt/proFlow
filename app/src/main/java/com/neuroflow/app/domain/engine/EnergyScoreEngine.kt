@@ -53,9 +53,15 @@ object EnergyScoreEngine {
             0f
         }
 
-        val circadianFactor = if (peak != null) {
+        val rawCircadian = if (peak != null) {
             val minutesSincePeak = peak.minutesSincePeak(snapshot.nowMillis)
             circadianFactor(minutesSincePeak, peak.circadianProfile)
+        } else {
+            0f
+        }
+        // Baseline floor: 0.35f baseline so usable energy doesn't collapse to <= 50% outside peak windows
+        val circadianFactor = if (peak != null) {
+            (0.35f + 0.65f * rawCircadian).coerceIn(0f, 1f)
         } else {
             0f
         }

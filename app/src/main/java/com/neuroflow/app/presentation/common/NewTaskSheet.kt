@@ -357,20 +357,32 @@ fun NewTaskSheet(
                     }) {
                         Text(if (stepIndex == 0) "Cancel" else "Back")
                     }
-                    Button(
-                        onClick = {
-                            val isLast = stepIndex == stepCount - 1
-                            if (isLast) {
-                                tagViewModel.addTags(ui.tags)
-                                onSave(flowViewModel.buildTaskPayload(editTask))
-                            } else {
-                                flowViewModel.nextStep()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (stepIndex < stepCount - 1 && ui.title.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    tagViewModel.addTags(ui.tags)
+                                    onSave(flowViewModel.buildTaskPayload(editTask))
+                                }
+                            ) {
+                                Text(if (ui.isEditing) "Save" else "Quick Save")
                             }
-                        },
-                        enabled = if (stepIndex == stepCount - 1) ui.title.isNotBlank() else flowViewModel.canMoveNext(),
-                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
-                    ) {
-                        Text(if (stepIndex == stepCount - 1) if (ui.isEditing) "Update Task" else "Create Task" else "Next")
+                        }
+                        Button(
+                            onClick = {
+                                val isLast = stepIndex == stepCount - 1
+                                if (isLast) {
+                                    tagViewModel.addTags(ui.tags)
+                                    onSave(flowViewModel.buildTaskPayload(editTask))
+                                } else {
+                                    flowViewModel.nextStep()
+                                }
+                            },
+                            enabled = if (stepIndex == stepCount - 1) ui.title.isNotBlank() else flowViewModel.canMoveNext(),
+                            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                        ) {
+                            Text(if (stepIndex == stepCount - 1) if (ui.isEditing) "Update Task" else "Create Task" else "Next")
+                        }
                     }
                 }
             }
@@ -408,36 +420,38 @@ fun NewTaskSheet(
             else -> ui.deadlineDate
         }
         val initial = currentDateVal ?: System.currentTimeMillis()
-        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initial)
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (currentDateVal != null) {
+        androidx.compose.runtime.key(dateTarget, currentDateVal) {
+            val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initial)
+            DatePickerDialog(
+                onDismissRequest = { showDatePicker = false },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (currentDateVal != null) {
+                            TextButton(onClick = {
+                                when (dateTarget) {
+                                    "scheduled" -> flowViewModel.updateScheduledDate(null)
+                                    "habit" -> flowViewModel.updateHabitDate(null)
+                                    else -> flowViewModel.updateDeadlineDate(null)
+                                }
+                                showDatePicker = false
+                            }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                        }
                         TextButton(onClick = {
+                            val selected = datePickerState.selectedDateMillis?.let(::utcMidnightToLocalMidnight)
                             when (dateTarget) {
-                                "scheduled" -> flowViewModel.updateScheduledDate(null)
-                                "habit" -> flowViewModel.updateHabitDate(null)
-                                else -> flowViewModel.updateDeadlineDate(null)
+                                "scheduled" -> flowViewModel.updateScheduledDate(selected)
+                                "habit" -> flowViewModel.updateHabitDate(selected)
+                                else -> flowViewModel.updateDeadlineDate(selected)
                             }
                             showDatePicker = false
-                        }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                        }) { Text("OK") }
                     }
-                    TextButton(onClick = {
-                        val selected = datePickerState.selectedDateMillis?.let(::utcMidnightToLocalMidnight)
-                        when (dateTarget) {
-                            "scheduled" -> flowViewModel.updateScheduledDate(selected)
-                            "habit" -> flowViewModel.updateHabitDate(selected)
-                            else -> flowViewModel.updateDeadlineDate(selected)
-                        }
-                        showDatePicker = false
-                    }) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
-            }
-        ) { DatePicker(state = datePickerState) }
+            ) { DatePicker(state = datePickerState) }
+        }
     }
 
     if (showTimePicker) {
@@ -447,41 +461,43 @@ fun NewTaskSheet(
             else -> ui.deadlineTime
         }
         val initialMillis = currentTimeVal ?: 0L
-        val timePickerState = rememberTimePickerState(
-            initialHour = (initialMillis / 3_600_000L).toInt().coerceIn(0, 23),
-            initialMinute = ((initialMillis % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59)
-        )
-        AlertDialog(
-            onDismissRequest = { showTimePicker = false },
-            title = { Text("Select Time") },
-            text = { TimePicker(state = timePickerState) },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (currentTimeVal != null) {
+        androidx.compose.runtime.key(timeTarget, currentTimeVal) {
+            val timePickerState = rememberTimePickerState(
+                initialHour = (initialMillis / 3_600_000L).toInt().coerceIn(0, 23),
+                initialMinute = ((initialMillis % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59)
+            )
+            AlertDialog(
+                onDismissRequest = { showTimePicker = false },
+                title = { Text("Select Time") },
+                text = { TimePicker(state = timePickerState) },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (currentTimeVal != null) {
+                            TextButton(onClick = {
+                                when (timeTarget) {
+                                    "scheduled" -> flowViewModel.updateScheduledTime(null)
+                                    "habit" -> flowViewModel.updateHabitTime(null)
+                                    else -> flowViewModel.updateDeadlineTime(null)
+                                }
+                                showTimePicker = false
+                            }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                        }
                         TextButton(onClick = {
+                            val selected = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
                             when (timeTarget) {
-                                "scheduled" -> flowViewModel.updateScheduledTime(null)
-                                "habit" -> flowViewModel.updateHabitTime(null)
-                                else -> flowViewModel.updateDeadlineTime(null)
+                                "scheduled" -> flowViewModel.updateScheduledTime(selected)
+                                "habit" -> flowViewModel.updateHabitTime(selected)
+                                else -> flowViewModel.updateDeadlineTime(selected)
                             }
                             showTimePicker = false
-                        }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                        }) { Text("OK") }
                     }
-                    TextButton(onClick = {
-                        val selected = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
-                        when (timeTarget) {
-                            "scheduled" -> flowViewModel.updateScheduledTime(selected)
-                            "habit" -> flowViewModel.updateHabitTime(selected)
-                            else -> flowViewModel.updateDeadlineTime(selected)
-                        }
-                        showTimePicker = false
-                    }) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
-            }
-        )
+            )
+        }
     }
 }
 

@@ -183,6 +183,84 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
         }
     }
 
+    "add sleep log replaces overlapping AUTO_DEFAULT log with manual log" {
+        runTest {
+            val trackingStart = 1_720_000_000_000L
+
+            val (preferencesDataStore, _) = setupPrefs(
+                UserPreferences(
+                    sleepPressureTrackingStartedAtMillis = trackingStart,
+                    sleepPressureLastComputedAtMillis = trackingStart,
+                    sleepPressurePoints = 120
+                )
+            )
+
+            val sleepLogRepository = mockk<SleepLogRepository>()
+            val autoExisting = SleepLogEntity(
+                id = "auto-default-log",
+                startAt = trackingStart + 60L * 60_000L,
+                endAt = trackingStart + 120L * 60_000L,
+                durationMinutes = 60,
+                source = "AUTO_DEFAULT",
+                notes = "",
+                createdAt = trackingStart
+            )
+
+            val manualLog = SleepLogEntity(
+                id = "manual-log",
+                startAt = trackingStart + 50L * 60_000L,
+                endAt = trackingStart + 130L * 60_000L,
+                durationMinutes = 80,
+                source = "MANUAL",
+                notes = "",
+                createdAt = trackingStart
+            )
+
+            val logs = mutableListOf(autoExisting)
+            coEvery { sleepLogRepository.getOverlapping(any(), any()) } coAnswers {
+                val from = firstArg<Long>()
+                val to = secondArg<Long>()
+                logs.filter { it.endAt > from && it.startAt < to }
+            }
+            coEvery { sleepLogRepository.deleteById(any()) } coAnswers {
+                val id = firstArg<String>()
+                logs.removeAll { it.id == id }
+            }
+            coEvery { sleepLogRepository.addLog(any(), any(), any(), any()) } coAnswers {
+                val start = firstArg<Long>()
+                val end = secondArg<Long>()
+                val source = thirdArg<String>()
+                val entity = SleepLogEntity(
+                    id = "log-${start}",
+                    startAt = start,
+                    endAt = end,
+                    durationMinutes = ((end - start) / 60_000L).toInt(),
+                    source = source,
+                    notes = "",
+                    createdAt = trackingStart
+                )
+                logs.add(entity)
+                entity
+            }
+
+            val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+            val result = repository.addSleepLog(
+                startAtMillis = manualLog.startAt,
+                endAtMillis = manualLog.endAt
+            )
+
+            (result is SleepPressureRepository.AddSleepLogResult.Added) shouldBe true
+            coVerify(exactly = 1) {
+                sleepLogRepository.deleteById(autoExisting.id)
+            }
+            coVerify(exactly = 1) {
+                sleepLogRepository.addLog(manualLog.startAt, manualLog.endAt, "MANUAL", any())
+            }
+            logs.any { it.id == autoExisting.id } shouldBe false
+            logs.any { it.source == "MANUAL" } shouldBe true
+        }
+    }
+
     "add sleep log rejects durations longer than max limit" {
         runTest {
             val trackingStart = 1_730_000_000_000L
@@ -404,10 +482,10 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
                 val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
                 val snapshot = repository.refreshCurrentPressure(now)
 
-                // No fallback for today before wake+12h -> previous night fallback applies (420 points).
-                snapshot.pressurePoints shouldBe 420
-                coVerify(atLeast = 1) {
-                    sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                // User woke at 06:00, now is 13:00 (7h awake). Auto fallback does not apply before wake+12h (18:00).
+                snapshot.pressurePoints shouldBe 780
+                coVerify(exactly = 0) {
+                    sleepLogRepository.addLog(any(), any(), any(), any())
                 }
             }
         }
@@ -698,6 +776,61 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
                 snapshot.pressurePoints shouldBe expectedPressure
                 coVerify(exactly = 0) {
                     sleepLogRepository.addLog(any(), any(), "AUTO_DEFAULT", any())
+                }
+            }
+        }
+    }
+
+    "deleted auto fallback interval is persisted and not re-inserted after repository restart" {
+        withDefaultTimeZone("America/New_York") {
+            runTest {
+                val zoneId = ZoneId.systemDefault()
+                val today = LocalDate.of(2026, 4, 13)
+                val trackingStart = today.minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+                val now = today.atTime(19, 0).atZone(zoneId).toInstant().toEpochMilli()
+
+                val (preferencesDataStore, prefsFlow) = setupPrefs(
+                    UserPreferences(
+                        wakeUpHour = 6,
+                        sleepHour = 23,
+                        sleepPressureTrackingStartedAtMillis = trackingStart,
+                        sleepPressureLastComputedAtMillis = today.minusDays(2)
+                            .atTime(10, 0)
+                            .atZone(zoneId)
+                            .toInstant()
+                            .toEpochMilli(),
+                        sleepPressurePoints = 0
+                    )
+                )
+
+                val sleepLogRepository = mockk<SleepLogRepository>(relaxed = true)
+                val autoFallbackLog = SleepLogEntity(
+                    id = "auto-123",
+                    startAt = today.minusDays(1).atTime(23, 0).atZone(zoneId).toInstant().toEpochMilli(),
+                    endAt = today.atTime(6, 0).atZone(zoneId).toInstant().toEpochMilli(),
+                    durationMinutes = 420,
+                    source = "AUTO_DEFAULT",
+                    notes = "",
+                    createdAt = trackingStart
+                )
+
+                coEvery { sleepLogRepository.getById("auto-123") } returns autoFallbackLog
+                coEvery { sleepLogRepository.getOverlapping(any(), any()) } returns emptyList()
+
+                val repo1 = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+                repo1.deleteSleepLog("auto-123")
+
+                // Verify the interval was persisted into UserPreferences
+                val intervalKey = "${autoFallbackLog.startAt}_${autoFallbackLog.endAt}"
+                prefsFlow.value.dismissedSleepFallbacks.contains(intervalKey) shouldBe true
+
+                // Instantiate fresh repository simulating app restart
+                val repo2 = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
+                repo2.refreshCurrentPressure(now)
+
+                // The dismissed interval should NOT be re-inserted
+                coVerify(exactly = 0) {
+                    sleepLogRepository.addLog(autoFallbackLog.startAt, autoFallbackLog.endAt, "AUTO_DEFAULT", any())
                 }
             }
         }

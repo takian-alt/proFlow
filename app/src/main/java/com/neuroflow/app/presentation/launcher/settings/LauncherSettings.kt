@@ -1951,7 +1951,7 @@ private fun DockAndAppManagementSection(
  * - 24.7: Icon shape selector
  * - 24.8: App drawer grid size
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun VisualCustomizationSection(
     viewModel: LauncherViewModel,
@@ -2008,15 +2008,22 @@ private fun VisualCustomizationSection(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Row(
+                androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ClockStyle.entries.forEach { style ->
+                        val label = when (style) {
+                            ClockStyle.DIGITAL -> "Digital"
+                            ClockStyle.MINIMAL -> "Minimal"
+                            ClockStyle.STACKED -> "Stacked Bold"
+                            ClockStyle.SMART_PILL -> "Smart Pill"
+                        }
                         FilterChip(
                             selected = launcherPrefs!!.clockStyle == style,
                             onClick = { viewModel.updateClockStyle(style) },
-                            label = { Text(style.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                            label = { Text(label) }
                         )
                     }
                 }
@@ -2045,6 +2052,32 @@ private fun VisualCustomizationSection(
                     steps = 9, // 0.05 step size: (1.0 - 0.5) / 0.05 - 1 = 9
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Themed Icons (Material You)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Themed Icons (Material You)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Tint app icons using current wallpaper color scheme",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = launcherPrefs!!.themedIconsEnabled,
+                        onCheckedChange = { viewModel.updateThemedIconsEnabled(it) }
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

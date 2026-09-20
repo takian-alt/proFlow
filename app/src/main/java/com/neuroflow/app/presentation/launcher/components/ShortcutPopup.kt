@@ -5,15 +5,22 @@ import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
 import android.os.Build
 import android.os.UserHandle
-import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpOffset
@@ -100,15 +107,16 @@ fun ShortcutPopup(
     ) {
         Surface(
             modifier = Modifier
-                .width(200.dp)
+                .width(220.dp)
                 .wrapContentHeight(),
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp,
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+            tonalElevation = 6.dp,
             shadowElevation = 8.dp
         ) {
             Column(
-                modifier = Modifier.padding(vertical = 8.dp)
+                modifier = Modifier.padding(vertical = 6.dp)
             ) {
                 // Shortcuts section (only if shortcuts exist and API >= 26)
                 if (!isLoading && shortcuts.isNotEmpty()) {
@@ -127,13 +135,14 @@ fun ShortcutPopup(
                     // Divider between shortcuts and standard options
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
                 }
 
                 // Standard options
                 ShortcutMenuItem(
                     label = "Open",
+                    icon = Icons.AutoMirrored.Filled.OpenInNew,
                     onClick = {
                         onOpen()
                         onDismiss()
@@ -142,6 +151,7 @@ fun ShortcutPopup(
 
                 ShortcutMenuItem(
                     label = "Pin to Dock",
+                    icon = Icons.Default.Add,
                     onClick = {
                         onPinToDock()
                         onDismiss()
@@ -152,6 +162,7 @@ fun ShortcutPopup(
                 if (onAddToHome != null) {
                     ShortcutMenuItem(
                         label = "Add to Home Screen",
+                        icon = Icons.Default.Add,
                         onClick = {
                             onAddToHome()
                             onDismiss()
@@ -161,6 +172,7 @@ fun ShortcutPopup(
 
                 ShortcutMenuItem(
                     label = "Hide",
+                    icon = Icons.Default.Close,
                     onClick = {
                         onHide()
                         onDismiss()
@@ -171,6 +183,7 @@ fun ShortcutPopup(
                 if (isBiometricAvailable) {
                     ShortcutMenuItem(
                         label = "Lock app",
+                        icon = Icons.Default.Lock,
                         onClick = {
                             onLock()
                             onDismiss()
@@ -180,6 +193,7 @@ fun ShortcutPopup(
 
                 ShortcutMenuItem(
                     label = "App Info",
+                    icon = Icons.Default.Info,
                     onClick = {
                         onAppInfo()
                         onDismiss()
@@ -196,19 +210,36 @@ fun ShortcutPopup(
 @Composable
 private fun ShortcutMenuItem(
     label: String,
+    icon: ImageVector? = null,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+    Surface(
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            icon?.let {
+                Icon(
+                    imageVector = it,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+            )
+        }
     }
 }
 

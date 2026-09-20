@@ -61,13 +61,8 @@ import kotlin.math.sqrt
  */
 object TaskScoringEngine {
 
-    // Recalibrated: sum of all components at theoretical maximum with all weights = 1.0
-    // Quadrant(300) + Deadline(500) + Scheduled(170) + Priority(150) + Impact(100) +
-    // Effort(60) + Duration(40) + Energy(70) + Circadian(60) + Frog(120) +
-    // Postpone(180) + Habit(100) + Unblock(113) + Context(30) + Recency(40) +
-    // Progress(72) + IfThen(80) + Enjoyment(40) + Commitment(70) + ScheduleLock(80) +
-    // LossAversion(130) + Anxiety(60) + Distraction(80) = ~2445
-    private const val THEORETICAL_MAX = 2445f
+    // Recalibrated: realistic maximum score distribution across 0–999 display score
+    private const val THEORETICAL_MAX = 1200f
 
     private data class MinuteWindow(
         val startMinuteOfDay: Int,
@@ -391,12 +386,6 @@ object TaskScoringEngine {
 
         val recurringAnchorMode = task.isRecurringWithAnchor()
         val lockAnchorMs = task.effectiveScheduleAnchorMillis()
-        if (task.isScheduleLocked && lockAnchorMs != null) {
-            val minutesUntilAnchor = (lockAnchorMs - nowMillis) / 60_000f
-            // Locked tasks remain visible in task lists, but carry zero ranking priority
-            // until their scheduled window is near.
-            if (minutesUntilAnchor > 10f) return 0f
-        }
 
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
@@ -658,7 +647,14 @@ object TaskScoringEngine {
             s += DistractionEngine.priorityBoost(task.distractionScore)
         }
 
-        return max(0f, s)
+        val baseFloor = when (task.quadrant) {
+            Quadrant.DO_FIRST  -> 25f
+            Quadrant.SCHEDULE  -> 15f
+            Quadrant.DELEGATE  -> 5f
+            Quadrant.ELIMINATE -> 1f
+        } * prefs.weightQuadrant
+
+        return max(baseFloor, s)
     }
 
     /** Normalized 0–999 display score for UI */

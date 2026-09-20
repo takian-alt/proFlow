@@ -43,6 +43,8 @@ class SleepLogRepository @Inject constructor(
         return log
     }
 
+    suspend fun getById(id: String): SleepLogEntity? = sleepLogDao.getById(id)
+
     suspend fun deleteById(id: String) = sleepLogDao.deleteById(id)
 
     suspend fun deleteAll() = sleepLogDao.deleteAll()

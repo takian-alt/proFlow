@@ -54,6 +54,7 @@ interface HyperFocusDataStore {
     val flow: Flow<HyperFocusPreferences>
     suspend fun update(transform: (HyperFocusPreferences) -> HyperFocusPreferences)
     suspend fun updateHeartbeat(timestamp: Long)
+    fun getHeartbeat(): Long = 0L
     suspend fun current(): HyperFocusPreferences
 }
 
@@ -66,24 +67,37 @@ class HyperFocusDataStoreImpl @Inject constructor(
         val PREFS_JSON = stringPreferencesKey("hyperfocus_prefs_json")
     }
 
+    private val serviceHeartbeat = java.util.concurrent.atomic.AtomicLong(0L)
+
     override val flow: Flow<HyperFocusPreferences> = context.hyperFocusDataStore.data.map { prefs ->
-        prefs[Keys.PREFS_JSON]?.let { deserialize(it) } ?: HyperFocusPreferences()
+        val base = prefs[Keys.PREFS_JSON]?.let { deserialize(it) } ?: HyperFocusPreferences()
+        val hb = serviceHeartbeat.get()
+        if (hb > 0L) base.copy(lastServiceHeartbeat = hb) else base
     }
 
     override suspend fun update(transform: (HyperFocusPreferences) -> HyperFocusPreferences) {
         context.hyperFocusDataStore.edit { prefs ->
             val current = prefs[Keys.PREFS_JSON]?.let { deserialize(it) } ?: HyperFocusPreferences()
-            val updated = transform(current)
+            val hb = serviceHeartbeat.get()
+            val currentWithHb = if (hb > 0L) current.copy(lastServiceHeartbeat = hb) else current
+            val updated = transform(currentWithHb)
+            if (updated.lastServiceHeartbeat != currentWithHb.lastServiceHeartbeat) {
+                serviceHeartbeat.set(updated.lastServiceHeartbeat)
+            }
             prefs[Keys.PREFS_JSON] = serialize(updated)
         }
     }
 
     override suspend fun updateHeartbeat(timestamp: Long) {
-        update { it.copy(lastServiceHeartbeat = timestamp) }
+        serviceHeartbeat.set(timestamp)
     }
 
+    override fun getHeartbeat(): Long = serviceHeartbeat.get()
+
     override suspend fun current(): HyperFocusPreferences {
-        return flow.first()
+        val base = flow.first()
+        val hb = serviceHeartbeat.get()
+        return if (hb > 0L) base.copy(lastServiceHeartbeat = hb) else base
     }
 
     private fun serialize(prefs: HyperFocusPreferences): String {

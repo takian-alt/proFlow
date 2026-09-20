@@ -44,6 +44,8 @@ class SleepPressureRepository @Inject constructor(
         val endAt: Long
     )
 
+    private val dismissedFallbackIntervals = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     fun observeSleepLogs(): Flow<List<SleepLogEntity>> = sleepLogRepository.observeAll()
 
     suspend fun addSleepLog(startAtMillis: Long, endAtMillis: Long): AddSleepLogResult {
@@ -57,8 +59,21 @@ class SleepPressureRepository @Inject constructor(
         }
 
         val overlapping = sleepLogRepository.getOverlapping(safeStart, normalizedEnd)
-        if (overlapping.isNotEmpty()) {
+        val manualOverlapping = overlapping.filter { it.source == "MANUAL" }
+        if (manualOverlapping.isNotEmpty()) {
             return AddSleepLogResult.OverlapsExisting
+        }
+
+        val autoOverlapping = overlapping.filter { it.source == "AUTO_DEFAULT" }
+        if (autoOverlapping.isNotEmpty()) {
+            val dismissedKeys = autoOverlapping.map { "${it.startAt}_${it.endAt}" }.toSet()
+            dismissedFallbackIntervals.addAll(dismissedKeys)
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(dismissedSleepFallbacks = prefs.dismissedSleepFallbacks + dismissedKeys)
+            }
+            autoOverlapping.forEach { autoLog ->
+                sleepLogRepository.deleteById(autoLog.id)
+            }
         }
 
         sleepLogRepository.addLog(
@@ -85,11 +100,20 @@ class SleepPressureRepository @Inject constructor(
     }
 
     suspend fun deleteSleepLog(logId: String): Snapshot {
+        val existing = sleepLogRepository.getById(logId)
+        if (existing != null && existing.source == "AUTO_DEFAULT") {
+            val key = "${existing.startAt}_${existing.endAt}"
+            dismissedFallbackIntervals.add(key)
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(dismissedSleepFallbacks = prefs.dismissedSleepFallbacks + key)
+            }
+        }
         sleepLogRepository.deleteById(logId)
         return refreshCurrentPressure()
     }
 
     suspend fun clearSleepLogsAndReset(nowMillis: Long = System.currentTimeMillis()): Snapshot {
+        dismissedFallbackIntervals.clear()
         sleepLogRepository.deleteAll()
 
         val prefs = preferencesDataStore.preferencesFlow.first()
@@ -100,7 +124,8 @@ class SleepPressureRepository @Inject constructor(
             it.copy(
                 sleepPressureTrackingStartedAtMillis = trackingStart,
                 sleepPressureLastComputedAtMillis = nowMillis,
-                sleepPressurePoints = pressure
+                sleepPressurePoints = pressure,
+                dismissedSleepFallbacks = emptySet()
             )
         }
 
@@ -236,19 +261,8 @@ class SleepPressureRepository @Inject constructor(
         val result = mutableListOf<SleepInterval>()
 
         // Check up to 7 past days for missing automatic fallback sleep logs
-        for (dayOffset in 1..7) {
+        for (dayOffset in 0..7) {
             val targetDate = now.toLocalDate().minusDays(dayOffset.toLong())
-
-            val targetWake = targetDate
-                .atTime(wakeHour, 0)
-                .atZone(zoneId)
-                .toInstant()
-                .toEpochMilli()
-
-            // 12-hour post-wake delay check relative to target wake time
-            if (nowMillis < targetWake + (AUTO_FALLBACK_AFTER_WAKE_MINUTES * 60_000L)) {
-                continue
-            }
 
             val defaultSleepStart = targetDate
                 .atTime(sleepHour, 0)
@@ -264,6 +278,11 @@ class SleepPressureRepository @Inject constructor(
 
             if (defaultWakeEnd <= defaultSleepStart) {
                 defaultWakeEnd += 24 * HOUR_MILLIS
+            }
+
+            // 12-hour post-wake delay check relative to actual default wake time
+            if (nowMillis < defaultWakeEnd + (AUTO_FALLBACK_AFTER_WAKE_MINUTES * 60_000L)) {
+                continue
             }
 
             val logsInWindow = sleepLogRepository.getOverlapping(defaultSleepStart, nowMillis)
@@ -290,9 +309,15 @@ class SleepPressureRepository @Inject constructor(
                 continue
             }
 
+            val intervalKey = "${boundedStart}_${boundedEnd}"
+            if (dismissedFallbackIntervals.contains(intervalKey) || prefs.dismissedSleepFallbacks.contains(intervalKey)) {
+                continue
+            }
+
             result.add(SleepInterval(startAt = boundedStart, endAt = boundedEnd))
         }
 
+        result.sortBy { it.startAt }
         return result
     }
 }

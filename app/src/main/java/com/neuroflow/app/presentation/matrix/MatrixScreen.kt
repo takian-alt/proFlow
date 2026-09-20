@@ -37,10 +37,19 @@ fun MatrixScreen(
     onNavigateToQuadrant: (String) -> Unit,
     onNavigateToFocus: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    initialNewTaskOpen: Boolean = false,
+    onInitialNewTaskConsumed: () -> Unit = {},
     viewModel: MatrixViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showNewTaskSheet by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(initialNewTaskOpen) {
+        if (initialNewTaskOpen) {
+            showNewTaskSheet = true
+            onInitialNewTaskConsumed()
+        }
+    }
 
     Scaffold(
         topBar = {

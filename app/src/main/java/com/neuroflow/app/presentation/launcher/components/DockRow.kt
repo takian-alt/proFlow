@@ -6,14 +6,19 @@ import android.provider.Settings
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -85,95 +90,112 @@ fun DockRow(
     var showContextMenu by remember { mutableStateOf(false) }
     var contextMenuApp by remember { mutableStateOf<AppInfo?>(null) }
 
+    val haptic = LocalHapticFeedback.current
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(72.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .testTag("dock_row"),
         contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+            ),
+            shadowElevation = 2.dp
         ) {
-            dockApps.forEachIndexed { index, appInfo ->
-                val isDragging = draggedIndex == index
-                val isLocked = appInfo.packageName in lockedPackages
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                dockApps.forEachIndexed { index, appInfo ->
+                    val isDragging = draggedIndex == index
+                    val isLocked = appInfo.packageName in lockedPackages
 
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .then(
-                            if (isDragging) {
-                                Modifier
-                                    .offset {
-                                        IntOffset(
-                                            dragOffset.x.roundToInt(),
-                                            dragOffset.y.roundToInt()
-                                        )
-                                    }
-                                    .zIndex(1f)
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .pointerInput(dockApps.size) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    draggedIndex = index
-                                    dragOffset = Offset.Zero
-                                    hasDragged = false
-                                },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    dragOffset += dragAmount
-
-                                    // Mark as dragged if moved more than 10dp
-                                    if (abs(dragOffset.x) > 10f || abs(dragOffset.y) > 10f) {
-                                        hasDragged = true
-                                    }
-
-                                    // Calculate target index based on drag position
-                                    if (hasDragged) {
-                                        val iconWidth = with(density) { 72.dp.toPx() }
-                                        val offsetIndex = (dragOffset.x / iconWidth).roundToInt()
-                                        val newIndex = (index + offsetIndex).coerceIn(0, dockApps.size - 1)
-                                        targetIndex = if (newIndex != index) newIndex else null
-                                    }
-                                },
-                                onDragEnd = {
-                                    if (hasDragged) {
-                                        // Reorder dock apps if dragged
-                                        if (targetIndex != null && targetIndex != index) {
-                                            val newOrder = dockApps.toMutableList()
-                                            val item = newOrder.removeAt(index)
-                                            newOrder.add(targetIndex!!, item)
-                                            viewModel.reorderDock(newOrder.map { it.packageName })
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .then(
+                                if (isDragging) {
+                                    Modifier
+                                        .offset {
+                                            IntOffset(
+                                                dragOffset.x.roundToInt(),
+                                                dragOffset.y.roundToInt()
+                                            )
                                         }
-                                    } else {
-                                        // Show context menu if not dragged (long press without drag)
-                                        contextMenuApp = appInfo
-                                        showContextMenu = true
-                                    }
-
-                                    // Reset drag state
-                                    draggedIndex = null
-                                    dragOffset = Offset.Zero
-                                    targetIndex = null
-                                    hasDragged = false
-                                },
-                                onDragCancel = {
-                                    // Reset drag state
-                                    draggedIndex = null
-                                    dragOffset = Offset.Zero
-                                    targetIndex = null
-                                    hasDragged = false
+                                        .zIndex(1f)
+                                } else {
+                                    Modifier
                                 }
                             )
-                        }
-                ) {
+                            .pointerInput(dockApps.size) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        draggedIndex = index
+                                        dragOffset = Offset.Zero
+                                        hasDragged = false
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragOffset += dragAmount
+
+                                        // Mark as dragged if moved more than 10dp
+                                        if (abs(dragOffset.x) > 10f || abs(dragOffset.y) > 10f) {
+                                            hasDragged = true
+                                        }
+
+                                        // Calculate target index based on drag position
+                                        if (hasDragged) {
+                                            val iconWidth = with(density) { 72.dp.toPx() }
+                                            val offsetIndex = (dragOffset.x / iconWidth).roundToInt()
+                                            val newIndex = (index + offsetIndex).coerceIn(0, dockApps.size - 1)
+                                            val oldTarget = targetIndex
+                                            targetIndex = if (newIndex != index) newIndex else null
+                                            if (targetIndex != oldTarget && targetIndex != null) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        if (hasDragged) {
+                                            // Reorder dock apps if dragged
+                                            if (targetIndex != null && targetIndex != index) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                val newOrder = dockApps.toMutableList()
+                                                val item = newOrder.removeAt(index)
+                                                newOrder.add(targetIndex!!, item)
+                                                viewModel.reorderDock(newOrder.map { it.packageName })
+                                            }
+                                        } else {
+                                            // Show context menu if not dragged (long press without drag)
+                                            contextMenuApp = appInfo
+                                            showContextMenu = true
+                                        }
+
+                                        // Reset drag state
+                                        draggedIndex = null
+                                        dragOffset = Offset.Zero
+                                        targetIndex = null
+                                        hasDragged = false
+                                    },
+                                    onDragCancel = {
+                                        // Reset drag state
+                                        draggedIndex = null
+                                        dragOffset = Offset.Zero
+                                        targetIndex = null
+                                        hasDragged = false
+                                    }
+                                )
+                            }
+                    ) {
                     AppIcon(
                         appInfo = appInfo,
                         launcherApps = launcherApps,
@@ -219,6 +241,7 @@ fun DockRow(
                 }
             }
         }
+    }
 
         // Context menu (shown as a simple dialog for now)
         if (showContextMenu && contextMenuApp != null) {
@@ -275,3 +298,4 @@ fun DockRow(
         }
     }
 }
+

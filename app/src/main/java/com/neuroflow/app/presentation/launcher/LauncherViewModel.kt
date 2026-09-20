@@ -524,24 +524,17 @@ class LauncherViewModel @Inject constructor(
             if (session == null) {
                 flowOf(0)
             } else {
-                // Use the session ID as the stable key; re-query live data each tick
-                // so pausedAt / totalPausedMs changes are always fresh.
                 flow {
                     while (true) {
-                        // Re-read the latest session state from the DB on each tick
-                        val live = sessionRepository.getOpenSessions()
-                            .firstOrNull { it.id == session.id }
-                            ?: sessionRepository.getOpenSessions().firstOrNull() // fallback if session was replaced
-                        if (live == null) {
-                            emit(0)
-                        } else {
-                            val now = System.currentTimeMillis()
-                            // If currently paused, freeze the counter at the moment of pause
-                            val pausedAt = live.pausedAt
-                            val pausedMs = if (pausedAt != null) now - pausedAt else 0L
-                            val elapsed = ((now - live.startedAt) - live.totalPausedMs - pausedMs)
-                                .coerceAtLeast(0L)
-                            emit((elapsed / 1000L).toInt())
+                        val now = System.currentTimeMillis()
+                        val pausedAt = session.pausedAt
+                        val pausedMs = if (pausedAt != null) now - pausedAt else 0L
+                        val elapsed = ((now - session.startedAt) - session.totalPausedMs - pausedMs)
+                            .coerceAtLeast(0L)
+                        emit((elapsed / 1000L).toInt())
+                        if (pausedAt != null) {
+                            // When paused, elapsed duration is frozen; wait for resume emission from Room
+                            break
                         }
                         kotlinx.coroutines.delay(1000)
                     }
@@ -654,6 +647,15 @@ class LauncherViewModel @Inject constructor(
      * Marks task completed and creates next occurrence if recurring.
      */
     fun completeHabit(task: com.neuroflow.app.data.local.entity.TaskEntity) {
+        viewModelScope.launch {
+            taskRepository.completeAndRecur(task, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Complete task directly from the launcher home card.
+     */
+    fun completeTask(task: com.neuroflow.app.data.local.entity.TaskEntity) {
         viewModelScope.launch {
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
         }
@@ -961,6 +963,15 @@ class LauncherViewModel @Inject constructor(
      *
      * @return AnalyticsSummary with current stats
      */
+    private val _analyticsSummary = kotlinx.coroutines.flow.MutableStateFlow<com.neuroflow.app.domain.engine.AnalyticsEngine.AnalyticsSummary?>(null)
+    val analyticsSummary: kotlinx.coroutines.flow.StateFlow<com.neuroflow.app.domain.engine.AnalyticsEngine.AnalyticsSummary?> = _analyticsSummary.asStateFlow()
+
+    fun refreshAnalyticsSummary() {
+        viewModelScope.launch {
+            _analyticsSummary.value = loadAnalyticsSummary()
+        }
+    }
+
     suspend fun loadAnalyticsSummary(): com.neuroflow.app.domain.engine.AnalyticsEngine.AnalyticsSummary {
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val allTasks = taskRepository.getAllTasks()
@@ -1058,6 +1069,17 @@ class LauncherViewModel @Inject constructor(
             pinnedAppsDataStore.updatePreferences { prefs ->
                 prefs.copy(cardAlpha = alpha.coerceIn(0.5f, 1.0f))
             }
+        }
+    }
+
+    /**
+     * Update themed icons (Material You) preference.
+     * Invalidate icon cache so apps re-render with themed colors.
+     */
+    fun updateThemedIconsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            pinnedAppsDataStore.updateThemedIconsEnabled(enabled)
+            appRepository.clearIconCache()
         }
     }
 

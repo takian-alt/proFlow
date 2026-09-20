@@ -91,9 +91,11 @@ fun NeuroFlowApp(
     initialTaskId: String? = null,
     initialWoopTaskId: String? = null,
     initialGuideOpen: Boolean = false,
+    initialNewTaskOpen: Boolean = false,
     onInitialTaskConsumed: () -> Unit = {},
     onInitialWoopTaskConsumed: () -> Unit = {},
-    onInitialGuideConsumed: () -> Unit = {}
+    onInitialGuideConsumed: () -> Unit = {},
+    onInitialNewTaskConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -318,7 +320,9 @@ fun NeuroFlowApp(
                         },
                         onNavigateToSettings = {
                             navController.navigate(Screen.Settings.route)
-                        }
+                        },
+                        initialNewTaskOpen = initialNewTaskOpen,
+                        onInitialNewTaskConsumed = onInitialNewTaskConsumed
                     )
                 }
                 composable(Screen.Schedule.route) {

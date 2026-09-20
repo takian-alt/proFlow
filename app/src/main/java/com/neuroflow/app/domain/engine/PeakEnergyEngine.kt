@@ -134,16 +134,17 @@ object PeakEnergyEngine {
     ) {
 
         /**
-         * Returns the current peak-energy value, decreasing by 1 point per minute after
-         * the assigned peak time. The value resets to [peakValue] at the next daily peak
-         * timepoint, rather than needing to decay all the way to zero.
+         * Returns the current peak-energy value, decreasing proportionally after
+         * the assigned peak time across a 16-hour wake window (960 minutes). The value
+         * resets to [peakValue] at the next daily peak timepoint.
          *
          * Clamped to [0, peakValue] to prevent negative values from being exposed.
          */
         fun currentValueAt(nowMillis: Long = System.currentTimeMillis()): Int {
             val nowMinuteOfDay = minuteOfDay(nowMillis)
             val minutesSincePeak = minutesSincePeak(nowMinuteOfDay)
-            return (peakValue - minutesSincePeak).coerceAtLeast(0)
+            val decay = (minutesSincePeak * (peakValue.toFloat() / 960f)).roundToInt()
+            return (peakValue - decay).coerceAtLeast(0)
         }
 
         /** Minutes elapsed since the most recent peak occurrence. */

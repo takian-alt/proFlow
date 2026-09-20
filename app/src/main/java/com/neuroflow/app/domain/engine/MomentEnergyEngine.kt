@@ -185,7 +185,8 @@ object MomentEnergyEngine {
             1f
         }
 
-        val confidence = (densityFactor * calmFactor * peakStalenessGuard * signalStalenessGuard * trendWeighting).coerceIn(0.35f, 0.98f)
+        val baseConfidence = (densityFactor * calmFactor * trendWeighting).coerceIn(0.35f, 0.98f)
+        val confidence = (baseConfidence * peakStalenessGuard * signalStalenessGuard).coerceIn(0.0f, 0.98f)
 
         val adjustment = ((supportScore - pressureScore) * MAX_ADJUSTMENT).coerceIn(-MAX_ADJUSTMENT, MAX_ADJUSTMENT)
         val adjustedRawEnergy = (snapshot.baselineRawEnergy + adjustment * confidence).coerceIn(-100f, 100f)

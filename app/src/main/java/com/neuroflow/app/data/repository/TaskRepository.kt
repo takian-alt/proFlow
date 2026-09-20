@@ -208,7 +208,7 @@ class TaskRepository @Inject constructor(
                 id = newId,
                 status = TaskStatus.ACTIVE,
                 completedAt = null,
-                habitDate = nextAnchor,
+                habitDate = nextAnchor.toDayStart(),
                 deadlineDate = nextDeadlineDate,
                 deadlineTime = nextDeadlineTime,
                 scheduledDate = nextScheduledDate,

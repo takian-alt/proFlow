@@ -19,6 +19,7 @@ class LauncherGestureHandler(
     private val onSwipeLeft: () -> Unit,
     private val onSwipeRight: () -> Unit,
     private val onLongPress: () -> Unit,
+    private val onDoubleTap: () -> Unit = {},
     private val isDraggingIcon: () -> Boolean = { false }
 ) {
     val navigationMode: NavigationMode by lazy { detectNavigationMode() }
@@ -123,7 +124,14 @@ class LauncherGestureHandler(
         }
     }
 
-    /** Applied to the pager — only long-press, no swipe interception. */
+    /** Applied to the pager — double-tap and long-press without intercepting swipes. */
     @Composable
-    fun Modifier.attachGestures(): Modifier = this.attachLongPress()
+    fun Modifier.attachGestures(): Modifier {
+        return this.pointerInput(Unit) {
+            detectTapGestures(
+                onDoubleTap = { onDoubleTap() },
+                onLongPress = { onLongPress() }
+            )
+        }
+    }
 }

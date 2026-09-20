@@ -245,4 +245,38 @@ class AutoSchedulingEngineCapacityTest : StringSpec({
             decision.scheduledStartMillis shouldNotBe 0L
         }
     }
+
+    "tasks without a deadline date are eligible and auto-scheduled into available capacity" {
+        runTest {
+            val now = Calendar.getInstance().apply {
+                set(2026, Calendar.APRIL, 25, 9, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val taskWithoutDeadline = createTask(
+                id = "no_deadline_task",
+                effortScore = 40,
+                estimatedDurationMinutes = 30,
+                deadlineDate = null
+            )
+
+            val engine = buildEngine(
+                UserPreferences(
+                    autoSchedulingEnabled = true,
+                    workDayStart = 8,
+                    workDayEnd = 18
+                )
+            )
+
+            val decisions = engine.planAutoSchedule(
+                unscheduledTasks = listOf(taskWithoutDeadline),
+                nowMillis = now,
+                energyScoreFn = { 65 to 0.9f } // HIGH energy zone
+            )
+
+            decisions shouldHaveSize 1
+            decisions[0].taskId shouldBe "no_deadline_task"
+            decisions[0].scheduledStartMillis shouldNotBe 0L
+        }
+    }
 })

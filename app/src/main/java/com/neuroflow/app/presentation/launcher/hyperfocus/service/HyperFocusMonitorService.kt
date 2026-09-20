@@ -81,8 +81,9 @@ class HyperFocusMonitorService : Service() {
 
                 val now = System.currentTimeMillis()
                 val accessibilityEnabled = isAccessibilityServiceEnabled()
-                val heartbeatStale = prefs.lastServiceHeartbeat > 0L &&
-                    (now - prefs.lastServiceHeartbeat) > HEARTBEAT_STALE_MS
+                val lastHeartbeat = hyperFocusDataStore.getHeartbeat().takeIf { it > 0L } ?: prefs.lastServiceHeartbeat
+                val heartbeatStale = lastHeartbeat > 0L &&
+                    (now - lastHeartbeat) > HEARTBEAT_STALE_MS
                 val accessibilityHealthy = accessibilityEnabled && !heartbeatStale
                 val isDefaultLauncher = isLauncherDefault()
                 val requireLauncherHome = DeviceOwnerKioskManager.shouldRequireLauncherAsHome(this@HyperFocusMonitorService)

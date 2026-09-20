@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.core.view.WindowInsetsCompat
@@ -100,7 +102,7 @@ fun HomeScreen(
         context.getSystemService(android.content.Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
     }
 
-    val totalPages = 3 + extraPages.size
+    val totalPages = 2 + extraPages.size
     val indicatorBottomPadding = WindowInsets.navigationBars
         .asPaddingValues()
         .calculateBottomPadding() + 72.dp
@@ -149,51 +151,61 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> LeftPage(viewModel = viewModel)
-                1 -> QuotePage(
-                    viewModel = viewModel,
-                    launcherApps = launcherApps,
-                    snackbarHostState = snackbarHostState,
-                    gestureHandler = gestureHandler,
-                    isVisible = pagerState.currentPage == page
-                )
-                2 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null, showDateTime = false)
+                1 -> ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = null, showDateTime = true)
                 else -> {
-                    val extraPage = extraPages.getOrNull(page - 3)
+                    val extraPage = extraPages.getOrNull(page - 2)
                     ActiveHomePage(layoutMode, viewModel, gestureHandler, pageData = extraPage, showDateTime = false)
                 }
             }
         }
 
         // Page indicators — above dock, below nav bar
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = indicatorBottomPadding),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            repeat(totalPages) { index ->
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .semantics { contentDescription = "Go to page ${index + 1}" }
-                        .clickable {
-                            scope.launch {
-                                pagerState.animateScrollToPage(index)
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
+        if (totalPages > 1) {
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = indicatorBottomPadding)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(totalPages) { index ->
+                    val isSelected = index == pagerState.currentPage
+                    val targetWidth = if (isSelected) 20.dp else 6.dp
+                    val width by androidx.compose.animation.core.animateDpAsState(
+                        targetValue = targetWidth,
+                        animationSpec = androidx.compose.animation.core.spring(
+                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                        ),
+                        label = "home_page_indicator_width"
+                    )
+                    val targetColor = if (isSelected)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    val color by androidx.compose.animation.animateColorAsState(
+                        targetValue = targetColor,
+                        label = "home_page_indicator_color"
+                    )
                     Box(
                         modifier = Modifier
-                            .size(if (index == pagerState.currentPage) 8.dp else 6.dp)
-                            .background(
-                                color = if (index == pagerState.currentPage)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                                shape = CircleShape
-                            )
+                            .height(6.dp)
+                            .width(width)
+                            .clip(CircleShape)
+                            .background(color)
+                            .semantics { contentDescription = "Go to page ${index + 1}" }
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                scope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            }
                     )
                 }
             }
@@ -524,6 +536,7 @@ private fun PortraitLayout(
                         }
                         context.startActivity(intent)
                     },
+                    onComplete = { task -> viewModel.completeTask(task) },
                     onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
                     onEmergencyReset = { viewModel.triggerEmergencyReset() },
@@ -682,6 +695,7 @@ private fun LandscapeLayout(
                         }
                         context.startActivity(intent)
                     },
+                    onComplete = { task -> viewModel.completeTask(task) },
                     onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
                     modifier = Modifier.fillMaxWidth()
@@ -777,6 +791,7 @@ private fun TwoColumnLayout(
                     }
                     context.startActivity(intent)
                 },
+                onComplete = { task -> viewModel.completeTask(task) },
                 onStopFocus = { viewModel.stopFocusSession() },
                 onClearSkipped = { viewModel.clearSkippedTasks() },
                 modifier = Modifier.fillMaxWidth()

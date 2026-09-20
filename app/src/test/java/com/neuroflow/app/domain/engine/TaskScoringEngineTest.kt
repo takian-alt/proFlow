@@ -135,7 +135,7 @@ class TaskScoringEngineTest {
     }
 
     @Test
-    fun `locked task has zero priority until schedule window`() {
+    fun `locked task retains non-zero score with proximity ramp`() {
         val farLocked = makeTask().copy(
             isScheduleLocked = true,
             habitDate = now + 20 * 60_000L
@@ -148,7 +148,7 @@ class TaskScoringEngineTest {
         val farScore = TaskScoringEngine.score(farLocked, defaultPrefs, listOf(farLocked, nearLocked), now)
         val nearScore = TaskScoringEngine.score(nearLocked, defaultPrefs, listOf(farLocked, nearLocked), now)
 
-        assertEquals(0f, farScore, 0.0001f)
-        assertTrue(nearScore > 0f)
+        assertTrue(farScore > 0f)
+        assertTrue(nearScore > farScore)
     }
 }

@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private var initialFocusTaskId by mutableStateOf<String?>(null)
     private var initialWoopTaskId by mutableStateOf<String?>(null)
     private var initialGuideOpen by mutableStateOf(false)
+    private var initialNewTaskOpen by mutableStateOf(false)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -72,6 +73,10 @@ class MainActivity : ComponentActivity() {
             NotificationManagerCompat.from(this).cancel(notificationId)
         }
         when (intent.action) {
+            "com.procus.ACTION_OPEN_NEW_TASK" -> {
+                initialNewTaskOpen = true
+                return
+            }
             "com.procus.ACTION_OPEN_FOCUS" -> {
                 initialFocusTaskId = taskId
                 return
@@ -273,9 +278,11 @@ class MainActivity : ComponentActivity() {
                                     initialTaskId = initialFocusTaskId,
                                     initialWoopTaskId = initialWoopTaskId,
                                     initialGuideOpen = initialGuideOpen,
+                                    initialNewTaskOpen = initialNewTaskOpen,
                                     onInitialTaskConsumed = { initialFocusTaskId = null },
                                     onInitialWoopTaskConsumed = { initialWoopTaskId = null },
-                                    onInitialGuideConsumed = { initialGuideOpen = false }
+                                    onInitialGuideConsumed = { initialGuideOpen = false },
+                                    onInitialNewTaskConsumed = { initialNewTaskOpen = false }
                                 )
                             }
                         }

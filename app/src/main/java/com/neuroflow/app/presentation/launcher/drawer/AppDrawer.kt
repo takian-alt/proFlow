@@ -2,23 +2,30 @@ package com.neuroflow.app.presentation.launcher.drawer
 
 import android.content.Intent
 import android.content.pm.LauncherApps
+import android.net.Uri
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,18 +33,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.presentation.launcher.LauncherViewModel
 import com.neuroflow.app.presentation.launcher.domain.BiometricAppLock
 import com.neuroflow.app.presentation.launcher.components.AppIcon
 import com.neuroflow.app.presentation.launcher.data.AppInfo
+import kotlinx.coroutines.launch
 import java.text.Collator
 import java.util.Locale
 
@@ -156,6 +170,12 @@ fun AppDrawer(
     val dockApps by viewModel.dockApps.collectAsState()
     val distractionScores by viewModel.distractionScores.collectAsState()
     val homeScreenPages by viewModel.homeScreenPages.collectAsState()
+    val allActiveTasks by viewModel.allActiveTasks.collectAsState()
+
+    val matchingTasks = remember(allActiveTasks, searchQuery) {
+        if (searchQuery.isBlank()) emptyList()
+        else allActiveTasks.filter { it.title.contains(searchQuery.trim(), ignoreCase = true) }
+    }
 
     // State for page picker dialog
     var showPagePickerDialog by remember { mutableStateOf(false) }
@@ -179,11 +199,6 @@ fun AppDrawer(
         showPagePickerDialog = true
     }
 
-    // Early return if not open (don't render when closed)
-    if (!isOpen) {
-        return
-    }
-
     LaunchedEffect(isOpen) {
         if (isOpen) {
             viewModel.refreshDrawerData()
@@ -198,6 +213,8 @@ fun AppDrawer(
                 showPagePickerDialog = false
                 pendingAddPackage = null
             },
+            shape = RoundedCornerShape(28.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = { Text("Add to Home Screen") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -211,7 +228,7 @@ fun AppDrawer(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = {
                                 val pkg = pendingAddPackage!!
@@ -299,9 +316,12 @@ fun AppDrawer(
     val showQuickAccess = searchQuery.isBlank() &&
         (recentlyOpenedApps.isNotEmpty() || recentlyInstalledQuickApps.isNotEmpty())
 
-    // Slide-up animation with spring (Requirement 8.1)
+    val configuration = LocalConfiguration.current
+    val screenHeight = configuration.screenHeightDp.dp
+
+    // Slide-up and slide-down animation with spring (Requirement 8.1)
     val offsetY by animateDpAsState(
-        targetValue = if (isOpen) 0.dp else 1000.dp,
+        targetValue = if (isOpen) 0.dp else screenHeight,
         animationSpec = spring(
             dampingRatio = 0.85f,
             stiffness = 600f
@@ -309,43 +329,61 @@ fun AppDrawer(
         label = "drawerOffset"
     )
 
+    val scrimAlpha by animateFloatAsState(
+        targetValue = if (isOpen) 0.5f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "drawerScrim"
+    )
+
+    // Early return when completely closed off-screen
+    if (!isOpen && offsetY >= screenHeight - 2.dp) {
+        return
+    }
+
     // Track drag offset for swipe-down dismiss
     var dragOffset by remember { mutableStateOf(0f) }
     val dismissThreshold = with(density) { 100.dp.toPx() }
 
-    // Note: Auto-focus removed - keyboard opening on drawer open was irritating
-    // Users can tap search field if they want to search
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
+            .background(Color.Black.copy(alpha = scrimAlpha))
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                onClick = onDismiss
+            )
             .pointerInput(Unit) {
                 // Tap outside to dismiss (Requirement 8.9)
                 detectVerticalDragGestures(
-                        onDragEnd = {
-                            if (dragOffset > dismissThreshold) {
-                                onDismiss()
-                            }
-                            dragOffset = 0f
-                        },
-                        onVerticalDrag = { _, dragAmount ->
-                            if (dragAmount > 0) { // Only track downward drags
-                                dragOffset += dragAmount
-                            }
+                    onDragEnd = {
+                        if (dragOffset > dismissThreshold) {
+                            onDismiss()
                         }
-                    )
-                }
+                        dragOffset = 0f
+                    },
+                    onVerticalDrag = { _, dragAmount ->
+                        if (dragAmount > 0) { // Only track downward drags
+                            dragOffset += dragAmount
+                        }
+                    }
+                )
+            }
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .offset(y = offsetY)
+                .padding(top = 48.dp)
+                .testTag("app_drawer")
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    onClick = { /* Consume clicks so they don't dismiss */ }
+                ),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .offset(y = offsetY)
-                    .padding(top = 48.dp)
-                    .testTag("app_drawer"),
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                color = MaterialTheme.colorScheme.surface
-            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -397,7 +435,7 @@ fun AppDrawer(
                         value = searchQuery,
                         onValueChange = { viewModel.setSearchQuery(it) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search apps") },
+                        placeholder = { Text("Search apps, tasks, web...") },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Outlined.Search,
@@ -414,11 +452,13 @@ fun AppDrawer(
                                 }
                             }
                         },
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(24.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.Transparent
                         )
                     )
 
@@ -487,14 +527,186 @@ fun AppDrawer(
                         }
                     }
 
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(drawerColumns),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxSize()
+                    val gridState = rememberLazyGridState()
+                    val coroutineScope = rememberCoroutineScope()
+                    var activeScrubLetter by remember { mutableStateOf<Char?>(null) }
+
+                    val letterToGridIndex = remember(groupedApps, showQuickAccess, focusActive) {
+                        val map = mutableMapOf<Char, Int>()
+                        var currentIndex = 0
+                        if (showQuickAccess) currentIndex += 1
+                        currentIndex += 1 // "All Apps" header
+                        if (focusActive) currentIndex += 1
+                        groupedApps.forEach { (section, apps) ->
+                            val char = section.toString().firstOrNull()
+                            if (char != null) {
+                                map[char] = currentIndex
+                                currentIndex += 1 + apps.size
+                            }
+                        }
+                        map
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
                     ) {
-                        if (showQuickAccess) {
-                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                        LazyVerticalGrid(
+                            state = gridState,
+                            columns = GridCells.Fixed(drawerColumns),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(end = if (searchQuery.isBlank()) 28.dp else 0.dp)
+                        ) {
+                            if (searchQuery.isNotBlank()) {
+                                // 1. Web Search action item
+                                item(span = { GridItemSpan(drawerColumns) }) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = {
+                                            try {
+                                                val uri = Uri.parse(launcherPrefs.webSearchUrl + Uri.encode(searchQuery))
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                                onDismiss()
+                                            } catch (e: Exception) {
+                                                android.widget.Toast.makeText(context, "Could not launch web search", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Search,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Search web for \"$searchQuery\"",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Text(
+                                                    text = "Open in browser",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. Matching Tasks
+                                if (matchingTasks.isNotEmpty()) {
+                                    item(span = { GridItemSpan(drawerColumns) }) {
+                                        Text(
+                                            text = "Matching Tasks (${matchingTasks.size})",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                                        )
+                                    }
+
+                                    items(matchingTasks, key = { "task_${it.id}" }, span = { GridItemSpan(drawerColumns) }) { task ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 2.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = task.title,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Medium,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(top = 2.dp)
+                                                    ) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.secondaryContainer
+                                                        ) {
+                                                            Text(
+                                                                text = "Priority ${task.priority}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            )
+                                                        }
+                                                        task.energyLevel?.let { energy ->
+                                                            Text(
+                                                                text = "Energy: $energy",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.completeTask(task)
+                                                        android.widget.Toast.makeText(context, "Task completed!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Complete task",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    item(span = { GridItemSpan(drawerColumns) }) {
+                                        Text(
+                                            text = "Apps (${filteredApps.size})",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (showQuickAccess) {
+                                item(span = { GridItemSpan(drawerColumns) }) {
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -612,7 +824,7 @@ fun AppDrawer(
 
                         // Alphabetical app grid heading (Requirement 8.4)
                         if (searchQuery.isBlank()) {
-                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                            item(span = { GridItemSpan(drawerColumns) }) {
                                 Text(
                                     text = "All Apps",
                                     style = MaterialTheme.typography.titleSmall,
@@ -624,7 +836,7 @@ fun AppDrawer(
 
                         // Focus mode banner (Requirement 20.4)
                         if (focusActive && searchQuery.isBlank()) {
-                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                            item(span = { GridItemSpan(drawerColumns) }) {
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -646,7 +858,7 @@ fun AppDrawer(
                         groupedApps.forEach { (section, apps) ->
                             // Section header (only when search is inactive)
                             if (searchQuery.isBlank() && section.toString().isNotEmpty()) {
-                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(drawerColumns) }) {
+                                item(span = { GridItemSpan(drawerColumns) }) {
                                     Surface(
                                         shape = RoundedCornerShape(999.dp),
                                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -713,7 +925,109 @@ fun AppDrawer(
                             }
                         }
                     }
+
+                    // Alphabet Fast Scroller Rail (only in default alphabetical view)
+                    if (searchQuery.isBlank() && sortedApps.isNotEmpty()) {
+                        val alphabet = remember { ('A'..'Z').toList() + '#' }
+                        AlphabetFastScroller(
+                            letters = alphabet,
+                            activeLetter = activeScrubLetter,
+                            onLetterSelected = { letter ->
+                                activeScrubLetter = letter
+                                val targetIndex = letterToGridIndex[letter]
+                                    ?: letterToGridIndex.keys.filter { it >= letter }.minOrNull()?.let { letterToGridIndex[it] }
+                                    ?: letterToGridIndex.values.firstOrNull() ?: 0
+                                coroutineScope.launch {
+                                    gridState.scrollToItem(targetIndex)
+                                }
+                            },
+                            onScrubEnd = {
+                                activeScrubLetter = null
+                            },
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        )
+                    }
+
+                    // Floating Letter Scrubber Popup
+                    if (activeScrubLetter != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            shadowElevation = 8.dp,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .align(Alignment.Center)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = activeScrubLetter.toString(),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * Modern Alphabet Fast-Scroller rail for quick jumping across installed apps.
+ */
+@Composable
+private fun AlphabetFastScroller(
+    letters: List<Char>,
+    activeLetter: Char?,
+    onLetterSelected: (Char) -> Unit,
+    onScrubEnd: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+
+    BoxWithConstraints(
+        modifier = modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .padding(vertical = 12.dp)
+            .pointerInput(letters) {
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        val index = (offset.y / size.height * letters.size).toInt().coerceIn(0, letters.size - 1)
+                        val letter = letters[index]
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onLetterSelected(letter)
+                    },
+                    onVerticalDrag = { change, _ ->
+                        val index = (change.position.y / size.height * letters.size).toInt().coerceIn(0, letters.size - 1)
+                        val letter = letters[index]
+                        if (letter != activeLetter) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onLetterSelected(letter)
+                        }
+                    },
+                    onDragEnd = { onScrubEnd() },
+                    onDragCancel = { onScrubEnd() }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            letters.forEach { char ->
+                val isSelected = char == activeLetter
+                Text(
+                    text = char.toString(),
+                    fontSize = 9.sp,
+                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
 }

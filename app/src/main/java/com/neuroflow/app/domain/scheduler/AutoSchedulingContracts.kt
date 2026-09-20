@@ -1,8 +1,6 @@
 package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.data.local.entity.localTimeOfDayOffset
-import com.neuroflow.app.data.local.entity.startOfLocalDay
 
 /**
  * Non-negotiable safety contracts for all auto-scheduling flows.
@@ -17,11 +15,7 @@ object AutoSchedulingContracts {
         if (task.isScheduleLocked || task.quadrant == com.neuroflow.app.domain.model.Quadrant.ELIMINATE) {
             return false
         }
-        val isPastSchedule = task.scheduledDate?.let { date ->
-            val time = task.scheduledTime ?: 0L
-            (date + time) < nowMillis
-        } ?: false
-        return !hasManualScheduleData(task) || task.isAutoScheduled || isPastSchedule
+        return !hasManualScheduleData(task) || task.isAutoScheduled
     }
 
     /**
@@ -29,15 +23,6 @@ object AutoSchedulingContracts {
      */
     fun hasDeadlineData(task: TaskEntity): Boolean {
         return task.deadlineDate != null
-    }
-
-    /**
-     * Normalizes recurring anchors through local-safe helpers to avoid timezone and
-     * minute-of-day drift when recurrence data is reused across cycles.
-     */
-    fun normalizedRecurringAnchorMillis(task: TaskEntity): Long? {
-        val anchor = task.habitDate ?: return null
-        return startOfLocalDay(anchor) + localTimeOfDayOffset(anchor)
     }
 }
 
@@ -48,6 +33,7 @@ enum class AutoScheduleRejectionReason {
     NO_CAPACITY_IN_HORIZON,
     LOW_ENERGY_PROTECTION,
     OUTSIDE_WORKDAY,
+    PROTECTED_SLOT,
     UNKNOWN
 }
 

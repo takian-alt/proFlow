@@ -51,7 +51,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -77,6 +79,7 @@ fun BlockingOverlayScreen(
     val unlockSecondsRemaining by viewModel.unlockSecondsRemaining.collectAsState()
     val sessionSecondsRemaining by viewModel.sessionSecondsRemaining.collectAsState()
 
+    val haptic = LocalHapticFeedback.current
     var showEmergencyDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -505,25 +508,31 @@ fun BlockingOverlayScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
-                    onClick = { navController.navigate("launch_app") },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("launch_app")
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(50.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF1B5E20),
                         contentColor = Color(0xFF69F0AE)
                     ),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Text("Open $appName →", fontWeight = FontWeight.Bold)
                 }
 
                 OutlinedButton(
-                    onClick = { (context as? Activity)?.finish() },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        (context as? Activity)?.finish()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(10.dp)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Text("Back to launcher", color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
@@ -531,6 +540,7 @@ fun BlockingOverlayScreen(
                 // ============ ACTION BUTTONS (LOCKED) ============
                 Button(
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val isPlanningPending =
                             prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
 
@@ -557,12 +567,12 @@ fun BlockingOverlayScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(50.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
                         contentColor = Color.White
                     ),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
                         if (prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING)
@@ -577,11 +587,14 @@ fun BlockingOverlayScreen(
                     prefs.state != com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
                 ) {
                     OutlinedButton(
-                        onClick = { navController.navigate("code_entry") },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            navController.navigate("code_entry")
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(10.dp)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Text("Enter unlock code", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
@@ -592,7 +605,10 @@ fun BlockingOverlayScreen(
                 if (prefs.sessionMode == HyperFocusSessionMode.TASK_BASED) {
                     if (!prefs.emergencyUsed) {
                         TextButton(
-                            onClick = { showEmergencyDialog = true },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showEmergencyDialog = true
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Emergency Access (10 mins)", color = Color(0xFFB0B0B0))
@@ -616,6 +632,7 @@ fun BlockingOverlayScreen(
     if (showEmergencyDialog) {
         AlertDialog(
             onDismissRequest = { showEmergencyDialog = false },
+            shape = RoundedCornerShape(28.dp),
             containerColor = Color(0xFF1A1A2E),
             titleContentColor = Color.White,
             textContentColor = Color(0xFFB0B0B0),
@@ -631,16 +648,21 @@ fun BlockingOverlayScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         showEmergencyDialog = false
                         viewModel.activateEmergencyBypass()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF6B6B))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF6B6B)),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Text("Use Emergency", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEmergencyDialog = false }) {
+                TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showEmergencyDialog = false
+                }) {
                     Text("Cancel", color = Color.White)
                 }
             }

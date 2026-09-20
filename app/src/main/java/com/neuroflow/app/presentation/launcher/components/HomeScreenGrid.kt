@@ -1,7 +1,12 @@
 package com.neuroflow.app.presentation.launcher.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -16,15 +21,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -66,8 +75,7 @@ fun HomeScreenGrid(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f))
-            .padding(8.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         HorizontalPager(
@@ -142,6 +150,7 @@ internal fun HomeScreenPageGrid(
     isDraggingIcon: androidx.compose.runtime.MutableState<Boolean>? = null,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
     val columns = 4
     val rows = 5
 
@@ -238,6 +247,7 @@ internal fun HomeScreenPageGrid(
                                             .pointerInput(position, item) {
                                                 detectDragGesturesAfterLongPress(
                                                     onDragStart = { localOffset ->
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         draggingFrom = position
                                                         draggingOver = position
                                                         isDraggingIcon?.value = true
@@ -259,6 +269,7 @@ internal fun HomeScreenPageGrid(
                                                         val from = draggingFrom
                                                         val to = draggingOver
                                                         if (from != null && to != null && from != to) {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                             onMoveItem?.invoke(from, to)
                                                         }
                                                         draggingFrom = null
@@ -309,8 +320,12 @@ internal fun HomeScreenPageGrid(
                         .offset { IntOffset(ghostX.roundToInt(), ghostY.roundToInt()) }
                         .size(iconSizeDp)
                         .zIndex(10f)
-                        .scale(1.15f)
-                        .graphicsLayer { alpha = 0.88f },
+                        .graphicsLayer {
+                            scaleX = 1.18f
+                            scaleY = 1.18f
+                            alpha = 0.92f
+                            shadowElevation = 8.dp.toPx()
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     SlotContent(
@@ -341,9 +356,19 @@ private fun SlotContent(
             val app = allApps.firstOrNull { it.packageName == item.packageName } ?: return
             val theme = LocalLauncherTheme.current
             val context = LocalContext.current
-            val processedIcon = remember(app.icon, theme.iconShape) {
+            val themeBgColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
+            val themeFgColor = MaterialTheme.colorScheme.onPrimaryContainer.toArgb()
+            val processedIcon = remember(app.icon, theme.iconShape, theme.themedIconsEnabled, themeBgColor, themeFgColor) {
                 val sizePx = (48.dp.value * context.resources.displayMetrics.density).toInt()
-                AdaptiveIconProcessor.process(app.icon, theme.iconShape, sizePx, context)
+                AdaptiveIconProcessor.process(
+                    drawable = app.icon,
+                    shape = theme.iconShape,
+                    sizePx = sizePx,
+                    context = context,
+                    themed = theme.themedIconsEnabled,
+                    themeBgColor = themeBgColor,
+                    themeFgColor = themeFgColor
+                )
             }
             val iconAlpha = if (focusActive && app.distractionScore > 70) 0.4f else 1.0f
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -395,27 +420,93 @@ private fun PageIndicators(
     onAddPage: () -> Unit,
     onPageTap: (Int) -> Unit
 ) {
+    if (pageCount <= 1 && pageCount < 10) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onAddPage,
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add page",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        return
+    }
+
+    val haptic = LocalHapticFeedback.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        repeat(pageCount) { index ->
-            Box(
-                modifier = Modifier
-                    .size(if (index == currentPage) 10.dp else 6.dp)
-                    .background(
-                        color = if (index == currentPage) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        shape = CircleShape
-                    )
-            )
-            if (index < pageCount - 1) Spacer(Modifier.width(8.dp))
+        Row(
+            modifier = Modifier
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(pageCount) { index ->
+                val isSelected = index == currentPage
+                val targetWidth = if (isSelected) 20.dp else 6.dp
+                val width by animateDpAsState(
+                    targetValue = targetWidth,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    ),
+                    label = "page_indicator_width"
+                )
+                val targetColor = if (isSelected)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                val color by animateColorAsState(
+                    targetValue = targetColor,
+                    label = "page_indicator_color"
+                )
+                Box(
+                    modifier = Modifier
+                        .height(6.dp)
+                        .width(width)
+                        .clip(CircleShape)
+                        .background(color)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onPageTap(index)
+                        }
+                )
+            }
         }
         if (pageCount < 10) {
-            Spacer(Modifier.width(16.dp))
-            IconButton(onClick = onAddPage, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Default.Add, contentDescription = "Add page", tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(10.dp))
+            IconButton(
+                onClick = onAddPage,
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add page",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }

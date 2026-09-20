@@ -36,9 +36,14 @@ package com.neuroflow.app.presentation.launcher.components
  */
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -99,6 +104,7 @@ fun FocusTaskCard(
     energy: EnergyScoreRepository.EnergyUiModel? = null,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
+    onComplete: (TaskEntity) -> Unit = {},
     onStopFocus: () -> Unit = {},
     onClearSkipped: () -> Unit = {},
     onEmergencyReset: () -> Unit = {},
@@ -138,6 +144,7 @@ fun FocusTaskCard(
                 energy = energy,
                 onSkip = { onSkip(topTask.id) },
                 onStartFocus = { onStartFocus(topTask.id) },
+                onComplete = { onComplete(topTask) },
                 onStopFocus = onStopFocus,
                 onEmergencyReset = onEmergencyReset
             )
@@ -243,9 +250,12 @@ private fun TaskContent(
     energy: EnergyScoreRepository.EnergyUiModel?,
     onSkip: () -> Unit,
     onStartFocus: () -> Unit,
+    onComplete: () -> Unit,
     onStopFocus: () -> Unit = {},
     onEmergencyReset: () -> Unit = {}
 ) {
+    var showNeuroInsights by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -289,16 +299,67 @@ private fun TaskContent(
             overflow = TextOverflow.Ellipsis
         )
 
-        PersonalizedPeakHint(
-            prefs = prefs,
-            effectivePeakProfile = effectivePeakProfile
-        )
+        // Glanceable Peak / Energy Pill
+        if (energy != null || prefs != null) {
+            Surface(
+                onClick = { showNeuroInsights = !showNeuroInsights },
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (energy != null) "⚡ Energy ${energy.availableEnergy}/100" else "⚡ Peak Window",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        if (effectivePeakProfile != null) {
+                            val conf = (effectivePeakProfile.confidence.overall * 100f).toInt()
+                            Text(
+                                text = "• ${conf}% Match",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (showNeuroInsights) "Hide ▲" else "Insights ▼",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
 
-        TaskEnergyGuidance(
-            taskEnergyLevel = task.energyLevel,
-            energy = energy,
-            effectivePeakProfile = effectivePeakProfile
-        )
+            AnimatedVisibility(visible = showNeuroInsights) {
+                Column(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PersonalizedPeakHint(
+                        prefs = prefs,
+                        effectivePeakProfile = effectivePeakProfile
+                    )
+
+                    TaskEnergyGuidance(
+                        taskEnergyLevel = task.energyLevel,
+                        energy = energy,
+                        effectivePeakProfile = effectivePeakProfile
+                    )
+                }
+            }
+        }
 
         // WOOP obstacle and plan (if present)
         if (woopEntity != null && woopEntity.obstacle.isNotBlank()) {
@@ -334,9 +395,10 @@ private fun TaskContent(
                 onStopFocus = onStopFocus
             )
         } else {
-            // Start Focus, Skip, and Reset buttons
+            // Start Focus, Complete, Skip, and Reset buttons
             ActionButtons(
                 onStartFocus = onStartFocus,
+                onComplete = onComplete,
                 onSkip = onSkip,
                 onEmergencyReset = onEmergencyReset
             )
@@ -776,18 +838,35 @@ private fun InProgressState(
 }
 
 /**
- * Action buttons for Start Focus and Skip.
+ * Action buttons for Complete, Start Focus, Skip, and Reset.
  */
 @Composable
 private fun ActionButtons(
     onStartFocus: () -> Unit,
+    onComplete: () -> Unit,
     onSkip: () -> Unit,
     onEmergencyReset: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        // Complete 1-tap checkmark button
+        IconButton(
+            onClick = onComplete,
+            modifier = Modifier
+                .size(42.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Complete task",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
         // Emergency Reset button
         OutlinedButton(
             onClick = onEmergencyReset,
@@ -795,7 +874,7 @@ private fun ActionButtons(
                 contentColor = MaterialTheme.colorScheme.error
             )
         ) {
-            Text("⚡ Reset", style = MaterialTheme.typography.labelMedium)
+            Text("⚡", style = MaterialTheme.typography.labelMedium)
         }
 
         // Skip button
@@ -803,7 +882,7 @@ private fun ActionButtons(
             onClick = onSkip,
             modifier = Modifier.weight(1f)
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Skip task", modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.Close, contentDescription = "Skip task", modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(4.dp))
             Text("Skip")
         }
@@ -811,7 +890,7 @@ private fun ActionButtons(
         // Start Focus button
         Button(
             onClick = onStartFocus,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1.3f)
         ) {
             Text("Start Focus")
         }

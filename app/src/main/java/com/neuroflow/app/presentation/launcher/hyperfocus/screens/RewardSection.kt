@@ -22,6 +22,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -85,19 +87,21 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
             val isAvailable = isReachable && isEarned && hasUnclaimedCode && !(tier == RewardTier.FULL && isPlanningPending)
             val isPendingThisTier = claimedCode != null && claimedTier == tier
 
+            val haptic = LocalHapticFeedback.current
+
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = when {
                     isPendingThisTier || (isEarned && !hasUnclaimedCode) ->
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                     isEarned ->
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                     else ->
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 }
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -126,8 +130,12 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                         }
 
                         Button(
-                            onClick = { viewModel.claimRewardForTier(tier) },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.claimRewardForTier(tier)
+                            },
                             enabled = isAvailable,
+                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
                             )
@@ -154,8 +162,8 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    MaterialTheme.colorScheme.surface,
-                                    RoundedCornerShape(6.dp)
+                                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    RoundedCornerShape(12.dp)
                                 )
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
@@ -172,7 +180,11 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                         Spacer(modifier = Modifier.height(8.dp))
 
                         OutlinedButton(
-                            onClick = { viewModel.dismissClaimedCode() },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.dismissClaimedCode()
+                            },
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Dismiss")

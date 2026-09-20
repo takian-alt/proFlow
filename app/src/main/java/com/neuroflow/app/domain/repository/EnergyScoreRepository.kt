@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlin.math.min
 
 @Singleton
 class EnergyScoreRepository @Inject constructor(
@@ -132,13 +133,13 @@ class EnergyScoreRepository @Inject constructor(
                 ?: Long.MAX_VALUE
             val sleepLogDataAgeMillis = momentSignals.latestSleepLogEndAt
                 ?.let { (nowMillis - it).coerceAtLeast(0L) }
-                ?: Long.MAX_VALUE  // No sleep logs = maximally stale
-            val overallFreshnessAgeMillis = maxOf(
-                (nowMillis - peakDetection.detectedAtMillis).coerceAtLeast(0L),
-                sessionDataAgeMillis,
-                taskDataAgeMillis,
-                sleepLogDataAgeMillis
-            )
+                ?: Long.MAX_VALUE
+            // Telemetry freshness tracks real-time signal recency; sleep logs inform sleep pressure, not live telemetry staleness
+            val overallFreshnessAgeMillis = listOfNotNull(
+                peakDetection?.let { (nowMillis - it.detectedAtMillis).coerceAtLeast(0L) },
+                sessionDataAgeMillis.takeIf { it != Long.MAX_VALUE },
+                taskDataAgeMillis.takeIf { it != Long.MAX_VALUE }
+            ).minOrNull() ?: 0L
 
             val multiHorizonFeatures = MomentEnergyEngine.MultiHorizonFeatures(
                 window5m = MomentEnergyEngine.MultiHorizonFeatures.WindowMetrics(
@@ -168,12 +169,15 @@ class EnergyScoreRepository @Inject constructor(
                 )
             )
 
+            val peakConfidence = peakDetection?.confidence ?: 0f
+            val minutesSincePeak = peakDetection?.minutesSincePeak(nowMillis) ?: 0
+
             val momentResult = MomentEnergyEngine.predict(
                 MomentEnergyEngine.MomentSignalSnapshot(
                     baselineRawEnergy = baselineScore.rawEnergy,
                     sleepPressurePoints = sleepPressurePoints,
-                    peakConfidence = peakDetection.confidence,
-                    minutesSincePeak = peakDetection.minutesSincePeak(nowMillis),
+                    peakConfidence = peakConfidence,
+                    minutesSincePeak = minutesSincePeak,
                     recentFocusMinutes = recentSessionMetrics.recentFocusMinutes,
                     recentInterruptionCount = recentSessionMetrics.recentInterruptionCount,
                     recentAppSwitchCount = recentSessionMetrics.recentAppSwitchCount,
@@ -192,11 +196,11 @@ class EnergyScoreRepository @Inject constructor(
                 )
             )
 
-            val currentPeakValue = peakDetection.currentValueAt(nowMillis)
-            val peakValue = peakDetection.peakValue
+            val currentPeakValue = peakDetection?.currentValueAt(nowMillis) ?: 0
+            val peakValue = peakDetection?.peakValue ?: PeakEnergyEngine.PEAK_VALUE
             val peakDrop = (peakValue - currentPeakValue).coerceAtLeast(0)
-            val minutesSincePeak = peakDetection.minutesSincePeak(nowMillis)
             val minutesUntilPeakReset = ((24 * 60) - minutesSincePeak).coerceAtLeast(0)
+            val peakDetectionAgeMillis = peakDetection?.let { (nowMillis - it.detectedAtMillis).coerceAtLeast(0L) } ?: Long.MAX_VALUE
 
             // Data is considered "recent" if all sources are less than 5 minutes old
             val freshnessThresholdMillis = 5 * 60_000L
@@ -223,9 +227,9 @@ class EnergyScoreRepository @Inject constructor(
                 circadianFactor = baselineScore.circadianFactor,
                 reservoirFactor = baselineScore.reservoirFactor,
                 confidenceFactor = baselineScore.confidenceFactor,
-                effectivePeakProfile = peakDetection.effectiveProfile,
+                effectivePeakProfile = peakDetection?.effectiveProfile,
                 momentSignalSummary = momentResult.summary,
-                peakDetectionAgeMillis = nowMillis - peakDetection.detectedAtMillis,
+                peakDetectionAgeMillis = peakDetectionAgeMillis,
                 sessionDataAgeMillis = sessionDataAgeMillis,
                 sleepLogDataAgeMillis = sleepLogDataAgeMillis,
                 taskDataAgeMillis = taskDataAgeMillis,
@@ -253,11 +257,11 @@ class EnergyScoreRepository @Inject constructor(
                         momentPressureScore = momentResult.pressureScore,
                         adjustedRawEnergy = momentResult.adjustedRawEnergy,
                         usableEnergy = momentResult.usableEnergy.toInt().coerceIn(0, 100),
-                        chronotype = peakDetection.chronotype.name,
-                        wakeUpHour = peakDetection.wakeUpHour,
-                        peakMinuteOfDay = peakDetection.peakMinuteOfDay,
-                        peakConfidence = peakDetection.confidence,
-                        peakDetectionAgeMillis = (nowMillis - peakDetection.detectedAtMillis).coerceAtLeast(0L),
+                        chronotype = peakDetection?.chronotype?.name ?: "UNKNOWN",
+                        wakeUpHour = peakDetection?.wakeUpHour ?: 7,
+                        peakMinuteOfDay = peakDetection?.peakMinuteOfDay ?: 600,
+                        peakConfidence = peakConfidence,
+                        peakDetectionAgeMillis = peakDetectionAgeMillis,
                         sleepLogAgeMillis = sleepLogDataAgeMillis,
                         sessionDataAgeMillis = sessionDataAgeMillis,
                         recentFocusMinutes = recentSessionMetrics.recentFocusMinutes,
@@ -313,8 +317,9 @@ class EnergyScoreRepository @Inject constructor(
         var recentPauseResumeCount = 0
         var activeSessionCount = 0
 
+        val maxOpenSessionMillis = 120 * 60_000L
         sessions.forEach { session ->
-            val endedAt = session.endedAt ?: nowMillis
+            val endedAt = session.endedAt ?: min(nowMillis, session.startedAt + maxOpenSessionMillis)
             if (session.startedAt >= cutoffMillis || endedAt >= cutoffMillis) {
                 val durationMinutes = if (session.durationMinutes > 0f) {
                     session.durationMinutes
@@ -330,6 +335,7 @@ class EnergyScoreRepository @Inject constructor(
                 }
             }
         }
+        recentFocusMinutes = recentFocusMinutes.coerceAtMost(windowMinutes.toFloat())
 
         return RecentSessionMetrics(
             recentFocusMinutes = recentFocusMinutes,

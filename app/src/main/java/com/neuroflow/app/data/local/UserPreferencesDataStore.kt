@@ -6,9 +6,13 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import com.neuroflow.app.domain.model.AppTheme
+import com.neuroflow.app.domain.model.ProtectedTimeSlot
+import com.neuroflow.app.domain.model.PtsCategory
+import com.neuroflow.app.domain.model.PtsRecurrence
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -99,6 +103,7 @@ data class UserPreferences(
     val sleepPressureTrackingStartedAtMillis: Long = 0L,
     val sleepPressureLastComputedAtMillis: Long = 0L,
     val autoFallbackSleepInsertionEnabled: Boolean = true,
+    val dismissedSleepFallbacks: Set<String> = emptySet(),
     // Moment model sensitivity controls
     val momentInterruptionSensitivity: Float = 1.0f,
     val momentNotificationSensitivity: Float = 1.0f,
@@ -138,7 +143,8 @@ data class UserPreferences(
     val manualPeakWindow3DurationMinutes: Int = 60,
     val manualPeakWindow1Amplitude: Float = 1.0f,
     val manualPeakWindow2Amplitude: Float = 0.8f,
-    val manualPeakWindow3Amplitude: Float = 0.6f
+    val manualPeakWindow3Amplitude: Float = 0.6f,
+    val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList()
 )
 
 @Singleton
@@ -214,6 +220,7 @@ class UserPreferencesDataStore @Inject constructor(
         val SLEEP_PRESSURE_TRACKING_STARTED_AT = longPreferencesKey("sleep_pressure_tracking_started_at")
         val SLEEP_PRESSURE_LAST_COMPUTED_AT = longPreferencesKey("sleep_pressure_last_computed_at")
         val AUTO_FALLBACK_SLEEP_INSERTION_ENABLED = booleanPreferencesKey("auto_fallback_sleep_insertion_enabled")
+        val DISMISSED_SLEEP_FALLBACKS = stringSetPreferencesKey("dismissed_sleep_fallbacks")
         val MOMENT_INTERRUPTION_SENSITIVITY = floatPreferencesKey("moment_interruption_sensitivity")
         val MOMENT_NOTIFICATION_SENSITIVITY = floatPreferencesKey("moment_notification_sensitivity")
         val MOMENT_TASK_PRESSURE_SENSITIVITY = floatPreferencesKey("moment_task_pressure_sensitivity")
@@ -250,6 +257,7 @@ class UserPreferencesDataStore @Inject constructor(
         val MANUAL_PEAK_WINDOW_1_AMPLITUDE = floatPreferencesKey("manual_peak_window_1_amplitude")
         val MANUAL_PEAK_WINDOW_2_AMPLITUDE = floatPreferencesKey("manual_peak_window_2_amplitude")
         val MANUAL_PEAK_WINDOW_3_AMPLITUDE = floatPreferencesKey("manual_peak_window_3_amplitude")
+        val PROTECTED_TIME_SLOTS = stringPreferencesKey("protected_time_slots")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -324,6 +332,7 @@ class UserPreferencesDataStore @Inject constructor(
             sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
             sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
             autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
+            dismissedSleepFallbacks = prefs[Keys.DISMISSED_SLEEP_FALLBACKS] ?: emptySet(),
             momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
             momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
             momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
@@ -359,7 +368,8 @@ class UserPreferencesDataStore @Inject constructor(
             manualPeakWindow3DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] ?: 60,
             manualPeakWindow1Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] ?: 1.0f,
             manualPeakWindow2Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] ?: 0.8f,
-            manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f
+            manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f,
+            protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS])
         )
     }
 
@@ -374,6 +384,52 @@ class UserPreferencesDataStore @Inject constructor(
     private fun encodeAffirmations(list: List<String>): String {
         val arr = JSONArray()
         list.forEach { arr.put(it) }
+        return arr.toString()
+    }
+
+    private fun parseProtectedTimeSlots(json: String?): List<ProtectedTimeSlot> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            val list = mutableListOf<ProtectedTimeSlot>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    ProtectedTimeSlot(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        label = obj.optString("label", "Protected Block"),
+                        startMinuteOfDay = obj.optInt("startMinuteOfDay", 480).coerceIn(0, 1439),
+                        durationMinutes = obj.optInt("durationMinutes", 60).coerceIn(15, 360),
+                        recurrence = runCatching { PtsRecurrence.valueOf(obj.optString("recurrence", "DAILY")) }.getOrDefault(PtsRecurrence.DAILY),
+                        weekdayBitmask = obj.optInt("weekdayBitmask", 0b1111111),
+                        category = runCatching { PtsCategory.valueOf(obj.optString("category", "BREAK")) }.getOrDefault(PtsCategory.BREAK),
+                        recoveryBufferMinutes = obj.optInt("recoveryBufferMinutes", 0).coerceIn(0, 120),
+                        isEnabled = obj.optBoolean("isEnabled", true)
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun encodeProtectedTimeSlots(list: List<ProtectedTimeSlot>): String {
+        val arr = JSONArray()
+        list.forEach { slot ->
+            val obj = JSONObject().apply {
+                put("id", slot.id)
+                put("label", slot.label)
+                put("startMinuteOfDay", slot.startMinuteOfDay)
+                put("durationMinutes", slot.durationMinutes)
+                put("recurrence", slot.recurrence.name)
+                put("weekdayBitmask", slot.weekdayBitmask)
+                put("category", slot.category.name)
+                put("recoveryBufferMinutes", slot.recoveryBufferMinutes)
+                put("isEnabled", slot.isEnabled)
+            }
+            arr.put(obj)
+        }
         return arr.toString()
     }
 
@@ -450,6 +506,7 @@ class UserPreferencesDataStore @Inject constructor(
                 sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
                 sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
                 autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
+                dismissedSleepFallbacks = prefs[Keys.DISMISSED_SLEEP_FALLBACKS] ?: emptySet(),
                 momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
                 momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
                 momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
@@ -485,7 +542,8 @@ class UserPreferencesDataStore @Inject constructor(
                 manualPeakWindow3DurationMinutes = prefs[Keys.MANUAL_PEAK_WINDOW_3_DURATION] ?: 60,
                 manualPeakWindow1Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] ?: 1.0f,
                 manualPeakWindow2Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] ?: 0.8f,
-                manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f
+                manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f,
+                protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS])
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -564,6 +622,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] = updated.sleepPressureTrackingStartedAtMillis
             prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] = updated.sleepPressureLastComputedAtMillis
             prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] = updated.autoFallbackSleepInsertionEnabled
+            prefs[Keys.DISMISSED_SLEEP_FALLBACKS] = updated.dismissedSleepFallbacks
             prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] = updated.momentInterruptionSensitivity.coerceIn(0.5f, 2.0f)
             prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] = updated.momentNotificationSensitivity.coerceIn(0.5f, 2.0f)
             prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] = updated.momentTaskPressureSensitivity.coerceIn(0.5f, 2.0f)
@@ -600,12 +659,19 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] = updated.manualPeakWindow1Amplitude.coerceIn(0.2f, 1f)
             prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] = updated.manualPeakWindow2Amplitude.coerceIn(0.2f, 1f)
             prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] = updated.manualPeakWindow3Amplitude.coerceIn(0.2f, 1f)
+            prefs[Keys.PROTECTED_TIME_SLOTS] = encodeProtectedTimeSlots(updated.protectedTimeSlots)
         }
     }
 
     suspend fun setAutoScheduleToggleOn(enabled: Boolean) {
         updatePreferences { prefs ->
             prefs.copy(isAutoScheduleToggleOn = enabled)
+        }
+    }
+
+    suspend fun updateProtectedTimeSlots(slots: List<ProtectedTimeSlot>) {
+        updatePreferences { prefs ->
+            prefs.copy(protectedTimeSlots = slots)
         }
     }
 

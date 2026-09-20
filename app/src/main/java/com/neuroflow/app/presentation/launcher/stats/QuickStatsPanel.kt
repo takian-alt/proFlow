@@ -21,8 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
@@ -74,14 +77,16 @@ fun QuickStatsPanel(
 
     // Panel width: 85% of screen width, max 400dp
     val panelWidth = minOf(screenWidth * 0.85f, 400.dp)
+    val density = LocalDensity.current
+    val panelWidthPx = with(density) { panelWidth.toPx() }
 
-    // Animate panel offset based on visibility and layout direction
+    // Animate panel offset based on visibility and layout direction (in raw pixels for graphicsLayer)
     val targetOffset = if (visible) 0f else {
         // Slide out to the start edge (left in LTR, right in RTL)
         if (layoutDirection == LayoutDirection.Ltr) {
-            -panelWidth.value
+            -panelWidthPx
         } else {
-            panelWidth.value
+            panelWidthPx
         }
     }
 
@@ -93,6 +98,15 @@ fun QuickStatsPanel(
         ),
         label = "QuickStatsPanel offset"
     )
+
+    // Skip drawing/composition entirely when fully off-screen and invisible
+    val isCompletelyClosed = !visible && (
+        if (layoutDirection == LayoutDirection.Ltr) offsetX <= -panelWidthPx + 1f
+        else offsetX >= panelWidthPx - 1f
+    )
+    if (isCompletelyClosed) {
+        return
+    }
 
     // Dismiss on tap outside
     if (visible) {
@@ -132,13 +146,13 @@ fun QuickStatsPanel(
                 }
             },
         shape = RoundedCornerShape(
-            topEnd = if (layoutDirection == LayoutDirection.Ltr) 16.dp else 0.dp,
-            bottomEnd = if (layoutDirection == LayoutDirection.Ltr) 16.dp else 0.dp,
-            topStart = if (layoutDirection == LayoutDirection.Rtl) 16.dp else 0.dp,
-            bottomStart = if (layoutDirection == LayoutDirection.Rtl) 16.dp else 0.dp
+            topEnd = if (layoutDirection == LayoutDirection.Ltr) 28.dp else 0.dp,
+            bottomEnd = if (layoutDirection == LayoutDirection.Ltr) 28.dp else 0.dp,
+            topStart = if (layoutDirection == LayoutDirection.Rtl) 28.dp else 0.dp,
+            bottomStart = if (layoutDirection == LayoutDirection.Rtl) 28.dp else 0.dp
         ),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp
     ) {
         if (summary != null) {
             QuickStatsPanelContent(
@@ -171,6 +185,7 @@ private fun QuickStatsPanelContent(
     hyperFocusViewModel: HyperFocusViewModel = hiltViewModel()
 ) {
     val scrollState = rememberScrollState()
+    val haptic = LocalHapticFeedback.current
 
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
 
@@ -211,10 +226,16 @@ private fun QuickStatsPanelContent(
 
         // Open full analytics button
         Button(
-            onClick = onOpenFullAnalytics,
-            modifier = Modifier.fillMaxWidth()
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onOpenFullAnalytics()
+            },
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
         ) {
-            Text("Open Full Analytics")
+            Text("Open Full Analytics", fontWeight = FontWeight.Bold)
         }
 
         // Reward section — shown only when Hyper Focus is active
@@ -233,6 +254,7 @@ private fun QuickStatsPanelContent(
 private fun TodayStatsCard(summary: AnalyticsEngine.AnalyticsSummary) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
@@ -277,6 +299,7 @@ private fun TodayStatsCard(summary: AnalyticsEngine.AnalyticsSummary) {
 private fun QuadrantBreakdownCard(summary: AnalyticsEngine.AnalyticsSummary) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
@@ -366,6 +389,7 @@ private fun QuadrantRow(
 private fun SeinfeldChainCard(summary: AnalyticsEngine.AnalyticsSummary) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )

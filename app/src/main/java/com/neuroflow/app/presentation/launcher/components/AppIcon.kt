@@ -33,10 +33,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpOffset
@@ -140,11 +143,24 @@ fun AppIcon(
         1.0f
     }
 
-    // Process icon with shape mask
-    val processedIcon = remember(appInfo.icon, theme.iconShape) {
+    // Process icon with shape mask and optional Material You themed icon tinting
+    val themeBgColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
+    val themeFgColor = MaterialTheme.colorScheme.onPrimaryContainer.toArgb()
+
+    val processedIcon = remember(appInfo.icon, theme.iconShape, theme.themedIconsEnabled, themeBgColor, themeFgColor) {
         val sizePx = (iconSize.value * context.resources.displayMetrics.density).toInt()
-        AdaptiveIconProcessor.process(appInfo.icon, theme.iconShape, sizePx, context)
+        AdaptiveIconProcessor.process(
+            drawable = appInfo.icon,
+            shape = theme.iconShape,
+            sizePx = sizePx,
+            context = context,
+            themed = theme.themedIconsEnabled,
+            themeBgColor = themeBgColor,
+            themeFgColor = themeFgColor
+        )
     }
+
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = modifier
@@ -163,6 +179,7 @@ fun AppIcon(
                     Modifier.combinedClickable(
                         onClick = handleTap,
                         onLongClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onLongPress?.invoke()
                             // Show ShortcutPopup on long-press (Requirement 5.1)
                             showShortcutPopup = true

@@ -21,8 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -101,25 +103,28 @@ fun AppFolderOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.7f))
+                .background(Color.Black.copy(alpha = 0.5f))
                 .clickable(onClick = onDismiss)
         ) {
             // Folder content card
             Card(
                 modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .fillMaxHeight(0.8f)
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight()
+                    .heightIn(min = 180.dp, max = 500.dp)
                     .align(Alignment.Center)
                     .clickable(enabled = false) { /* Prevent dismiss on card click */ },
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(28.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp)
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .padding(20.dp)
                 ) {
                     // Editable folder name (Requirement 4.3)
                     if (isEditingName) {
@@ -154,11 +159,15 @@ fun AppFolderOverlay(
 
                     HorizontalDivider(modifier = Modifier.padding(bottom = 16.dp))
 
+                    val haptic = LocalHapticFeedback.current
+
                     // Scrollable grid of apps (Requirement 4.1, 4.3)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(4),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                        contentPadding = PaddingValues(vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -172,6 +181,7 @@ fun AppFolderOverlay(
                                     .pointerInput(Unit) {
                                         detectDragGestures(
                                             onDragStart = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 isDragging = true
                                                 draggedPackage = app.packageName
                                             },
@@ -184,6 +194,7 @@ fun AppFolderOverlay(
                                                 // Drag-out to remove (Requirement 4.4)
                                                 // If dragged significantly outside the card, remove
                                                 if (kotlin.math.abs(dragOffset.second) > 200f) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     onRemoveApp(app.packageName)
                                                 }
                                                 isDragging = false

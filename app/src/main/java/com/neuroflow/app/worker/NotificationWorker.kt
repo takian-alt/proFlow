@@ -199,13 +199,11 @@ class StreakCheckWorker @AssistedInject constructor(
         // If nothing was completed today AND last active was before yesterday → streak is broken
         if (!completedToday && prefs.lastActiveDate < yesterday && prefs.dailyStreak > 0) {
             preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
-            // Re-read prefs so the risk-notification check below uses the updated streak value,
-            // not the stale pre-reset value that still shows the old (broken) streak count.
-            prefs = preferencesDataStore.preferencesFlow.first()
+            prefs = prefs.copy(dailyStreak = 0)
         }
 
         // Notify if streak is at risk (active streak, nothing done today yet, evening check)
-        if (!completedToday && prefs.dailyStreak > 3) {
+        if (!completedToday && prefs.dailyStreak > 0) {
             showNotification(
                 "Streak at risk! 🔥",
                 "Your ${prefs.dailyStreak}-day streak ends tonight. Complete 1 task!",
@@ -250,28 +248,18 @@ class DeadlineEscalationWorker @AssistedInject constructor(
         val now = System.currentTimeMillis()
         val threshold = 48 * 3_600_000L  // 48 hours in ms
 
-        val escalated = taskRepository.getActiveTasks().filter { task ->
-            task.quadrant == com.neuroflow.app.domain.model.Quadrant.SCHEDULE &&
+        val urgentTasks = taskRepository.getActiveTasks().filter { task ->
+            task.quadrant != com.neuroflow.app.domain.model.Quadrant.DO_FIRST &&
             task.recurrence == com.neuroflow.app.domain.model.Recurrence.NONE &&
-            !task.isScheduleLocked &&
             task.deadlineDate != null &&
             (task.deadlineDate + (task.deadlineTime ?: 0L) - now) in 0L..threshold
         }
 
-        escalated.forEach { task ->
-            taskRepository.update(
-                task.copy(
-                    quadrant = com.neuroflow.app.domain.model.Quadrant.DO_FIRST,
-                    updatedAt = now
-                )
-            )
-        }
-
-        if (escalated.isNotEmpty()) {
-            val names = escalated.take(3).joinToString(", ") { it.title }
-            val more = if (escalated.size > 3) " +${escalated.size - 3} more" else ""
+        if (urgentTasks.isNotEmpty()) {
+            val names = urgentTasks.take(3).joinToString(", ") { it.title }
+            val more = if (urgentTasks.size > 3) " +${urgentTasks.size - 3} more" else ""
             showNotification(
-                "⚠️ ${escalated.size} task${if (escalated.size > 1) "s" else ""} moved to DO FIRST",
+                "⚠️ ${urgentTasks.size} task${if (urgentTasks.size > 1) "s" else ""} due soon",
                 "$names$more — deadline within 48 hours.",
                 CHANNEL_TASKS
             )

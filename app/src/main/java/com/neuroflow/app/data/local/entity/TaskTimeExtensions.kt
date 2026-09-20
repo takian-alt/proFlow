@@ -15,10 +15,14 @@ fun TaskEntity.isRecurringWithAnchor(): Boolean =
  * Target used by reminder/notification flows.
  */
 fun TaskEntity.effectiveReminderTargetMillis(): Long? {
-    if (isRecurringWithAnchor()) return habitDate
+    if (isRecurringWithAnchor()) {
+        val baseDate = habitDate ?: return null
+        val timeOffset = scheduledTime ?: deadlineTime ?: (9 * 3600_000L)
+        return startOfLocalDay(baseDate) + timeOffset
+    }
     return deadlineDate?.let { it + (deadlineTime ?: 0L) }
         ?: scheduledDate?.let { it + (scheduledTime ?: 0L) }
-        ?: habitDate
+        ?: habitDate?.let { startOfLocalDay(it) + (scheduledTime ?: deadlineTime ?: (9 * 3600_000L)) }
 }
 
 /**

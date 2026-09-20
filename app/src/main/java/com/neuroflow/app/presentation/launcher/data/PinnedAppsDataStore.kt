@@ -15,7 +15,7 @@ import javax.inject.Singleton
 private val Context.launcherDataStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_prefs")
 
 enum class ClockStyle {
-    DIGITAL, MINIMAL
+    DIGITAL, MINIMAL, STACKED, SMART_PILL
 }
 
 enum class IconShape {
@@ -93,7 +93,8 @@ data class LauncherPreferences(
         "distraction_top3" to true
     ),
     // Custom quotes for central quote page
-    val customQuotes: List<String> = emptyList()
+    val customQuotes: List<String> = emptyList(),
+    val themedIconsEnabled: Boolean = false
 )
 
 @Singleton
@@ -122,6 +123,7 @@ class PinnedAppsDataStore @Inject constructor(
         val HOME_SCREEN_GRID_ENABLED = booleanPreferencesKey("home_screen_grid_enabled")
         val LEFT_PAGE_BLOCKS = stringPreferencesKey("left_page_blocks")
         val CUSTOM_QUOTES = stringPreferencesKey("custom_quotes")
+        val THEMED_ICONS = booleanPreferencesKey("themed_icons")
     }
 
     val launcherPrefsFlow: Flow<LauncherPreferences> = context.launcherDataStore.data.map { prefs ->
@@ -156,7 +158,8 @@ class PinnedAppsDataStore @Inject constructor(
             homeScreenPages = parseHomeScreenPages(prefs[Keys.HOME_SCREEN_PAGES]),
             homeScreenGridEnabled = prefs[Keys.HOME_SCREEN_GRID_ENABLED] ?: true,
             leftPageBlocks = parseLeftPageBlocks(prefs[Keys.LEFT_PAGE_BLOCKS]),
-            customQuotes = parseStringList(prefs[Keys.CUSTOM_QUOTES])
+            customQuotes = parseStringList(prefs[Keys.CUSTOM_QUOTES]),
+            themedIconsEnabled = prefs[Keys.THEMED_ICONS] ?: false
         )
     }
 
@@ -287,6 +290,13 @@ class PinnedAppsDataStore @Inject constructor(
             prefs[Keys.HOME_SCREEN_GRID_ENABLED] = updated.homeScreenGridEnabled
             prefs[Keys.LEFT_PAGE_BLOCKS] = encodeLeftPageBlocks(updated.leftPageBlocks)
             prefs[Keys.CUSTOM_QUOTES] = encodeStringList(updated.customQuotes)
+            prefs[Keys.THEMED_ICONS] = updated.themedIconsEnabled
+        }
+    }
+
+    suspend fun updateThemedIconsEnabled(enabled: Boolean) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.THEMED_ICONS] = enabled
         }
     }
 

@@ -1,6 +1,9 @@
 package com.neuroflow.app.presentation.launcher.hyperfocus.screens
 
 import android.provider.Settings
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -35,9 +39,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
 
@@ -59,7 +68,9 @@ fun HyperFocusActivationSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         if (!accessibilityEnabled) {
             PermissionSetupScreen(onBothGranted = { accessibilityEnabled = true })
@@ -139,6 +150,7 @@ private fun ActivationSheetContent(
         }
     }
 
+    val haptic = LocalHapticFeedback.current
     val selectedCount = selectedPackages.count { it.value }
     val selectedTaskCount = selectedTaskIds.count { it.value }
 
@@ -161,7 +173,7 @@ private fun ActivationSheetContent(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.errorContainer,
-            shape = MaterialTheme.shapes.small
+            shape = RoundedCornerShape(16.dp)
         ) {
             Text(
                 text = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
@@ -171,7 +183,7 @@ private fun ActivationSheetContent(
                 },
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(12.dp)
+                modifier = Modifier.padding(14.dp)
             )
         }
 
@@ -187,12 +199,20 @@ private fun ActivationSheetContent(
         ) {
             FilterChip(
                 selected = sessionMode == HyperFocusSessionMode.TASK_BASED,
-                onClick = { sessionMode = HyperFocusSessionMode.TASK_BASED },
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    sessionMode = HyperFocusSessionMode.TASK_BASED
+                },
+                shape = RoundedCornerShape(12.dp),
                 label = { Text("Task-based") }
             )
             FilterChip(
                 selected = sessionMode == HyperFocusSessionMode.TIME_BASED,
-                onClick = { sessionMode = HyperFocusSessionMode.TIME_BASED },
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    sessionMode = HyperFocusSessionMode.TIME_BASED
+                },
+                shape = RoundedCornerShape(12.dp),
                 label = { Text("Time-based") }
             )
         }
@@ -201,9 +221,9 @@ private fun ActivationSheetContent(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.small
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Text(
                         text = "Select tasks for this session",
                         style = MaterialTheme.typography.bodyMedium,
@@ -232,7 +252,11 @@ private fun ActivationSheetContent(
                 durationOptions.forEach { minutes ->
                     FilterChip(
                         selected = selectedDurationMinutes == minutes,
-                        onClick = { selectedDurationMinutes = minutes },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            selectedDurationMinutes = minutes
+                        },
+                        shape = RoundedCornerShape(12.dp),
                         label = { Text("${minutes}m") }
                     )
                 }
@@ -265,6 +289,7 @@ private fun ActivationSheetContent(
                 placeholder = { Text("Search tasks...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -276,18 +301,30 @@ private fun ActivationSheetContent(
                 )
             } else {
                 filteredTasks.forEach { task ->
+                    val isChecked = selectedTaskIds[task.id] == true
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                selectedTaskIds[task.id] = !isChecked
+                            }
+                            .padding(vertical = 4.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
-                            checked = selectedTaskIds[task.id] == true,
-                            onCheckedChange = { checked -> selectedTaskIds[task.id] = checked }
+                            checked = isChecked,
+                            onCheckedChange = { checked ->
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                selectedTaskIds[task.id] = checked
+                            }
                         )
-                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                        Column(modifier = Modifier.padding(start = 4.dp).weight(1f)) {
                             Text(
                                 text = task.title,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
                             )
                             if (task.description.isNotBlank()) {
                                 Text(
@@ -312,6 +349,7 @@ private fun ActivationSheetContent(
             supportingText = { Text("This action is hard to reverse during a session.") },
             singleLine = true,
             isError = confirmText.isNotEmpty() && confirmText != "FOCUS",
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -329,14 +367,17 @@ private fun ActivationSheetContent(
             },
             enabled = confirmText == "FOCUS" && selectedCount > 0 &&
                 (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
-            modifier = Modifier.fillMaxWidth()
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
         ) {
             val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
                 "Activate ${selectedDurationMinutes}m Focus Lock"
             } else {
                 "Activate Hyper Focus 🔒"
             }
-            Text(label)
+            Text(label, fontWeight = FontWeight.Bold)
         }
 
         HorizontalDivider()
@@ -366,6 +407,7 @@ private fun ActivationSheetContent(
             placeholder = { Text("Search apps...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -378,18 +420,47 @@ private fun ActivationSheetContent(
             )
         } else {
             filteredApps.forEach { (label, pkg) ->
+                val isChecked = selectedPackages[pkg] == true
+                val appIcon = remember(pkg) {
+                    try {
+                        context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap()
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            selectedPackages[pkg] = !isChecked
+                        }
+                        .padding(vertical = 4.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
-                        checked = selectedPackages[pkg] == true,
-                        onCheckedChange = { checked -> selectedPackages[pkg] = checked }
+                        checked = isChecked,
+                        onCheckedChange = { checked ->
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            selectedPackages[pkg] = checked
+                        }
                     )
-                    Column(modifier = Modifier.padding(start = 4.dp)) {
+                    if (appIcon != null) {
+                        Image(
+                            bitmap = appIcon,
+                            contentDescription = label,
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = label,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = pkg,
@@ -406,13 +477,13 @@ private fun ActivationSheetContent(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.errorContainer,
-                shape = MaterialTheme.shapes.small
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Text(
                     text = "⚠️ You need at least one active task before activating Hyper Focus.",
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(12.dp)
+                    modifier = Modifier.padding(14.dp)
                 )
             }
         }

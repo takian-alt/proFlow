@@ -108,6 +108,7 @@ class NewTaskFlowViewModel @Inject constructor(
     fun updatePublicCommitment(value: Boolean) = _uiState.update { it.copy(isPublicCommitment = value) }
     fun updateAnxietyTask(value: Boolean) = _uiState.update { it.copy(isAnxietyTask = value) }
     fun updateGoalRiskLevel(value: Int) = _uiState.update { it.copy(goalRiskLevel = value.coerceIn(0, 2)) }
+    fun updateGoalId(value: String?) = _uiState.update { it.copy(goalId = value) }
 
     fun toggleDependency(taskId: String) {
         _uiState.update {
@@ -214,30 +215,22 @@ class NewTaskFlowViewModel @Inject constructor(
             null
         }
 
-        val resolvedQuadrant = if (state.quadrant == Quadrant.ELIMINATE &&
-            (state.scheduledDate != null || state.deadlineDate != null || state.recurrence != Recurrence.NONE)
-        ) {
-            if (state.priority == Priority.HIGH) Quadrant.DO_FIRST else Quadrant.SCHEDULE
-        } else {
-            state.quadrant
-        }
-
         return (existing ?: TaskEntity(title = state.title)).copy(
             title = state.title,
             description = state.description,
             tags = state.tags.joinToString(","),
-            quadrant = resolvedQuadrant,
+            quadrant = state.quadrant,
             priority = state.priority,
             recurrence = state.recurrence,
             recurrenceIntervalDays = state.customIntervalDays,
             habitDate = recurringAnchor,
-            deadlineDate = if (state.recurrence == Recurrence.NONE) state.deadlineDate else null,
-            deadlineTime = if (state.recurrence == Recurrence.NONE) state.deadlineTime else null,
-            scheduledDate = if (state.recurrence == Recurrence.NONE) state.scheduledDate else null,
-            scheduledTime = if (state.recurrence == Recurrence.NONE) state.scheduledTime else null,
+            deadlineDate = state.deadlineDate,
+            deadlineTime = state.deadlineTime,
+            scheduledDate = if (state.recurrence == Recurrence.NONE) state.scheduledDate else (state.habitDate ?: state.scheduledDate),
+            scheduledTime = if (state.recurrence == Recurrence.NONE) state.scheduledTime else (state.habitTime ?: state.scheduledTime),
             isAutoScheduled = when {
                 state.isScheduleLocked -> false
-                state.scheduledDate == null && state.scheduledTime == null -> true
+                state.scheduledDate == null && state.scheduledTime == null -> false
                 existing?.isAutoScheduled == true &&
                     state.scheduledDate == existing.scheduledDate &&
                     state.scheduledTime == existing.scheduledTime &&
@@ -265,6 +258,8 @@ class NewTaskFlowViewModel @Inject constructor(
             energyLevel = state.energyLevel,
             taskType = state.taskType,
             contextTag = state.contextTag,
+            goalId = state.goalId ?: existing?.goalId,
+            schedulingCategory = state.schedulingCategory ?: existing?.schedulingCategory,
             enjoymentScore = state.enjoymentScore.toInt(),
             isPublicCommitment = state.isPublicCommitment,
             isAnxietyTask = state.isAnxietyTask,
@@ -284,13 +279,6 @@ class NewTaskFlowViewModel @Inject constructor(
         }
 
         val candidate = buildTaskPayload(existing = null)
-        if (!AutoSchedulingContracts.hasDeadlineData(candidate)) {
-            return AutoSchedulePreview(
-                willAutoSchedule = false,
-                reason = "No deadline set"
-            )
-        }
-
         if (!AutoSchedulingContracts.isMutableByAutoScheduler(candidate)) {
             val reason = when {
                 candidate.isScheduleLocked -> AutoScheduleRejectionReason.LOCKED_TASK
@@ -303,9 +291,16 @@ class NewTaskFlowViewModel @Inject constructor(
             )
         }
 
+        val hasDeadline = AutoSchedulingContracts.hasDeadlineData(candidate)
+        val reasonText = if (hasDeadline) {
+            "Eligible for automatic scheduling before deadline"
+        } else {
+            "Eligible for automatic scheduling by priority and energy"
+        }
+
         return AutoSchedulePreview(
             willAutoSchedule = true,
-            reason = "Eligible for automatic scheduling (about every 5 min while app is active; periodic fallback in background)"
+            reason = reasonText
         )
     }
 
@@ -366,6 +361,8 @@ data class NewTaskFlowUiState(
     val isPublicCommitment: Boolean = false,
     val isAnxietyTask: Boolean = false,
     val goalRiskLevel: Int = 0,
+    val goalId: String? = null,
+    val schedulingCategory: String? = null,
     val includeExecutionStep: Boolean = false,
     val currentStep: NewTaskFlowStep = NewTaskFlowStep.BASIC_INFO
 ) {
@@ -417,6 +414,8 @@ data class NewTaskFlowUiState(
                 isPublicCommitment = task?.isPublicCommitment ?: false,
                 isAnxietyTask = task?.isAnxietyTask ?: false,
                 goalRiskLevel = task?.goalRiskLevel ?: 0,
+                goalId = task?.goalId,
+                schedulingCategory = task?.schedulingCategory,
                 includeExecutionStep = selectedDeps.isNotEmpty() || !task?.waitingFor.isNullOrBlank() || !task?.ifThenPlan.isNullOrBlank(),
                 currentStep = startStep
             )

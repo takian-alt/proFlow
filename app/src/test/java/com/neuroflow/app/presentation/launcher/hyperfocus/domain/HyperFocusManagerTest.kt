@@ -218,5 +218,14 @@ class HyperFocusManagerTest : StringSpec({
             verify(exactly = 0) { context.startForegroundService(any<Intent>()) }
         }
     }
+
+    "updateHeartbeat records timestamp to data store without full state update" {
+        runTest {
+            manager.updateHeartbeat()
+
+            coVerify(exactly = 1) { hyperFocusDataStore.updateHeartbeat(any()) }
+            coVerify(exactly = 0) { hyperFocusDataStore.update(any()) }
+        }
+    }
 })
 

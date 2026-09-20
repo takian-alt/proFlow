@@ -27,12 +27,17 @@ object AdaptiveIconProcessor {
         drawable: Drawable,
         shape: IconShape,
         sizePx: Int,
-        context: Context
+        context: Context,
+        themed: Boolean = false,
+        themeBgColor: Int = 0,
+        themeFgColor: Int = 0
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable is AdaptiveIconDrawable) {
+        if (themed && themeBgColor != 0 && themeFgColor != 0) {
+            processThemedIcon(drawable, shape, sizePx, canvas, context, themeBgColor, themeFgColor)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable is AdaptiveIconDrawable) {
             // Process adaptive icon with shape mask
             processAdaptiveIcon(drawable, shape, sizePx, canvas, context)
         } else {
@@ -41,6 +46,65 @@ object AdaptiveIconProcessor {
         }
 
         return bitmap
+    }
+
+    /**
+     * Process an icon into a Material You themed monochrome icon (Android 13+).
+     */
+    private fun processThemedIcon(
+        drawable: Drawable,
+        shape: IconShape,
+        sizePx: Int,
+        canvas: Canvas,
+        context: Context,
+        bgColor: Int,
+        fgColor: Int
+    ) {
+        val mask = getMask(shape, sizePx, context)
+
+        // 1. Draw themed background shape
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = bgColor
+            style = Paint.Style.FILL
+        }
+        canvas.drawPath(mask, bgPaint)
+
+        // 2. Extract monochrome layer if available on Android 13+ (API 33+)
+        val monochromeDrawable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && drawable is AdaptiveIconDrawable) {
+            drawable.monochrome
+        } else null
+
+        if (monochromeDrawable != null) {
+            val monoBitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val monoCanvas = Canvas(monoBitmap)
+            monochromeDrawable.setBounds(0, 0, sizePx, sizePx)
+            monochromeDrawable.setTint(fgColor)
+            monochromeDrawable.draw(monoCanvas)
+
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+            }
+            canvas.drawBitmap(monoBitmap, 0f, 0f, paint)
+        } else {
+            // Fallback for apps without dedicated monochrome layer:
+            // Extract foreground layer and tint as monochrome silhouette
+            val fgDrawable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable is AdaptiveIconDrawable) {
+                drawable.foreground ?: drawable
+            } else {
+                drawable
+            }
+            val fgBitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val fgCanvas = Canvas(fgBitmap)
+            val padding = (sizePx * 0.20f).toInt()
+            fgDrawable.setBounds(padding, padding, sizePx - padding, sizePx - padding)
+            fgDrawable.draw(fgCanvas)
+
+            val tintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                colorFilter = PorterDuffColorFilter(fgColor, PorterDuff.Mode.SRC_IN)
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+            }
+            canvas.drawBitmap(fgBitmap, 0f, 0f, tintPaint)
+        }
     }
 
     /**

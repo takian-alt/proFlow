@@ -21,6 +21,9 @@ interface SleepLogDao {
     @Query("SELECT * FROM sleep_logs WHERE endAt > :fromMillis AND startAt < :toMillis ORDER BY startAt ASC")
     suspend fun getOverlapping(fromMillis: Long, toMillis: Long): List<SleepLogEntity>
 
+    @Query("SELECT * FROM sleep_logs WHERE id = :id")
+    suspend fun getById(id: String): SleepLogEntity?
+
     @Query("DELETE FROM sleep_logs WHERE id = :id")
     suspend fun deleteById(id: String)
 

@@ -96,7 +96,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val forceReplan = inputData.getBoolean("FORCE_REPLAN", false)
             // Check if auto-scheduling is enabled
             val prefs = preferencesDataStore.preferencesFlow.first()
-            if (!prefs.autoSchedulingEnabled) {
+            if (!prefs.autoSchedulingEnabled && !prefs.isAutoScheduleToggleOn) {
                 return Result.success()
             }
 
@@ -115,9 +115,11 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
 
             // Past / Missed incomplete tasks (scheduled in past or past end + grace period)
+            // Only auto-reschedule tasks that were previously auto-scheduled, to protect manual schedules
             val missedTasks = allTasks.filter { task ->
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
+                    task.isAutoScheduled &&
                     task.scheduledDate != null &&
                     task.scheduledTime != null &&
                     let {
@@ -533,8 +535,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         } ?: false
 
         val cooldownMillis = when {
-            prefs.isAutoScheduleToggleOn -> 15 * 60 * 1000L // 15 minute cooldown when auto-schedule toggle is ON
             isUrgentDeadline -> 1 * 60 * 60 * 1000L        // 1 hour cooldown for urgent tasks
+            prefs.isAutoScheduleToggleOn -> 4 * 60 * 60 * 1000L // 4 hour cooldown to maintain plan stability
             else -> 6 * 60 * 60 * 1000L                     // 6 hour cooldown for normal tasks
         }
 
@@ -550,8 +552,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             if (shouldRefresh) {
                 val cooldownType = when {
-                    prefs.isAutoScheduleToggleOn -> "toggle-on (15m)"
-                    isUrgentDeadline -> "urgent (1h)"
+                    isUrgentDeadline -> "urgent-deadline (1h)"
+                    prefs.isAutoScheduleToggleOn -> "toggle-on (4h)"
                     else -> "normal (6h)"
                 }
                 android.util.Log.i(

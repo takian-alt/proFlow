@@ -15,6 +15,7 @@ import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusActivity
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.presentation.launcher.hyperfocus.domain.RewardEngine
 import dagger.hilt.android.AndroidEntryPoint
@@ -36,12 +37,13 @@ class AppBlockingService : AccessibilityService() {
     private var lastBlockedPackage: String? = null
     private var lastBlockTime: Long = 0
     @Volatile private var lastSeenForegroundPackage: String? = null
+    @Volatile private var cachedPrefs: HyperFocusPreferences = HyperFocusPreferences()
 
     companion object {
         private const val TAG = "AppBlockingService"
         private const val BLOCK_DEBOUNCE_MS = 1000L
         private const val HEARTBEAT_INTERVAL_MS = 2_000L
-        private const val POLLING_INTERVAL_MS = 300L
+        private const val POLLING_INTERVAL_MS = 2_000L
 
         private val SETTINGS_PACKAGES = setOf(
             "com.android.settings",
@@ -93,13 +95,23 @@ class AppBlockingService : AccessibilityService() {
         val tamperReason: String?
     )
 
-    // When the unlock timer expires, reset debounce so the polling immediately re-blocks
+    // When the unlock timer expires, reset debounce and immediately check current app
     private val unlockExpiredReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == UnlockTimerService.ACTION_UNLOCK_EXPIRED) {
-                Log.d(TAG, "Unlock expired — resetting debounce to re-block current app")
+                Log.d(TAG, "Unlock expired — resetting debounce and immediately checking current app")
                 lastBlockedPackage = null
                 lastBlockTime = 0
+                val currentApp = rootInActiveWindow?.packageName?.toString()
+                    ?: getForegroundAppFromUsageStats()
+                    ?: lastSeenForegroundPackage
+                if (currentApp != null) {
+                    checkAndBlockApp(
+                        currentApp,
+                        className = rootInActiveWindow?.className?.toString(),
+                        eventSnapshot = getLiveWindowSnapshot()
+                    )
+                }
             }
         }
     }
@@ -110,7 +122,7 @@ class AppBlockingService : AccessibilityService() {
             val packageName = intent.data?.schemeSpecificPart ?: return
 
             heartbeatScope.launch {
-                val prefs = hyperFocusDataStore.current()
+                val prefs = cachedPrefs.takeIf { it.isActive } ?: hyperFocusDataStore.current()
                 if (!prefs.isActive) return@launch
 
                 if (packageName == BuildConfig.APPLICATION_ID) {
@@ -177,6 +189,13 @@ class AppBlockingService : AccessibilityService() {
             }
         )
 
+        // Cache preferences in memory to avoid reading/deserializing DataStore on every check
+        heartbeatScope.launch {
+            hyperFocusDataStore.flow.collect { prefs ->
+                cachedPrefs = prefs
+            }
+        }
+
         // Heartbeat
         heartbeatScope.launch {
             while (true) {
@@ -185,12 +204,12 @@ class AppBlockingService : AccessibilityService() {
             }
         }
 
-        // Polling backup — handles kicking user out when timer expires
+        // Polling backup — quiet fallback for edge cases
         // Uses rootInActiveWindow as primary (no permission needed), UsageStats as secondary
         heartbeatScope.launch {
             while (true) {
                 delay(POLLING_INTERVAL_MS)
-                val prefs = hyperFocusDataStore.current()
+                val prefs = cachedPrefs.takeIf { it.isActive } ?: hyperFocusDataStore.current()
                 if (prefs.isActive) {
                     val currentApp = rootInActiveWindow?.packageName?.toString()
                         ?: getForegroundAppFromUsageStats()
@@ -211,7 +230,7 @@ class AppBlockingService : AccessibilityService() {
         if (pkg == BuildConfig.APPLICATION_ID) return
 
         heartbeatScope.launch {
-            val prefs = hyperFocusDataStore.current()
+            val prefs = cachedPrefs.takeIf { it.isActive } ?: hyperFocusDataStore.current()
             if (!prefs.isActive) return@launch
 
             if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {

@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,9 +32,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -99,8 +103,10 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF0A0A0A)
+        color = MaterialTheme.colorScheme.background
     ) {
+        val haptic = LocalHapticFeedback.current
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -111,9 +117,9 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
             // 1. Title
             Text(
                 text = "Enter your unlock code",
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -123,9 +129,9 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
                 val secs = lockoutSecondsRemaining!!
                 Text(
                     text = "Try again in ${secs / 60}:${String.format("%02d", secs % 60)}",
-                    color = Color(0xFFFF5252),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
             } else {
                 Row(
@@ -133,43 +139,52 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
                     modifier = Modifier.offset { IntOffset(shakeOffset.value.roundToInt(), 0) }
                 ) {
                     chars.forEachIndexed { index, value ->
-                        BasicTextField(
-                            value = value,
-                            onValueChange = { newVal ->
-                                val char = newVal.uppercase().lastOrNull()?.toString() ?: ""
-                                chars[index] = char
-                                if (char.isNotEmpty() && index < 5) {
-                                    focusRequesters[index + 1].requestFocus()
-                                }
-                            },
-                            modifier = Modifier
-                                .size(width = 48.dp, height = 56.dp)
-                                .border(1.dp, Color.White)
-                                .focusRequester(focusRequesters[index])
-                                .onKeyEvent { event ->
-                                    if (event.key == Key.Backspace && chars[index].isEmpty() && index > 0) {
-                                        focusRequesters[index - 1].requestFocus()
-                                        chars[index - 1] = ""
-                                        true
-                                    } else false
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (value.isNotEmpty()) 2.dp else 1.dp,
+                                color = if (value.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier.size(width = 48.dp, height = 58.dp)
+                        ) {
+                            BasicTextField(
+                                value = value,
+                                onValueChange = { newVal ->
+                                    val char = newVal.uppercase().lastOrNull()?.toString() ?: ""
+                                    chars[index] = char
+                                    if (char.isNotEmpty() && index < 5) {
+                                        focusRequesters[index + 1].requestFocus()
+                                    }
                                 },
-                            textStyle = TextStyle(
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            ),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Characters,
-                                keyboardType = KeyboardType.Ascii
-                            ),
-                            decorationBox = { innerTextField ->
-                                Box(contentAlignment = Alignment.Center) {
-                                    innerTextField()
-                                }
-                            },
-                            singleLine = true
-                        )
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .focusRequester(focusRequesters[index])
+                                    .onKeyEvent { event ->
+                                        if (event.key == Key.Backspace && chars[index].isEmpty() && index > 0) {
+                                            focusRequesters[index - 1].requestFocus()
+                                            chars[index - 1] = ""
+                                            true
+                                        } else false
+                                    },
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                ),
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Characters,
+                                    keyboardType = KeyboardType.Ascii
+                                ),
+                                decorationBox = { innerTextField ->
+                                    Box(contentAlignment = Alignment.Center) {
+                                        innerTextField()
+                                    }
+                                },
+                                singleLine = true
+                            )
+                        }
                     }
                 }
 
@@ -178,8 +193,8 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
                 // 4. Attempts remaining
                 Text(
                     text = "$attemptsRemaining of 3 attempts remaining",
-                    color = Color.Gray,
-                    fontSize = 13.sp
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -188,13 +203,17 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
             // 5. Confirm button
             Button(
                 onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.submitCode(chars.joinToString(""))
                     // Navigation happens in LaunchedEffect(submitResult) above
                 },
                 enabled = allFilled && !isLocked,
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
             ) {
-                Text("Confirm")
+                Text("Confirm", fontWeight = FontWeight.SemiBold)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -202,8 +221,8 @@ fun CodeEntryScreen(viewModel: HyperFocusViewModel, navController: NavController
             // 6. Help text
             Text(
                 text = "Don't have a code? Complete a task to earn one.",
-                color = Color.Gray,
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )

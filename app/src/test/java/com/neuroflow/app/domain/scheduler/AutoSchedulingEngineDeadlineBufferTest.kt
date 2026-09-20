@@ -289,7 +289,7 @@ class AutoSchedulingEngineDeadlineBufferTest : StringSpec({
         }
     }
 
-    "tasks without a real deadline date are not eligible for auto scheduling" {
+    "tasks without a real deadline date are now eligible for auto scheduling into available capacity" {
         runTest {
             val now = Calendar.getInstance().apply {
                 set(2026, Calendar.APRIL, 25, 9, 0, 0)
@@ -320,7 +320,8 @@ class AutoSchedulingEngineDeadlineBufferTest : StringSpec({
                 energyScoreFn = { 80 to 1.0f }
             )
 
-            decisions shouldBe emptyList()
+            decisions.size shouldBe 1
+            decisions[0].taskId shouldBe task.id
         }
     }
 })

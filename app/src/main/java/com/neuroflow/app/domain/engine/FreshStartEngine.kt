@@ -32,22 +32,17 @@ object FreshStartEngine {
     }
 
     fun isoWeekNumber(millis: Long): Int {
-        val cal = java.util.Calendar.getInstance(java.util.Locale.getDefault()).apply {
-            minimalDaysInFirstWeek = 4
-            firstDayOfWeek = java.util.Calendar.MONDAY
-            timeInMillis = millis
-        }
-        return cal.get(java.util.Calendar.WEEK_OF_YEAR)
+        val instant = java.time.Instant.ofEpochMilli(millis)
+        val zone = java.time.ZoneId.systemDefault()
+        val localDate = instant.atZone(zone).toLocalDate()
+        return localDate.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
     }
 
     fun isoYear(millis: Long): Int {
-        val cal = java.util.Calendar.getInstance(java.util.Locale.getDefault()).apply {
-            minimalDaysInFirstWeek = 4
-            firstDayOfWeek = java.util.Calendar.MONDAY
-            timeInMillis = millis
-        }
-        // Use ISO week year (the year the ISO week belongs to)
-        return cal.getWeekYear()
+        val instant = java.time.Instant.ofEpochMilli(millis)
+        val zone = java.time.ZoneId.systemDefault()
+        val localDate = instant.atZone(zone).toLocalDate()
+        return localDate.get(java.time.temporal.WeekFields.ISO.weekBasedYear())
     }
 
     data class EmergencyResetPlan(

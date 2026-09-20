@@ -16,7 +16,7 @@ class MomentEnergyEngineEdgeCaseTest : StringSpec({
             supportiveSnapshot(signalFreshnessAgeMillis = 45L * 60_000L)
         )
 
-        stale.confidence shouldBe 0.35f
+        stale.confidence shouldBe 0.0f
         stale.confidence shouldBeLessThan fresh.confidence
         abs(stale.adjustedRawEnergy - 15f) shouldBeLessThan abs(fresh.adjustedRawEnergy - 15f)
     }

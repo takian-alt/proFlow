@@ -6,6 +6,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -26,7 +27,8 @@ data class ScheduleUiState(
     val workDayEnd: Int = 20,
     val isAutoScheduleOn: Boolean = false,
     val isAutoScheduling: Boolean = false,
-    val autoScheduleResultMessage: String? = null
+    val autoScheduleResultMessage: String? = null,
+    val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList()
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -55,7 +57,8 @@ class ScheduleViewModel @Inject constructor(
                     it.copy(
                         workDayStart = prefs.workDayStart,
                         workDayEnd = prefs.workDayEnd,
-                        isAutoScheduleOn = prefs.isAutoScheduleToggleOn
+                        isAutoScheduleOn = prefs.isAutoScheduleToggleOn,
+                        protectedTimeSlots = prefs.protectedTimeSlots
                     )
                 }
             }
@@ -66,6 +69,7 @@ class ScheduleViewModel @Inject constructor(
         viewModelScope.launch {
             val newToggleState = !_uiState.value.isAutoScheduleOn
             preferencesDataStore.setAutoScheduleToggleOn(newToggleState)
+            preferencesDataStore.updatePreferences { it.copy(autoSchedulingEnabled = newToggleState) }
             if (newToggleState) {
                 triggerAutoScheduleNow()
             }
@@ -189,6 +193,38 @@ class ScheduleViewModel @Inject constructor(
     /** Inserts a brand-new task (from the NewTaskSheet). */
     fun insertTask(task: TaskEntity) {
         viewModelScope.launch { taskRepository.insert(task) }
+    }
+
+    fun addProtectedSlot(slot: ProtectedTimeSlot) {
+        viewModelScope.launch {
+            val updated = _uiState.value.protectedTimeSlots.filterNot { it.id == slot.id } + slot
+            preferencesDataStore.updateProtectedTimeSlots(updated)
+            if (_uiState.value.isAutoScheduleOn) {
+                triggerAutoScheduleNow()
+            }
+        }
+    }
+
+    fun removeProtectedSlot(slotId: String) {
+        viewModelScope.launch {
+            val updated = _uiState.value.protectedTimeSlots.filterNot { it.id == slotId }
+            preferencesDataStore.updateProtectedTimeSlots(updated)
+            if (_uiState.value.isAutoScheduleOn) {
+                triggerAutoScheduleNow()
+            }
+        }
+    }
+
+    fun toggleProtectedSlot(slotId: String) {
+        viewModelScope.launch {
+            val updated = _uiState.value.protectedTimeSlots.map {
+                if (it.id == slotId) it.copy(isEnabled = !it.isEnabled) else it
+            }
+            preferencesDataStore.updateProtectedTimeSlots(updated)
+            if (_uiState.value.isAutoScheduleOn) {
+                triggerAutoScheduleNow()
+            }
+        }
     }
 }
 

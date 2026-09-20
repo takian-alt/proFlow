@@ -37,7 +37,9 @@ enum class IconShape {
  */
 enum class ClockStyle {
     DIGITAL,
-    MINIMAL
+    MINIMAL,
+    STACKED,
+    SMART_PILL
 }
 
 /**
@@ -83,7 +85,8 @@ data class LauncherTheme(
     val iconPackPackageName: String? = null,
     val iconShape: IconShape = IconShape.SYSTEM_DEFAULT,
     val drawerColumns: Int = 4,
-    val distractionDimmingEnabled: Boolean = false
+    val distractionDimmingEnabled: Boolean = false,
+    val themedIconsEnabled: Boolean = false
 )
 
 /**

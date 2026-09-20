@@ -28,6 +28,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
+import com.neuroflow.app.domain.model.ProtectedTimeSlot
+import com.neuroflow.app.domain.model.PtsRecurrence
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.presentation.common.NewTaskSheet
 import com.neuroflow.app.presentation.common.getQuadrantBgColor
@@ -45,6 +47,15 @@ private val MIN_SEGMENT_HEIGHT = 8.dp
 
 private data class HourSegment(
     val task: TaskEntity,
+    val offsetMinutesInHour: Int,
+    val overlapMinutes: Int,
+    val startsInThisHour: Boolean,
+    val continuesFromPreviousHour: Boolean,
+    val continuesToNextHour: Boolean
+)
+
+private data class ProtectedSlotSegment(
+    val slot: ProtectedTimeSlot,
     val offsetMinutesInHour: Int,
     val overlapMinutes: Int,
     val startsInThisHour: Boolean,
@@ -75,6 +86,7 @@ fun ScheduleScreen(
     // Task picker: which hour slot was tapped to pick an existing task
     var pickerHour by remember { mutableStateOf<Int?>(null) }
     var pickerMinute by remember { mutableStateOf(0) }
+    var showProtectedSlotsSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -160,6 +172,16 @@ fun ScheduleScreen(
                             )
                         )
 
+                        IconButton(
+                            onClick = { showProtectedSlotsSheet = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Lock,
+                                contentDescription = "Protected Time Slots",
+                                tint = if (uiState.protectedTimeSlots.any { it.isEnabled }) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
                         if (uiState.isAutoScheduleOn) {
                             IconButton(
                                 onClick = { viewModel.triggerAutoScheduleNow() },
@@ -224,6 +246,8 @@ fun ScheduleScreen(
                     TimelineRow(
                         hour = hour,
                         tasks = uiState.tasksForDay,
+                        protectedSlots = uiState.protectedTimeSlots,
+                        selectedDate = uiState.selectedDate,
                         isCurrentHour = isToday && hour == currentHour,
                         currentMinuteOfHour = if (isToday && hour == currentHour) currentMinute else null,
                         isWorkHour = hour in uiState.workDayStart until uiState.workDayEnd,
@@ -294,6 +318,18 @@ fun ScheduleScreen(
                 addSheetForHour = null
             },
             availableTasks = uiState.allActiveTasks
+        )
+    }
+
+    if (showProtectedSlotsSheet) {
+        ProtectedSlotBottomSheet(
+            protectedSlots = uiState.protectedTimeSlots,
+            initialHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+            initialMinute = 0,
+            onDismiss = { showProtectedSlotsSheet = false },
+            onSaveSlot = { slot -> viewModel.addProtectedSlot(slot) },
+            onDeleteSlot = { slotId -> viewModel.removeProtectedSlot(slotId) },
+            onToggleSlot = { slotId -> viewModel.toggleProtectedSlot(slotId) }
         )
     }
 }
@@ -394,6 +430,8 @@ private fun TaskPickerSheet(
 private fun TimelineRow(
     hour: Int,
     tasks: List<TaskEntity>,
+    protectedSlots: List<ProtectedTimeSlot> = emptyList(),
+    selectedDate: Long = 0L,
     isCurrentHour: Boolean,
     currentMinuteOfHour: Int?,
     isWorkHour: Boolean,
@@ -402,6 +440,35 @@ private fun TimelineRow(
 ) {
     val hourStartMinute = hour * MINUTES_PER_HOUR
     val hourEndMinute = hourStartMinute + MINUTES_PER_HOUR
+
+    val cal = Calendar.getInstance().apply { timeInMillis = selectedDate }
+    val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+
+    val activeProtectedSlotsToday = protectedSlots.filter { slot ->
+        slot.isEnabled && when (slot.recurrence) {
+            PtsRecurrence.DAILY -> true
+            PtsRecurrence.WEEKDAYS -> dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
+            PtsRecurrence.WEEKENDS -> dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
+            PtsRecurrence.CUSTOM -> (slot.weekdayBitmask and (1 shl (dayOfWeek - 1))) != 0
+        }
+    }
+
+    val protectedSegments = activeProtectedSlotsToday.mapNotNull { slot ->
+        val slotStartMinute = slot.startMinuteOfDay
+        val slotEndMinute = (slotStartMinute + slot.durationMinutes).coerceAtMost(MINUTES_PER_DAY)
+        val overlapStart = maxOf(slotStartMinute, hourStartMinute)
+        val overlapEnd = minOf(slotEndMinute, hourEndMinute)
+        if (overlapEnd <= overlapStart) null
+        else ProtectedSlotSegment(
+            slot = slot,
+            offsetMinutesInHour = overlapStart - hourStartMinute,
+            overlapMinutes = overlapEnd - overlapStart,
+            startsInThisHour = slotStartMinute in hourStartMinute until hourEndMinute,
+            continuesFromPreviousHour = slotStartMinute < hourStartMinute,
+            continuesToNextHour = slotEndMinute > hourEndMinute
+        )
+    }
+
     val segments = tasks.map { task ->
         val taskStartMinute = taskStartMinuteOfDay(task)
         val taskEndMinute = (taskStartMinute + taskDurationMinutes(task)).coerceAtMost(MINUTES_PER_DAY)
@@ -470,7 +537,44 @@ private fun TimelineRow(
                     }
                 }
         ) {
-            if (segments.isEmpty()) {
+            // Draw Protected Time Slots background overlays
+            protectedSegments.forEach { pSeg ->
+                val topOffset = HOUR_SLOT_HEIGHT * (pSeg.offsetMinutesInHour / MINUTES_PER_HOUR.toFloat())
+                val rawHeight = HOUR_SLOT_HEIGHT * (pSeg.overlapMinutes / MINUTES_PER_HOUR.toFloat())
+                val maxAvailableHeight = HOUR_SLOT_HEIGHT - topOffset
+                val blockHeight = maxOf(rawHeight, MIN_SEGMENT_HEIGHT).coerceAtMost(maxAvailableHeight)
+                val blockShape = when {
+                    pSeg.continuesFromPreviousHour && pSeg.continuesToNextHour -> RoundedCornerShape(0.dp)
+                    pSeg.continuesFromPreviousHour -> RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
+                    pSeg.continuesToNextHour -> RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                    else -> RoundedCornerShape(8.dp)
+                }
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset(y = topOffset)
+                        .height(blockHeight),
+                    shape = blockShape,
+                    color = getPtsCategoryColor(pSeg.slot.category).copy(alpha = 0.25f)
+                ) {
+                    if (pSeg.startsInThisHour && blockHeight >= 20.dp) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "${getPtsCategoryEmoji(pSeg.slot.category)} ${pSeg.slot.label}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (segments.isEmpty() && protectedSegments.isEmpty()) {
                 Text(
                     "+ add",
                     modifier = Modifier.align(Alignment.Center),

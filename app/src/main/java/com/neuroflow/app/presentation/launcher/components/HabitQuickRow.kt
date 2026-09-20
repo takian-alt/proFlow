@@ -35,6 +35,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -186,10 +188,13 @@ private fun HabitChip(
         }
     }
 
+    val haptic = LocalHapticFeedback.current
+
     FilterChip(
         selected = false,
         onClick = {
             if (!isCompleting) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 isCompleting = true
             }
         },
@@ -198,13 +203,14 @@ private fun HabitChip(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Task title (max 12 chars)
+                // Task title (adaptive width with ellipsis)
                 Text(
-                    text = habit.title.take(12),
+                    text = habit.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 140.dp)
                 )
 
                 // Habit streak count
@@ -227,7 +233,8 @@ private fun HabitChip(
             {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         } else null,
