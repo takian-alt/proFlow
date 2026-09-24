@@ -9,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,7 +29,6 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
-import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.presentation.common.GoalPeriod
@@ -129,13 +127,7 @@ class MainActivity : ComponentActivity() {
             var yearlyGoalHandled by remember { mutableStateOf(false) }
             var weeklyGoalHandled by remember { mutableStateOf(false) }
 
-            val darkTheme = when (preferences?.theme) {
-                AppTheme.LIGHT -> false
-                AppTheme.DARK  -> true
-                else           -> isSystemInDarkTheme()
-            }
-
-            NeuroFlowTheme(darkTheme = darkTheme) {
+            NeuroFlowTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
