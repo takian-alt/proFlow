@@ -6,6 +6,7 @@ import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
@@ -21,9 +22,11 @@ data class MatrixUiState(
     val tasksByQuadrant: Map<Quadrant, List<TaskEntity>> = emptyMap(),
     val quadrantCounts: Map<Quadrant, Int> = emptyMap(),
     val topScoredTaskId: String? = null,
+    val topScoredTask: TaskEntity? = null,
     val allActiveTasks: List<TaskEntity> = emptyList(),
     val preferences: UserPreferences = UserPreferences(),
     val energy: EnergyScoreRepository.EnergyUiModel? = null,
+    val noteCount: Int = 0,
     val isLoading: Boolean = true
 )
 
@@ -32,7 +35,8 @@ class MatrixViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val energyScoreRepository: EnergyScoreRepository
+    private val energyScoreRepository: EnergyScoreRepository,
+    private val noteRepository: NoteRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MatrixUiState())
@@ -43,8 +47,9 @@ class MatrixViewModel @Inject constructor(
             combine(
                 taskRepository.observeActiveTasks(),
                 preferencesDataStore.preferencesFlow,
-                energyScoreRepository.observeEnergy()
-            ) { tasks, prefs, energy ->
+                energyScoreRepository.observeEnergy(),
+                noteRepository.noteCount
+            ) { tasks, prefs, energy, notesCount ->
                 val byQuadrant = Quadrant.entries.associateWith { q ->
                     tasks.filter { it.quadrant == q }
                 }
@@ -54,9 +59,11 @@ class MatrixViewModel @Inject constructor(
                     tasksByQuadrant = byQuadrant,
                     quadrantCounts = counts,
                     topScoredTaskId = sorted.firstOrNull()?.id,
+                    topScoredTask = sorted.firstOrNull(),
                     allActiveTasks = tasks,
                     preferences = prefs,
                     energy = energy,
+                    noteCount = notesCount,
                     isLoading = false
                 )
             }.collect { state ->
@@ -87,6 +94,12 @@ class MatrixViewModel @Inject constructor(
     fun updateTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.update(task.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun moveTask(task: TaskEntity, targetQuadrant: Quadrant) {
+        viewModelScope.launch {
+            taskRepository.update(task.copy(quadrant = targetQuadrant, updatedAt = System.currentTimeMillis()))
         }
     }
 

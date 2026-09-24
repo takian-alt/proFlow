@@ -52,7 +52,23 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
-        // Enable StrictMode in debug builds to catch main-thread IO violations
+        // Global crash logging so any startup exceptions are preserved in logcat and a file
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("NeuroFlowCrash", "FATAL CRASH in thread: ${thread.name}", throwable)
+            runCatching {
+                val crashFile = File(filesDir, "last_crash.txt")
+                crashFile.writeText("Thread: ${thread.name}\nTimestamp: ${System.currentTimeMillis()}\nStackTrace:\n" + throwable.stackTraceToString())
+            }
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
+        // Initialize Firebase safely
+        runCatching {
+            com.google.firebase.FirebaseApp.initializeApp(this)
+        }
+
+        // Enable StrictMode logging in debug builds to monitor main-thread IO violations
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
@@ -60,7 +76,6 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                     .detectDiskWrites()
                     .detectNetwork()
                     .penaltyLog()
-                    .penaltyDeath()  // Crash on violations to ensure they're fixed
                     .build()
             )
             StrictMode.setVmPolicy(

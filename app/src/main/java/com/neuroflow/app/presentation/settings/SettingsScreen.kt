@@ -35,6 +35,7 @@ fun SettingsScreen(
     onNavigateToPrivacyPermissions: () -> Unit = {},
     onNavigateToMEQQuiz: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
+    onNavigateToAccountSync: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -67,8 +68,28 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Account & Cloud Sync (top-level nav row)
+            Card(
+                onClick = onNavigateToAccountSync,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Filled.Cloud, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Account & Cloud Sync", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                        Text("Sign in with Google · Back up & restore", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
             // Profile & Identity
             SettingsSection("Profile & Identity") {
+
                 // Sync local state when prefs load from DataStore (avoids stale initial value)
                 var identityLabel by remember { mutableStateOf(prefs.identityLabel) }
                 LaunchedEffect(prefs.identityLabel) { identityLabel = prefs.identityLabel }

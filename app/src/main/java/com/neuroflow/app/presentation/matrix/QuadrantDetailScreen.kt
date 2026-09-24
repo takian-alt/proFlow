@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -91,18 +92,47 @@ fun QuadrantDetailScreen(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 items(tasks, key = { it.id }) { task ->
-                    TaskRow(
-                        task = task,
-                        onTaskClick = { onNavigateToFocus(task.id) },
-                        onCompleteClick = {
-                            if (task.estimatedDurationMinutes > 0 && task.totalTimeTrackedMinutes == 0f) {
-                                timeLogTask = task
-                            } else {
-                                viewModel.completeTask(task)
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        TaskRow(
+                            task = task,
+                            onTaskClick = { onNavigateToFocus(task.id) },
+                            onCompleteClick = {
+                                if (task.estimatedDurationMinutes > 0 && task.totalTimeTrackedMinutes == 0f) {
+                                    timeLogTask = task
+                                } else {
+                                    viewModel.completeTask(task)
+                                }
+                            },
+                            onEditClick = { editingTask = task }
+                        )
+                        if (quadrant != Quadrant.ELIMINATE) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(
+                                    onClick = { viewModel.moveTask(task, Quadrant.ELIMINATE) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.PauseCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(13.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        "Put On Hold",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        },
-                        onEditClick = { editingTask = task }
-                    )
+                        }
+                    }
                 }
             }
         }

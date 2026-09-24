@@ -3,6 +3,7 @@ package com.neuroflow.app.data.local
 import android.app.backup.BackupManager
 import android.content.Context
 import android.os.Build
+import java.io.File
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,14 +39,41 @@ class DatabaseCleaner @Inject constructor(
         try {
             database.clearAllTables()
             preferencesDataStore.clearAll()
+
+            // Purge all DataStore files (e.g. pinned_apps_prefs, hyperfocus_prefs)
+            runCatching {
+                val dataStoreDir = File(context.filesDir, "datastore")
+                if (dataStoreDir.exists()) {
+                    dataStoreDir.listFiles()?.forEach { it.delete() }
+                }
+            }
+
+            // Clear SharedPreferences
+            runCatching {
+                val sharedPrefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
+                if (sharedPrefsDir.exists()) {
+                    sharedPrefsDir.listFiles()?.forEach { file ->
+                        val prefName = file.nameWithoutExtension
+                        context.getSharedPreferences(prefName, Context.MODE_PRIVATE).edit().clear().commit()
+                    }
+                }
+            }
+
+            // Clear cache directories
+            runCatching {
+                context.cacheDir.deleteRecursively()
+                context.codeCacheDir.deleteRecursively()
+            }
+
             writeRecordedBackupVersionCode(currentAppVersionCode())
             requestBackupRefresh()
-            android.util.Log.i(TAG, "Cleared all local data and requested backup refresh")
+            android.util.Log.i(TAG, "Cleared all local data, datastores, shared prefs, and caches")
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Failed clearing app data", e)
             throw e
         }
     }
+
 
     /**
      * Enforces restore policy on app startup.

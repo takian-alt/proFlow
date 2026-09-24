@@ -6,4 +6,6 @@ plugins {
     id("com.google.dagger.hilt.android") version "2.51.1" apply false
     id("com.google.devtools.ksp") version "2.0.21-1.0.28" apply false
     id("androidx.baselineprofile") version "1.2.4" apply false
+    id("com.google.gms.google-services") version "4.5.0" apply false
 }
+

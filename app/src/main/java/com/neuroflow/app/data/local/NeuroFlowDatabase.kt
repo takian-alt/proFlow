@@ -7,6 +7,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
@@ -14,6 +15,7 @@ import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
+import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
@@ -223,9 +225,69 @@ val MIGRATION_16_17 = object : Migration(16, 17) {
     }
 }
 
+val MIGRATION_17_18 = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `notes` (
+                `id` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `content` TEXT NOT NULL,
+                `colorHex` TEXT NOT NULL,
+                `isPinned` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                `tags` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+    }
+}
+
+val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS index_notes_updatedAt")
+        db.execSQL("DROP INDEX IF EXISTS index_notes_isPinned")
+        db.execSQL("DROP TABLE IF EXISTS `notes`")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `notes` (
+                `id` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `content` TEXT NOT NULL,
+                `colorHex` TEXT NOT NULL,
+                `isPinned` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                `tags` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+    }
+}
+
+val MIGRATION_17_19 = object : Migration(17, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS index_notes_updatedAt")
+        db.execSQL("DROP INDEX IF EXISTS index_notes_isPinned")
+        db.execSQL("DROP TABLE IF EXISTS `notes`")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `notes` (
+                `id` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `content` TEXT NOT NULL,
+                `colorHex` TEXT NOT NULL,
+                `isPinned` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                `tags` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class],
-    version = 17,
+    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class, NoteEntity::class],
+    version = 19,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -239,4 +301,5 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun hyperFocusSessionDao(): HyperFocusSessionDao
     abstract fun sleepLogDao(): SleepLogDao
     abstract fun energyPredictionDao(): EnergyPredictionDao
+    abstract fun noteDao(): NoteDao
 }

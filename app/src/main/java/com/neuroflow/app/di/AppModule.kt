@@ -20,14 +20,20 @@ import com.neuroflow.app.data.local.MIGRATION_13_14
 import com.neuroflow.app.data.local.MIGRATION_14_15
 import com.neuroflow.app.data.local.MIGRATION_15_16
 import com.neuroflow.app.data.local.MIGRATION_16_17
+import com.neuroflow.app.data.local.MIGRATION_17_18
+import com.neuroflow.app.data.local.MIGRATION_18_19
+import com.neuroflow.app.data.local.MIGRATION_17_19
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
+import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
 import dagger.Module
@@ -65,8 +71,12 @@ object AppModule {
                 MIGRATION_13_14,
                 MIGRATION_14_15,
                 MIGRATION_15_16,
-                MIGRATION_16_17
+                MIGRATION_16_17,
+                MIGRATION_17_18,
+                MIGRATION_18_19,
+                MIGRATION_17_19
             )
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 
@@ -87,6 +97,16 @@ object AppModule {
 
     @Provides
     fun provideSleepLogDao(database: NeuroFlowDatabase): SleepLogDao = database.sleepLogDao()
+
+    @Provides
+    fun provideEnergyPredictionDao(database: NeuroFlowDatabase): EnergyPredictionDao = database.energyPredictionDao()
+
+    @Provides
+    fun provideNoteDao(database: NeuroFlowDatabase): NoteDao = database.noteDao()
+
+    @Provides
+    @Singleton
+    fun provideNoteRepository(dao: NoteDao): NoteRepository = NoteRepository(dao)
 
     @Provides
     @Singleton

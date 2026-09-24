@@ -5,7 +5,9 @@ plugins {
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
     id("androidx.baselineprofile")
+    id("com.google.gms.google-services")
 }
+
 
 // Apply custom lint check for launcher module isolation
 apply(from = "lint-module-isolation.gradle.kts")
@@ -78,6 +80,15 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
+
+    // Firebase BOM (manages all Firebase library versions)
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+
+    // Google Sign-In
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
 
     // Compose BOM
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

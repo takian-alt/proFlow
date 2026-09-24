@@ -16,8 +16,10 @@ import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -56,8 +58,12 @@ import com.neuroflow.app.presentation.settings.SleepLogsScreen
 import com.neuroflow.app.presentation.settings.MEQQuizScreen
 import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
+import com.neuroflow.app.presentation.settings.AccountSyncScreen
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
+import com.neuroflow.app.presentation.notes.NotesScreen
+import com.neuroflow.app.presentation.matrix.OnHoldPlanningScreen
+
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     data object Matrix : Screen("matrix", "Matrix", Icons.Filled.GridView)
     data object Schedule : Screen("schedule", "Schedule", Icons.Filled.CalendarMonth)
@@ -76,7 +82,11 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object LauncherSettingsScreen : Screen("launcher_settings", "Launcher Settings", null)
     data object Rewards : Screen("rewards", "Rewards", null)
     data object MiniWoop : Screen("mini_woop/{taskId}", "WOOP Reflection", null)
+    data object AccountSync : Screen("account_sync", "Account & Cloud Sync", null)
+    data object Notes : Screen("notes", "Notes", Icons.AutoMirrored.Filled.Notes)
+    data object OnHold : Screen("on_hold", "On Hold / Planning", Icons.Filled.PauseCircle)
 }
+
 
 val bottomNavItems = listOf(
     Screen.Matrix,
@@ -229,6 +239,26 @@ fun NeuroFlowApp(
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 NavigationDrawerItem(
+                    icon = { Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Notes") },
+                    label = { Text("Notes") },
+                    selected = currentDestination?.route == Screen.Notes.route,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate(Screen.Notes.route)
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Filled.PauseCircle, contentDescription = "On Hold / Planning") },
+                    label = { Text("On Hold / Planning") },
+                    selected = currentDestination?.route == Screen.OnHold.route,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate(Screen.OnHold.route)
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                NavigationDrawerItem(
                     icon = { Icon(Icons.Filled.Settings, contentDescription = "Settings") },
                     label = { Text("Settings") },
                     selected = currentDestination?.route == Screen.Settings.route,
@@ -321,6 +351,12 @@ fun NeuroFlowApp(
                         onNavigateToSettings = {
                             navController.navigate(Screen.Settings.route)
                         },
+                        onNavigateToNotes = {
+                            navController.navigate(Screen.Notes.route)
+                        },
+                        onNavigateToOnHold = {
+                            navController.navigate(Screen.OnHold.route)
+                        },
                         initialNewTaskOpen = initialNewTaskOpen,
                         onInitialNewTaskConsumed = onInitialNewTaskConsumed
                     )
@@ -389,9 +425,13 @@ fun NeuroFlowApp(
                         },
                         onNavigateToSleepLogs = {
                             navController.navigate(Screen.SleepLogs.route)
+                        },
+                        onNavigateToAccountSync = {
+                            navController.navigate(Screen.AccountSync.route)
                         }
                     )
                 }
+
                 composable(Screen.SleepLogs.route) {
                     SleepLogsScreen(
                         onNavigateBack = { navController.popBackStack() }
@@ -446,7 +486,26 @@ fun NeuroFlowApp(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
+                composable(Screen.AccountSync.route) {
+                    AccountSyncScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.Notes.route) {
+                    NotesScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.OnHold.route) {
+                    OnHoldPlanningScreen(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToFocus = { taskId ->
+                            navController.navigate("focus/$taskId")
+                        }
+                    )
+                }
             }
+
         }
     }
 }

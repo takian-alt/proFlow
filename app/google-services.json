@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "208796284224",
+    "project_id": "proflow-2d8ae",
+    "storage_bucket": "proflow-2d8ae.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:208796284224:android:a7347a3defe4f3984a76a5",
+        "android_client_info": {
+          "package_name": "com.neuroflow.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "208796284224-47jbh9d9rl7ti37iispothh618pl25lb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.neuroflow.app",
+            "certificate_hash": "e66ca8ca2d1265236853f0b8c7bbb66741048c24"
+          }
+        },
+        {
+          "client_id": "208796284224-oj87v7hsrtjt20hra8is78c0vmak880c.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTDOEypMKdYmeGNXdLvNx0qIkMTiV1w8A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "208796284224-oj87v7hsrtjt20hra8is78c0vmak880c.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
