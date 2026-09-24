@@ -43,6 +43,7 @@ fun MatrixScreen(
     var showNewTaskSheet by remember { mutableStateOf(false) }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("proFlow") },
@@ -89,6 +90,7 @@ fun MatrixScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
                 .padding(8.dp)
         ) {

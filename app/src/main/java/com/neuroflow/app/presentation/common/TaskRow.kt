@@ -194,11 +194,11 @@ private fun PriorityDot(priority: Priority) {
 fun TagChip(tag: String) {
     val isDark = com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme.current
     val chipColors = if (isDark) listOf(
-        Color(0xFF1A2A3E), Color(0xFF2E1F3E), Color(0xFF1B3A1F),
-        Color(0xFF3E3A1A), Color(0xFF3E1F1F), Color(0xFF1A2E2E)
+        NeuroFlowColors.DarkSurfaceAlt, NeuroFlowColors.PomodoroCardDark, NeuroFlowColors.ScheduleBgDark,
+        NeuroFlowColors.DelegateBgDark, NeuroFlowColors.DoFirstBgDark, Color(0xFF20353A)
     ) else listOf(
-        Color(0xFFE3F2FD), Color(0xFFF3E5F5), Color(0xFFE8F5E9),
-        Color(0xFFFFF3E0), Color(0xFFFFEBEE), Color(0xFFE0F7FA)
+        NeuroFlowColors.LightSurfaceAlt, NeuroFlowColors.PomodoroCard, NeuroFlowColors.ScheduleBg,
+        NeuroFlowColors.DelegateBg, NeuroFlowColors.DoFirstBg, Color(0xFFE0F1F2)
     )
     val colorIndex = tag.hashCode().let { kotlin.math.abs(it) } % chipColors.size
     Surface(
