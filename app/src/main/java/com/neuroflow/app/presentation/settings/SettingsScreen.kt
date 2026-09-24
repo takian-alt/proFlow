@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.BuildConfig
-import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 
@@ -800,21 +799,6 @@ fun SettingsScreen(
                         )
                     }
                     Icon(Icons.Filled.ChevronRight, "Navigate")
-                }
-            }
-
-            // Appearance
-            SettingsSection("Appearance") {
-                Text("Theme", fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppTheme.entries.forEach { theme ->
-                        FilterChip(
-                            selected = prefs.theme == theme,
-                            onClick = { viewModel.setTheme(theme) },
-                            label = { Text(theme.name.lowercase().replaceFirstChar { it.uppercase() }) }
-                        )
-                    }
                 }
             }
 

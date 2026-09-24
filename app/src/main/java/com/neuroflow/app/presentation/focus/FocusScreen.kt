@@ -29,7 +29,6 @@ import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.common.formatFullDate
 import com.neuroflow.app.presentation.common.formatRelativeTime
 import com.neuroflow.app.presentation.common.getQuadrantLabel
-import com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.util.*
 
@@ -204,10 +203,10 @@ fun FocusScreen(
             )
         }
     ) { innerPadding ->
-        val focusBg = if (LocalIsDarkTheme.current) NeuroFlowColors.FocusBgDark else NeuroFlowColors.FocusBg
-        val deadlineCardColor = if (LocalIsDarkTheme.current) NeuroFlowColors.DeadlineCardDark else NeuroFlowColors.DeadlineCard
-        val scheduledCardColor = if (LocalIsDarkTheme.current) NeuroFlowColors.ScheduledCardDark else NeuroFlowColors.ScheduledCard
-        val pomodoroCardColor = if (LocalIsDarkTheme.current) NeuroFlowColors.PomodoroCardDark else NeuroFlowColors.PomodoroCard
+        val focusBg = NeuroFlowColors.FocusBg
+        val deadlineCardColor = NeuroFlowColors.DeadlineCard
+        val scheduledCardColor = NeuroFlowColors.ScheduledCard
+        val pomodoroCardColor = NeuroFlowColors.PomodoroCard
 
         if (task == null) {
             Box(

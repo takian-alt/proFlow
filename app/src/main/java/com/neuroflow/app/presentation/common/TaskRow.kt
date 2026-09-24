@@ -192,11 +192,7 @@ private fun PriorityDot(priority: Priority) {
 
 @Composable
 fun TagChip(tag: String) {
-    val isDark = com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme.current
-    val chipColors = if (isDark) listOf(
-        NeuroFlowColors.DarkSurfaceAlt, NeuroFlowColors.PomodoroCardDark, NeuroFlowColors.ScheduleBgDark,
-        NeuroFlowColors.DelegateBgDark, NeuroFlowColors.DoFirstBgDark, Color(0xFF20353A)
-    ) else listOf(
+    val chipColors = listOf(
         NeuroFlowColors.LightSurfaceAlt, NeuroFlowColors.PomodoroCard, NeuroFlowColors.ScheduleBg,
         NeuroFlowColors.DelegateBg, NeuroFlowColors.DoFirstBg, Color(0xFFE0F1F2)
     )
@@ -234,24 +230,22 @@ fun formatDurationFloat(minutes: Float): String {
 }
 
 @Composable
-fun getQuadrantBgColor(quadrant: Quadrant, isDark: Boolean = false): Color {
-    val dark = com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme.current
+fun getQuadrantBgColor(quadrant: Quadrant): Color {
     return when (quadrant) {
-        Quadrant.DO_FIRST  -> if (dark) NeuroFlowColors.DoFirstBgDark else NeuroFlowColors.DoFirstBg
-        Quadrant.SCHEDULE  -> if (dark) NeuroFlowColors.ScheduleBgDark else NeuroFlowColors.ScheduleBg
-        Quadrant.DELEGATE  -> if (dark) NeuroFlowColors.DelegateBgDark else NeuroFlowColors.DelegateBg
-        Quadrant.ELIMINATE -> if (dark) NeuroFlowColors.EliminateBgDark else NeuroFlowColors.EliminateBg
+        Quadrant.DO_FIRST  -> NeuroFlowColors.DoFirstBg
+        Quadrant.SCHEDULE  -> NeuroFlowColors.ScheduleBg
+        Quadrant.DELEGATE  -> NeuroFlowColors.DelegateBg
+        Quadrant.ELIMINATE -> NeuroFlowColors.EliminateBg
     }
 }
 
 @Composable
-fun getQuadrantTextColor(quadrant: Quadrant, isDark: Boolean = false): Color {
-    val dark = com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme.current
+fun getQuadrantTextColor(quadrant: Quadrant): Color {
     return when (quadrant) {
-        Quadrant.DO_FIRST  -> if (dark) NeuroFlowColors.DoFirstTextDark else NeuroFlowColors.DoFirstText
-        Quadrant.SCHEDULE  -> if (dark) NeuroFlowColors.ScheduleTextDark else NeuroFlowColors.ScheduleText
-        Quadrant.DELEGATE  -> if (dark) NeuroFlowColors.DelegateTextDark else NeuroFlowColors.DelegateText
-        Quadrant.ELIMINATE -> if (dark) NeuroFlowColors.EliminateTextDark else NeuroFlowColors.EliminateText
+        Quadrant.DO_FIRST  -> NeuroFlowColors.DoFirstText
+        Quadrant.SCHEDULE  -> NeuroFlowColors.ScheduleText
+        Quadrant.DELEGATE  -> NeuroFlowColors.DelegateText
+        Quadrant.ELIMINATE -> NeuroFlowColors.EliminateText
     }
 }
 
