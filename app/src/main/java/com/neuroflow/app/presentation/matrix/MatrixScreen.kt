@@ -79,6 +79,7 @@ fun MatrixScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -151,6 +152,7 @@ fun MatrixScreen(
             state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
         ) { page ->
             if (page == 0) {
