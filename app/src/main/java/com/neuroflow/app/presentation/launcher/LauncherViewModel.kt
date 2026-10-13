@@ -32,7 +32,7 @@ import com.neuroflow.app.presentation.common.dueProtectedSlotFlow
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.data.FolderDefinition
-import com.neuroflow.app.presentation.launcher.data.NotificationBadgeManager
+import com.neuroflow.app.data.badge.NotificationBadgeManager
 import com.neuroflow.app.presentation.launcher.data.PinnedAppsDataStore
 import androidx.compose.runtime.mutableStateOf
 import dagger.hilt.android.lifecycle.HiltViewModel

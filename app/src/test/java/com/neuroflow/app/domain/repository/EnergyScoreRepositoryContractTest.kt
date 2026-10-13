@@ -10,7 +10,7 @@ import com.neuroflow.app.data.repository.SleepLogRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.MEQChronotypeDetector
 import com.neuroflow.app.domain.engine.PeakEnergyEngine
-import com.neuroflow.app.presentation.launcher.data.NotificationBadgeManager
+import com.neuroflow.app.data.badge.NotificationBadgeManager
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe

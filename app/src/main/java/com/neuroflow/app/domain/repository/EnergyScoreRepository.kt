@@ -11,7 +11,7 @@ import com.neuroflow.app.domain.engine.MomentEnergyEngine
 import com.neuroflow.app.domain.engine.PeakEnergyEngine
 import com.neuroflow.app.domain.engine.SleepPressureDetector
 import com.neuroflow.app.domain.model.TaskStatus
-import com.neuroflow.app.presentation.launcher.data.NotificationBadgeManager
+import com.neuroflow.app.data.badge.NotificationBadgeManager
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay

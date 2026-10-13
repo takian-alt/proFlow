@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.data.IconPackManager
 import com.neuroflow.app.presentation.launcher.data.LauncherBackupManager
-import com.neuroflow.app.presentation.launcher.data.NotificationBadgeManager
 import com.neuroflow.app.presentation.launcher.data.PinnedAppsDataStore
 import com.neuroflow.app.presentation.launcher.domain.AppWidgetHostWrapper
 import com.neuroflow.app.presentation.launcher.domain.LauncherSearchEngine
@@ -26,7 +25,6 @@ import javax.inject.Singleton
  * - LauncherApps system service
  * - PinnedAppsDataStore singleton
  * - AppWidgetHostWrapper with host ID 1337 (Phase 1 scaffolding)
- * - NotificationBadgeService singleton
  * - AppRepository, IconPackManager, LauncherBackupManager singletons
  * - LauncherSearchEngine interface binding
  */
@@ -73,16 +71,6 @@ abstract class LauncherModule {
         @Singleton
         fun provideAppWidgetHost(@ApplicationContext context: Context): AppWidgetHostWrapper {
             return AppWidgetHostWrapper(context, 1337)
-        }
-
-        /**
-         * Provides NotificationBadgeManager singleton.
-         * Manages badge count StateFlow that is updated by NotificationBadgeService.
-         */
-        @Provides
-        @Singleton
-        fun provideNotificationBadgeManager(): NotificationBadgeManager {
-            return NotificationBadgeManager()
         }
 
         /**
