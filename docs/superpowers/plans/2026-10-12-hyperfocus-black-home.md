@@ -5221,11 +5221,93 @@ git status --short
 
 If clean, there is no commit — Task 18 is a verification task, and an empty commit to mark it adds noise. If it found a real dangling reference, fix it and commit by pathspec with a message naming which earlier task's assumption was wrong.
 
+### Task 18 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+**1. Step 1's "nothing is expected" was wrong, and the grep list was too narrow.** The sweep found
+real dangling artifacts in shipped files, all of them consequences of Task 17 deleting 47 files
+underneath things that still described them. Fixed in commit `48a7233` (13 files):
+
+- `app/src/androidTest/.../LauncherBaselineProfileGenerator.kt` drove the app drawer, QuickStats
+  panel and drawer scroll — UI that no longer exists. Rewritten and renamed to
+  `HyperFocusBaselineProfileGenerator.kt` (black-home cold start, essentials grid composition and
+  scroll, per-tile icon resolution). Its `README.md` rewritten, and now states plainly that the
+  "<100 ms" target is an intent, not a result.
+- `app/src/main/baseline-prof.txt` carried 18 rules naming launcher classes. Reduced to a header
+  plus the one rule that still resolves (`TaskScoringEngine`); no replacement rules were invented,
+  because a profile written from imagination is worse than an empty one.
+- `feature/hyperfocus/components/HyperFocusStatusBar.kt` (193 lines) had **zero callers anywhere** —
+  deleted, and `components/` is now gone.
+- `presentation/settings/PrivacyPermissionsScreen.kt` still asked the user to grant **READ_CONTACTS**
+  after Task 17 removed that permission from the manifest: a user-facing lie about a grant the app
+  can no longer request. Row deleted, and the "Installed apps" / usage-access / intro copy retargeted
+  at the allowlist picker and the black home.
+- `UnlockTimerService`'s notification text still read like the device-wide unlock; `HyperFocusManager`,
+  `ProtectedSlotClock`, `HyperFocusHomeActivity` (unused `MainActivity` import),
+  `scripts/generate-baseline-profile.sh` and `README.md` (11 launcher feature bullets → 3, and the
+  `launcher/` subtree in the directory tree replaced with the real `feature/hyperfocus/` tree) each
+  held one stale sentence.
+
+The grep list only searched **retired identifiers**, so it could not see any of the above. Its three
+"expected 0 / expected N" lines were also wrong, all benignly:
+
+| pattern | plan expected | actual | why |
+|---|---|---|---|
+| `blockedPackages` | 4 | 13 | the Room column and session-entity field survive by design (historical rows), plus `AllowlistMigrator.derive(blockedPackages = …)`'s parameter name, the legacy storage read in `HyperFocusDataStore`, and 3 test references |
+| `launcher_prefs` | 0 | 3 | Task 11 must read the old DataStore **by file name** to migrate it — `LegacyLauncherPrefs.kt` and `AllowlistMigrationRunner.kt`. This is the intended survivor, not a leak |
+| `NotificationBadgeService"` | 1 | 2 | the second hit is the service's own `Log.e` tag |
+
+Everything else the list named (`presentation.launcher`, `isUnlockActive`, `activeUnlockExpiresAt`,
+`LauncherActivity`, `LauncherViewModel`, `bringLauncherToFront`, `Theme.Launcher`,
+`launcher_settings`) is 0.
+
+**2. Step 2 expected "green". Lint has never been green in this repository.** `assemble`, `tests`
+(456, 0 failures) and `atcompile` PASS. `lintDebug` FAILs with 3 errors, of which exactly one
+belongs to this branch:
+
+- `app/src/main/res/values/themes.xml:14` — `android:windowLightNavigationBar` needs API 27 against
+  `minSdk 26` (`NewApi`). Added by Task 15 in `Theme.HyperFocusHome`. **Fixed here by deleting the
+  item**: on API 26 it was never applied, and `android:Theme.Material.NoActionBar` already defaults
+  it to false, which is the value the comment wanted. The comment now records that reasoning.
+- `MainActivity.kt:232` `CoroutineCreationDuringComposition` — `git blame` gives 89f9b33/ed4091b,
+  2026-03-20, and the same `scope.launch` is present at `main`.
+- `AndroidManifest.xml:21` `QueryAllPackagesPermission` — `main:AndroidManifest.xml:22` carries the
+  identical `<uses-permission>`.
+
+Ruling: the two survivors are **not** fixed by this plan. One is a recomposition bug in fresh-start
+code with no test of its own, which needs its own change and its own test; the other is load-bearing —
+the allowlist picker and the black home's icon resolution need broad package visibility, so narrowing
+to `<queries>` would break the surface this plan ships. So this branch leaves lint at 2 errors, both
+provably inherited, and does not claim "lint clean".
+
+**3. Step 2's inert-suite check: 67 result XMLs against 72 `*Test.kt` files.** The five gaps are all
+JUnit4 `@Test` classes, which do not execute in `app/src/test` (`memory:
+test-suites-must-be-kotest-stringspec`): `AbstentionRateTrend7dTest` (2), `AbstentionReasonMixTest`
+(2), `EnergyInsightTest` (3), `TimeUtilsTest` (4), `SleepPressureRefreshWorkerTest` (3) — **14 dormant
+tests**. None is code this plan introduced, so per the instruction above they are reported, not
+silently rewritten.
+
+**4. Ruling: unused gate-log read surface is kept.** `GateRequestDao.recent()`,
+`GateRequestDao.countsByPackage()`, `PackageRequestCount` and `GateGrantSource.ABANDONED` have no
+production caller — only `insert` and `deleteOlderThan` are used (`GateRequestLogger.kt:29,42`), and
+only `EMERGENCY` and `REWARD_CODE` are ever written (`GateRequestLogger.kt:56`,
+`HyperFocusViewModel.kt:265`), so `ABANDONED` is unreachable and `countsByPackage`'s `abandoned`
+column can only ever be 0. Kept because they are Task 10's reviewed Room surface under schema 21 and
+removing them is a Task 10 change, not a retirement sweep. Cost if wrong: the first gateway-history
+UI reads "0 abandoned requests" for every package and looks like a bug rather than an unimplemented
+status.
+
+**5. Three new device rows (16–18 below), and the section's premise is now measured, not remembered.**
+The emulator was attempted on 2026-10-14 and **SIGSEGVs five times** in `qemu-system-x86_64-headless`
+(~177 MB cores in `coredumpctl`), always ~20 s in at `emulatorSetupEnvironment`, across `-gpu
+swiftshader_indirect`, `-gpu guest` and `-gpu off`, and with both `-accel off` (TCG) and KVM —
+`/dev/kvm` is usable and `adb` does briefly list `emulator-5554`. So rows 1, 3, 6 and 10 ("run before
+merging") cannot be executed on this machine by any flag combination; they need the user's phone.
+
 ---
 
 ## Device test plan (blocking before release)
 
-Nothing in this list can be run on this machine — no emulator, no attached device (`memory: procus-local-environment-and-git-hygiene`). Each item is a behavior the plan asserts and the build cannot prove.
+Nothing in this list can be run on this machine — no emulator, no attached device (`memory: procus-local-environment-and-git-hygiene`). Each item is a behavior the plan asserts and the build cannot prove. *Measured 2026-10-14 rather than recalled:* an AVD and `adb` do exist here, but the emulator binary SIGSEGVs on this host in every GPU and acceleration mode, so the constraint is real even though the stated reason was wrong — see the Task 18 amendment, delta 5.
 
 | # | Check | Why the build cannot prove it |
 |---|-------|-------------------------------|
@@ -5245,7 +5327,11 @@ Nothing in this list can be run on this machine — no emulator, no attached dev
 | 14 | **After installing a build from Task 1 onward, re-enable HyperFocus in Settings → Accessibility**, then confirm a session still blocks. Until it is re-enabled, enforcement is silently off — no crash, no error, the phone just behaves normally | The service's component ID changed from `.presentation.launcher.hyperfocus.service.AppBlockingService` to `.feature.hyperfocus.service.AppBlockingService`. Android keys `enabled_accessibility_services` by component ID, so the device's existing tick belongs to a component that no longer exists and the new one starts disabled. `AccessibilityUtil.kt:20` builds the string from `context.packageName` plus the new suffix and must match `AndroidManifest.xml:200` — a mismatch compiles and installs fine, and `AccessibilityWatchdogWorker.kt:41-45` only posts a notification. This is the one step in the plan that cannot be recovered from the code |
 | 15 | **After installing a build from Task 3 onward, re-enable Notification access** (Settings → Special app access → Notification access), then confirm badge counts still move the energy score. This failure is invisible | `BIND_NOTIFICATION_LISTENER_SERVICE` grants live in `Settings.Secure.enabled_notification_listeners`, keyed by component ID — the same mechanism as row 14. The component moved from `.presentation.launcher.data.NotificationBadgeService` to `.data.badge.NotificationBadgeService` (`AndroidManifest.xml:180`), so the existing tick belongs to a component that no longer exists and the new one starts unbound. No code reads the grant (`isNotificationServiceEnabled` has no call sites), there is no watchdog reminder for it, `onListenerConnected` never runs, `badgeCounts` stays `emptyMap()`, `EnergyScoreRepository.kt:188` sums it to 0, and all 358 unit tests stay green while the energy model silently degrades. **Gap beyond this task:** the only in-app route to that screen is `presentation/launcher/settings/LauncherSettings.kt:2275-2298`, which Task 17 deletes while the service survives — after Task 17 the grant cannot be re-earned from inside the app at all |
 
-Run 1, 3, 6 and 10 before merging to `main`; the rest can be a fast-follow on the first device build.
+| 16 | Regenerate `app/src/main/baseline-prof.txt` for the black home (`./scripts/generate-baseline-profile.sh`), then confirm the cold-start and grid-scroll paths are actually AOT-compiled | The checked-in profile is now one rule plus a header: the launcher's 18 rules were deleted in Task 17 and no replacement was invented, because a hand-written profile that names the wrong methods is worse than none. `HyperFocusBaselineProfileGenerator` compiles but has never run |
+| 17 | Navigation-bar buttons still visible on the black home after `android:windowLightNavigationBar` was dropped from `Theme.HyperFocusHome` (Task 18) | Row 9's claim now rests on `android:Theme.Material.NoActionBar`'s inherited default instead of an explicit item. The inheritance is documented, not verified — and it is exactly the kind of default that a vendor ROM's overlay can flip |
+| 18 | Confirm the app is still the only thing the user can reach for **Notification access** re-grants, i.e. accept that it isn't: the grant can now only be re-earned from system Settings | Task 17 deleted the only in-app route — `presentation/launcher/settings/LauncherSettings.kt:2258-2269`'s `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS` "Configure" button (row 15 above cites it as `:2275-2298`; the block is ~17 lines earlier than the plan said, same button). `grep -rn "ACTION_NOTIFICATION_LISTENER_SETTINGS" app/src` is **0** on this branch against **1** at `archive/launcher-2026-10-12`. Row 15's "Gap beyond this task" is therefore live, not hypothetical: badge counts silently stop feeding the energy score and nothing in the app can offer a shortcut back. Whether to restore such a route is the user's call |
+
+Run 1, 3, 6 and 10 before merging to `main`; the rest can be a fast-follow on the first device build. **None of the four can be run on the machine that built this branch** (delta 5), so "before merging" now means "before shipping to the user's device", which is the same device in practice.
 
 ## Open questions owed by the user
 
