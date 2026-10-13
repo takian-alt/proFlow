@@ -1140,7 +1140,9 @@ class AppCatalogFilterTest : StringSpec({
             listOf(app("com.android.systemui"), app("android"), app("com.android.dialer")),
             setOf("android", "com.android.dialer")
         )
-        kept.map { it.packageName } shouldContainExactly listOf("com.android.dialer")
+        // "android" is named in the exempt set, so it is kept; only com.android.systemui,
+        // which is neither exempt nor seeded, drops.
+        kept.map { it.packageName } shouldContainExactly listOf("android", "com.android.dialer")
     }
 
     "AC-3: blank activity rows are not launchable and drop" {
@@ -1163,6 +1165,15 @@ class AppCatalogFilterTest : StringSpec({
         )
         kept.map { it.packageName } shouldContainExactly listOf("a", "z", "m")
     }
+
+    "AC-6: the default essential seed is never filtered out of the catalog" {
+        val seeded = listOf(
+            "com.android.dialer", "com.android.mms", "com.android.contacts",
+            "com.android.camera", "com.android.deskclock"
+        )
+        AppCatalogFilter.keep(seeded.map { app(it) }, emptySet())
+            .map { it.packageName } shouldContainExactly seeded.sorted()
+    }
 })
 ```
 
@@ -1177,6 +1188,8 @@ bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.ne
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.data
 
+import com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModel
+
 data class InstalledApp(
     val packageName: String,
     val label: String,
@@ -1190,14 +1203,18 @@ object AppCatalogFilter {
     fun keep(apps: List<InstalledApp>, systemExempt: Set<String>): List<InstalledApp> =
         apps.asSequence()
             .filter { it.packageName.isNotBlank() && it.activity.isNotBlank() }
-            .filter { !it.packageName.startsWith(FRAMEWORK_PREFIX) || it.packageName in systemExempt }
+            .filter {
+                !it.packageName.startsWith(FRAMEWORK_PREFIX) ||
+                    it.packageName in systemExempt ||
+                    it.packageName in FocusSurfaceModel.DEFAULT_ESSENTIAL_SEED
+            }
             .distinctBy { it.packageName }
             .sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
             .toList()
 }
 ```
 
-The `|| it.packageName in systemExempt` escape hatch is load-bearing: the default essential seed in Task 5 contains `com.android.dialer`, `com.android.mms`, `com.android.contacts`, `com.android.camera` and `com.android.deskclock`, every one of which starts with the rejected prefix. Without the hatch the allowlist picker could never show a phone app, and Task 11's migration would write an allowlist with holes exactly where the user needs no holes.
+Two escape hatches, not one, and the second is what Task 5's `CALL_PATH` ruling exposed. The `|| it.packageName in systemExempt` clause covers what must never be *gated*; the `|| … in DEFAULT_ESSENTIAL_SEED` clause covers what must be *offerable*. Only the dialer earns both, because Task 5 promoted the dialers into `SystemExempt`; `com.android.mms`, `com.android.contacts`, `com.android.camera` and `com.android.deskclock` are seeded essentials that appear in neither exempt set, and each starts with the rejected prefix. Without the seed clause the allowlist picker could never offer Messages, Contacts, Camera or Clock, so a user who cleared their tiers could never put them back — a hole exactly where the feature promises none. AC-6 pins it.
 
 Note the ordering: `distinctBy` runs **before** `sortedWith`, so AC-4's "first in input order wins" survives the sort. Reversing those two operators silently changes which label a duplicated package shows.
 
@@ -1276,7 +1293,7 @@ bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.ne
 grep -o 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.feature.hyperfocus.data.AppCatalogFilterTest.xml
 ```
 
-Expected: build green (this is also the check that `LauncherApps` is already bound — `AppModule` provides it, as `LauncherModule.kt:72` records; if KSP reports a missing binding for `LauncherApps` or `SystemExempt`, add a `@Provides` to `HyperFocusModule`, never to `LauncherModule`, which Phase 3 deletes); then `tests="5"`.
+Expected: build green (this is also the check that `LauncherApps` is already bound — `AppModule` provides it at `AppModule.kt:129`, verified before Task 7 was dispatched; if KSP reports a missing binding for `LauncherApps` or `SystemExempt`, add a `@Provides` to `HyperFocusModule`, never to `LauncherModule`, which Phase 3 deletes); then `tests="6"`.
 
 - [ ] **Step 6: Commit**
 
