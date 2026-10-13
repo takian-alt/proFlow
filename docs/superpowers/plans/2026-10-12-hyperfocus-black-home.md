@@ -4373,6 +4373,54 @@ Check `git show --name-only HEAD` against the file list above before moving on: 
 
 ---
 
+### Task 15 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+1. `EmergencyControl(onConfirm, modifier, viewModel = hiltViewModel())` from Task 14 becomes
+   `EmergencyControl(available: Boolean, hiddenApps: List<AppCatalogRepository.AppEntry>,
+   onConfirm: (String) -> Unit, modifier: Modifier = Modifier)`. The black home and the gateway are
+   driven by two different ViewModels, and a `hiltViewModel()` default would have instantiated a
+   second, unrelated `HyperFocusViewModel` inside the home activity — with its own launcher sweep.
+   This supersedes Task 14's ruling 22 ("reads the VM's hidden list"): it still reads exactly one
+   hidden-apps list, but the caller supplies it. Step 8's call
+   `EmergencyControl(available = …, hiddenApps = …, onPick = …)` is right about the data and wrong
+   about the parameter name (`onConfirm`).
+2. `GateRequestLogger` (new, `data/GateRequestLogger.kt`) owns the audit row and the 90-day prune, and
+   both ViewModels inject it. Step 7's `emergencyOpen` called `triggerEmergencyBypass` and launched
+   without logging, which would have made the home the one surface that grants access and leaves no
+   record. `HyperFocusViewModel` no longer takes `GateRequestDao`; the GC harness builds a real logger
+   over the same mocks so every `coVerify { gateRequestDao.insert(…) }` pin still applies.
+3. The home has ONE route to hidden apps: the gate. `HyperFocusHomeScreen` drops `onOpenGateway` from
+   the signature in "Produces" and Step 9 — a direct "Hidden apps" button on the black home is a gate
+   bypass, the same class of defect as the deleted `code_entry` route (Task 14 ruling 9). Its one
+   button reads "Open the gate" and navigates to `DESTINATION_GATE`, which Step 9's `GateTaskScreen`
+   hop already continues to the gateway on a pass.
+4. `onOpenAllowlistEditor` starts `MainActivity`. The editor is Task 16's screen and is not in
+   `HyperFocusActivity`'s destination vocabulary; the placeholder must still be escapable, and
+   stranding a user on a black screen with no other launcher is spec 8 row 2.
+5. `beginGate(blockedPackage)` is called for the `DESTINATION_GATE` route whether or not the extra is
+   present (Step 9 of Task 14 had an `isNotBlank()` guard). A gate opened from the home names no app,
+   and without the unconditional call the row would inherit whatever package the last bounce left in
+   `pendingGatePackage` — logging a reason for an app the user never named.
+6. `pickHandoff` is implemented over string keys (`pickHandoffKey(candidateKeys, storedKey,
+   selfPackage)`) and the `ComponentName` versions are adapters for the resolver. `app/src/test` has
+   Robolectric disabled, so `ComponentName` is a stub whose constructor stores nothing and whose
+   getters answer `null`: Step 4's `parseComponentKey(componentKey(c)) shouldBe component` cannot
+   pass there. `RealHomeChoiceTest` mocks the two fields the code reads and asserts the pick by
+   identity. The five cases survive with renumbering: plan RH-3 → RH-1, RH-2 → RH-2, RH-4 → RH-3,
+   RH-5 → RH-4, plus RH-5 (no candidates), RH-6 (both malformed-key halves), RH-7 (key format, which
+   is what makes the self-filter honest).
+7. `ContentScale.Fitting` does not exist in Compose; the tile icon uses `ContentScale.Fit`.
+8. Step 5's `val (pkg, cls) = key?.split('/')` reads `component2` off a one-element list; the
+   implementation uses `firstOrNull()` / `getOrNull(1)` and returns `null` for a blank half, which is
+   what RH-6 pins.
+
+**Unverifiable here** (no AVD, `adb` not on `PATH`): that the black home actually becomes Home, that
+the hand-off lands on the previous launcher rather than looping, that the system-bar buttons stay
+visible on the black theme, that icons render, and that `taskAffinity=""` keeps Recents honest.
+
+
+---
+
 ## Task 16: The allowlist editor, activation without a denylist, and the navigation swap
 
 This is the task that deletes `HyperFocusPreferences.blockedPackages`. Task 11 deliberately left the field in place because `AppBlockingService` and `LauncherViewModel` still read it; every reader is now accounted for — `AppBlockingService:133,:246` (Task 12), `AppIcon.kt:116` (Task 8), the manager and its suspension calls (Task 13), and the five sites below (`AppIcon.kt:115`, `BootReceiver:84`, `LauncherViewModel:1219,:1246`, `HyperFocusActivationSheet:359-364`, `LauncherSettings:935-948`). Delete the field in the same commit that deletes its last reader, or the build goes red with no owner.

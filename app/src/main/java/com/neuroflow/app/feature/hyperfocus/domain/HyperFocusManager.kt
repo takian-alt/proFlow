@@ -238,7 +238,7 @@ class HyperFocusManagerImpl @Inject constructor(
         // Ensure strict kiosk protections are applied even when activation happens outside LauncherActivity.
         if (DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)) {
             runCatching { DeviceOwnerKioskManager.enableHybridProtection(context) }
-            runCatching { DeviceOwnerKioskManager.bringLauncherToFront(context) }
+            runCatching { DeviceOwnerKioskManager.bringHyperFocusHomeToFront(context) }
         }
 
         runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, true) }

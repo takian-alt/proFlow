@@ -1,6 +1,5 @@
 package com.neuroflow.app.feature.hyperfocus
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.BuildConfig
@@ -10,8 +9,7 @@ import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.data.GateGrantSource
-import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
-import com.neuroflow.app.feature.hyperfocus.data.GateRequestEntity
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
@@ -46,7 +44,7 @@ class HyperFocusViewModel @Inject constructor(
     private val hyperFocusDataStore: HyperFocusDataStore,
     private val unlockCodeRepository: UnlockCodeRepository,
     private val taskRepository: TaskRepository,
-    private val gateRequestDao: GateRequestDao,
+    private val gateRequestLogger: GateRequestLogger,
     private val appCatalogRepository: AppCatalogRepository,
     private val systemExempt: SystemExempt,
 ) : ViewModel() {
@@ -251,7 +249,7 @@ class HyperFocusViewModel @Inject constructor(
         viewModelScope.launch {
             if (willLog) {
                 val prefs = hyperFocusDataStore.current()
-                logRequest(
+                gateRequestLogger.log(
                     packageName = prefs.pendingGatePackage.orEmpty(),
                     statedReason = reason.trim(),
                     taskType = task.type.name,
@@ -297,51 +295,8 @@ class HyperFocusViewModel @Inject constructor(
             // The manager refuses a second emergency in a session; logging a grant that never
             // happened would make the audit row claim an access the user did not get.
             if (before.emergencyUsed) return@launch
-            logRequest(
-                packageName = packageName,
-                statedReason = EMERGENCY_REASON,
-                taskType = EMERGENCY_TASK_TYPE,
-                mismatchCount = 0,
-                elapsedMillis = 0L,
-                grantSource = GateGrantSource.EMERGENCY
-            )
+            gateRequestLogger.logEmergencyGrant(packageName)
         }
-    }
-
-    private suspend fun logRequest(
-        packageName: String,
-        statedReason: String,
-        taskType: String,
-        mismatchCount: Int,
-        elapsedMillis: Long,
-        grantSource: GateGrantSource
-    ) {
-        val prefs = hyperFocusDataStore.current()
-        runCatching {
-            gateRequestDao.insert(
-                GateRequestEntity(
-                    sessionId = prefs.sessionId,
-                    packageName = packageName,
-                    appLabel = appCatalogRepository.labelFor(packageName),
-                    statedReason = statedReason,
-                    taskType = taskType,
-                    mismatchCount = mismatchCount,
-                    elapsedMillis = elapsedMillis,
-                    grantSource = grantSource.name,
-                    createdAtMillis = System.currentTimeMillis()
-                )
-            )
-            gateRequestDao.deleteOlderThan(System.currentTimeMillis() - REQUEST_RETENTION_MILLIS)
-        }.onFailure {
-            Log.w(GATE_LOG_TAG, "gate request log write failed for $packageName", it)
-        }
-    }
-
-    companion object {
-        private const val GATE_LOG_TAG = "HyperFocusGate"
-        private const val EMERGENCY_REASON = "Emergency bypass (no gate)"
-        private const val EMERGENCY_TASK_TYPE = "NONE"
-        private const val REQUEST_RETENTION_MILLIS = 90L * 24 * 60 * 60 * 1000
     }
 
     fun activate(blockedPackages: Set<String>, selectedTaskIds: Set<String>) {

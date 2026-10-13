@@ -75,7 +75,10 @@ class HyperFocusActivity : ComponentActivity() {
 
             // The gate logs which app it was opened for, and the log row is written by a screen two
             // navigations away. Naming the app here, before anything is rendered, is what survives it.
-            if (startDestination == DESTINATION_GATE && blockedPackage.isNotBlank()) {
+            // Unconditional: a bounce always names the app it bounced, and the black home names
+            // nothing — leaving the previous bounce's name in the store would log a pass for an app
+            // the user never asked for.
+            if (startDestination == DESTINATION_GATE) {
                 LaunchedEffect(blockedPackage) { viewModel.beginGate(blockedPackage) }
             }
 

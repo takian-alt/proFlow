@@ -88,7 +88,7 @@ class SuspensionResyncTest : StringSpec({
         every { DeviceOwnerKioskManager.isDeviceOwner(any()) } returns true
         every { DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(any()) } returns true
         every { DeviceOwnerKioskManager.enableHybridProtection(any()) } just Runs
-        every { DeviceOwnerKioskManager.bringLauncherToFront(any()) } just Runs
+        every { DeviceOwnerKioskManager.bringHyperFocusHomeToFront(any()) } just Runs
         every { DeviceOwnerKioskManager.setHyperFocusSelfProtection(any(), any()) } returns true
         every {
             DeviceOwnerKioskManager.syncAllowlistSuspension(

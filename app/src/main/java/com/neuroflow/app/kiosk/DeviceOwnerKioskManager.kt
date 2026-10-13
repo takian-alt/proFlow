@@ -16,7 +16,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.BuildConfig
-import com.neuroflow.app.presentation.launcher.LauncherActivity
+import com.neuroflow.app.feature.hyperfocus.home.HyperFocusHomeActivity
 import com.neuroflow.app.presentation.launcher.service.LauncherKeepAliveScheduler
 import com.neuroflow.app.presentation.launcher.service.LauncherKeepAliveService
 import com.neuroflow.app.receiver.DeviceAdminReceiver
@@ -175,7 +175,7 @@ object DeviceOwnerKioskManager {
                 dpm.addPersistentPreferredActivity(
                     admin,
                     homeFilter,
-                    ComponentName(context, LauncherActivity::class.java)
+                    ComponentName(context, HyperFocusHomeActivity::class.java)
                 )
             }
 
@@ -218,7 +218,7 @@ object DeviceOwnerKioskManager {
             Log.i(TAG, "Skipping launcher home launch: app is not default HOME")
             return
         }
-        val homeIntent = Intent(context, LauncherActivity::class.java).apply {
+        val homeIntent = Intent(context, HyperFocusHomeActivity::class.java).apply {
             action = Intent.ACTION_MAIN
             addCategory(Intent.CATEGORY_HOME)
             addCategory(Intent.CATEGORY_DEFAULT)
@@ -227,7 +227,7 @@ object DeviceOwnerKioskManager {
         context.startActivity(homeIntent)
     }
 
-    fun bringLauncherToFront(context: Context) {
+    fun bringHyperFocusHomeToFront(context: Context) {
         if (!canUseStrictMode(context)) return
         if (isCompanionModeEnabled(context)) {
             Log.i(TAG, "Skipping launcher foreground nudge: companion mode enabled")
@@ -237,7 +237,7 @@ object DeviceOwnerKioskManager {
             Log.i(TAG, "Skipping launcher foreground nudge: app is not default HOME")
             return
         }
-        val intent = Intent(context, LauncherActivity::class.java).apply {
+        val intent = Intent(context, HyperFocusHomeActivity::class.java).apply {
             action = Intent.ACTION_MAIN
             addCategory(Intent.CATEGORY_HOME)
             addCategory(Intent.CATEGORY_DEFAULT)

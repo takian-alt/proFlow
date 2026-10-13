@@ -43,6 +43,7 @@ fun GatewayScreen(
     modifier: Modifier = Modifier
 ) {
     val hiddenApps by viewModel.hiddenApps.collectAsStateWithLifecycle()
+    val emergencyAvailable by viewModel.emergencyAvailable.collectAsStateWithLifecycle()
     val budgetSeconds by viewModel.gateBudgetSecondsRemaining.collectAsStateWithLifecycle()
     val prefs by viewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
     val activePackage = prefs.activePassPackage
@@ -98,6 +99,8 @@ fun GatewayScreen(
         }
 
         EmergencyControl(
+            available = emergencyAvailable,
+            hiddenApps = hiddenApps,
             onConfirm = { packageName ->
                 viewModel.grantEmergencyFor(packageName)
                 onLaunch(packageName)

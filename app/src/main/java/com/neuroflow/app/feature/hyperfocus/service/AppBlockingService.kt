@@ -293,7 +293,7 @@ class AppBlockingService : AccessibilityService() {
 
             if (!launched) {
                 if (DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@AppBlockingService)) {
-                    DeviceOwnerKioskManager.bringLauncherToFront(this@AppBlockingService)
+                    DeviceOwnerKioskManager.bringHyperFocusHomeToFront(this@AppBlockingService)
                 }
                 // Android 12+ can deny background launches; force HOME so user exits blocked app.
                 runCatching {

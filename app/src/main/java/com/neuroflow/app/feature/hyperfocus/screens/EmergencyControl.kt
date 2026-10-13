@@ -29,27 +29,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 
 /**
  * The one tap that does not pass a gate. It is ungated by decision F4, so it lives on the surface
- * the user is standing on — the black home and the overlay — and never behind the gate it would
- * short-circuit.
+ * the user is standing on — the black home, the overlay and the gateway — and never behind the gate
+ * it would short-circuit.
  *
- * The list of apps comes from the ViewModel's hidden-apps flow rather than a second call into the
- * catalog: an app the home screen hides is exactly an app that needs an emergency, and enumerating
- * the launcher twice would give the picker and the grid two different answers.
+ * The availability and the app list arrive as data, not from a ViewModel: the three surfaces are
+ * driven by two different ViewModels, and a `hiltViewModel()` default would hand the home screen a
+ * second, unrelated HyperFocusViewModel whose catalog sweep the user never asked for. The list is
+ * still the caller's hidden-apps flow — an app the surface hides is exactly an app that needs an
+ * emergency, and enumerating the launcher again would give the picker and the grid different answers.
  */
 @Composable
 fun EmergencyControl(
+    available: Boolean,
+    hiddenApps: List<AppCatalogRepository.AppEntry>,
     onConfirm: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: HyperFocusViewModel = hiltViewModel()
+    modifier: Modifier = Modifier
 ) {
-    val available by viewModel.emergencyAvailable.collectAsStateWithLifecycle()
-    val hiddenApps by viewModel.hiddenApps.collectAsStateWithLifecycle()
     var showDialog by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }

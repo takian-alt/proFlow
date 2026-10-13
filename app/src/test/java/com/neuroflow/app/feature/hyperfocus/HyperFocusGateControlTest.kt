@@ -6,6 +6,7 @@ import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.data.GateGrantSource
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestEntity
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
@@ -95,7 +96,7 @@ class HyperFocusGateControlTest : StringSpec({
             hyperFocusDataStore = dataStore,
             unlockCodeRepository = unlockCodeRepository,
             taskRepository = taskRepository,
-            gateRequestDao = gateRequestDao,
+            gateRequestLogger = GateRequestLogger(gateRequestDao, catalog, dataStore),
             appCatalogRepository = catalog,
             systemExempt = systemExempt,
         )

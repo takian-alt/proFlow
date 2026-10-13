@@ -5,7 +5,7 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
-import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
@@ -63,7 +63,7 @@ class HyperFocusProgressTest : StringSpec({
             taskRepository = taskRepository,
             // Relaxed: this suite reads `progress`, which touches none of the three. The catalog
             // sweep they would take runs in an init coroutine, not in the flow under test.
-            gateRequestDao = mockk<GateRequestDao>(relaxed = true),
+            gateRequestLogger = mockk<GateRequestLogger>(relaxed = true),
             appCatalogRepository = mockk<AppCatalogRepository>(relaxed = true),
             systemExempt = mockk<SystemExempt>(relaxed = true)
         )

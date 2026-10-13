@@ -115,12 +115,12 @@ class HyperFocusMonitorService : Service() {
                         }
                         if (tamperReason == TAMPER_REASON_LAUNCHER) {
                             DeviceOwnerKioskManager.enableHybridProtection(this@HyperFocusMonitorService)
-                            DeviceOwnerKioskManager.bringLauncherToFront(this@HyperFocusMonitorService)
+                            DeviceOwnerKioskManager.bringHyperFocusHomeToFront(this@HyperFocusMonitorService)
                         } else if (
                             tamperReason == TAMPER_REASON_ACCESSIBILITY &&
                             DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@HyperFocusMonitorService)
                         ) {
-                            DeviceOwnerKioskManager.bringLauncherToFront(this@HyperFocusMonitorService)
+                            DeviceOwnerKioskManager.bringHyperFocusHomeToFront(this@HyperFocusMonitorService)
                         }
                         notificationManager.notify(
                             WARNING_NOTIFICATION_ID,

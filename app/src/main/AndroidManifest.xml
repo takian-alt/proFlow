@@ -30,6 +30,12 @@
         <intent>
             <action android:name="org.adw.launcher.THEMES" />
         </intent>
+        <!-- HOME resolution for the off-state hand-off: role resolution is filtered by
+             visibility, not by QUERY_ALL_PACKAGES. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
     </queries>
 
     <application
@@ -66,9 +72,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Launcher Activity -->
+        <!-- HyperFocus black home: the only HOME-role activity in this package -->
         <activity
-            android:name=".presentation.launcher.LauncherActivity"
+            android:name=".feature.hyperfocus.home.HyperFocusHomeActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
@@ -76,13 +82,25 @@
             android:excludeFromRecents="true"
             android:clearTaskOnLaunch="true"
             android:enableOnBackInvokedCallback="false"
-            android:theme="@style/Theme.Launcher.Transparent">
+            android:theme="@style/Theme.HyperFocusHome">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Archived launcher: no HOME filter, kept only until Phase 3 deletes it -->
+        <activity
+            android:name=".presentation.launcher.LauncherActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:stateNotNeeded="true"
+            android:excludeFromRecents="true"
+            android:clearTaskOnLaunch="true"
+            android:enableOnBackInvokedCallback="false"
+            android:theme="@style/Theme.Launcher.Transparent" />
 
         <!-- Reschedule workers after device reboot -->
         <receiver
