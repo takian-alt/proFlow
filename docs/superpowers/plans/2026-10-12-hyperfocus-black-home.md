@@ -2150,6 +2150,86 @@ question. Database version 20 -> 21." -- <same paths>
 git show --name-only HEAD
 ```
 
+### Task 10 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+Eight defects in the brief, all caught before the first green build. Recorded so the next
+schema task doesn't re-derive them.
+
+1. **Step 5's test body does not exist.** `MigrationTestHelper.createDatabaseFromAsset(context, …)`
+   is not an API in `androidx.room:room-testing:2.6.1`, and neither is the import
+   `androidx.room.testing.migration.MigrationTestHelper` — the class is
+   `androidx.room.testing.MigrationTestHelper`. Verified against the real artifact (downloaded the
+   AAR, `javap` on `classes.jar`), which exposes exactly:
+   `MigrationTestHelper(Instrumentation, Class<out RoomDatabase>, List<AutoMigrationSpec>)`
+   (the 2-arg `(Instrumentation, Class)` overload is `@Deprecated`),
+   `createDatabase(name: String, version: Int): SupportSQLiteDatabase`, and
+   `runMigrationsAndValidate(name: String, version: Int, validateDroppedTables: Boolean, vararg Migration)`.
+   The shipped test uses `@get:Rule` + `createDatabase("neuroflow_database", 20)` +
+   `runMigrationsAndValidate(…, 21, true, MIGRATION_20_21)`.
+2. **`createDatabase` reads the schema from androidTest *assets*, and nothing wired them.** The
+   helper sets `assetsFolder = RoomDatabaseClass.canonicalName`, so it opens
+   `assets/com.neuroflow.app.data.local.NeuroFlowDatabase/20.json`. `exportSchema = true` plus the
+   KSP `room.schemaLocation` arg put those files under `app/schemas/`, which is **not** an asset
+   directory — Step 5's "already enabled by … the KSP room.schemaLocation arg" is only half true.
+   Added to `app/build.gradle.kts`:
+   `sourceSets { getByName("androidTest") { assets.srcDir("$projectDir/schemas") } }`.
+3. **`room-testing` was not in the dependencies block** (the brief said "add it — it is not there
+   today", correctly this time) — and it was not in the local Gradle cache either, so the first
+   `atcompile` resolved it from Google Maven. Network is available on this machine; the cache was
+   not.
+4. **Step 4's expected migration count is off by one.** `addMigrations(...)` already listed **20**
+   migrations (`1_2`…`16_17`, `17_18`, `18_19`, `17_19`, `19_20`), not 19, so after `MIGRATION_20_21`
+   `grep -c MIGRATION_` over that block must read **21**, not 20.
+5. **`AppModule.kt` imports every migration by name.** Adding `MIGRATION_20_21` to the
+   `addMigrations(...)` list without `import com.neuroflow.app.data.local.MIGRATION_20_21` is the
+   first thing that fails the build — which is the good case, since it is a compile error rather
+   than the runtime "no migration path" the step warns about. The brief's Step 4 never mentions the
+   import.
+6. **Step 1's precedent for `String` columns is wrong, and the decision still stands.**
+   `UnlockCodeEntity` does *not* store its tier as text: it declares `val tier: RewardTier` and
+   `@TypeConverters(Converters::class)` maps it with `RewardTier.valueOf(value)`, which **throws** on
+   a persisted name that no longer exists. Task 9 deleted five enum values from this codebase two
+   commits ago, so crash-on-read is not hypothetical — but that is a reason to keep the *log* table
+   text-typed that has nothing to do with `UnlockCodeEntity`. `grantSource`/`taskType` stay `String`
+   for that reason; the enum names are still the values written, so `grantSource = 'ABANDONED'` in
+   `countsByPackage` remains correct.
+7. **`new()` takes the enums, so the write site stays type-checked.** The brief left the signature as
+   `(…)`. Shipped: `GateRequestEntity.new(packageName, appLabel, statedReason,
+   taskType: GateTaskType, mismatchCount, elapsedMillis, grantSource: GateGrantSource,
+   sessionId: String? = null, createdAtMillis: Long = System.currentTimeMillis())`, storing `.name`.
+   `GateTaskType` (`gate/GateTaskEngine.kt:5`) already exists, so Task 14 cannot typo either value
+   into the log.
+8. **`SUM(...)` wrapped in `COALESCE(…, 0)`.** `ELSE 0` already makes the column non-null in practice;
+   the wrapper states that intent where Room's nullability check can see it. No behaviour change.
+
+Two more things the brief got wrong in its favour, and one it left undone:
+
+- Step 3's "column order must match the entity exactly" overstates it: Room's runtime check compares
+  parsed columns, indices and PK order, not SQL text. Order was matched anyway, and the parity was
+  proved on this machine by diffing `MIGRATION_20_21`'s SQL against the `createSql` Room put in the
+  freshly exported `21.json` — identical modulo whitespace around parentheses.
+- **`app/schemas/.../21.json` was missing from Step 7's commit list** while `app/schemas` is tracked
+  (versions 1–20 are all committed). It is in the commit; without it the repo contradicts its own
+  schema export.
+- **Step 2's "Task 11's note says where to wire `deleteOlderThan`" is false** — nothing in Tasks
+  11–18 mentions it, so as planned the table grows without bound and the DAO carries a dead method.
+  **Ruling:** Task 14 calls `deleteOlderThan(nowMillis - RETENTION_MILLIS)` right after its
+  `gateRequestDao.insert(…)` (`:2789`, `:2810`), with one `private const val` retention of 90 days in
+  the ViewModel. Chosen over a new worker because the insert path is the only place that learns a row
+  arrived, it needs no scheduling surface, and the sweep deletes nothing on almost every call. Cost if
+  wrong: gate history older than 90 days disappears — which only shrinks what the analytics screen can
+  show, never what it enforces.
+
+**Verification actually run:** `assemble` PASS (so KSP accepted both DAO queries and generated
+`GateRequestDao_Impl`), exported-`21.json` SQL parity as above, 21 migrations registered,
+`atcompile` PASS (so the rewritten test type-checks against the real `MigrationTestHelper`),
+unit suite 397 green / 0 failures — unchanged, because this task's test is an instrumentation test.
+`connectedAndroidTest` still cannot run here (no AVD, no `adb` on `PATH`), so **the migration is
+written but unexecuted**; that is device-test table row 10, which Task 10 now makes real, and ledger
+entry U8. What the build *does* prove is the
+schema-compilation half: a typo in the column list or in `countsByPackage` fails the build instead of
+the device.
+
 ## Task 11: One-shot migration from the old denylist to the new allowlist
 
 Spec §4.4: the complement of the old denylist becomes the new allowlist, so an upgrading user's intent survives and the newly-default-blocked set is exactly what they had already chosen to block. The decision is a pure function; only the store/catalog plumbing around it needs a device.
