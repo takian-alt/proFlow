@@ -38,7 +38,10 @@ interface HyperFocusManager {
     suspend fun completePlanning()
     suspend fun updateHeartbeat()
     suspend fun reportTamper(reason: String)
-    suspend fun triggerEmergencyBypass()
+    suspend fun grantPass(packageName: String, durationMinutes: Int)
+    suspend fun clearActivePass()
+    suspend fun expirePassIfDue(nowMillis: Long)
+    suspend fun triggerEmergencyBypass(packageName: String)
 }
 
 @Singleton
@@ -51,6 +54,7 @@ class HyperFocusManagerImpl @Inject constructor(
 
     companion object {
         private const val TAG = "HyperFocusManager"
+        private const val EMERGENCY_MINUTES = 10
     }
 
     override suspend fun deactivate() {
@@ -179,7 +183,7 @@ class HyperFocusManagerImpl @Inject constructor(
                 dailyTaskTarget = dailyTaskTarget,
                 tasksCompletedAtActivation = 0,
                 currentTier = RewardTier.NONE,
-                activeUnlockExpiresAt = null,
+                activePassExpiresAt = null,
                 wrongCodeAttempts = 0,
                 lockoutExpiresAt = null,
                 lockedTaskIds = lockedTaskIds,
@@ -278,24 +282,26 @@ class HyperFocusManagerImpl @Inject constructor(
             return UnlockResult.InvalidCode
         }
 
-        val expiresAt = if (match.tier == RewardTier.FULL) null
-                        else now + match.tier.unlockMinutes * 60_000L
-        unlockCodeRepository.markUsed(match.id, expiresAt)
+        val deadline = now + match.tier.unlockMinutes.toLong() * 60_000L
+        unlockCodeRepository.markUsed(match.id, deadline)
         hyperFocusDataStore.update {
             val newState = if (match.tier == RewardTier.FULL)
                 com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
             else
                 it.state
             it.copy(
-                activeUnlockExpiresAt = expiresAt,
+                // A code buys minutes, never access to a specific app (D3).
+                activePassPackage = null,
+                activePassExpiresAt = deadline,
                 wrongCodeAttempts = 0,
                 pendingCodeId = null,
                 state = newState
             )
         }
 
-        // Start the foreground timer service for timed unlocks (FULL tier = permanent, no timer needed)
-        if (expiresAt != null) {
+        // An unspent budget must keep ticking, so the timer owns it from now on. FULL's deadline
+        // never arrives, so there is nothing for it to count down.
+        if (match.tier != RewardTier.FULL) {
             runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
         }
 
@@ -324,13 +330,54 @@ class HyperFocusManagerImpl @Inject constructor(
         }
     }
 
-    override suspend fun triggerEmergencyBypass() {
+    override suspend fun grantPass(packageName: String, durationMinutes: Int) {
+        if (packageName.isBlank() || durationMinutes <= 0) return
+        if (!hyperFocusDataStore.current().isActive) return
+        val now = System.currentTimeMillis()
+        // Default to true after the pre-read; the atomic update below flips it if the session
+        // ended in between, so a stale grant cannot start the timer.
+        var shouldStartTimer = true
+        hyperFocusDataStore.update { prefs ->
+            if (!prefs.isActive) {
+                shouldStartTimer = false
+                prefs
+            } else {
+                // E1: an unspent budget keeps ticking, so a re-grant inherits its deadline
+                // instead of starting a fresh window.
+                prefs.copy(
+                    activePassPackage = packageName,
+                    activePassExpiresAt = RewardEngine.passDeadline(
+                        prefs.activePassExpiresAt, now, durationMinutes
+                    )
+                )
+            }
+        }
+        if (shouldStartTimer) {
+            runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
+        }
+    }
+
+    /** Leaving the granted app closes it, but the budget stays and keeps ticking (E1). */
+    override suspend fun clearActivePass() {
+        hyperFocusDataStore.update { it.copy(activePassPackage = null) }
+    }
+
+    override suspend fun expirePassIfDue(nowMillis: Long) {
+        hyperFocusDataStore.update { prefs ->
+            val deadline = prefs.activePassExpiresAt
+            if (prefs.activePassPackage == null || deadline == null || deadline > nowMillis) prefs
+            else prefs.copy(activePassPackage = null, activePassExpiresAt = null)
+        }
+    }
+
+    override suspend fun triggerEmergencyBypass(packageName: String) {
+        if (packageName.isBlank()) return
         val prefs = hyperFocusDataStore.current()
         if (!prefs.isActive || prefs.emergencyUsed) return
         if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) return
 
         val now = System.currentTimeMillis()
-        val expiresAt = now + 10 * 60 * 1000L // 10 minutes unlock (one-time per session)
+        val expiresAt = now + EMERGENCY_MINUTES * 60_000L
         // Default to true after the pre-checks above. If the atomic update lambda observes
         // a conflicting state change, it flips this to false to avoid starting the timer.
         var shouldStartService = true
@@ -341,7 +388,8 @@ class HyperFocusManagerImpl @Inject constructor(
                 it
             } else {
                 it.copy(
-                    activeUnlockExpiresAt = expiresAt,
+                    activePassPackage = packageName,
+                    activePassExpiresAt = expiresAt,
                     emergencyUsed = true,
                     currentTier = RewardTier.NONE
                 )

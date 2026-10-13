@@ -47,10 +47,10 @@ class UnlockTimerService : Service() {
             while (true) {
                 delay(1_000L) // Check every second for accurate expiry
                 val prefs = hyperFocusDataStore.current()
-                val expiresAt = prefs.activeUnlockExpiresAt
+                val expiresAt = prefs.activePassExpiresAt
                 if (expiresAt == null || expiresAt <= System.currentTimeMillis()) {
-                    // Clear the unlock and broadcast expiry so AppBlockingService re-blocks immediately
-                    hyperFocusDataStore.update { it.copy(activeUnlockExpiresAt = null) }
+                    // Clear the pass and broadcast expiry so AppBlockingService re-blocks immediately
+                    hyperFocusDataStore.update { it.copy(activePassPackage = null, activePassExpiresAt = null) }
                     sendBroadcast(Intent(ACTION_UNLOCK_EXPIRED).setPackage(packageName))
                     stopSelf()
                     break

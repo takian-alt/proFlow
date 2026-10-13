@@ -75,8 +75,8 @@ fun BlockingOverlayScreen(
     val prefs by viewModel.hyperFocusPrefs.collectAsState()
     val progress by viewModel.progress.collectAsState()
     val activeTasks by viewModel.activeTasks.collectAsState()
-    val isUnlockActive by viewModel.isUnlockActive.collectAsState()
-    val unlockSecondsRemaining by viewModel.unlockSecondsRemaining.collectAsState()
+    val isPassActive by viewModel.isPassActive.collectAsState()
+    val passSecondsRemaining by viewModel.passSecondsRemaining.collectAsState()
     val sessionSecondsRemaining by viewModel.sessionSecondsRemaining.collectAsState()
 
     val haptic = LocalHapticFeedback.current
@@ -467,8 +467,8 @@ fun BlockingOverlayScreen(
             }
 
             // ============ UNLOCK STATUS (IF ACTIVE) ============
-            if (isUnlockActive) {
-                val timeLabel = unlockSecondsRemaining?.let { secs ->
+            if (isPassActive) {
+                val timeLabel = passSecondsRemaining?.let { secs ->
                     "${secs / 60}m ${secs % 60}s"
                 } ?: ""
                 Surface(
@@ -650,7 +650,7 @@ fun BlockingOverlayScreen(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         showEmergencyDialog = false
-                        viewModel.activateEmergencyBypass()
+                        viewModel.activateEmergencyBypass(blockedPackage)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF6B6B)),
                     shape = RoundedCornerShape(16.dp)

@@ -480,7 +480,7 @@ private fun PortraitLayout(
     val hyperFocusViewModel: HyperFocusViewModel = hiltViewModel()
     val hyperFocusPrefs by hyperFocusViewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
     val hyperFocusProgress by hyperFocusViewModel.progress.collectAsStateWithLifecycle()
-    val unlockSecondsRemaining by hyperFocusViewModel.unlockSecondsRemaining.collectAsStateWithLifecycle()
+    val unlockSecondsRemaining by hyperFocusViewModel.passSecondsRemaining.collectAsStateWithLifecycle()
     val sessionSecondsRemaining by hyperFocusViewModel.sessionSecondsRemaining.collectAsStateWithLifecycle()
 
     var selectedFolder by remember { mutableStateOf<com.neuroflow.app.presentation.launcher.data.FolderDefinition?>(null) }

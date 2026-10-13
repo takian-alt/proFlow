@@ -245,7 +245,10 @@ class AppBlockingService : AccessibilityService() {
             val isTamperSensitive = protectedSurfaceDecision?.shouldBlock == true
             val isUserBlockedApp = pkg in prefs.blockedPackages
             if (!isUserBlockedApp && !isTamperSensitive) return@launch
-            if (RewardEngine.isUnlockActive(prefs)) return@launch
+            // Per-app pass (D3): only the granted package is exempt, never the whole device.
+            if (RewardEngine.isPassActive(prefs, System.currentTimeMillis()) && prefs.activePassPackage == pkg) {
+                return@launch
+            }
 
             if (isTamperSensitive && !isUserBlockedApp) {
                 hyperFocusManager.reportTamper(

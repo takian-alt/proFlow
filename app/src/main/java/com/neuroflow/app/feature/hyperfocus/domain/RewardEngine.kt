@@ -101,17 +101,16 @@ object RewardEngine {
         return (nextThreshold - completed).coerceAtLeast(0)
     }
 
-    fun isUnlockActive(prefs: HyperFocusPreferences): Boolean {
-        // FULL tier unlock has no expiry (null = permanent until deactivation)
-        if (prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULLY_UNLOCKED) return true
-        // FULL_REWARD_PENDING: tasks done but planning not yet complete — not unlocked yet
-        return prefs.activeUnlockExpiresAt != null && prefs.activeUnlockExpiresAt > System.currentTimeMillis()
+    fun isPassActive(prefs: HyperFocusPreferences, nowMillis: Long): Boolean =
+        prefs.activePassPackage != null && (prefs.activePassExpiresAt ?: 0L) > nowMillis
+
+    fun passSecondsRemaining(prefs: HyperFocusPreferences, nowMillis: Long): Long? {
+        if (!isPassActive(prefs, nowMillis)) return null
+        return ((prefs.activePassExpiresAt ?: return null) - nowMillis) / 1000
     }
 
-    fun secondsRemaining(prefs: HyperFocusPreferences): Long? {
-        if (!isUnlockActive(prefs)) return null
-        // FULLY_UNLOCKED has no expiry timer — return null (UI shows permanent unlock)
-        val expiresAt = prefs.activeUnlockExpiresAt ?: return null
-        return (expiresAt - System.currentTimeMillis()) / 1000
-    }
+    /** E1: a live budget is inherited, not extended; only a spent or absent budget restarts the clock. */
+    fun passDeadline(existingExpiresAt: Long?, nowMillis: Long, durationMinutes: Int): Long =
+        existingExpiresAt?.takeIf { it > nowMillis }
+            ?: nowMillis + durationMinutes.toLong() * 60_000L
 }

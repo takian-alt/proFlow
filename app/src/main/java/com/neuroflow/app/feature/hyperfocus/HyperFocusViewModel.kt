@@ -86,12 +86,13 @@ class HyperFocusViewModel @Inject constructor(
             HyperFocusProgress(0, 0, RewardTier.NONE, 0f, 1)
         )
 
-    val isUnlockActive: StateFlow<Boolean> = hyperFocusDataStore.flow
-        .map { RewardEngine.isUnlockActive(it) }
+    val isPassActive: StateFlow<Boolean> = combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs ->
+        RewardEngine.isPassActive(prefs, System.currentTimeMillis())
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val unlockSecondsRemaining: StateFlow<Long?> = combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs ->
-        RewardEngine.secondsRemaining(prefs)
+    val passSecondsRemaining: StateFlow<Long?> = combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs ->
+        RewardEngine.passSecondsRemaining(prefs, System.currentTimeMillis())
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -177,9 +178,9 @@ class HyperFocusViewModel @Inject constructor(
         }
     }
 
-    fun activateEmergencyBypass() {
+    fun activateEmergencyBypass(packageName: String) {
         viewModelScope.launch {
-            hyperFocusManager.triggerEmergencyBypass()
+            hyperFocusManager.triggerEmergencyBypass(packageName)
         }
     }
 

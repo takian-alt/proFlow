@@ -33,7 +33,6 @@ data class HyperFocusPreferences(
     // The user's real launcher, resolved once so the off state can hand Home back.
     val realHomeComponent: String? = null,
     val currentTier: RewardTier = RewardTier.NONE,
-    val activeUnlockExpiresAt: Long? = null,
     val tasksCompletedAtActivation: Int = 0,
     val dailyTaskTarget: Int = 0,
     val lastServiceHeartbeat: Long = 0L,
@@ -126,7 +125,6 @@ class HyperFocusDataStoreImpl @Inject constructor(
         json.put("activePassExpiresAt", prefs.activePassExpiresAt ?: JSONObject.NULL)
         json.put("realHomeComponent", prefs.realHomeComponent ?: JSONObject.NULL)
         json.put("currentTier", prefs.currentTier.name)
-        json.put("activeUnlockExpiresAt", prefs.activeUnlockExpiresAt ?: JSONObject.NULL)
         json.put("tasksCompletedAtActivation", prefs.tasksCompletedAtActivation)
         json.put("dailyTaskTarget", prefs.dailyTaskTarget)
         json.put("lastServiceHeartbeat", prefs.lastServiceHeartbeat)
@@ -168,7 +166,6 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 realHomeComponent = if (obj.isNull("realHomeComponent")) null
                     else obj.optString("realHomeComponent").takeIf { it.isNotEmpty() },
                 currentTier = try { RewardTier.valueOf(obj.optString("currentTier", RewardTier.NONE.name)) } catch (_: Exception) { RewardTier.NONE },
-                activeUnlockExpiresAt = if (obj.isNull("activeUnlockExpiresAt")) null else obj.optLong("activeUnlockExpiresAt"),
                 tasksCompletedAtActivation = obj.optInt("tasksCompletedAtActivation", 0),
                 dailyTaskTarget = obj.optInt("dailyTaskTarget", 0),
                 lastServiceHeartbeat = obj.optLong("lastServiceHeartbeat", 0L),

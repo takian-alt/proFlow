@@ -113,7 +113,8 @@ fun AppIcon(
         if (prefs != null &&
             prefs.isActive &&
             appInfo.packageName in prefs.blockedPackages &&
-            !RewardEngine.isUnlockActive(prefs)
+            !(RewardEngine.isPassActive(prefs, System.currentTimeMillis()) &&
+                prefs.activePassPackage == appInfo.packageName)
         ) {
             val intent = Intent(context, HyperFocusActivity::class.java).apply {
                 putExtra("blocked_package", appInfo.packageName)

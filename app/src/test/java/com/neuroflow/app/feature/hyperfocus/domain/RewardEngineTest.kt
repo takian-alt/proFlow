@@ -1,12 +1,7 @@
 package com.neuroflow.app.feature.hyperfocus.domain
 
 import com.neuroflow.app.domain.model.RewardTier
-import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import io.kotest.core.spec.style.StringSpec
-import io.kotest.matchers.booleans.shouldBeFalse
-import io.kotest.matchers.booleans.shouldBeTrue
-import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 
 /**
@@ -17,8 +12,9 @@ import io.kotest.matchers.shouldBe
  * Tests:
  * - HF-1: Tier is monotonically non-decreasing as completed tasks increase
  * - HF-2: FULL tier iff completed >= target
- * - HF-3: isUnlockActive returns false when activeUnlockExpiresAt is in the past
  * - HF-4: tasksToNextTier returns 0 when at FULL tier
+ *
+ * Pass validity moved to PassLifecycleTest when the device-wide unlock became a per-app pass.
  */
 class RewardEngineTest : StringSpec({
 
@@ -45,31 +41,11 @@ class RewardEngineTest : StringSpec({
         RewardEngine.computeTier(6, target) shouldBe RewardTier.FULL
     }
 
-    // HF-3: isUnlockActive returns false when activeUnlockExpiresAt is in the past
-    "HF-3: isUnlockActive returns false when activeUnlockExpiresAt is in the past" {
-        val prefs = HyperFocusPreferences(
-            activeUnlockExpiresAt = System.currentTimeMillis() - 1000L
-        )
-        RewardEngine.isUnlockActive(prefs).shouldBeFalse()
-    }
-
     // HF-4: tasksToNextTier returns 0 when at FULL tier
     "HF-4: tasksToNextTier returns 0 when completed >= target" {
         RewardEngine.tasksToNextTier(5, 5) shouldBe 0
         RewardEngine.tasksToNextTier(6, 5) shouldBe 0
         RewardEngine.tasksToNextTier(10, 5) shouldBe 0
-    }
-
-    "isUnlockActive returns true when activeUnlockExpiresAt is in the future" {
-        val prefs = HyperFocusPreferences(
-            activeUnlockExpiresAt = System.currentTimeMillis() + 60_000L
-        )
-        RewardEngine.isUnlockActive(prefs).shouldBeTrue()
-    }
-
-    "isUnlockActive returns false when activeUnlockExpiresAt is null" {
-        val prefs = HyperFocusPreferences(activeUnlockExpiresAt = null)
-        RewardEngine.isUnlockActive(prefs).shouldBeFalse()
     }
 
     "computeTier returns NONE for 0 completed" {
@@ -86,19 +62,5 @@ class RewardEngineTest : StringSpec({
 
     "computeTier returns EARNED for 5 completed (target=10)" {
         RewardEngine.computeTier(5, 10) shouldBe RewardTier.PARTIAL
-    }
-
-    "secondsRemaining returns null when unlock not active" {
-        val prefs = HyperFocusPreferences(activeUnlockExpiresAt = null)
-        RewardEngine.secondsRemaining(prefs).shouldBeNull()
-    }
-
-    "secondsRemaining returns positive value when unlock active" {
-        val prefs = HyperFocusPreferences(
-            activeUnlockExpiresAt = System.currentTimeMillis() + 60_000L
-        )
-        val seconds = RewardEngine.secondsRemaining(prefs)
-        seconds.shouldNotBeNull()
-        (seconds > 0) shouldBe true
     }
 })
