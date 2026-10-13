@@ -11,6 +11,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.feature.hyperfocus.data.AllowlistMigrationRunner
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import com.neuroflow.app.worker.DistractionSyncWorker
 import com.neuroflow.app.worker.createNotificationChannels
@@ -41,6 +42,7 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
     @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var userPreferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
+    @Inject lateinit var hyperFocusManager: HyperFocusManager
     @Inject lateinit var allowlistMigrationRunner: AllowlistMigrationRunner
     @Inject lateinit var databaseCleaner: DatabaseCleaner
     @Inject lateinit var energyTelemetryCleanupScheduler: EnergyTelemetryCleanupScheduler
@@ -102,16 +104,12 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
         DeviceOwnerKioskManager.migrateStrictModeDefault(this)
         DeviceOwnerKioskManager.enableHybridProtection(this)
 
-        // Re-sync Hyper Focus self-protection on process start.
-        // This keeps restrictions consistent even after process death/restart.
+        // Re-sync Hyper Focus restrictions on process start.
+        // This keeps them consistent even after process death/restart.
         applicationScope.launch {
             val hfPrefs = hyperFocusDataStore.current()
             DeviceOwnerKioskManager.setHyperFocusSelfProtection(this@NeuroFlowApplication, hfPrefs.isActive)
-            DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
-                this@NeuroFlowApplication,
-                hfPrefs.blockedPackages,
-                hfPrefs.isActive && DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@NeuroFlowApplication)
-            )
+            hyperFocusManager.resyncSuspension(hfPrefs.isActive)
         }
 
         // One-shot denylist -> allowlist, before any surface reads the tiers. runCatching because

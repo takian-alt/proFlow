@@ -45,7 +45,13 @@ class HyperFocusManagerTest : StringSpec({
     }
 
     val manager by lazy {
-        HyperFocusManagerImpl(context, hyperFocusDataStore, unlockCodeRepository, taskRepository)
+        HyperFocusManagerImpl(
+            context, hyperFocusDataStore, unlockCodeRepository, taskRepository,
+            // Both are inert here: resyncSuspension stops at the device-owner guard, which a
+            // relaxed Context answers false, so neither mock needs behaviour.
+            mockk<com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository>(relaxed = true),
+            mockk<com.neuroflow.app.feature.hyperfocus.surface.SystemExempt>(relaxed = true)
+        )
     }
 
     "submitCode with lockout active returns UnlockResult.Lockout without DB writes" {

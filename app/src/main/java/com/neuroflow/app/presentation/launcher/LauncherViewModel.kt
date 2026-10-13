@@ -64,6 +64,7 @@ class LauncherViewModel @Inject constructor(
     private val launcherBackupManager: com.neuroflow.app.presentation.launcher.data.LauncherBackupManager,
     private val iconPackManager: com.neuroflow.app.presentation.launcher.data.IconPackManager,
     private val hyperFocusDataStore: HyperFocusDataStore,
+    private val hyperFocusManager: com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager,
     private val peakEnergyRepository: PeakEnergyRepository,
     private val energyScoreRepository: EnergyScoreRepository,
 ) : ViewModel() {
@@ -1216,12 +1217,9 @@ class LauncherViewModel @Inject constructor(
         DeviceOwnerKioskManager.setStrictModeEnabled(context, enabled)
         _kioskStrictMode.value = enabled
 
-        val hfPrefs = hyperFocusPrefs.value
-        DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
-            context,
-            hfPrefs.blockedPackages,
-            hfPrefs.isActive && enabled
-        )
+        // resyncSuspension ANDs the strict-kiosk flag in itself, so `enabled` needs no passing.
+        val active = hyperFocusPrefs.value.isActive
+        viewModelScope.launch { hyperFocusManager.resyncSuspension(active) }
 
         // Re-apply policies immediately so the toggle takes effect without restart.
         DeviceOwnerKioskManager.enableHybridProtection(context)
@@ -1243,12 +1241,8 @@ class LauncherViewModel @Inject constructor(
         DeviceOwnerKioskManager.setCompanionModeEnabled(context, enabled)
         _companionModeEnabled.value = enabled
 
-        val hfPrefs = hyperFocusPrefs.value
-        DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
-            context,
-            hfPrefs.blockedPackages,
-            hfPrefs.isActive && _kioskStrictMode.value
-        )
+        val active = hyperFocusPrefs.value.isActive
+        viewModelScope.launch { hyperFocusManager.resyncSuspension(active) }
 
         DeviceOwnerKioskManager.enableHybridProtection(context)
         return true

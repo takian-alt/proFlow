@@ -8,10 +8,16 @@ import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.HyperFocusState
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
+import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModel
+import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.neuroflow.app.feature.hyperfocus.service.UnlockTimerService
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -32,6 +38,7 @@ interface HyperFocusManager {
     suspend fun addTasksToSession(taskIds: Set<String>)
     suspend fun isTaskDeletionBlocked(taskId: String): Boolean
     suspend fun deactivate()
+    suspend fun resyncSuspension(active: Boolean)
     suspend fun onTaskCompleted()
     suspend fun submitCode(enteredCode: String): UnlockResult
     suspend fun completePlanning()
@@ -48,7 +55,9 @@ class HyperFocusManagerImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val hyperFocusDataStore: HyperFocusDataStore,
     private val unlockCodeRepository: UnlockCodeRepository,
-    private val taskRepository: TaskRepository
+    private val taskRepository: TaskRepository,
+    private val appCatalogRepository: AppCatalogRepository,
+    private val systemExempt: SystemExempt
 ) : HyperFocusManager {
 
     companion object {
@@ -61,13 +70,8 @@ class HyperFocusManagerImpl @Inject constructor(
         val sessionId = currentPrefs.sessionId
         Log.d(TAG, "Deactivating Hyper Focus session: $sessionId")
         runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, false) }
-        runCatching {
-            DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
-                context,
-                currentPrefs.blockedPackages,
-                false
-            )
-        }
+        // Must precede the reset below: afterSession() drops the pass the keep-set is built from.
+        runCatching { resyncSuspension(false) }
         hyperFocusDataStore.update { it.afterSession() }
         if (sessionId != null) {
             unlockCodeRepository.deleteSessionCodes(sessionId)
@@ -81,6 +85,32 @@ class HyperFocusManagerImpl @Inject constructor(
         }
         runCatching {
             WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
+        }
+    }
+
+    /**
+     * Re-derive the device-owner suspension set from the allowlist. Callers that only know whether a
+     * session is live — boot, process restart, a kiosk toggle — use this instead of reading a
+     * denylist that no longer decides anything.
+     */
+    override suspend fun resyncSuspension(active: Boolean) {
+        withContext(Dispatchers.IO) {
+            // Without device owner the DevicePolicyManager call below no-ops, so the catalog query
+            // and the set arithmetic would be work done for nothing.
+            if (!DeviceOwnerKioskManager.isDeviceOwner(context)) return@withContext
+            val keepSet = FocusSurfaceModel.resolvedAllowlist(
+                hyperFocusDataStore.current(),
+                systemExempt.packages(),
+                BuildConfig.APPLICATION_ID,
+                System.currentTimeMillis()
+            )
+            val launchable = appCatalogRepository.launchableApps().map { it.packageName }.toSet()
+            DeviceOwnerKioskManager.syncAllowlistSuspension(
+                context,
+                keepSet,
+                launchable,
+                active && DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)
+            )
         }
     }
 
@@ -212,13 +242,9 @@ class HyperFocusManagerImpl @Inject constructor(
         }
 
         runCatching { DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, true) }
-        runCatching {
-            DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
-                context,
-                blockedPackages,
-                DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)
-            )
-        }
+        // Reads hyperFocusDataStore.current(), so it must stay below the update {} above: run it
+        // first and the keep-set is the previous session's, suspending the wrong apps.
+        runCatching { resyncSuspension(true) }
     }
 
     override suspend fun onTaskCompleted() {

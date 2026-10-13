@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.*
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.worker.FocusWidgetUpdateWorker
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.worker.scheduleNotificationWorkers
@@ -42,6 +43,9 @@ class BootReceiver : BroadcastReceiver() {
 
     @Inject
     lateinit var hyperFocusDataStore: HyperFocusDataStore
+
+    @Inject
+    lateinit var hyperFocusManager: HyperFocusManager
 
     @Inject
     lateinit var userPreferencesDataStore: UserPreferencesDataStore
@@ -80,11 +84,7 @@ class BootReceiver : BroadcastReceiver() {
                 scheduleSleepPressureRefreshWorker(context, prefs)
                 val hfPrefs = hyperFocusDataStore.current()
                 DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, hfPrefs.isActive)
-                DeviceOwnerKioskManager.syncHyperFocusBlockedPackagesSuspension(
-                    context,
-                    hfPrefs.blockedPackages,
-                    hfPrefs.isActive && DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)
-                )
+                hyperFocusManager.resyncSuspension(hfPrefs.isActive)
                 if (hfPrefs.isActive) {
                     val serviceEnabled = isAccessibilityServiceEnabled(context)
                     val heartbeatStale = (System.currentTimeMillis() - hfPrefs.lastServiceHeartbeat) > 60_000L

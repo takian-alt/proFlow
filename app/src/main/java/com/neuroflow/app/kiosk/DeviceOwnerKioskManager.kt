@@ -279,12 +279,16 @@ object DeviceOwnerKioskManager {
     }
 
     /**
-     * Suspends blocked app packages while Hyper Focus is active (device-owner only).
-     * This is a stronger kiosk control than overlay-only blocking.
+     * Suspends every launchable package outside keepSet while Hyper Focus is active (device-owner
+     * only). keepSet must already include the system exemptions and the self package; this function
+     * never widens it. Under an allowlist the suspended set is most of the device rather than the
+     * handful of ticked apps the old denylist produced, which is why the tracked-set bookkeeping
+     * stays: an interrupted session that leaves apps suspended is worse than no suspension at all.
      */
-    fun syncHyperFocusBlockedPackagesSuspension(
+    fun syncAllowlistSuspension(
         context: Context,
-        blockedPackages: Set<String>,
+        keepSet: Set<String>,
+        launchable: Set<String>,
         enabled: Boolean
     ): Boolean {
         val dpm = context.getSystemService(DevicePolicyManager::class.java) ?: return false
@@ -294,31 +298,34 @@ object DeviceOwnerKioskManager {
         }
 
         val admin = adminComponent(context)
-        val normalizedBlocked = blockedPackages
+        val toSuspend = (launchable - keepSet)
             .filter { it.isNotBlank() && it != context.packageName }
             .toSet()
         val trackedSuspended = getTrackedHyperFocusSuspendedPackages(context)
 
         return try {
             if (enabled) {
-                val stalePackages = trackedSuspended - normalizedBlocked
+                val stalePackages = trackedSuspended - toSuspend
                 if (stalePackages.isNotEmpty()) {
                     dpm.setPackagesSuspended(admin, stalePackages.toTypedArray(), false)
                 }
 
-                if (normalizedBlocked.isEmpty()) {
+                if (toSuspend.isEmpty()) {
                     setTrackedHyperFocusSuspendedPackages(context, emptySet())
-                    Log.i(TAG, "Hyper Focus package suspension enabled with empty blocked set")
+                    Log.i(TAG, "Hyper Focus package suspension enabled with nothing outside the allowlist")
                     return true
                 }
 
-                val failed = dpm.setPackagesSuspended(admin, normalizedBlocked.toTypedArray(), true).toSet()
-                val applied = normalizedBlocked - failed
+                val failed = dpm.setPackagesSuspended(admin, toSuspend.toTypedArray(), true).toSet()
+                val applied = toSuspend - failed
                 setTrackedHyperFocusSuspendedPackages(context, applied)
-                Log.i(TAG, "Hyper Focus package suspension applied=${applied.size}, requested=${normalizedBlocked.size}")
+                Log.i(TAG, "Hyper Focus package suspension applied=${applied.size}, requested=${toSuspend.size}")
                 true
             } else {
-                val toUnsuspend = (trackedSuspended + normalizedBlocked)
+                // The union is the repair path: if a previous process died between
+                // setPackagesSuspended and the tracked-set write, the suspended apps are untracked
+                // and only the recomputed complement names them.
+                val toUnsuspend = (trackedSuspended + toSuspend)
                     .filter { it.isNotBlank() && it != context.packageName }
                     .toSet()
                 if (toUnsuspend.isEmpty()) {
@@ -335,6 +342,8 @@ object DeviceOwnerKioskManager {
             Log.w(TAG, "Unable to update Hyper Focus package suspension", e)
             false
         } catch (e: IllegalArgumentException) {
+            // Nothing is re-tracked on purpose: the stored set still describes what the platform
+            // accepted, and the next call's union repairs the difference.
             Log.w(TAG, "Invalid package while updating Hyper Focus package suspension", e)
             false
         }
