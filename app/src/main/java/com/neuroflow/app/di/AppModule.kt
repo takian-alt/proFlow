@@ -23,6 +23,7 @@ import com.neuroflow.app.data.local.MIGRATION_16_17
 import com.neuroflow.app.data.local.MIGRATION_17_18
 import com.neuroflow.app.data.local.MIGRATION_18_19
 import com.neuroflow.app.data.local.MIGRATION_17_19
+import com.neuroflow.app.data.local.MIGRATION_19_20
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
@@ -74,7 +75,8 @@ object AppModule {
                 MIGRATION_16_17,
                 MIGRATION_17_18,
                 MIGRATION_18_19,
-                MIGRATION_17_19
+                MIGRATION_17_19,
+                MIGRATION_19_20
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()

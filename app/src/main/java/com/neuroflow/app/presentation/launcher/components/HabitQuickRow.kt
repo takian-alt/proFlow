@@ -68,6 +68,7 @@ fun HabitQuickRow(
 ) {
     // Track completed habit IDs for inline completion state
     var completedHabitIds by remember { mutableStateOf(setOf<String>()) }
+    var completedCountSession by remember { mutableIntStateOf(0) }
 
     // Reset completed state when habit list changes
     LaunchedEffect(habitTasks.map { it.id }) {
@@ -77,14 +78,16 @@ fun HabitQuickRow(
     // Filter out completed habits
     val activeHabits = habitTasks.filter { it.id !in completedHabitIds }
 
-    // Render with zero height when no habits
-    if (habitTasks.isEmpty()) {
+    // Render with zero height when no habits due today and none completed in session
+    if (habitTasks.isEmpty() && completedCountSession == 0) {
         Spacer(modifier = modifier.height(0.dp))
         return
     }
 
+    val isVisible = habitTasks.isNotEmpty() || completedCountSession > 0
+
     AnimatedVisibility(
-        visible = habitTasks.isNotEmpty(),
+        visible = isVisible,
         enter = slideInVertically(
             initialOffsetY = { -it },
             animationSpec = tween(300)
@@ -128,6 +131,7 @@ fun HabitQuickRow(
                             onComplete = {
                                 // Mark completed inline
                                 completedHabitIds = completedHabitIds + habit.id
+                                completedCountSession += 1
                                 // Call repository to complete and recur
                                 onCompleteHabit(habit)
                             }

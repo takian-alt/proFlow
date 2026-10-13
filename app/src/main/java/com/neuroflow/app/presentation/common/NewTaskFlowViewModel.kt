@@ -55,8 +55,6 @@ class NewTaskFlowViewModel @Inject constructor(
             append(editTask?.id ?: "new")
             append("|")
             append(prefilledQuadrant?.name ?: "none")
-            append("|")
-            append(availableTasks.size)
         }
         if (initToken == token) return
         initToken = token
@@ -88,8 +86,12 @@ class NewTaskFlowViewModel @Inject constructor(
 
     fun updateDeadlineDate(value: Long?) = _uiState.update { it.copy(deadlineDate = value) }
     fun updateDeadlineTime(value: Long?) = _uiState.update { it.copy(deadlineTime = value) }
-    fun updateScheduledDate(value: Long?) = _uiState.update { it.copy(scheduledDate = value) }
-    fun updateScheduledTime(value: Long?) = _uiState.update { it.copy(scheduledTime = value) }
+    fun updateScheduledDate(value: Long?) = _uiState.update {
+        it.copy(scheduledDate = value, isAutoScheduled = false)
+    }
+    fun updateScheduledTime(value: Long?) = _uiState.update {
+        it.copy(scheduledTime = value, isAutoScheduled = false)
+    }
     fun updateScheduleLocked(value: Boolean) = _uiState.update { it.copy(isScheduleLocked = value) }
     fun updateHabitDate(value: Long?) = _uiState.update { it.copy(habitDate = value) }
     fun updateHabitTime(value: Long?) = _uiState.update { it.copy(habitTime = value) }
@@ -109,6 +111,50 @@ class NewTaskFlowViewModel @Inject constructor(
     fun updateAnxietyTask(value: Boolean) = _uiState.update { it.copy(isAnxietyTask = value) }
     fun updateGoalRiskLevel(value: Int) = _uiState.update { it.copy(goalRiskLevel = value.coerceIn(0, 2)) }
     fun updateGoalId(value: String?) = _uiState.update { it.copy(goalId = value) }
+
+    fun setDateToday() {
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        updateScheduledDate(cal.timeInMillis)
+    }
+
+    fun setDateTomorrow() {
+        val cal = java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DAY_OF_YEAR, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        updateScheduledDate(cal.timeInMillis)
+    }
+
+    fun setDateWeekend() {
+        val cal = java.util.Calendar.getInstance().apply {
+            while (get(java.util.Calendar.DAY_OF_WEEK) != java.util.Calendar.SATURDAY) {
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        updateScheduledDate(cal.timeInMillis)
+    }
+
+    fun toggleQuickDuration(mins: Int) {
+        val current = _uiState.value.estimatedDurationMinutes
+        updateEstimatedDuration(if (current == mins) 0 else mins)
+    }
+
+    fun toggleHighImpact() {
+        val current = _uiState.value.impactScore
+        updateImpact(if (current >= 85f) 50f else 90f)
+    }
 
     fun toggleDependency(taskId: String) {
         _uiState.update {
@@ -210,7 +256,7 @@ class NewTaskFlowViewModel @Inject constructor(
     fun buildTaskPayload(existing: TaskEntity?): TaskEntity {
         val state = _uiState.value
         val recurringAnchor = if (state.recurrence != Recurrence.NONE && state.habitDate != null) {
-            state.habitDate + (state.habitTime ?: 0L)
+            startOfLocalDay(state.habitDate)
         } else {
             null
         }
@@ -231,12 +277,7 @@ class NewTaskFlowViewModel @Inject constructor(
             isAutoScheduled = when {
                 state.isScheduleLocked -> false
                 state.scheduledDate == null && state.scheduledTime == null -> false
-                existing?.isAutoScheduled == true &&
-                    state.scheduledDate == existing.scheduledDate &&
-                    state.scheduledTime == existing.scheduledTime &&
-                    state.recurrence == existing.recurrence -> true
-                state.recurrence == Recurrence.NONE && (state.scheduledDate != null || state.scheduledTime != null) -> false
-                else -> existing?.isAutoScheduled ?: false
+                else -> state.isAutoScheduled
             },
             lastAutoScheduledAt = when {
                 // If user manually changed the schedule, reset lastAutoScheduledAt to allow immediate replanning
@@ -288,6 +329,20 @@ class NewTaskFlowViewModel @Inject constructor(
             return AutoSchedulePreview(
                 willAutoSchedule = false,
                 reason = reason.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+            )
+        }
+
+        if (candidate.waitingFor.isNotBlank()) {
+            return AutoSchedulePreview(
+                willAutoSchedule = false,
+                reason = "Waiting on external dependency (${candidate.waitingFor})"
+            )
+        }
+
+        if (candidate.dependsOnTaskIds.isNotBlank()) {
+            return AutoSchedulePreview(
+                willAutoSchedule = false,
+                reason = "Waiting on prerequisite task(s)"
             )
         }
 
@@ -343,6 +398,8 @@ data class NewTaskFlowUiState(
     val scheduledDate: Long? = null,
     val scheduledTime: Long? = null,
     val isScheduleLocked: Boolean = false,
+    /** True while the scheduled timestamp on screen is one the auto-scheduler wrote. */
+    val isAutoScheduled: Boolean = false,
     val habitDate: Long? = null,
     val habitTime: Long? = null,
     val estimatedDurationMinutes: Int = 0,
@@ -366,6 +423,14 @@ data class NewTaskFlowUiState(
     val includeExecutionStep: Boolean = false,
     val currentStep: NewTaskFlowStep = NewTaskFlowStep.BASIC_INFO
 ) {
+    /**
+     * Whether the auto-schedule switch reads on. A timestamp the scheduler wrote is not a manual
+     * schedule, so the flag decides once a time exists — only its absence can mean "not yet placed".
+     */
+    val isAutoScheduleMode: Boolean
+        get() = !isScheduleLocked &&
+            (isAutoScheduled || (scheduledDate == null && scheduledTime == null))
+
     companion object {
         fun fromTask(
             task: TaskEntity?,
@@ -380,8 +445,10 @@ data class NewTaskFlowUiState(
                 ?: emptySet()
             val startStep = NewTaskFlowStep.BASIC_INFO
             val recurrence = task?.recurrence ?: Recurrence.NONE
-            val habitDate = task?.habitDate?.let(::startOfLocalDay)
-            val habitTime = task?.habitDate?.let(::localTimeOfDayOffset)
+            val habitDate = task?.habitDate?.let(::startOfLocalDay) ?: task?.scheduledDate
+            val habitTime = task?.habitDate?.let(::localTimeOfDayOffset)?.takeIf { it > 0 }
+                ?: task?.scheduledTime
+                ?: task?.deadlineTime
             return NewTaskFlowUiState(
                 isEditing = task != null,
                 title = task?.title ?: "",
@@ -396,6 +463,7 @@ data class NewTaskFlowUiState(
                 scheduledDate = task?.scheduledDate,
                 scheduledTime = task?.scheduledTime,
                 isScheduleLocked = task?.isScheduleLocked ?: (recurrence != Recurrence.NONE),
+                isAutoScheduled = task?.isAutoScheduled ?: false,
                 habitDate = habitDate,
                 habitTime = habitTime,
                 estimatedDurationMinutes = task?.estimatedDurationMinutes ?: 0,

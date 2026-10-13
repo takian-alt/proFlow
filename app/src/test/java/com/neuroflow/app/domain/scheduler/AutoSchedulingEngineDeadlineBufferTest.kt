@@ -184,8 +184,9 @@ class AutoSchedulingEngineDeadlineBufferTest : StringSpec({
 
             decisions.size shouldBe 7
             val dayIndexes = decisions.map { dayIndexFrom(now, it.scheduledStartMillis) }
-            (dayIndexes.count { it == 0 } >= 6) shouldBe true
-            (dayIndexes.count { it == 1 } >= 1) shouldBe true
+            // Today's usable window runs to the sleep guard, so seven hours of work still fit
+            // today instead of spilling a task to tomorrow.
+            (dayIndexes.count { it == 0 }) shouldBe 7
         }
     }
 

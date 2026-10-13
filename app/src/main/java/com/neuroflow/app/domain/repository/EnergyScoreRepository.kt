@@ -33,6 +33,65 @@ class EnergyScoreRepository @Inject constructor(
 
     companion object {
         private const val RETENTION_ENFORCE_INTERVAL_MILLIS = 6 * 60 * 60 * 1000L
+
+        internal data class RecentSessionMetrics(
+            val recentFocusMinutes: Float,
+            val recentInterruptionCount: Int,
+            val recentAppSwitchCount: Int,
+            val recentPauseResumeCount: Int,
+            val activeSessionCount: Int
+        )
+
+        /**
+         * Session activity for several look-back windows at once. The live-energy signal asks for
+         * five nested windows on every emission, so the session table is walked once and each
+         * session's own figures are computed once and then tallied into every window it touches.
+         */
+        internal fun summarizeRecentSessionWindows(
+            sessions: List<TimeSessionEntity>,
+            nowMillis: Long,
+            windowMinutes: List<Int>
+        ): List<RecentSessionMetrics> {
+            val windowCount = windowMinutes.size
+            val cutoffs = LongArray(windowCount) { nowMillis - windowMinutes[it] * 60_000L }
+            val focus = FloatArray(windowCount)
+            val interruptions = IntArray(windowCount)
+            val appSwitches = IntArray(windowCount)
+            val pauseResumes = IntArray(windowCount)
+            val activeSessions = IntArray(windowCount)
+
+            val maxOpenSessionMillis = 120 * 60_000L
+            sessions.forEach { session ->
+                val endedAt = session.endedAt ?: min(nowMillis, session.startedAt + maxOpenSessionMillis)
+                val durationMinutes = if (session.durationMinutes > 0f) {
+                    session.durationMinutes
+                } else {
+                    ((endedAt - session.startedAt - session.totalPausedMs).coerceAtLeast(0L) / 60_000f)
+                }.coerceAtLeast(0f)
+                val interruptionCount =
+                    session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
+
+                for (i in 0 until windowCount) {
+                    if (session.startedAt >= cutoffs[i] || endedAt >= cutoffs[i]) {
+                        focus[i] += durationMinutes
+                        interruptions[i] += interruptionCount
+                        appSwitches[i] += session.appSwitchCount
+                        pauseResumes[i] += session.pauseResumeCount
+                        if (session.endedAt == null) activeSessions[i] += 1
+                    }
+                }
+            }
+
+            return (0 until windowCount).map { i ->
+                RecentSessionMetrics(
+                    recentFocusMinutes = focus[i].coerceAtMost(windowMinutes[i].toFloat()),
+                    recentInterruptionCount = interruptions[i],
+                    recentAppSwitchCount = appSwitches[i],
+                    recentPauseResumeCount = pauseResumes[i],
+                    activeSessionCount = activeSessions[i]
+                )
+            }
+        }
     }
 
     @Volatile
@@ -114,11 +173,16 @@ class EnergyScoreRepository @Inject constructor(
             )
 
             val recentWindowMinutes = 180
-            val sessionMetrics5m = summarizeRecentSessions(momentSignals.sessions, nowMillis, 5)
-            val sessionMetrics15m = summarizeRecentSessions(momentSignals.sessions, nowMillis, 15)
-            val sessionMetrics30m = summarizeRecentSessions(momentSignals.sessions, nowMillis, 30)
-            val sessionMetrics60m = summarizeRecentSessions(momentSignals.sessions, nowMillis, 60)
-            val sessionMetrics180m = summarizeRecentSessions(momentSignals.sessions, nowMillis, recentWindowMinutes)
+            val sessionWindowMetrics = summarizeRecentSessionWindows(
+                sessions = momentSignals.sessions,
+                nowMillis = nowMillis,
+                windowMinutes = listOf(5, 15, 30, 60, recentWindowMinutes)
+            )
+            val sessionMetrics5m = sessionWindowMetrics[0]
+            val sessionMetrics15m = sessionWindowMetrics[1]
+            val sessionMetrics30m = sessionWindowMetrics[2]
+            val sessionMetrics60m = sessionWindowMetrics[3]
+            val sessionMetrics180m = sessionWindowMetrics[4]
             val recentSessionMetrics = sessionMetrics180m
             val taskMetrics = summarizeTasks(momentSignals.tasks, nowMillis)
             val notificationCount = momentSignals.badgeCounts.values.sum()
@@ -291,60 +355,11 @@ class EnergyScoreRepository @Inject constructor(
         }
     }
 
-    private data class RecentSessionMetrics(
-        val recentFocusMinutes: Float,
-        val recentInterruptionCount: Int,
-        val recentAppSwitchCount: Int,
-        val recentPauseResumeCount: Int,
-        val activeSessionCount: Int
-    )
-
     private data class TaskMetrics(
         val activeTaskCount: Int,
         val overdueTaskCount: Int,
         val dueSoonTaskCount: Int
     )
-
-    private fun summarizeRecentSessions(
-        sessions: List<TimeSessionEntity>,
-        nowMillis: Long,
-        windowMinutes: Int
-    ): RecentSessionMetrics {
-        val cutoffMillis = nowMillis - (windowMinutes * 60_000L)
-        var recentFocusMinutes = 0f
-        var recentInterruptionCount = 0
-        var recentAppSwitchCount = 0
-        var recentPauseResumeCount = 0
-        var activeSessionCount = 0
-
-        val maxOpenSessionMillis = 120 * 60_000L
-        sessions.forEach { session ->
-            val endedAt = session.endedAt ?: min(nowMillis, session.startedAt + maxOpenSessionMillis)
-            if (session.startedAt >= cutoffMillis || endedAt >= cutoffMillis) {
-                val durationMinutes = if (session.durationMinutes > 0f) {
-                    session.durationMinutes
-                } else {
-                    ((endedAt - session.startedAt - session.totalPausedMs).coerceAtLeast(0L) / 60_000f)
-                }
-                recentFocusMinutes += durationMinutes.coerceAtLeast(0f)
-                recentInterruptionCount += session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
-                recentAppSwitchCount += session.appSwitchCount
-                recentPauseResumeCount += session.pauseResumeCount
-                if (session.endedAt == null) {
-                    activeSessionCount += 1
-                }
-            }
-        }
-        recentFocusMinutes = recentFocusMinutes.coerceAtMost(windowMinutes.toFloat())
-
-        return RecentSessionMetrics(
-            recentFocusMinutes = recentFocusMinutes,
-            recentInterruptionCount = recentInterruptionCount,
-            recentAppSwitchCount = recentAppSwitchCount,
-            recentPauseResumeCount = recentPauseResumeCount,
-            activeSessionCount = activeSessionCount
-        )
-    }
 
     private fun summarizeTasks(
         tasks: List<TaskEntity>,

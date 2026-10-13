@@ -108,4 +108,35 @@ class CloudBackupManagerTest : StringSpec({
         (result as RestoreStatus.Success).itemCount shouldBe 1
         coVerify(exactly = 1) { taskDao.insert(match { it.id == "task-restored" }) }
     }
+
+    "the deep work target and flagged apps survive a backup round trip" {
+        val prefs = UserPreferences(
+            dailyDeepWorkTargetMinutes = 180,
+            distractingPackages = setOf("com.instagram.android", "com.discord")
+        )
+
+        val restored = UserPreferences().fromBackupMap(prefs.toBackupMap())
+
+        restored.dailyDeepWorkTargetMinutes shouldBe 180
+        restored.distractingPackages shouldBe prefs.distractingPackages
+    }
+
+    "a backup saved before these settings existed keeps the live values" {
+        val live = UserPreferences(
+            dailyDeepWorkTargetMinutes = 300,
+            distractingPackages = setOf("com.discord")
+        )
+
+        val restored = live.fromBackupMap(mapOf("identityLabel" to "from an old backup"))
+
+        restored.dailyDeepWorkTargetMinutes shouldBe 300
+        restored.distractingPackages shouldBe setOf("com.discord")
+    }
+
+    "unflagging every app restores as none, not as the defaults" {
+        val cleared = UserPreferences(distractingPackages = emptySet()).toBackupMap()
+
+        cleared["distractingPackages"] shouldBe ""
+        UserPreferences().fromBackupMap(cleared).distractingPackages shouldBe emptySet()
+    }
 })

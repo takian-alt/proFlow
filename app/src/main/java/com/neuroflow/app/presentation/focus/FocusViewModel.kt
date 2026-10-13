@@ -15,6 +15,8 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.scheduler.DueSlot
+import com.neuroflow.app.presentation.common.dueProtectedSlotFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -97,6 +99,14 @@ class FocusViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(FocusUiState())
     val uiState: StateFlow<FocusUiState> = _uiState.asStateFlow()
+
+    /**
+     * The protected block that should hold the "up next" line. Display only: a session already
+     * running keeps its own timer and attribution however the clock reads.
+     */
+    val dueProtectedSlot: StateFlow<DueSlot?> =
+        dueProtectedSlotFlow(preferencesDataStore.preferencesFlow)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private var timerJob: Job? = null
     private var pomodoroJob: Job? = null
@@ -305,7 +315,27 @@ class FocusViewModel @Inject constructor(
                 it.copy(isTracking = true, isPaused = false, elapsedSeconds = 0, activeSessionId = session.id)
             }
             startTimerTick()
+            enableDndIfPermitted()
         }
+    }
+
+    private fun enableDndIfPermitted() {
+        try {
+            if (!_uiState.value.preferences.dndEnabled) return
+            val nm = application.getSystemService(android.app.NotificationManager::class.java)
+            if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun disableDnd() {
+        try {
+            val nm = application.getSystemService(android.app.NotificationManager::class.java)
+            if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun startTimerTick() {
@@ -339,6 +369,7 @@ class FocusViewModel @Inject constructor(
     /** Pauses ALL open sessions across all tasks — called when leaving the app/focus screen */
     fun pauseAllTracking() {
         timerJob?.cancel()
+        disableDnd()
         val now = System.currentTimeMillis()
         viewModelScope.launch {
             sessionManager.pauseAllOpenSessions(now)
@@ -379,8 +410,9 @@ class FocusViewModel @Inject constructor(
         _uiState.update { it.copy(stopConfirmStep = 0) }
     }
 
-    private fun confirmStop() {
+    fun confirmStop() {
         _uiState.update { it.copy(stopConfirmStep = 0) }
+        disableDnd()
         finalizeSession()
     }
 
@@ -505,6 +537,15 @@ class FocusViewModel @Inject constructor(
         }
     }
 
+    fun splitIntoSessions(sessionDurationMinutes: Int = 45, onComplete: (String) -> Unit = {}) {
+        val currentTask = _uiState.value.task ?: return
+        viewModelScope.launch {
+            val sessions = taskRepository.splitTaskIntoSessions(currentTask, sessionDurationMinutes)
+            val firstSessionId = sessions.firstOrNull()?.id ?: currentTask.id
+            onComplete(firstSessionId)
+        }
+    }
+
     fun setStepCompleted(stepIndex: Int, completed: Boolean) {
         viewModelScope.launch {
             val task = taskRepository.getById(taskId) ?: return@launch
@@ -548,12 +589,14 @@ class FocusViewModel @Inject constructor(
         )
     }
 
-    override fun onCleared() {        super.onCleared()
+    override fun onCleared() {
+        super.onCleared()
         scoreTickJob?.cancel()
         timerJob?.cancel()
         pomodoroJob?.cancel()
         launchCountdownJob?.cancel()
         navigationInterstitialJob?.cancel()
+        disableDnd()
         // NOTE: open session stays in DB — timer resumes on next visit
     }
 
@@ -603,4 +646,6 @@ class FocusViewModel @Inject constructor(
             startTracking()
         }
     }
+
 }
+

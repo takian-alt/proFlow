@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.neuroflow.app.domain.engine.DistractionEngine
 import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
@@ -40,6 +41,14 @@ data class UserPreferences(
     val weightDuration: Float = 1.0f,
     val weightImpact: Float = 1.0f,
     val weightFocusMode: Float = 1.0f,
+    val weightCircadianMatch: Float = 1.0f,
+    val weightFrogBonus: Float = 1.0f,
+    val weightPlanBoost: Float = 1.0f,
+    val weightSessionProgress: Float = 1.0f,
+    val weightEnjoyment: Float = 1.0f,
+    // Enjoyment points subtracted from every new enjoyment forecast, learned from how finished
+    // tasks actually felt. Negative means the user tends to overestimate how much they'll enjoy work.
+    val enjoymentForecastBias: Float = 0f,
     val onboardingCompleted: Boolean = false,
     val theme: AppTheme = AppTheme.SYSTEM,
     val weeklyIntent: String = "",
@@ -104,6 +113,9 @@ data class UserPreferences(
     val sleepPressureLastComputedAtMillis: Long = 0L,
     val autoFallbackSleepInsertionEnabled: Boolean = true,
     val dismissedSleepFallbacks: Set<String> = emptySet(),
+    // Daily deep-work budget on the Today screen, and the apps that count as distraction
+    val dailyDeepWorkTargetMinutes: Int = 240,
+    val distractingPackages: Set<String> = DistractionEngine.DEFAULT_DISTRACTING_PACKAGES,
     // Moment model sensitivity controls
     val momentInterruptionSensitivity: Float = 1.0f,
     val momentNotificationSensitivity: Float = 1.0f,
@@ -144,7 +156,10 @@ data class UserPreferences(
     val manualPeakWindow1Amplitude: Float = 1.0f,
     val manualPeakWindow2Amplitude: Float = 0.8f,
     val manualPeakWindow3Amplitude: Float = 0.6f,
-    val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList()
+    val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList(),
+    val dynamicColorEnabled: Boolean = true,
+    val amoledDarkEnabled: Boolean = false,
+    val dndEnabled: Boolean = true
 )
 
 @Singleton
@@ -173,6 +188,12 @@ class UserPreferencesDataStore @Inject constructor(
         val WEIGHT_DURATION = floatPreferencesKey("weight_duration")
         val WEIGHT_IMPACT = floatPreferencesKey("weight_impact")
         val WEIGHT_FOCUS_MODE = floatPreferencesKey("weight_focus_mode")
+        val WEIGHT_CIRCADIAN_MATCH = floatPreferencesKey("weight_circadian_match")
+        val WEIGHT_FROG_BONUS = floatPreferencesKey("weight_frog_bonus")
+        val WEIGHT_PLAN_BOOST = floatPreferencesKey("weight_plan_boost")
+        val WEIGHT_SESSION_PROGRESS = floatPreferencesKey("weight_session_progress")
+        val WEIGHT_ENJOYMENT = floatPreferencesKey("weight_enjoyment")
+        val ENJOYMENT_FORECAST_BIAS = floatPreferencesKey("enjoyment_forecast_bias")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val THEME = stringPreferencesKey("theme")
         val WEEKLY_INTENT = stringPreferencesKey("weekly_intent")
@@ -221,6 +242,8 @@ class UserPreferencesDataStore @Inject constructor(
         val SLEEP_PRESSURE_LAST_COMPUTED_AT = longPreferencesKey("sleep_pressure_last_computed_at")
         val AUTO_FALLBACK_SLEEP_INSERTION_ENABLED = booleanPreferencesKey("auto_fallback_sleep_insertion_enabled")
         val DISMISSED_SLEEP_FALLBACKS = stringSetPreferencesKey("dismissed_sleep_fallbacks")
+        val DAILY_DEEP_WORK_TARGET_MINUTES = intPreferencesKey("daily_deep_work_target_minutes")
+        val DISTRACTING_PACKAGES = stringSetPreferencesKey("distracting_packages")
         val MOMENT_INTERRUPTION_SENSITIVITY = floatPreferencesKey("moment_interruption_sensitivity")
         val MOMENT_NOTIFICATION_SENSITIVITY = floatPreferencesKey("moment_notification_sensitivity")
         val MOMENT_TASK_PRESSURE_SENSITIVITY = floatPreferencesKey("moment_task_pressure_sensitivity")
@@ -258,6 +281,9 @@ class UserPreferencesDataStore @Inject constructor(
         val MANUAL_PEAK_WINDOW_2_AMPLITUDE = floatPreferencesKey("manual_peak_window_2_amplitude")
         val MANUAL_PEAK_WINDOW_3_AMPLITUDE = floatPreferencesKey("manual_peak_window_3_amplitude")
         val PROTECTED_TIME_SLOTS = stringPreferencesKey("protected_time_slots")
+        val DYNAMIC_COLOR_ENABLED = booleanPreferencesKey("dynamic_color_enabled")
+        val AMOLED_DARK_ENABLED = booleanPreferencesKey("amoled_dark_enabled")
+        val DND_ENABLED = booleanPreferencesKey("dnd_enabled")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -283,6 +309,12 @@ class UserPreferencesDataStore @Inject constructor(
             weightDuration = prefs[Keys.WEIGHT_DURATION] ?: 1.0f,
             weightImpact = prefs[Keys.WEIGHT_IMPACT] ?: 1.0f,
             weightFocusMode = prefs[Keys.WEIGHT_FOCUS_MODE] ?: 1.0f,
+            weightCircadianMatch = prefs[Keys.WEIGHT_CIRCADIAN_MATCH] ?: 1.0f,
+            weightFrogBonus = prefs[Keys.WEIGHT_FROG_BONUS] ?: 1.0f,
+            weightPlanBoost = prefs[Keys.WEIGHT_PLAN_BOOST] ?: 1.0f,
+            weightSessionProgress = prefs[Keys.WEIGHT_SESSION_PROGRESS] ?: 1.0f,
+            weightEnjoyment = prefs[Keys.WEIGHT_ENJOYMENT] ?: 1.0f,
+            enjoymentForecastBias = prefs[Keys.ENJOYMENT_FORECAST_BIAS] ?: 0f,
             onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
             theme = try {
                 AppTheme.valueOf(prefs[Keys.THEME] ?: AppTheme.SYSTEM.name)
@@ -333,6 +365,8 @@ class UserPreferencesDataStore @Inject constructor(
             sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
             autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
             dismissedSleepFallbacks = prefs[Keys.DISMISSED_SLEEP_FALLBACKS] ?: emptySet(),
+            dailyDeepWorkTargetMinutes = (prefs[Keys.DAILY_DEEP_WORK_TARGET_MINUTES] ?: 240).coerceIn(30, 720),
+            distractingPackages = prefs[Keys.DISTRACTING_PACKAGES] ?: DistractionEngine.DEFAULT_DISTRACTING_PACKAGES,
             momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
             momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
             momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
@@ -369,7 +403,10 @@ class UserPreferencesDataStore @Inject constructor(
             manualPeakWindow1Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] ?: 1.0f,
             manualPeakWindow2Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] ?: 0.8f,
             manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f,
-            protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS])
+            protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS]),
+            dynamicColorEnabled = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true,
+            amoledDarkEnabled = prefs[Keys.AMOLED_DARK_ENABLED] ?: false,
+            dndEnabled = prefs[Keys.DND_ENABLED] ?: true
         )
     }
 
@@ -404,7 +441,8 @@ class UserPreferencesDataStore @Inject constructor(
                         weekdayBitmask = obj.optInt("weekdayBitmask", 0b1111111),
                         category = runCatching { PtsCategory.valueOf(obj.optString("category", "BREAK")) }.getOrDefault(PtsCategory.BREAK),
                         recoveryBufferMinutes = obj.optInt("recoveryBufferMinutes", 0).coerceIn(0, 120),
-                        isEnabled = obj.optBoolean("isEnabled", true)
+                        isEnabled = obj.optBoolean("isEnabled", true),
+                        dateMillis = if (obj.has("dateMillis") && !obj.isNull("dateMillis")) obj.optLong("dateMillis") else null
                     )
                 )
             }
@@ -427,6 +465,9 @@ class UserPreferencesDataStore @Inject constructor(
                 put("category", slot.category.name)
                 put("recoveryBufferMinutes", slot.recoveryBufferMinutes)
                 put("isEnabled", slot.isEnabled)
+                if (slot.dateMillis != null) {
+                    put("dateMillis", slot.dateMillis)
+                }
             }
             arr.put(obj)
         }
@@ -457,6 +498,12 @@ class UserPreferencesDataStore @Inject constructor(
                 weightDuration = prefs[Keys.WEIGHT_DURATION] ?: 1.0f,
                 weightImpact = prefs[Keys.WEIGHT_IMPACT] ?: 1.0f,
                 weightFocusMode = prefs[Keys.WEIGHT_FOCUS_MODE] ?: 1.0f,
+                weightCircadianMatch = prefs[Keys.WEIGHT_CIRCADIAN_MATCH] ?: 1.0f,
+                weightFrogBonus = prefs[Keys.WEIGHT_FROG_BONUS] ?: 1.0f,
+                weightPlanBoost = prefs[Keys.WEIGHT_PLAN_BOOST] ?: 1.0f,
+                weightSessionProgress = prefs[Keys.WEIGHT_SESSION_PROGRESS] ?: 1.0f,
+                weightEnjoyment = prefs[Keys.WEIGHT_ENJOYMENT] ?: 1.0f,
+            enjoymentForecastBias = prefs[Keys.ENJOYMENT_FORECAST_BIAS] ?: 0f,
                 onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
                 theme = try {
                     AppTheme.valueOf(prefs[Keys.THEME] ?: AppTheme.SYSTEM.name)
@@ -507,6 +554,8 @@ class UserPreferencesDataStore @Inject constructor(
                 sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
                 autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
                 dismissedSleepFallbacks = prefs[Keys.DISMISSED_SLEEP_FALLBACKS] ?: emptySet(),
+                dailyDeepWorkTargetMinutes = (prefs[Keys.DAILY_DEEP_WORK_TARGET_MINUTES] ?: 240).coerceIn(30, 720),
+                distractingPackages = prefs[Keys.DISTRACTING_PACKAGES] ?: DistractionEngine.DEFAULT_DISTRACTING_PACKAGES,
                 momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
                 momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
                 momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
@@ -543,7 +592,10 @@ class UserPreferencesDataStore @Inject constructor(
                 manualPeakWindow1Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_1_AMPLITUDE] ?: 1.0f,
                 manualPeakWindow2Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] ?: 0.8f,
                 manualPeakWindow3Amplitude = prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] ?: 0.6f,
-                protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS])
+                protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS]),
+                dynamicColorEnabled = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true,
+                amoledDarkEnabled = prefs[Keys.AMOLED_DARK_ENABLED] ?: false,
+                dndEnabled = prefs[Keys.DND_ENABLED] ?: true
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -567,6 +619,12 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.WEIGHT_DURATION] = updated.weightDuration
             prefs[Keys.WEIGHT_IMPACT] = updated.weightImpact
             prefs[Keys.WEIGHT_FOCUS_MODE] = updated.weightFocusMode
+            prefs[Keys.WEIGHT_CIRCADIAN_MATCH] = updated.weightCircadianMatch
+            prefs[Keys.WEIGHT_FROG_BONUS] = updated.weightFrogBonus
+            prefs[Keys.WEIGHT_PLAN_BOOST] = updated.weightPlanBoost
+            prefs[Keys.WEIGHT_SESSION_PROGRESS] = updated.weightSessionProgress
+            prefs[Keys.WEIGHT_ENJOYMENT] = updated.weightEnjoyment
+            prefs[Keys.ENJOYMENT_FORECAST_BIAS] = updated.enjoymentForecastBias
             prefs[Keys.ONBOARDING_COMPLETED] = updated.onboardingCompleted
             prefs[Keys.THEME] = updated.theme.name
             prefs[Keys.WEEKLY_INTENT] = updated.weeklyIntent
@@ -623,6 +681,8 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] = updated.sleepPressureLastComputedAtMillis
             prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] = updated.autoFallbackSleepInsertionEnabled
             prefs[Keys.DISMISSED_SLEEP_FALLBACKS] = updated.dismissedSleepFallbacks
+            prefs[Keys.DAILY_DEEP_WORK_TARGET_MINUTES] = updated.dailyDeepWorkTargetMinutes.coerceIn(30, 720)
+            prefs[Keys.DISTRACTING_PACKAGES] = updated.distractingPackages
             prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] = updated.momentInterruptionSensitivity.coerceIn(0.5f, 2.0f)
             prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] = updated.momentNotificationSensitivity.coerceIn(0.5f, 2.0f)
             prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] = updated.momentTaskPressureSensitivity.coerceIn(0.5f, 2.0f)
@@ -660,6 +720,9 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.MANUAL_PEAK_WINDOW_2_AMPLITUDE] = updated.manualPeakWindow2Amplitude.coerceIn(0.2f, 1f)
             prefs[Keys.MANUAL_PEAK_WINDOW_3_AMPLITUDE] = updated.manualPeakWindow3Amplitude.coerceIn(0.2f, 1f)
             prefs[Keys.PROTECTED_TIME_SLOTS] = encodeProtectedTimeSlots(updated.protectedTimeSlots)
+            prefs[Keys.DYNAMIC_COLOR_ENABLED] = updated.dynamicColorEnabled
+            prefs[Keys.AMOLED_DARK_ENABLED] = updated.amoledDarkEnabled
+            prefs[Keys.DND_ENABLED] = updated.dndEnabled
         }
     }
 

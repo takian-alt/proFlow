@@ -576,4 +576,101 @@ class AutoSchedulingEngineDependencyTest : StringSpec({
             decisions.any { it.taskId == "task2" } shouldBe true
         }
     }
+
+    "task with completed dependency in allKnownTasks (not unscheduledTasks) should be scheduled" {
+        runTest {
+            val now = Calendar.getInstance().apply {
+                set(2026, Calendar.APRIL, 25, 8, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val completedTask = createTask(
+                id = "completed1",
+                title = "Completed prerequisite in DB",
+                status = TaskStatus.COMPLETED
+            )
+
+            val dependentTask = createTask(
+                id = "taskActive",
+                title = "Ready task",
+                dependsOnTaskIds = "completed1",
+                status = TaskStatus.ACTIVE
+            )
+
+            val engine = buildEngine(
+                UserPreferences(
+                    autoSchedulingEnabled = true,
+                    workDayStart = 8,
+                    workDayEnd = 18
+                )
+            )
+
+            // Only unscheduled tasks are in unscheduledTasks, completed task is in allKnownTasks
+            val decisions = engine.planAutoSchedule(
+                unscheduledTasks = listOf(dependentTask),
+                nowMillis = now,
+                energyScoreFn = { 70 to 0.9f },
+                allKnownTasks = listOf(completedTask)
+            )
+
+            decisions.any { it.taskId == "taskActive" } shouldBe true
+        }
+    }
+
+    "high priority DO_FIRST frog task without deadline should be scheduled before low priority task with distant deadline" {
+        runTest {
+            val now = Calendar.getInstance().apply {
+                set(2026, Calendar.APRIL, 25, 8, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val highPriorityFrogTask = TaskEntity(
+                id = "frogTask",
+                title = "Critical Project Frog",
+                priority = Priority.HIGH,
+                quadrant = com.neuroflow.app.domain.model.Quadrant.DO_FIRST,
+                isFrog = true,
+                impactScore = 95,
+                valueScore = 95,
+                effortScore = 50,
+                estimatedDurationMinutes = 60,
+                deadlineDate = null,
+                status = TaskStatus.ACTIVE
+            )
+
+            val lowPriorityDistantDeadlineTask = TaskEntity(
+                id = "lowPriorityTask",
+                title = "Distant Low Priority Chore",
+                priority = Priority.LOW,
+                quadrant = com.neuroflow.app.domain.model.Quadrant.DELEGATE,
+                isFrog = false,
+                impactScore = 15,
+                valueScore = 15,
+                effortScore = 30,
+                estimatedDurationMinutes = 60,
+                deadlineDate = now + (10 * 24 * 3_600_000L), // 10 days away
+                status = TaskStatus.ACTIVE
+            )
+
+            val engine = buildEngine(
+                UserPreferences(
+                    autoSchedulingEnabled = true,
+                    workDayStart = 8,
+                    workDayEnd = 18
+                )
+            )
+
+            val decisions = engine.planAutoSchedule(
+                unscheduledTasks = listOf(lowPriorityDistantDeadlineTask, highPriorityFrogTask),
+                nowMillis = now,
+                energyScoreFn = { 85 to 0.9f }
+            )
+
+            decisions shouldHaveSize 2
+            // The high-priority DO_FIRST frog task should receive the earlier slot
+            decisions[0].taskId shouldBe "frogTask"
+            decisions[1].taskId shouldBe "lowPriorityTask"
+            (decisions[0].scheduledStartMillis <= decisions[1].scheduledStartMillis) shouldBe true
+        }
+    }
 })

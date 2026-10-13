@@ -181,11 +181,9 @@ class LauncherActivity : FragmentActivity() {
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
 
-            val isSystemDark = isSystemInDarkTheme()
             val isDarkTheme = when (userPrefs?.theme) {
-                AppTheme.LIGHT -> false
                 AppTheme.DARK -> true
-                else -> isSystemDark
+                else -> false // Always light mode by default
             }
 
             NeuroFlowTheme(darkTheme = isDarkTheme) {

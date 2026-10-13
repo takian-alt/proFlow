@@ -141,6 +141,10 @@ fun TaskRow(
 
             // Neuro boost badges row — shown below the main row
             val badges = buildList {
+                if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) {
+                    add("🔁 ${task.recurrence.name.lowercase().replaceFirstChar { it.uppercase() }}")
+                }
+                if (task.habitStreak > 0) add("🔥 ${task.habitStreak}")
                 if (task.energyLevel == com.neuroflow.app.domain.model.EnergyLevel.HIGH) add("🔴 High energy")
                 if (task.energyLevel == com.neuroflow.app.domain.model.EnergyLevel.LOW) add("🟢 Low energy")
                 if (task.contextTag.isNotBlank()) add(task.contextTag)

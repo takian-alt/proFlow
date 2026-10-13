@@ -1,27 +1,17 @@
 package com.neuroflow.app.domain.engine
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Test
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
-class AutonomyNudgeEngineNamingTest {
+class AutonomyNudgeEngineNamingTest : StringSpec({
 
-    @Test
-    fun `unique work name and tag are stable and task scoped`() {
-        val taskId = "task-42"
-
-        val uniqueWork = AutonomyNudgeEngine.uniqueWorkName(taskId)
-        val tag = AutonomyNudgeEngine.workTag(taskId)
-
-        assertEquals("autonomy_nudge_task-42", uniqueWork)
-        assertEquals("autonomy_nudge_task-42", tag)
+    "unique work name and tag are stable and task scoped" {
+        AutonomyNudgeEngine.uniqueWorkName("task-42") shouldBe "autonomy_nudge_task-42"
+        AutonomyNudgeEngine.workTag("task-42") shouldBe "autonomy_nudge_task-42"
     }
 
-    @Test
-    fun `different task ids produce different work names`() {
-        val one = AutonomyNudgeEngine.uniqueWorkName("one")
-        val two = AutonomyNudgeEngine.uniqueWorkName("two")
-
-        assertNotEquals(one, two)
+    "different task ids produce different work names" {
+        AutonomyNudgeEngine.uniqueWorkName("one") shouldNotBe AutonomyNudgeEngine.uniqueWorkName("two")
     }
-}
+})

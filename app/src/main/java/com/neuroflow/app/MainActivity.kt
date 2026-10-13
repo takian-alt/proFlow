@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private var initialWoopTaskId by mutableStateOf<String?>(null)
     private var initialGuideOpen by mutableStateOf(false)
     private var initialNewTaskOpen by mutableStateOf(false)
+    private var initialScheduleOpen by mutableStateOf(false)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -81,6 +82,10 @@ class MainActivity : ComponentActivity() {
             }
             "com.procus.ACTION_OPEN_GUIDE" -> {
                 initialGuideOpen = true
+                return
+            }
+            "com.procus.ACTION_OPEN_SCHEDULE" -> {
+                initialScheduleOpen = true
                 return
             }
             "RESCHEDULE_NUDGE" -> {
@@ -127,7 +132,16 @@ class MainActivity : ComponentActivity() {
             var yearlyGoalHandled by remember { mutableStateOf(false) }
             var weeklyGoalHandled by remember { mutableStateOf(false) }
 
-            NeuroFlowTheme {
+            val isDark = when (preferences?.theme) {
+                com.neuroflow.app.domain.model.AppTheme.DARK -> true
+                com.neuroflow.app.domain.model.AppTheme.LIGHT -> false
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            NeuroFlowTheme(
+                darkTheme = isDark,
+                dynamicColor = preferences?.dynamicColorEnabled ?: true,
+                amoledDark = preferences?.amoledDarkEnabled ?: false
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -271,10 +285,12 @@ class MainActivity : ComponentActivity() {
                                     initialWoopTaskId = initialWoopTaskId,
                                     initialGuideOpen = initialGuideOpen,
                                     initialNewTaskOpen = initialNewTaskOpen,
+                                    initialScheduleOpen = initialScheduleOpen,
                                     onInitialTaskConsumed = { initialFocusTaskId = null },
                                     onInitialWoopTaskConsumed = { initialWoopTaskId = null },
                                     onInitialGuideConsumed = { initialGuideOpen = false },
-                                    onInitialNewTaskConsumed = { initialNewTaskOpen = false }
+                                    onInitialNewTaskConsumed = { initialNewTaskOpen = false },
+                                    onInitialScheduleConsumed = { initialScheduleOpen = false }
                                 )
                             }
                         }

@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
+import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
+import com.neuroflow.app.data.local.entity.startOfNextLocalDay
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
@@ -25,6 +27,8 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.repository.PeakEnergyRepository
+import com.neuroflow.app.domain.scheduler.DueSlot
+import com.neuroflow.app.presentation.common.dueProtectedSlotFlow
 import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.data.FolderDefinition
@@ -161,14 +165,15 @@ class LauncherViewModel @Inject constructor(
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        val todayEnd = todayStart + 86_400_000L
+        val todayEndExclusive = startOfNextLocalDay(todayStart)
 
-        // Filter recurring tasks due today
+        // Filter recurring tasks due today (or overdue)
         val recurringDueToday = tasks.filter { task ->
-            task.recurrence != Recurrence.NONE &&
-            task.habitDate != null &&
-            task.habitDate >= todayStart &&
-            task.habitDate < todayEnd
+            if (task.recurrence == Recurrence.NONE) return@filter false
+            val anchor = task.effectiveScheduleAnchorMillis()
+                ?: task.habitDate
+                ?: task.scheduledDate
+            anchor != null && anchor < todayEndExclusive
         }
 
         // Sort by score and take top 3
@@ -368,6 +373,15 @@ class LauncherViewModel @Inject constructor(
 
     val energy = energyScoreRepository.observeEnergy()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * A protected block that is holding the hero position right now. Launcher surfaces are open-ended
+     * (the home screen is looked at, not navigated to), so the card has to flip phase on the minute
+     * rather than on the next data write.
+     */
+    val dueProtectedSlot: StateFlow<DueSlot?> =
+        dueProtectedSlotFlow(userPreferencesDataStore.preferencesFlow)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /**
      * Left page block visibility map.
@@ -578,11 +592,16 @@ class LauncherViewModel @Inject constructor(
             openSessions.forEach { session ->
                 // If paused, account for the paused time before closing
                 val extraPausedMs = if (session.pausedAt != null) now - session.pausedAt else 0L
+                // durationMinutes is only filled here or by FocusSessionManager.finalizeSession;
+                // leaving it at 0 hides the block from every consumer that sums tracked time.
+                val durationMinutes =
+                    maxOf(0f, (now - session.startedAt - session.totalPausedMs - extraPausedMs) / 60_000f)
                 sessionRepository.update(
                     session.copy(
                         endedAt = now,
                         pausedAt = null,
-                        totalPausedMs = session.totalPausedMs + extraPausedMs
+                        totalPausedMs = session.totalPausedMs + extraPausedMs,
+                        durationMinutes = durationMinutes
                     )
                 )
             }
@@ -752,20 +771,12 @@ class LauncherViewModel @Inject constructor(
     private fun hasUsageStatsAccess(): Boolean {
         return try {
             val appOps = context.getSystemService(AppOpsManager::class.java)
-            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                appOps.unsafeCheckOpNoThrow(
-                    AppOpsManager.OPSTR_GET_USAGE_STATS,
-                    Process.myUid(),
-                    context.packageName
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                appOps.checkOpNoThrow(
-                    AppOpsManager.OPSTR_GET_USAGE_STATS,
-                    Process.myUid(),
-                    context.packageName
-                )
-            }
+            @Suppress("DEPRECATION")
+            val mode = appOps.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                context.packageName
+            )
             mode == AppOpsManager.MODE_ALLOWED
         } catch (_: Exception) {
             false

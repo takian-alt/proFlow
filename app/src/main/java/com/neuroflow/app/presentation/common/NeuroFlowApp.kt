@@ -14,10 +14,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Today
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Psychology
@@ -63,8 +66,16 @@ import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
 import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
 import com.neuroflow.app.presentation.notes.NotesScreen
 import com.neuroflow.app.presentation.matrix.OnHoldPlanningScreen
+import com.neuroflow.app.presentation.schedule.WeeklyScheduleScreen
+import com.neuroflow.app.presentation.today.TodayScreen
+import com.neuroflow.app.presentation.plan.PlanScreen
+import com.neuroflow.app.presentation.progress.ProgressScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
+    data object Today : Screen("today", "Today", Icons.Filled.Today)
+    data object Plan : Screen("plan", "Plan", Icons.Filled.CalendarMonth)
+    data object Progress : Screen("progress", "Progress", Icons.Filled.TrendingUp)
+
     data object Matrix : Screen("matrix", "Matrix", Icons.Filled.GridView)
     data object Schedule : Screen("schedule", "Schedule", Icons.Filled.CalendarMonth)
     data object History : Screen("history", "History", Icons.Filled.History)
@@ -85,14 +96,13 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object AccountSync : Screen("account_sync", "Account & Cloud Sync", null)
     data object Notes : Screen("notes", "Notes", Icons.AutoMirrored.Filled.Notes)
     data object OnHold : Screen("on_hold", "On Hold / Planning", Icons.Filled.PauseCircle)
+    data object WeeklySchedule : Screen("weekly_schedule", "Weekly Schedule", Icons.Filled.CalendarViewWeek)
 }
 
-
 val bottomNavItems = listOf(
-    Screen.Matrix,
-    Screen.Schedule,
-    Screen.History,
-    Screen.Analytics,
+    Screen.Today,
+    Screen.Plan,
+    Screen.Progress,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,19 +112,22 @@ fun NeuroFlowApp(
     initialWoopTaskId: String? = null,
     initialGuideOpen: Boolean = false,
     initialNewTaskOpen: Boolean = false,
+    initialScheduleOpen: Boolean = false,
     onInitialTaskConsumed: () -> Unit = {},
     onInitialWoopTaskConsumed: () -> Unit = {},
     onInitialGuideConsumed: () -> Unit = {},
-    onInitialNewTaskConsumed: () -> Unit = {}
+    onInitialNewTaskConsumed: () -> Unit = {},
+    onInitialScheduleConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val drawerViewModel: DrawerViewModel = hiltViewModel()
     val prefs by drawerViewModel.preferences.collectAsState()
+    val activeTasks by drawerViewModel.activeTasks.collectAsState()
     var showGuidePrompt by remember { mutableStateOf(false) }
+    var showMoreMenuSheet by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(prefs?.userGuidePromptShown) {
         if (prefs != null && !prefs!!.userGuidePromptShown) {
@@ -148,6 +161,32 @@ fun NeuroFlowApp(
 
     val showBottomBar = bottomNavItems.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true
+    }
+
+    // The new-task request can land on any screen, but only Today, Plan and Matrix open the sheet.
+    // Without this hop the flag stays set and nothing happens until the user navigates back there.
+    androidx.compose.runtime.LaunchedEffect(initialNewTaskOpen) {
+        if (!initialNewTaskOpen) return@LaunchedEffect
+        val sheetHosts = setOf(Screen.Today.route, Screen.Plan.route, Screen.Matrix.route)
+        val alreadyOnHost = currentDestination?.hierarchy?.any { it.route in sheetHosts } == true
+        if (!alreadyOnHost) {
+            navController.navigate(Screen.Today.route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
+    // A protected block tapped from the launcher asks for the day it belongs to.
+    androidx.compose.runtime.LaunchedEffect(initialScheduleOpen) {
+        if (!initialScheduleOpen) return@LaunchedEffect
+        navController.navigate(Screen.Schedule.route) {
+            launchSingleTop = true
+        }
+        onInitialScheduleConsumed()
     }
 
     // Edit goals dialog
@@ -197,111 +236,12 @@ fun NeuroFlowApp(
         )
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    "proFlow",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-                // Top Goals section
-                DrawerGoalsSection(
-                    yearlyGoals = prefs?.yearlyGoals ?: emptyList(),
-                    weeklyGoals = prefs?.weeklyGoals ?: emptyList(),
-                    onEditYearly = { editingPeriod = GoalPeriod.YEARLY },
-                    onEditWeekly = { editingPeriod = GoalPeriod.WEEKLY }
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                bottomNavItems.forEach { screen ->
-                    NavigationDrawerItem(
-                        icon = { Icon(screen.icon!!, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
-                        selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Notes") },
-                    label = { Text("Notes") },
-                    selected = currentDestination?.route == Screen.Notes.route,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Notes.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Filled.PauseCircle, contentDescription = "On Hold / Planning") },
-                    label = { Text("On Hold / Planning") },
-                    selected = currentDestination?.route == Screen.OnHold.route,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.OnHold.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = "Settings") },
-                    label = { Text("Settings") },
-                    selected = currentDestination?.route == Screen.Settings.route,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Settings.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Filled.Timer, contentDescription = "Log Time") },
-                    label = { Text("Log Time") },
-                    selected = currentDestination?.route == Screen.LogTime.route,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.LogTime.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "How it works") },
-                    label = { Text("How it works") },
-                    selected = currentDestination?.route == Screen.AppGuide.route,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.AppGuide.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Filled.Psychology, contentDescription = "Identity") },
-                    label = { Text("Identity") },
-                    selected = currentDestination?.route == Screen.Identity.route,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Identity.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                } // end Column scroll
-            }
-        }
-    ) {
+    if (showMoreMenuSheet) {
+        MoreMenuSheet(
+            onDismiss = { showMoreMenuSheet = false },
+            onNavigate = { route -> navController.navigate(route) }
+        )
+    }
         Scaffold(
             bottomBar = {
                 if (showBottomBar) {
@@ -313,7 +253,7 @@ fun NeuroFlowApp(
                             NavigationBarItem(
                                 icon = { Icon(screen.icon!!, contentDescription = screen.title) },
                                 label = { Text(screen.title) },
-                                selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                                selected = currentDestination?.hierarchy?.any { it.route == screen.route || (screen == Screen.Schedule && it.route?.startsWith("schedule") == true) } == true,
                                 onClick = {
                                     navController.navigate(screen.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
@@ -336,12 +276,60 @@ fun NeuroFlowApp(
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = Screen.Matrix.route,
+                startDestination = Screen.Today.route,
                 modifier = Modifier.padding(innerPadding)
             ) {
+                composable(Screen.Today.route) {
+                    TodayScreen(
+                        onOpenMoreMenu = { showMoreMenuSheet = true },
+                        onNavigateToPlan = {
+                            navController.navigate(Screen.Plan.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        onNavigateToFocus = { taskId ->
+                            navController.navigate("focus/$taskId")
+                        },
+                        onNavigateToSchedule = { dateMillis ->
+                            navController.navigate("schedule?date=$dateMillis") {
+                                launchSingleTop = true
+                            }
+                        },
+                        initialNewTaskOpen = initialNewTaskOpen,
+                        onInitialNewTaskConsumed = onInitialNewTaskConsumed
+                    )
+                }
+                composable(Screen.Plan.route) {
+                    PlanScreen(
+                        onOpenMoreMenu = { showMoreMenuSheet = true },
+                        onNavigateToFocus = { taskId ->
+                            navController.navigate("focus/$taskId")
+                        },
+                        onNavigateToQuadrant = { quadrantName ->
+                            navController.navigate("quadrant/$quadrantName")
+                        },
+                        onNavigateToOnHold = {
+                            navController.navigate(Screen.OnHold.route)
+                        },
+                        onNavigateToSettings = {
+                            navController.navigate(Screen.Settings.route)
+                        },
+                        initialNewTaskOpen = initialNewTaskOpen,
+                        onInitialNewTaskConsumed = onInitialNewTaskConsumed
+                    )
+                }
+                composable(Screen.Progress.route) {
+                    ProgressScreen(
+                        onOpenMoreMenu = { showMoreMenuSheet = true }
+                    )
+                }
                 composable(Screen.Matrix.route) {
                     MatrixScreen(
-                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onOpenDrawer = null,
                         onNavigateToQuadrant = { quadrantName ->
                             navController.navigate("quadrant/$quadrantName")
                         },
@@ -351,9 +339,6 @@ fun NeuroFlowApp(
                         onNavigateToSettings = {
                             navController.navigate(Screen.Settings.route)
                         },
-                        onNavigateToNotes = {
-                            navController.navigate(Screen.Notes.route)
-                        },
                         onNavigateToOnHold = {
                             navController.navigate(Screen.OnHold.route)
                         },
@@ -361,8 +346,18 @@ fun NeuroFlowApp(
                         onInitialNewTaskConsumed = onInitialNewTaskConsumed
                     )
                 }
-                composable(Screen.Schedule.route) {
+                composable(
+                    route = "schedule?date={date}",
+                    arguments = listOf(
+                        navArgument("date") {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        }
+                    )
+                ) { backStackEntry ->
+                    val dateArg = backStackEntry.arguments?.getLong("date") ?: -1L
                     ScheduleScreen(
+                        initialDateMillis = if (dateArg > 0L) dateArg else null,
                         onNavigateToFocus = { taskId ->
                             navController.navigate("focus/$taskId")
                         }
@@ -370,6 +365,19 @@ fun NeuroFlowApp(
                 }
                 composable(Screen.History.route) {
                     HistoryScreen()
+                }
+                composable(Screen.WeeklySchedule.route) {
+                    WeeklyScheduleScreen(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToDay = { dateMillis ->
+                            navController.navigate("schedule?date=$dateMillis") {
+                                launchSingleTop = true
+                            }
+                        },
+                        onNavigateToFocus = { taskId ->
+                            navController.navigate("focus/$taskId")
+                        }
+                    )
                 }
                 composable(Screen.Analytics.route) {
                     AnalyticsScreen()
@@ -505,9 +513,7 @@ fun NeuroFlowApp(
                     )
                 }
             }
-
         }
-    }
 }
 
 @Composable

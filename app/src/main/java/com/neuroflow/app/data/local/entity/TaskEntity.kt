@@ -93,5 +93,11 @@ data class TaskEntity(
 
     // Explicit scheduling category — overrides tag-inferred category when set.
     // Null means the category is inferred at runtime from tags/taskType via determineCategory().
-    val schedulingCategory: String? = null
+    val schedulingCategory: String? = null,
+
+    // Minutes the auto-scheduler actually reserved for this task at its scheduled start. The
+    // planner inflates the raw estimate by the user's learned bias and the slot's energy, so
+    // anything asking "did this task get its time?" must read this rather than re-derive it.
+    // 0 = never placed automatically (manual schedule, or scheduled before this field existed).
+    val plannedBlockMinutes: Int = 0
 )

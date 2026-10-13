@@ -6,6 +6,12 @@ import java.util.Calendar
 private const val MINUTES_PER_DAY = 24 * 60
 
 /**
+ * Ids of the tasks this task depends on.
+ */
+fun TaskEntity.dependencyIds(): List<String> =
+    dependsOnTaskIds.split(',').map { it.trim() }.filter { it.isNotBlank() }
+
+/**
  * Recurring tasks should anchor on habitDate when present.
  */
 fun TaskEntity.isRecurringWithAnchor(): Boolean =
@@ -29,7 +35,11 @@ fun TaskEntity.effectiveReminderTargetMillis(): Long? {
  * Anchor used by schedule/time-block style flows.
  */
 fun TaskEntity.effectiveScheduleAnchorMillis(): Long? {
-    if (isRecurringWithAnchor()) return habitDate
+    if (isRecurringWithAnchor()) {
+        val baseDate = habitDate ?: return null
+        val timeOffset = scheduledTime ?: deadlineTime ?: 0L
+        return startOfLocalDay(baseDate) + timeOffset
+    }
     return scheduledDate?.let { it + (scheduledTime ?: 0L) }
         ?: habitDate
 }
@@ -54,6 +64,18 @@ fun startOfLocalDay(millis: Long): Long {
     }
     return cal.timeInMillis
 }
+
+fun startOfNextLocalDay(millis: Long): Long =
+    Calendar.getInstance().apply {
+        timeInMillis = startOfLocalDay(millis)
+        add(Calendar.DAY_OF_YEAR, 1)
+    }.timeInMillis
+
+fun startOfPreviousLocalDay(millis: Long): Long =
+    Calendar.getInstance().apply {
+        timeInMillis = startOfLocalDay(millis)
+        add(Calendar.DAY_OF_YEAR, -1)
+    }.timeInMillis
 
 fun localTimeOfDayOffset(millis: Long): Long {
     val dayStart = startOfLocalDay(millis)

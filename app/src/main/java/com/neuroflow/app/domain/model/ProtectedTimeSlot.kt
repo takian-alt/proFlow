@@ -4,7 +4,8 @@ enum class PtsRecurrence {
     DAILY,
     WEEKDAYS,
     WEEKENDS,
-    CUSTOM
+    CUSTOM,
+    SPECIFIC_DATE
 }
 
 enum class PtsCategory {
@@ -13,6 +14,8 @@ enum class PtsCategory {
     MEAL,
     FAMILY,
     BREAK,
+    WORK,
+    STUDY,
     CUSTOM
 }
 
@@ -25,5 +28,6 @@ data class ProtectedTimeSlot(
     val weekdayBitmask: Int = 0b1111111, // bit 1 = Sunday, bit 2 = Monday, etc.
     val category: PtsCategory = PtsCategory.BREAK,
     val recoveryBufferMinutes: Int = 0, // buffer after slot
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    val dateMillis: Long? = null
 )

@@ -48,7 +48,8 @@ fun PermissionSetupScreen(onBothGranted: () -> Unit) {
     fun isUsageStatsGranted(): Boolean {
         return try {
             val appOps = context.getSystemService(AppOpsManager::class.java)
-            val mode = appOps.unsafeCheckOpNoThrow(
+            @Suppress("DEPRECATION")
+            val mode = appOps.checkOpNoThrow(
                 AppOpsManager.OPSTR_GET_USAGE_STATS,
                 Process.myUid(),
                 context.packageName

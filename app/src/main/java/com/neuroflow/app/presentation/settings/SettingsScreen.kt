@@ -1,8 +1,12 @@
 package com.neuroflow.app.presentation.settings
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -15,14 +19,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.BuildConfig
+import com.neuroflow.app.domain.engine.DistractionEngine
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,6 +55,7 @@ fun SettingsScreen(
     val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearTelemetryDialog by remember { mutableStateOf(false) }
+    var showDistractingAppsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -186,6 +201,40 @@ fun SettingsScreen(
                     checked = prefs.autoTrackerEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                SettingsDeepWorkTargetRow(
+                    minutes = prefs.dailyDeepWorkTargetMinutes,
+                    onChange = { target ->
+                        viewModel.updatePreferences { p -> p.copy(dailyDeepWorkTargetMinutes = target) }
+                    }
+                )
+            }
+
+            SettingsSection("Distraction Tracking") {
+                DistractionPermissionRow()
+                Spacer(modifier = Modifier.height(10.dp))
+                DistractingAppsRow(
+                    count = prefs.distractingPackages.size,
+                    onOpen = {
+                        viewModel.loadLaunchableApps()
+                        showDistractingAppsDialog = true
+                    }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "The apps you flag here are what the Today screen weighs against your deep-work time.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(
+                    onClick = {
+                        viewModel.updatePreferences { p ->
+                            p.copy(distractingPackages = DistractionEngine.DEFAULT_DISTRACTING_PACKAGES)
+                        }
+                    }
+                ) {
+                    Text("Reset to default list", fontSize = 12.sp)
+                }
             }
 
             SettingsSection("Notifications") {
@@ -741,8 +790,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Priority Weights", fontWeight = FontWeight.Bold)
-                        Text("Customize task scoring weights", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Priority Weights & Strategy", fontWeight = FontWeight.Bold)
+                        Text("Customize scoring weights & 1-click strategy presets", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Filled.ChevronRight, "Navigate")
                 }
@@ -845,6 +894,18 @@ fun SettingsScreen(
         }
     }
 
+    if (showDistractingAppsDialog) {
+        DistractingAppsDialog(
+            initialSelected = prefs.distractingPackages,
+            viewModel = viewModel,
+            onDismiss = { showDistractingAppsDialog = false },
+            onSave = { packages ->
+                viewModel.updatePreferences { p -> p.copy(distractingPackages = packages) }
+                showDistractingAppsDialog = false
+            }
+        )
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -883,6 +944,265 @@ fun SettingsScreen(
                 TextButton(onClick = { showClearTelemetryDialog = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SettingsDeepWorkTargetRow(minutes: Int, onChange: (Int) -> Unit) {
+    val presets = listOf(
+        60 to "1 h",
+        90 to "1.5 h",
+        120 to "2 h",
+        180 to "3 h",
+        240 to "4 h",
+        300 to "5 h",
+        360 to "6 h"
+    )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Daily deep-work target", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text(
+            "The Today card measures your logged focus blocks against this and says whether another one still fits.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            presets.forEach { (value, label) ->
+                FilterChip(
+                    selected = minutes == value,
+                    onClick = { onChange(value) },
+                    label = { Text(label, fontSize = 12.sp) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DistractionPermissionRow() {
+    val context = LocalContext.current
+    var granted by remember { mutableStateOf(DistractionEngine.hasUsagePermission(context)) }
+
+    // The grant happens in the system settings page, which never calls back into this
+    // composition — poll until it flips, the same way the Hyper Focus permission screen does.
+    LaunchedEffect(granted) {
+        while (!granted) {
+            delay(1000)
+            granted = DistractionEngine.hasUsagePermission(context)
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Usage access", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(
+                if (granted) "Granted — today's screen time is readable"
+                else "Not granted — distraction readings stay empty",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (granted) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = "Usage access granted",
+                tint = Color(0xFF22C55E),
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            Button(
+                onClick = { DistractionEngine.openUsagePermissionSettings(context) },
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Grant", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DistractingAppsRow(count: Int, onOpen: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Distracting apps", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text("$count flagged", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.Filled.ChevronRight, contentDescription = "Edit distracting apps")
+    }
+}
+
+@Composable
+private fun DistractingAppsDialog(
+    initialSelected: Set<String>,
+    viewModel: SettingsViewModel,
+    onDismiss: () -> Unit,
+    onSave: (Set<String>) -> Unit
+) {
+    val apps by viewModel.launchableApps.collectAsStateWithLifecycle()
+    val appsLoading by viewModel.launchableAppsLoading.collectAsStateWithLifecycle()
+    var selected by remember { mutableStateOf(initialSelected) }
+    var query by remember { mutableStateOf("") }
+    var flaggedOnly by remember { mutableStateOf(false) }
+
+    val visible = apps.filter { app ->
+        val matchesQuery = query.isBlank() ||
+                app.label.contains(query, ignoreCase = true) ||
+                app.packageName.contains(query, ignoreCase = true)
+        val matchesFlagFilter = !flaggedOnly || app.packageName in selected
+        matchesQuery && matchesFlagFilter
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close")
+                    }
+                    Text(
+                        "Distracting apps",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${selected.size}")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { onSave(selected) }) { Text("Save") }
+                }
+
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    singleLine = true,
+                    placeholder = { Text("Search installed apps") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) }
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = flaggedOnly,
+                        onClick = { flaggedOnly = !flaggedOnly },
+                        label = { Text("Flagged only", fontSize = 12.sp) }
+                    )
+                    Text(
+                        "Apps you don't see here can still stay in the list.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (apps.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        if (appsLoading) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text("Reading installed apps…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text("Couldn't read the installed apps.", fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(onClick = { viewModel.loadLaunchableApps() }) {
+                                Text("Try again")
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(visible, key = { it.packageName }) { app ->
+                            AppPickRow(
+                                packageName = app.packageName,
+                                label = app.label,
+                                checked = app.packageName in selected,
+                                onToggle = {
+                                    selected = if (app.packageName in selected) selected - app.packageName
+                                    else selected + app.packageName
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppPickRow(
+    packageName: String,
+    label: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    val context = LocalContext.current
+    val icon = remember(packageName) {
+        runCatching {
+            context.packageManager.getApplicationIcon(packageName).toBitmap(72, 72).asImageBitmap()
+        }.getOrNull()
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (icon != null) {
+            Image(
+                bitmap = icon,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp).clip(RoundedCornerShape(6.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                packageName,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Checkbox(checked = checked, onCheckedChange = { onToggle() })
     }
 }
 

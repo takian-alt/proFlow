@@ -57,7 +57,7 @@ class ScheduleViewModel @Inject constructor(
                     it.copy(
                         workDayStart = prefs.workDayStart,
                         workDayEnd = prefs.workDayEnd,
-                        isAutoScheduleOn = prefs.isAutoScheduleToggleOn,
+                        isAutoScheduleOn = prefs.autoSchedulingEnabled,
                         protectedTimeSlots = prefs.protectedTimeSlots
                     )
                 }
@@ -68,8 +68,12 @@ class ScheduleViewModel @Inject constructor(
     fun toggleAutoSchedule() {
         viewModelScope.launch {
             val newToggleState = !_uiState.value.isAutoScheduleOn
-            preferencesDataStore.setAutoScheduleToggleOn(newToggleState)
-            preferencesDataStore.updatePreferences { it.copy(autoSchedulingEnabled = newToggleState) }
+            preferencesDataStore.updatePreferences {
+                it.copy(
+                    autoSchedulingEnabled = newToggleState,
+                    isAutoScheduleToggleOn = newToggleState
+                )
+            }
             if (newToggleState) {
                 triggerAutoScheduleNow()
             }
@@ -135,6 +139,10 @@ class ScheduleViewModel @Inject constructor(
     fun selectDate(date: Long) {
         selectedDateFlow.value = date
         _uiState.update { it.copy(selectedDate = date, isLoading = true) }
+    }
+
+    fun selectToday() {
+        selectDate(todayStartMillis())
     }
 
     fun nextDay() {

@@ -7,8 +7,12 @@ import com.neuroflow.app.data.local.entity.TaskEntity
  */
 object AutoSchedulingContracts {
 
+    /**
+     * A manual schedule claims a full timestamp. A date with no time-of-day is not a finished
+     * schedule — the scheduler is still expected to place the task, on that day.
+     */
     fun hasManualScheduleData(task: TaskEntity): Boolean {
-        return (task.scheduledDate != null || task.scheduledTime != null) && !task.isAutoScheduled
+        return task.scheduledDate != null && task.scheduledTime != null && !task.isAutoScheduled
     }
 
     fun isMutableByAutoScheduler(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {

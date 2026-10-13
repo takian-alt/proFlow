@@ -217,7 +217,7 @@ class CloudBackupManager @Inject constructor(
  * fields (peak detection state, morning-tune weights, etc.) are excluded to keep
  * the payload focused on user-configurable values.
  */
-private fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
+internal fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
     put("wakeUpHour", wakeUpHour.toString())
     put("sleepHour", sleepHour.toString())
     put("peakEnergyStart", peakEnergyStart.toString())
@@ -226,6 +226,9 @@ private fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
     put("workDayEnd", workDayEnd.toString())
     put("defaultPomodoroMinutes", defaultPomodoroMinutes.toString())
     put("defaultBreakMinutes", defaultBreakMinutes.toString())
+    put("dailyDeepWorkTargetMinutes", dailyDeepWorkTargetMinutes.toString())
+    // Package names never contain commas, so a flat map can carry the set as-is.
+    put("distractingPackages", distractingPackages.joinToString(","))
     put("identityLabel", identityLabel)
     put("topGoal", topGoal)
     put("dailyStreak", dailyStreak.toString())
@@ -258,13 +261,16 @@ private fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
  * recognised key on top of [this] (the current live preferences).  Unknown or
  * malformed keys are silently skipped so that partial/old backups still work.
  */
-private fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPreferences {
+internal fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPreferences {
     fun str(key: String): String? = map[key]
     fun int(key: String, fallback: Int): Int = map[key]?.toIntOrNull() ?: fallback
     fun long(key: String, fallback: Long): Long = map[key]?.toLongOrNull() ?: fallback
     fun float(key: String, fallback: Float): Float = map[key]?.toFloatOrNull() ?: fallback
     fun bool(key: String, fallback: Boolean): Boolean =
         map[key]?.toBooleanStrictOrNull() ?: fallback
+    // An empty saved list arrives as "" and must restore as empty, not as the default set.
+    fun stringSet(key: String, fallback: Set<String>): Set<String> =
+        map[key]?.split(',')?.map { it.trim() }?.filter { it.isNotBlank() }?.toSet() ?: fallback
 
     return copy(
         wakeUpHour              = int("wakeUpHour", wakeUpHour),
@@ -275,6 +281,8 @@ private fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPrefere
         workDayEnd              = int("workDayEnd", workDayEnd),
         defaultPomodoroMinutes  = int("defaultPomodoroMinutes", defaultPomodoroMinutes),
         defaultBreakMinutes     = int("defaultBreakMinutes", defaultBreakMinutes),
+        dailyDeepWorkTargetMinutes = int("dailyDeepWorkTargetMinutes", dailyDeepWorkTargetMinutes).coerceIn(30, 720),
+        distractingPackages    = stringSet("distractingPackages", distractingPackages),
         identityLabel           = str("identityLabel") ?: identityLabel,
         topGoal                 = str("topGoal") ?: topGoal,
         dailyStreak             = int("dailyStreak", dailyStreak),

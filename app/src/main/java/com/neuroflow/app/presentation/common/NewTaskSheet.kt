@@ -1,12 +1,8 @@
 package com.neuroflow.app.presentation.common
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -20,9 +16,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,10 +29,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,17 +41,16 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -75,6 +74,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,6 +83,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
@@ -120,13 +122,33 @@ fun NewTaskSheet(
             .sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 
-    LaunchedEffect(editTask?.id, prefilledQuadrant, availableTasks.size) {
+    // Keyed on the sheet identity only: the active-task list can grow while this sheet is open,
+    // and re-initializing then would wipe the draft the user is typing.
+    LaunchedEffect(editTask?.id, prefilledQuadrant) {
         flowViewModel.initialize(editTask, prefilledQuadrant, availableTasks)
     }
 
-    val stepCount = flowViewModel.totalStepCount()
-    val stepIndex = flowViewModel.currentStepIndex()
-    val progress = ((stepIndex + 1).toFloat() / stepCount.toFloat()).coerceIn(0f, 1f)
+    val todayMidnight = remember { startOfLocalDay(System.currentTimeMillis()) }
+    val tomorrowMidnight = remember {
+        java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DAY_OF_YEAR, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    var isExpanded by remember { mutableStateOf(editTask != null) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (editTask == null) {
+            kotlinx.coroutines.delay(120)
+            try {
+                focusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
 
     val hasDraftContent = ui.title.isNotBlank() ||
         ui.description.isNotBlank() ||
@@ -141,16 +163,25 @@ fun NewTaskSheet(
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    var dateTarget by remember { mutableStateOf("deadline") }
-    var timeTarget by remember { mutableStateOf("deadline") }
+    var dateTarget by remember { mutableStateOf("scheduled") }
+    var timeTarget by remember { mutableStateOf("scheduled") }
 
     fun requestDismiss() {
-        if (hasDraftContent) {
+        if (hasDraftContent && editTask == null) {
             showDiscardDialog = true
         } else {
             flowViewModel.reset()
             onDismiss()
         }
+    }
+
+    fun handleSave() {
+        if (ui.title.isBlank()) return
+        tagViewModel.addTags(ui.tags)
+        onSave(flowViewModel.buildTaskPayload(editTask))
+        // The flow ViewModel outlives this dialog, so without a reset the next "New Task"
+        // opens on the previous draft and Create re-submits it.
+        flowViewModel.reset()
     }
 
     Dialog(onDismissRequest = { requestDismiss() }) {
@@ -160,228 +191,419 @@ fun NewTaskSheet(
             shape = RoundedCornerShape(0.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Header Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = {
-                        if (stepIndex == 0) requestDismiss() else flowViewModel.previousStep()
-                    }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = { requestDismiss() }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close")
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (ui.isEditing) "Edit Task" else "Create Task",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Step ${stepIndex + 1} of $stepCount",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(onClick = { requestDismiss() }) {
-                        Text("Close")
+                    Text(
+                        text = if (ui.isEditing) "Edit Task" else "New Task",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = { handleSave() },
+                        enabled = ui.title.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(if (ui.isEditing) "Save" else "Create")
                     }
                 }
 
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = NeuroFlowColors.Purple
-                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                AnimatedContent(
-                    targetState = ui.currentStep,
-                    transitionSpec = {
-                        if (targetState.ordinal > initialState.ordinal) {
-                            (slideInHorizontally(animationSpec = tween(220)) { it / 3 } + fadeIn()) togetherWith
-                                (slideOutHorizontally(animationSpec = tween(220)) { -it / 4 } + fadeOut())
-                        } else {
-                            (slideInHorizontally(animationSpec = tween(220)) { -it / 3 } + fadeIn()) togetherWith
-                                (slideOutHorizontally(animationSpec = tween(220)) { it / 4 } + fadeOut())
-                        }
-                    },
+                // Scrollable Body
+                Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) { step ->
-                    when (step) {
-                        NewTaskFlowStep.BASIC_INFO -> BasicInfoStep(
-                            title = ui.title,
-                            description = ui.description,
-                            onTitleChange = flowViewModel::updateTitle,
-                            onDescriptionChange = flowViewModel::updateDescription
-                        )
-
-                        NewTaskFlowStep.CLASSIFICATION -> ClassificationStep(
-                            quadrant = ui.quadrant,
-                            priority = ui.priority,
-                            energyLevel = ui.energyLevel,
-                            taskType = ui.taskType,
-                            isFrog = ui.isFrog,
-                            onQuadrantChange = flowViewModel::updateQuadrant,
-                            onPriorityChange = flowViewModel::updatePriority,
-                            onEnergyChange = flowViewModel::updateEnergyLevel,
-                            onTaskTypeChange = flowViewModel::updateTaskType,
-                            onFrogChange = flowViewModel::updateIsFrog
-                        )
-
-                        NewTaskFlowStep.TIMING -> TimingStep(
-                            recurrence = ui.recurrence,
-                            customIntervalDays = ui.customIntervalDays,
-                            deadlineDate = ui.deadlineDate,
-                            deadlineTime = ui.deadlineTime,
-                            scheduledDate = ui.scheduledDate,
-                            scheduledTime = ui.scheduledTime,
-                            habitDate = ui.habitDate,
-                            habitTime = ui.habitTime,
-                            reminderFlags = ui.reminderFlags,
-                            isScheduleLocked = ui.isScheduleLocked,
-                            onRecurrenceChange = flowViewModel::updateRecurrence,
-                            onCustomIntervalChange = flowViewModel::updateCustomIntervalDays,
-                            onDeadlineDateClick = {
-                                dateTarget = "deadline"
-                                showDatePicker = true
-                            },
-                            onDeadlineDateClear = { flowViewModel.updateDeadlineDate(null) },
-                            onDeadlineTimeClick = {
-                                timeTarget = "deadline"
-                                showTimePicker = true
-                            },
-                            onDeadlineTimeClear = { flowViewModel.updateDeadlineTime(null) },
-                            onScheduledDateClick = {
-                                dateTarget = "scheduled"
-                                showDatePicker = true
-                            },
-                            onScheduledDateClear = { flowViewModel.updateScheduledDate(null) },
-                            onScheduledTimeClick = {
-                                timeTarget = "scheduled"
-                                showTimePicker = true
-                            },
-                            onScheduledTimeClear = { flowViewModel.updateScheduledTime(null) },
-                            onHabitDateClick = {
-                                dateTarget = "habit"
-                                showDatePicker = true
-                            },
-                            onHabitDateClear = { flowViewModel.updateHabitDate(null) },
-                            onHabitTimeClick = {
-                                timeTarget = "habit"
-                                showTimePicker = true
-                            },
-                            onHabitTimeClear = { flowViewModel.updateHabitTime(null) },
-                            onReminderFlagsChange = flowViewModel::updateReminderFlags,
-                            onScheduleLockedChange = flowViewModel::updateScheduleLocked
-                        )
-
-                        NewTaskFlowStep.RECURRENCE -> RecurrenceStep(
-                            recurrence = ui.recurrence,
-                            customIntervalDays = ui.customIntervalDays,
-                            habitDate = ui.habitDate,
-                            habitTime = ui.habitTime,
-                            onHabitDateClick = {
-                                dateTarget = "habit"
-                                showDatePicker = true
-                            },
-                            onHabitDateClear = { flowViewModel.updateHabitDate(null) },
-                            onHabitTimeClick = {
-                                timeTarget = "habit"
-                                showTimePicker = true
-                            },
-                            onHabitTimeClear = { flowViewModel.updateHabitTime(null) }
-                        )
-
-                        NewTaskFlowStep.EFFORT -> EffortStep(
-                            estimatedDurationMinutes = ui.estimatedDurationMinutes,
-                            impactScore = ui.impactScore,
-                            valueScore = ui.valueScore,
-                            effortScore = ui.effortScore,
-                            enjoymentScore = ui.enjoymentScore,
-                            contextTag = ui.contextTag,
-                            isPublicCommitment = ui.isPublicCommitment,
-                            isAnxietyTask = ui.isAnxietyTask,
-                            goalRiskLevel = ui.goalRiskLevel,
-                            includeExecutionStep = ui.includeExecutionStep,
-                            onDurationChange = flowViewModel::updateEstimatedDuration,
-                            onImpactChange = flowViewModel::updateImpact,
-                            onValueChange = flowViewModel::updateValue,
-                            onEffortChange = flowViewModel::updateEffort,
-                            onEnjoymentChange = flowViewModel::updateEnjoyment,
-                            onContextChange = flowViewModel::updateContextTag,
-                            onPublicCommitmentChange = flowViewModel::updatePublicCommitment,
-                            onAnxietyChange = flowViewModel::updateAnxietyTask,
-                            onGoalRiskChange = flowViewModel::updateGoalRiskLevel,
-                            onIncludeExecutionChange = flowViewModel::setIncludeExecutionStep
-                        )
-
-                        NewTaskFlowStep.EXECUTION -> ExecutionStep(
-                            waitingFor = ui.waitingFor,
-                            stepByStepPlan = ui.stepByStepPlan,
-                            selectedDepIds = ui.selectedDepIds,
-                            availableTasks = availableTasks,
-                            editTaskId = editTask?.id,
-                            onWaitingForChange = flowViewModel::updateWaitingFor,
-                            onPlanChange = flowViewModel::updatePlan,
-                            onToggleDependency = flowViewModel::toggleDependency
-                        )
-
-                        NewTaskFlowStep.TAGS -> TagsStep(
-                            selectedTags = ui.tags,
-                            suggestedTags = suggestedTags,
-                            onAddTag = flowViewModel::addTag,
-                            onToggleTag = flowViewModel::toggleTag,
-                            onRemoveTag = flowViewModel::removeTag
-                        )
-
-                        NewTaskFlowStep.REVIEW -> ReviewStep(
-                            uiState = ui,
-                            autoSchedulePreview = flowViewModel.autoSchedulePreview(),
-                            autoSchedulingEnabled = prefs.autoSchedulingEnabled
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    TextButton(onClick = {
-                        if (stepIndex == 0) requestDismiss() else flowViewModel.previousStep()
-                    }) {
-                        Text(if (stepIndex == 0) "Cancel" else "Back")
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (stepIndex < stepCount - 1 && ui.title.isNotBlank()) {
-                            OutlinedButton(
+                    // Task Title Input
+                    OutlinedTextField(
+                        value = ui.title,
+                        onValueChange = flowViewModel::updateTitle,
+                        label = { Text("Task Title") },
+                        placeholder = { Text("What needs to be done?") },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeuroFlowColors.Purple,
+                            focusedLabelColor = NeuroFlowColors.Purple
+                        )
+                    )
+
+                    // Quick Schedule Date Chips
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "When",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            val scheduledDay = ui.scheduledDate?.let(::startOfLocalDay)
+                            val isToday = scheduledDay == todayMidnight
+                            FilterChip(
+                                selected = isToday,
                                 onClick = {
-                                    tagViewModel.addTags(ui.tags)
-                                    onSave(flowViewModel.buildTaskPayload(editTask))
+                                    if (isToday) flowViewModel.updateScheduledDate(null)
+                                    else flowViewModel.setDateToday()
+                                },
+                                label = { Text("Today") }
+                            )
+
+                            val isTomorrow = scheduledDay == tomorrowMidnight
+                            FilterChip(
+                                selected = isTomorrow,
+                                onClick = {
+                                    if (isTomorrow) flowViewModel.updateScheduledDate(null)
+                                    else flowViewModel.setDateTomorrow()
+                                },
+                                label = { Text("Tomorrow") }
+                            )
+
+                            FilterChip(
+                                selected = false,
+                                onClick = { flowViewModel.setDateWeekend() },
+                                label = { Text("This Weekend") }
+                            )
+
+                            val hasCustomDate = ui.scheduledDate != null && !isToday && !isTomorrow
+                            FilterChip(
+                                selected = hasCustomDate,
+                                onClick = {
+                                    dateTarget = "scheduled"
+                                    showDatePicker = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                                },
+                                label = {
+                                    Text(if (hasCustomDate) formatDate(ui.scheduledDate!!) else "Pick Date...")
                                 }
-                            ) {
-                                Text(if (ui.isEditing) "Save" else "Quick Save")
+                            )
+                        }
+                    }
+
+                    // Quick Duration Chips
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Estimated Duration",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            listOf(15, 30, 45, 60).forEach { mins ->
+                                val selected = ui.estimatedDurationMinutes == mins
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = { flowViewModel.toggleQuickDuration(mins) },
+                                    label = { Text("${mins}m") }
+                                )
                             }
                         }
-                        Button(
-                            onClick = {
-                                val isLast = stepIndex == stepCount - 1
-                                if (isLast) {
-                                    tagViewModel.addTags(ui.tags)
-                                    onSave(flowViewModel.buildTaskPayload(editTask))
-                                } else {
-                                    flowViewModel.nextStep()
-                                }
-                            },
-                            enabled = if (stepIndex == stepCount - 1) ui.title.isNotBlank() else flowViewModel.canMoveNext(),
-                            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                    }
+
+                    // Modifiers (Frog & High Impact)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Focus & Impact",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(if (stepIndex == stepCount - 1) if (ui.isEditing) "Update Task" else "Create Task" else "Next")
+                            FilterChip(
+                                selected = ui.isFrog,
+                                onClick = { flowViewModel.updateIsFrog(!ui.isFrog) },
+                                label = { Text("🐸 Eat the Frog") }
+                            )
+
+                            val isHighImpact = ui.impactScore >= 85f
+                            FilterChip(
+                                selected = isHighImpact,
+                                onClick = { flowViewModel.toggleHighImpact() },
+                                label = { Text("⭐ High Impact") }
+                            )
+                        }
+                    }
+
+                    // Eisenhower Quadrants
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Eisenhower Quadrant",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Quadrant.entries.forEach { q ->
+                                FilterChip(
+                                    selected = ui.quadrant == q,
+                                    onClick = { flowViewModel.updateQuadrant(q) },
+                                    label = { Text(quadrantDisplayName(q)) }
+                                )
+                            }
+                        }
+                    }
+
+                    // Primary CTA Save Button
+                    Button(
+                        onClick = { handleSave() },
+                        enabled = ui.title.isNotBlank(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                    ) {
+                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (ui.isEditing) "Save Changes" else "Create Task",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+
+                    // Collapsible "More Details & Options" Accordion
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isExpanded = !isExpanded }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    "More Details & Options",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                if (ui.description.isNotBlank() || ui.tags.isNotEmpty() || ui.recurrence != Recurrence.NONE || ui.deadlineDate != null) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = NeuroFlowColors.Purple.copy(alpha = 0.2f)
+                                    ) {
+                                        Box(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                            Text(
+                                                "Configured",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NeuroFlowColors.Purple
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (isExpanded) "Collapse" else "Expand"
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = isExpanded,
+                        enter = expandVertically(),
+                        exit = shrinkVertically()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Description Field
+                            OutlinedTextField(
+                                value = ui.description,
+                                onValueChange = flowViewModel::updateDescription,
+                                label = { Text("Description & Notes") },
+                                minLines = 3,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = NeuroFlowColors.Purple,
+                                    focusedLabelColor = NeuroFlowColors.Purple
+                                )
+                            )
+
+                            // Priority, Energy & Task Type
+                            Text("Priority & Energy", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            DropdownField(
+                                label = "Priority",
+                                value = priorityDisplayName(ui.priority),
+                                items = Priority.entries,
+                                itemLabel = ::priorityDisplayName,
+                                onSelected = flowViewModel::updatePriority
+                            )
+
+                            Text("Energy Level", style = MaterialTheme.typography.labelMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                EnergyLevel.entries.forEach { level ->
+                                    FilterChip(
+                                        selected = ui.energyLevel == level,
+                                        onClick = { flowViewModel.updateEnergyLevel(level) },
+                                        label = { Text(level.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                                    )
+                                }
+                            }
+
+                            Text("Task Type", style = MaterialTheme.typography.labelMedium)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TaskType.entries.forEach { type ->
+                                    FilterChip(
+                                        selected = ui.taskType == type,
+                                        onClick = { flowViewModel.updateTaskType(type) },
+                                        label = { Text(type.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }) }
+                                    )
+                                }
+                            }
+
+                            // Timing & Reminders
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            TimingStep(
+                                recurrence = ui.recurrence,
+                                customIntervalDays = ui.customIntervalDays,
+                                deadlineDate = ui.deadlineDate,
+                                deadlineTime = ui.deadlineTime,
+                                scheduledDate = ui.scheduledDate,
+                                scheduledTime = ui.scheduledTime,
+                                habitDate = ui.habitDate,
+                                habitTime = ui.habitTime,
+                                reminderFlags = ui.reminderFlags,
+                                isScheduleLocked = ui.isScheduleLocked,
+                                isAutoScheduleMode = ui.isAutoScheduleMode,
+                                onRecurrenceChange = flowViewModel::updateRecurrence,
+                                onCustomIntervalChange = flowViewModel::updateCustomIntervalDays,
+                                onDeadlineDateClick = { dateTarget = "deadline"; showDatePicker = true },
+                                onDeadlineDateClear = { flowViewModel.updateDeadlineDate(null) },
+                                onDeadlineTimeClick = { timeTarget = "deadline"; showTimePicker = true },
+                                onDeadlineTimeClear = { flowViewModel.updateDeadlineTime(null) },
+                                onScheduledDateClick = { dateTarget = "scheduled"; showDatePicker = true },
+                                onScheduledDateClear = { flowViewModel.updateScheduledDate(null) },
+                                onScheduledTimeClick = { timeTarget = "scheduled"; showTimePicker = true },
+                                onScheduledTimeClear = { flowViewModel.updateScheduledTime(null) },
+                                onHabitDateClick = { dateTarget = "habit"; showDatePicker = true },
+                                onHabitDateClear = { flowViewModel.updateHabitDate(null) },
+                                onHabitTimeClick = { timeTarget = "habit"; showTimePicker = true },
+                                onHabitTimeClear = { flowViewModel.updateHabitTime(null) },
+                                onReminderFlagsChange = flowViewModel::updateReminderFlags,
+                                onScheduleLockedChange = flowViewModel::updateScheduleLocked
+                            )
+
+                            // Effort & Strategic Sliders
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            EffortStep(
+                                estimatedDurationMinutes = ui.estimatedDurationMinutes,
+                                impactScore = ui.impactScore,
+                                valueScore = ui.valueScore,
+                                effortScore = ui.effortScore,
+                                enjoymentScore = ui.enjoymentScore,
+                                contextTag = ui.contextTag,
+                                isPublicCommitment = ui.isPublicCommitment,
+                                isAnxietyTask = ui.isAnxietyTask,
+                                goalRiskLevel = ui.goalRiskLevel,
+                                includeExecutionStep = ui.includeExecutionStep,
+                                onDurationChange = flowViewModel::updateEstimatedDuration,
+                                onImpactChange = flowViewModel::updateImpact,
+                                onValueChange = flowViewModel::updateValue,
+                                onEffortChange = flowViewModel::updateEffort,
+                                onEnjoymentChange = flowViewModel::updateEnjoyment,
+                                onContextChange = flowViewModel::updateContextTag,
+                                onPublicCommitmentChange = flowViewModel::updatePublicCommitment,
+                                onAnxietyChange = flowViewModel::updateAnxietyTask,
+                                onGoalRiskChange = flowViewModel::updateGoalRiskLevel,
+                                onIncludeExecutionChange = flowViewModel::setIncludeExecutionStep
+                            )
+
+                            // Execution & Dependencies — revealed by the toggle in EffortStep
+                            val hasExecutionContent = ui.waitingFor.isNotBlank() ||
+                                ui.stepByStepPlan.isNotBlank() ||
+                                ui.selectedDepIds.isNotEmpty()
+                            if (ui.includeExecutionStep || hasExecutionContent) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                ExecutionStep(
+                                    waitingFor = ui.waitingFor,
+                                    stepByStepPlan = ui.stepByStepPlan,
+                                    selectedDepIds = ui.selectedDepIds,
+                                    availableTasks = availableTasks,
+                                    editTaskId = editTask?.id,
+                                    onWaitingForChange = flowViewModel::updateWaitingFor,
+                                    onPlanChange = flowViewModel::updatePlan,
+                                    onToggleDependency = flowViewModel::toggleDependency
+                                )
+                            }
+
+                            // Tags & Context Taxonomy
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            TagsStep(
+                                selectedTags = ui.tags,
+                                suggestedTags = suggestedTags,
+                                onAddTag = flowViewModel::addTag,
+                                onToggleTag = flowViewModel::toggleTag,
+                                onRemoveTag = flowViewModel::removeTag
+                            )
+
+                            // Auto Scheduling Review
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ReviewStep(
+                                uiState = ui,
+                                autoSchedulePreview = flowViewModel.autoSchedulePreview(),
+                                autoSchedulingEnabled = prefs.autoSchedulingEnabled
+                            )
+
+                            // Save CTA inside accordion bottom
+                            Button(
+                                onClick = { handleSave() },
+                                enabled = ui.title.isNotBlank(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = if (ui.isEditing) "Save Changes" else "Create Task",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(20.dp))
                         }
                     }
                 }
@@ -507,12 +729,11 @@ private fun BasicInfoStep(
     title: String,
     description: String,
     onTitleChange: (String) -> Unit,
-    onDescriptionChange: (String) -> Unit
+    onDescriptionChange: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Basic Info", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -553,12 +774,11 @@ private fun ClassificationStep(
     onPriorityChange: (Priority) -> Unit,
     onEnergyChange: (EnergyLevel) -> Unit,
     onTaskTypeChange: (TaskType) -> Unit,
-    onFrogChange: (Boolean) -> Unit
+    onFrogChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Classification", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -625,6 +845,7 @@ private fun TimingStep(
     habitTime: Long?,
     reminderFlags: Int,
     isScheduleLocked: Boolean,
+    isAutoScheduleMode: Boolean,
     onRecurrenceChange: (Recurrence) -> Unit,
     onCustomIntervalChange: (Int) -> Unit,
     onDeadlineDateClick: () -> Unit,
@@ -640,12 +861,11 @@ private fun TimingStep(
     onHabitTimeClick: () -> Unit,
     onHabitTimeClear: () -> Unit,
     onReminderFlagsChange: (Int) -> Unit,
-    onScheduleLockedChange: (Boolean) -> Unit
+    onScheduleLockedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Timing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -671,7 +891,6 @@ private fun TimingStep(
         }
 
         if (recurrence == Recurrence.NONE) {
-            val isAutoScheduleMode = scheduledDate == null && scheduledTime == null && !isScheduleLocked
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isAutoScheduleMode) NeuroFlowColors.Purple.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -726,7 +945,13 @@ private fun TimingStep(
                 TimeChip(deadlineTime, "Time", onDeadlineTimeClick, onClear = onDeadlineTimeClear)
             }
 
-            Text("Manual Scheduled Time (Optional)", style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = if (isAutoScheduleMode && (scheduledDate != null || scheduledTime != null))
+                    "Auto-scheduled time (editing it makes the schedule manual)"
+                else
+                    "Manual Scheduled Time (Optional)",
+                style = MaterialTheme.typography.labelLarge
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DateChip(scheduledDate, "Date", onScheduledDateClick, onClear = onScheduledDateClear)
                 TimeChip(scheduledTime, "Time", onScheduledTimeClick, onClear = onScheduledTimeClear)
@@ -766,12 +991,11 @@ private fun RecurrenceStep(
     onHabitDateClick: () -> Unit,
     onHabitDateClear: () -> Unit,
     onHabitTimeClick: () -> Unit,
-    onHabitTimeClear: () -> Unit
+    onHabitTimeClear: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Recurrence Anchor", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -810,12 +1034,11 @@ private fun EffortStep(
     onPublicCommitmentChange: (Boolean) -> Unit,
     onAnxietyChange: (Boolean) -> Unit,
     onGoalRiskChange: (Int) -> Unit,
-    onIncludeExecutionChange: (Boolean) -> Unit
+    onIncludeExecutionChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Effort + Estimate", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -883,14 +1106,13 @@ private fun ExecutionStep(
     editTaskId: String?,
     onWaitingForChange: (String) -> Unit,
     onPlanChange: (String) -> Unit,
-    onToggleDependency: (String) -> Unit
+    onToggleDependency: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val candidates = remember(availableTasks, editTaskId) { availableTasks.filter { it.id != editTaskId } }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Execution", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -916,8 +1138,13 @@ private fun ExecutionStep(
         if (candidates.isEmpty()) {
             Text("No other active tasks available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                candidates.forEach { task ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(candidates, key = { it.id }) { task ->
                     val selected = selectedDepIds.contains(task.id)
                     Row(
                         modifier = Modifier
@@ -953,14 +1180,13 @@ private fun TagsStep(
     suggestedTags: List<String>,
     onAddTag: (String) -> Unit,
     onToggleTag: (String) -> Unit,
-    onRemoveTag: (String) -> Unit
+    onRemoveTag: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var newTag by remember { mutableStateOf("") }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Tags & Context", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -1077,12 +1303,11 @@ private fun TagsStep(
 private fun ReviewStep(
     uiState: NewTaskFlowUiState,
     autoSchedulePreview: AutoSchedulePreview,
-    autoSchedulingEnabled: Boolean
+    autoSchedulingEnabled: Boolean,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Review", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -1160,7 +1385,7 @@ private fun <T> DropdownField(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             items.forEach { item ->
                 DropdownMenuItem(
                     text = { Text(itemLabel(item)) },

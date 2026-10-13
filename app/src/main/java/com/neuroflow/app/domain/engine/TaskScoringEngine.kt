@@ -1,6 +1,7 @@
 package com.neuroflow.app.domain.engine
 
 import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.entity.dependencyIds
 import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
 import com.neuroflow.app.data.local.entity.isRecurringWithAnchor
 import com.neuroflow.app.data.local.entity.TaskEntity
@@ -11,6 +12,7 @@ import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.TagEnergyDemand
 import com.neuroflow.app.domain.scheduler.TagPreferredWindow
+import com.neuroflow.app.domain.scheduler.TagSchedulingProfile
 import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import com.neuroflow.app.domain.scheduler.TaskCategory
 import com.neuroflow.app.domain.scheduler.determineCategory
@@ -83,6 +85,66 @@ object TaskScoringEngine {
     private fun normalizeMinute(minute: Int): Int {
         val normalized = minute % (24 * 60)
         return if (normalized < 0) normalized + (24 * 60) else normalized
+    }
+
+    /**
+     * Cross-task indices for one scoring pass, built once from the active task list.
+     *
+     * Without it score() is O(active tasks) per task — the dependency scans below parsed
+     * `dependsOnTaskIds` for every other task on every call, making any sorted list O(n²).
+     * Tasks absent from the list (e.g. the unscheduled backlog scored against the scheduled
+     * set) fall back to computing their own profiles and category on demand.
+     */
+    class ScoringContext private constructor(
+        private val activeTaskIds: Set<String>,
+        private val unblockCountByTaskId: Map<String, Int>,
+        private val profilesByTaskId: Map<String, List<TagSchedulingProfile>>,
+        private val categoryByTaskId: Map<String, TaskCategory>
+    ) {
+        /** How many still-active tasks [task] is waiting on. */
+        fun blockedByCount(task: TaskEntity): Int =
+            task.dependencyIds().count { it in activeTaskIds }
+
+        fun isBlocked(task: TaskEntity): Boolean = blockedByCount(task) > 0
+
+        fun unblockCount(task: TaskEntity): Int = unblockCountByTaskId[task.id] ?: 0
+
+        fun profilesFor(task: TaskEntity): List<TagSchedulingProfile> =
+            profilesByTaskId[task.id] ?: TaskTagSchedulingProfile.profilesFor(task.tags)
+
+        fun categoryFor(task: TaskEntity): TaskCategory =
+            categoryByTaskId[task.id] ?: task.determineCategory()
+
+        companion object {
+            val EMPTY = ScoringContext(emptySet(), emptyMap(), emptyMap(), emptyMap())
+
+            fun from(tasks: List<TaskEntity>): ScoringContext {
+                val pool = tasks.filter { it.status == TaskStatus.ACTIVE }
+                if (pool.isEmpty()) return EMPTY
+
+                val activeIds = HashSet<String>(pool.size)
+                pool.forEach { activeIds.add(it.id) }
+
+                val unblockCounts = HashMap<String, Int>()
+                val profiles = HashMap<String, List<TagSchedulingProfile>>(pool.size)
+                val categories = HashMap<String, TaskCategory>(pool.size)
+
+                for (task in pool) {
+                    profiles[task.id] = TaskTagSchedulingProfile.profilesFor(task.tags)
+                    categories[task.id] = task.determineCategory()
+
+                    // A task unblocks each of its dependents once, however many times it is listed.
+                    task.dependencyIds()
+                        .filter { it != task.id }
+                        .distinct()
+                        .forEach { depId ->
+                            unblockCounts[depId] = (unblockCounts[depId] ?: 0) + 1
+                        }
+                }
+
+                return ScoringContext(activeIds, unblockCounts, profiles, categories)
+            }
+        }
     }
 
     private fun minuteOfDay(nowMillis: Long): Int {
@@ -215,8 +277,12 @@ object TaskScoringEngine {
         }
     }
 
-    private fun tagSuitabilityScore(task: TaskEntity, hour: Int, isLowEnergySlot: Boolean): Float {
-        val profiles = TaskTagSchedulingProfile.profilesFor(task.tags)
+    private fun tagSuitabilityScore(
+        task: TaskEntity,
+        hour: Int,
+        isLowEnergySlot: Boolean,
+        profiles: List<TagSchedulingProfile>
+    ): Float {
         if (profiles.isEmpty()) return 0f
 
         val aggregate = profiles.map { profile ->
@@ -269,8 +335,11 @@ object TaskScoringEngine {
         return aggregate.average().toFloat()
     }
 
-    private fun categorySuitabilityScore(task: TaskEntity, hour: Int, prefs: UserPreferences): Float {
-        val category = task.determineCategory()
+    private fun categorySuitabilityScore(
+        hour: Int,
+        prefs: UserPreferences,
+        category: TaskCategory
+    ): Float {
 
         val quizPeak = prefs.quizPeakEnabled &&
             !prefs.peakConfidenceAbstentionEnabled &&
@@ -369,7 +438,7 @@ object TaskScoringEngine {
     fun score(
         task: TaskEntity,
         prefs: UserPreferences,
-        allActiveTasks: List<TaskEntity> = emptyList(),
+        context: ScoringContext = ScoringContext.EMPTY,
         nowMillis: Long = System.currentTimeMillis()
     ): Float {
         if (task.status != TaskStatus.ACTIVE) return 0f
@@ -378,11 +447,7 @@ object TaskScoringEngine {
         if (task.waitingFor.isNotBlank()) return 0f
 
         // Hard block: if task has unresolved dependencies, score near-zero
-        val blockedByCount = if (task.dependsOnTaskIds.isNotBlank() && allActiveTasks.isNotEmpty()) {
-            val depIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
-            depIds.count { depId -> allActiveTasks.any { it.id == depId && it.status == TaskStatus.ACTIVE } }
-        } else 0
-        if (blockedByCount > 0) return 0f
+        if (context.isBlocked(task)) return 0f
 
         val recurringAnchorMode = task.isRecurringWithAnchor()
         val lockAnchorMs = task.effectiveScheduleAnchorMillis()
@@ -544,10 +609,10 @@ object TaskScoringEngine {
                 else            ->  10f
             }
         }
-        s += circadianBonus
+        s += circadianBonus * prefs.weightCircadianMatch
 
         // ── 10. FROG BOOST (Eat the Frog — Brian Tracy) ──────────────────────
-        // weightFocusMode applied here too — frog is a focus-mode concept
+        // weightFocusMode and weightFrogBonus applied here — frog is a focus-mode concept
         if (task.isFrog) {
             val frogBase = when {
                 isMorning       -> 120f
@@ -556,7 +621,7 @@ object TaskScoringEngine {
                 else            ->  50f
             }
             val effortMultiplier = 0.5f + (task.effortScore / 100f) * 0.5f
-            s += frogBase * effortMultiplier * prefs.weightFocusMode
+            s += frogBase * effortMultiplier * prefs.weightFocusMode * prefs.weightFrogBonus
         }
 
         // ── 11. POSTPONE PENALTY → URGENCY ESCALATION (Zeigarnik Effect) ─────
@@ -568,10 +633,7 @@ object TaskScoringEngine {
         }
 
         // ── 13. DEPENDENCY UNBLOCKING (Critical Path Method) ─────────────────
-        val unblockCount = allActiveTasks.count { other ->
-            other.id != task.id &&
-            other.dependsOnTaskIds.split(",").any { it.trim() == task.id }
-        }
+        val unblockCount = context.unblockCount(task)
         if (unblockCount > 0) {
             s += sqrt(unblockCount.toFloat()) * 80f
         }
@@ -584,10 +646,10 @@ object TaskScoringEngine {
         if (isWithinWorkDay && task.contextTag == "@work") s += 20f
 
         // ── 15. TAG SUITABILITY (scheduler-aligned additive fit) ─────────────
-        s += tagSuitabilityScore(task, hour, isLowEnergySlot)
+        s += tagSuitabilityScore(task, hour, isLowEnergySlot, context.profilesFor(task))
 
         // ── 15.5 CATEGORY SUITABILITY (scheduler-aligned additive fit) ───────
-        s += categorySuitabilityScore(task, hour, prefs)
+        s += categorySuitabilityScore(hour, prefs, context.categoryFor(task))
 
         // ── 16. RECENCY BIAS CORRECTION ──────────────────────────────────────
         val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f
@@ -597,17 +659,17 @@ object TaskScoringEngine {
 
         // ── 17. PROGRESS PRINCIPLE (Teresa Amabile) ──────────────────────────
         if (task.sessionCount > 0) {
-            s += min(task.sessionCount * 18f, 72f)
+            s += min(task.sessionCount * 18f, 72f) * prefs.weightSessionProgress
         }
 
         // ── 18. IMPLEMENTATION INTENTIONS (Peter Gollwitzer) ─────────────────
         if (task.ifThenPlan.isNotBlank()) {
-            val planBoost = 25f + (task.effortScore / 100f) * 55f
+            val planBoost = (25f + (task.effortScore / 100f) * 55f) * prefs.weightPlanBoost
             s += planBoost
         }
 
         // ── 19. ENJOYMENT AS CONTINUOUS MODIFIER (Temptation Bundling) ───────
-        val enjoyNorm = task.enjoymentScore / 100f
+        val enjoyNorm = correctedEnjoymentScore(task, prefs) / 100f
         val effortN = task.effortScore / 100f
         val enjoymentModifier = when {
             enjoyNorm < 0.3f && effortN > 0.6f -> 40f
@@ -616,7 +678,7 @@ object TaskScoringEngine {
             enjoyNorm > 0.7f -> 15f
             else -> 0f
         }
-        s += enjoymentModifier
+        s += enjoymentModifier * prefs.weightEnjoyment
 
         // ── 20. COMMITMENT DEVICE (Social Accountability) ────────────────────
         if (task.isPublicCommitment) s += 70f
@@ -657,16 +719,41 @@ object TaskScoringEngine {
         return max(baseFloor, s)
     }
 
+    /**
+     * Convenience overload for single ad-hic scores. Hot loops (sorting, planning) should build
+     * one [ScoringContext] and call [score] directly — see [ScoringContext].
+     */
+    fun score(
+        task: TaskEntity,
+        prefs: UserPreferences,
+        allActiveTasks: List<TaskEntity>,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Float = score(task, prefs, ScoringContext.from(allActiveTasks), nowMillis)
+
     /** Normalized 0–999 display score for UI */
+    /**
+     * The user's own guess at how enjoyable a task will be, corrected by how their finished tasks
+     * actually felt. Without it, a habitually optimistic forecast keeps pulling hard work forward.
+     */
+    private fun correctedEnjoymentScore(task: TaskEntity, prefs: UserPreferences): Int =
+        AnalyticsEngine.EnjoymentCalibration(prefs.enjoymentForecastBias).forecast(task.enjoymentScore)
+
     fun displayScore(
         task: TaskEntity,
         prefs: UserPreferences,
-        allActiveTasks: List<TaskEntity> = emptyList(),
+        context: ScoringContext = ScoringContext.EMPTY,
         nowMillis: Long = System.currentTimeMillis()
     ): Int {
-        val raw = score(task, prefs, allActiveTasks, nowMillis)
+        val raw = score(task, prefs, context, nowMillis)
         return min(((raw / THEORETICAL_MAX) * 999f).toInt(), 999)
     }
+
+    fun displayScore(
+        task: TaskEntity,
+        prefs: UserPreferences,
+        allActiveTasks: List<TaskEntity>,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Int = displayScore(task, prefs, ScoringContext.from(allActiveTasks), nowMillis)
 
     fun sortedByScore(
         tasks: List<TaskEntity>,
@@ -674,7 +761,8 @@ object TaskScoringEngine {
         nowMillis: Long = System.currentTimeMillis()
     ): List<TaskEntity> {
         val active = tasks.filter { it.status == TaskStatus.ACTIVE }
-        return active.sortedByDescending { score(it, prefs, active, nowMillis) }
+        val context = ScoringContext.from(active)
+        return active.sortedByDescending { score(it, prefs, context, nowMillis) }
     }
 
     fun urgencyLabel(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): String {
@@ -749,14 +837,13 @@ object TaskScoringEngine {
     ): List<Pair<String, Float>> {
         if (task.status != TaskStatus.ACTIVE) return emptyList()
 
+        val context = ScoringContext.from(allActiveTasks)
+
         // Blocked tasks score 0 — show a single explanatory entry instead of a full breakdown
         if (task.waitingFor.isNotBlank()) {
             return listOf("⏳ Waiting for external dependency (blocked)" to 0f)
         }
-        val blockedByCount = if (task.dependsOnTaskIds.isNotBlank() && allActiveTasks.isNotEmpty()) {
-            val depIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
-            depIds.count { depId -> allActiveTasks.any { it.id == depId && it.status == TaskStatus.ACTIVE } }
-        } else 0
+        val blockedByCount = context.blockedByCount(task)
         if (blockedByCount > 0) {
             return listOf("🔗 Blocked by $blockedByCount incomplete dependency task(s)" to 0f)
         }
@@ -775,7 +862,7 @@ object TaskScoringEngine {
         val result = mutableListOf<Pair<String, Float>>()
         val effortNorm = task.effortScore / 100f
         val effortN = effortNorm
-        val enjoyNorm = task.enjoymentScore / 100f
+        val enjoyNorm = correctedEnjoymentScore(task, prefs) / 100f
 
         val quadrantBase = when (task.quadrant) {
             Quadrant.DO_FIRST  -> 300f
@@ -908,8 +995,9 @@ object TaskScoringEngine {
                 else            ->  10f
             }
         }
-        if (circadianBonus != 0f) {
-            result += "Circadian task matching" to circadianBonus
+        val circadianWeighted = circadianBonus * prefs.weightCircadianMatch
+        if (circadianWeighted != 0f) {
+            result += "Circadian task matching" to circadianWeighted
         }
 
         if (task.isFrog) {
@@ -919,7 +1007,10 @@ object TaskScoringEngine {
                 isLowEnergySlot ->  20f
                 else            ->  50f
             }
-            result += "🐸 Frog task" to base * (0.5f + task.effortScore / 200f) * prefs.weightFocusMode
+            val frogScore = base * (0.5f + task.effortScore / 200f) * prefs.weightFocusMode * prefs.weightFrogBonus
+            if (frogScore != 0f) {
+                result += "🐸 Frog task" to frogScore
+            }
         }
 
         if (task.postponeCount > 0) {
@@ -930,10 +1021,7 @@ object TaskScoringEngine {
             result += "Habit streak protection" to min(task.habitStreak * 12f, 100f)
         }
 
-        val unblockCount = allActiveTasks.count { other ->
-            other.id != task.id &&
-            other.dependsOnTaskIds.split(",").any { it.trim() == task.id }
-        }
+        val unblockCount = context.unblockCount(task)
         if (unblockCount > 0) {
             result += "Dependency unblocker" to sqrt(unblockCount.toFloat()) * 80f
         }
@@ -948,12 +1036,12 @@ object TaskScoringEngine {
             result += "Context alignment (${task.contextTag})" to contextAdjust
         }
 
-        val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot)
+        val tagFit = tagSuitabilityScore(task, hour, isLowEnergySlot, context.profilesFor(task))
         if (tagFit != 0f) {
             result += "🏷 Tag fit" to tagFit
         }
 
-        val categoryFit = categorySuitabilityScore(task, hour, prefs)
+        val categoryFit = categorySuitabilityScore(hour, prefs, context.categoryFor(task))
         if (categoryFit != 0f) {
             result += "🏷 Category suitability" to categoryFit
         }
@@ -964,11 +1052,17 @@ object TaskScoringEngine {
         }
 
         if (task.sessionCount > 0) {
-            result += "Progress momentum" to min(task.sessionCount * 18f, 72f)
+            val progressScore = min(task.sessionCount * 18f, 72f) * prefs.weightSessionProgress
+            if (progressScore != 0f) {
+                result += "Progress momentum" to progressScore
+            }
         }
 
         if (task.ifThenPlan.isNotBlank()) {
-            result += "🎯 If-then plan" to (25f + task.effortScore / 100f * 55f)
+            val planScore = (25f + task.effortScore / 100f * 55f) * prefs.weightPlanBoost
+            if (planScore != 0f) {
+                result += "🎯 If-then plan" to planScore
+            }
         }
 
         val enjoymentModifier = when {
@@ -978,8 +1072,9 @@ object TaskScoringEngine {
             enjoyNorm > 0.7f -> 15f
             else -> 0f
         }
-        if (enjoymentModifier != 0f) {
-            result += "Enjoyment motivation" to enjoymentModifier
+        val weightedEnjoyment = enjoymentModifier * prefs.weightEnjoyment
+        if (weightedEnjoyment != 0f) {
+            result += "Enjoyment motivation" to weightedEnjoyment
         }
 
         if (task.isPublicCommitment) {

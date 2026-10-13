@@ -35,8 +35,10 @@ class LauncherSearchEngineImpl @Inject constructor(
     private val pinnedAppsDataStore: PinnedAppsDataStore
 ) : LauncherSearchEngine {
 
+    private val nonAlphanumeric = Regex("[^a-z0-9]")
+
     private fun normalize(text: String): String =
-        text.lowercase().replace(Regex("[^a-z0-9]"), "")
+        text.lowercase().replace(nonAlphanumeric, "")
 
     override suspend fun search(query: String): SearchResults = withContext(Dispatchers.IO) {
         if (query.isBlank()) {

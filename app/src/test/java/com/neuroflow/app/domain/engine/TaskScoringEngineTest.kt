@@ -2,19 +2,18 @@ package com.neuroflow.app.domain.engine
 
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
-import org.junit.Assert.*
-import org.junit.Test
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
 
-class TaskScoringEngineTest {
+class TaskScoringEngineTest : StringSpec({
 
-    private val defaultPrefs = UserPreferences()
-    private val now = System.currentTimeMillis()
+    val defaultPrefs = UserPreferences()
+    val now = System.currentTimeMillis()
 
-    private fun makeTask(
+    fun makeTask(
         quadrant: Quadrant = Quadrant.SCHEDULE,
         priority: Priority = Priority.MEDIUM,
         deadlineDate: Long? = null,
@@ -37,118 +36,161 @@ class TaskScoringEngineTest {
         postponeCount = postponeCount
     )
 
-    @Test
-    fun `DO_FIRST quadrant scores higher than ELIMINATE`() {
-        val doFirst = makeTask(quadrant = Quadrant.DO_FIRST)
-        val eliminate = makeTask(quadrant = Quadrant.ELIMINATE)
-        val scoreDoFirst = TaskScoringEngine.score(doFirst, defaultPrefs, nowMillis = now)
-        val scoreEliminate = TaskScoringEngine.score(eliminate, defaultPrefs, nowMillis = now)
-        assertTrue("DO_FIRST ($scoreDoFirst) should score higher than ELIMINATE ($scoreEliminate)",
-            scoreDoFirst > scoreEliminate)
+    "DO_FIRST quadrant scores higher than ELIMINATE" {
+        val doFirst = TaskScoringEngine.score(makeTask(quadrant = Quadrant.DO_FIRST), defaultPrefs, nowMillis = now)
+        val eliminate = TaskScoringEngine.score(makeTask(quadrant = Quadrant.ELIMINATE), defaultPrefs, nowMillis = now)
+
+        (doFirst > eliminate) shouldBe true
     }
 
-    @Test
-    fun `HIGH priority scores higher than LOW`() {
-        val high = makeTask(priority = Priority.HIGH)
-        val low = makeTask(priority = Priority.LOW)
-        assertTrue(TaskScoringEngine.score(high, defaultPrefs, nowMillis = now) >
-                TaskScoringEngine.score(low, defaultPrefs, nowMillis = now))
+    "HIGH priority scores higher than LOW" {
+        val high = TaskScoringEngine.score(makeTask(priority = Priority.HIGH), defaultPrefs, nowMillis = now)
+        val low = TaskScoringEngine.score(makeTask(priority = Priority.LOW), defaultPrefs, nowMillis = now)
+
+        (high > low) shouldBe true
     }
 
-    @Test
-    fun `overdue deadline scores higher than far-future deadline`() {
-        val overdue = makeTask(deadlineDate = now - 3_600_000) // 1 hour ago
-        val future = makeTask(deadlineDate = now + 30 * 86_400_000L) // 30 days
-        assertTrue(TaskScoringEngine.score(overdue, defaultPrefs, nowMillis = now) >
-                TaskScoringEngine.score(future, defaultPrefs, nowMillis = now))
+    "overdue deadline scores higher than far-future deadline" {
+        val overdue = TaskScoringEngine.score(makeTask(deadlineDate = now - 3_600_000), defaultPrefs, nowMillis = now)
+        val future = TaskScoringEngine.score(makeTask(deadlineDate = now + 30 * 86_400_000L), defaultPrefs, nowMillis = now)
+
+        (overdue > future) shouldBe true
     }
 
-    @Test
-    fun `postponed tasks score higher than non-postponed`() {
-        val postponed = makeTask(postponeCount = 5)
-        val fresh = makeTask(postponeCount = 0)
-        assertTrue(TaskScoringEngine.score(postponed, defaultPrefs, nowMillis = now) >
-                TaskScoringEngine.score(fresh, defaultPrefs, nowMillis = now))
+    "postponed tasks score higher than non-postponed" {
+        val postponed = TaskScoringEngine.score(makeTask(postponeCount = 5), defaultPrefs, nowMillis = now)
+        val fresh = TaskScoringEngine.score(makeTask(postponeCount = 0), defaultPrefs, nowMillis = now)
+
+        (postponed > fresh) shouldBe true
     }
 
-    @Test
-    fun `sortedByScore filters out completed tasks`() {
+    "sortedByScore filters out completed tasks" {
         val tasks = listOf(
             makeTask(priority = Priority.HIGH),
             makeTask(priority = Priority.LOW).copy(status = TaskStatus.COMPLETED)
         )
+
         val sorted = TaskScoringEngine.sortedByScore(tasks, defaultPrefs, nowMillis = now)
-        assertEquals(1, sorted.size)
-        assertEquals(Priority.HIGH, sorted[0].priority)
+
+        sorted.size shouldBe 1
+        sorted[0].priority shouldBe Priority.HIGH
     }
 
-    @Test
-    fun `autoAssignQuadrant assigns DO_FIRST for urgent important tasks`() {
+    "autoAssignQuadrant assigns DO_FIRST for urgent important tasks" {
         val task = makeTask(priority = Priority.HIGH, impactScore = 80, deadlineDate = now + 24 * 3_600_000)
-        val quadrant = TaskScoringEngine.autoAssignQuadrant(task, now)
-        assertEquals(Quadrant.DO_FIRST, quadrant)
+
+        TaskScoringEngine.autoAssignQuadrant(task, now) shouldBe Quadrant.DO_FIRST
     }
 
-    @Test
-    fun `autoAssignQuadrant assigns SCHEDULE for important non-urgent tasks`() {
+    "autoAssignQuadrant assigns SCHEDULE for important non-urgent tasks" {
         val task = makeTask(priority = Priority.LOW, impactScore = 80, deadlineDate = now + 30 * 86_400_000L)
-        val quadrant = TaskScoringEngine.autoAssignQuadrant(task, now)
-        assertEquals(Quadrant.SCHEDULE, quadrant)
+
+        TaskScoringEngine.autoAssignQuadrant(task, now) shouldBe Quadrant.SCHEDULE
     }
 
-    @Test
-    fun `autoAssignQuadrant assigns ELIMINATE for non-urgent non-important`() {
+    "autoAssignQuadrant assigns ELIMINATE for non-urgent non-important" {
         val task = makeTask(priority = Priority.LOW, impactScore = 20)
-        val quadrant = TaskScoringEngine.autoAssignQuadrant(task, now)
-        assertEquals(Quadrant.ELIMINATE, quadrant)
+
+        TaskScoringEngine.autoAssignQuadrant(task, now) shouldBe Quadrant.ELIMINATE
     }
 
-    @Test
-    fun `blocked task returns low score`() {
+    "blocked task returns low score" {
         val task = makeTask(deadlineDate = now + 3_600_000).copy(dependsOnTaskIds = "other123")
         val dep = makeTask(deadlineDate = now + 72_000_000).copy(id = "other123")
 
         val score = TaskScoringEngine.score(task, defaultPrefs, listOf(task, dep), now)
-        assertTrue(score < 25f)
+
+        (score < 25f) shouldBe true
     }
 
-    @Test
-    fun `near-deadline task scores higher than far-future`() {
+    "near-deadline task scores higher than far-future" {
         val urgent = makeTask(deadlineDate = now + 3_600_000)
         val distant = makeTask(deadlineDate = now + 7 * 86_400_000L)
 
-        val urgentScore = TaskScoringEngine.score(urgent, defaultPrefs, listOf(urgent,distant), now)
-        val distantScore = TaskScoringEngine.score(distant, defaultPrefs, listOf(urgent,distant), now)
+        val urgentScore = TaskScoringEngine.score(urgent, defaultPrefs, listOf(urgent, distant), now)
+        val distantScore = TaskScoringEngine.score(distant, defaultPrefs, listOf(urgent, distant), now)
 
-        assertTrue(urgentScore > distantScore)
+        (urgentScore > distantScore) shouldBe true
     }
 
-    @Test
-    fun `scheduled soon task boosts score relative to schedule far away`() {
+    "scheduled soon task boosts score relative to schedule far away" {
         val soon = makeTask(scheduledDate = now + 30 * 60_000L, scheduledTime = 0L)
         val later = makeTask(scheduledDate = now + 24 * 86_400_000L, scheduledTime = 0L)
 
-        val soonScore = TaskScoringEngine.score(soon, defaultPrefs, listOf(soon,later), now)
-        val laterScore = TaskScoringEngine.score(later, defaultPrefs, listOf(soon,later), now)
+        val soonScore = TaskScoringEngine.score(soon, defaultPrefs, listOf(soon, later), now)
+        val laterScore = TaskScoringEngine.score(later, defaultPrefs, listOf(soon, later), now)
 
-        assertTrue(soonScore > laterScore)
+        (soonScore > laterScore) shouldBe true
     }
 
-    @Test
-    fun `locked task retains non-zero score with proximity ramp`() {
-        val farLocked = makeTask().copy(
-            isScheduleLocked = true,
-            habitDate = now + 20 * 60_000L
-        )
-        val nearLocked = makeTask().copy(
-            isScheduleLocked = true,
-            habitDate = now + 5 * 60_000L
-        )
+    "locked task retains non-zero score with proximity ramp" {
+        val farLocked = makeTask().copy(isScheduleLocked = true, habitDate = now + 20 * 60_000L)
+        val nearLocked = makeTask().copy(isScheduleLocked = true, habitDate = now + 5 * 60_000L)
 
         val farScore = TaskScoringEngine.score(farLocked, defaultPrefs, listOf(farLocked, nearLocked), now)
         val nearScore = TaskScoringEngine.score(nearLocked, defaultPrefs, listOf(farLocked, nearLocked), now)
 
-        assertTrue(farScore > 0f)
-        assertTrue(nearScore > farScore)
+        (farScore > 0f) shouldBe true
+        (nearScore > farScore) shouldBe true
     }
-}
+
+    "weightFrogBonus amplifies frog score" {
+        val frogTask = makeTask(isFrog = true, impactScore = 50)
+
+        val suppressed = TaskScoringEngine.score(frogTask, defaultPrefs.copy(weightFrogBonus = 0.2f), listOf(frogTask), now)
+        val plain = TaskScoringEngine.score(frogTask, defaultPrefs, listOf(frogTask), now)
+        val amplified = TaskScoringEngine.score(frogTask, defaultPrefs.copy(weightFrogBonus = 1.8f), listOf(frogTask), now)
+
+        (amplified > plain) shouldBe true
+        (plain > suppressed) shouldBe true
+    }
+
+    "weightPlanBoost amplifies if-then plan score" {
+        val plannedTask = makeTask(impactScore = 50).copy(ifThenPlan = "IF 9am THEN open IDE")
+
+        val suppressed = TaskScoringEngine.score(plannedTask, defaultPrefs.copy(weightPlanBoost = 0.2f), listOf(plannedTask), now)
+        val plain = TaskScoringEngine.score(plannedTask, defaultPrefs, listOf(plannedTask), now)
+        val amplified = TaskScoringEngine.score(plannedTask, defaultPrefs.copy(weightPlanBoost = 1.8f), listOf(plannedTask), now)
+
+        (amplified > plain) shouldBe true
+        (plain > suppressed) shouldBe true
+    }
+
+    "weightSessionProgress amplifies started tasks" {
+        val progressTask = makeTask(impactScore = 50).copy(sessionCount = 3)
+
+        val suppressed = TaskScoringEngine.score(progressTask, defaultPrefs.copy(weightSessionProgress = 0.2f), listOf(progressTask), now)
+        val plain = TaskScoringEngine.score(progressTask, defaultPrefs, listOf(progressTask), now)
+        val amplified = TaskScoringEngine.score(progressTask, defaultPrefs.copy(weightSessionProgress = 1.8f), listOf(progressTask), now)
+
+        (amplified > plain) shouldBe true
+        (plain > suppressed) shouldBe true
+    }
+
+    "weightEnjoyment modulates enjoyment score" {
+        val enjoyedTask = makeTask(impactScore = 50).copy(enjoymentScore = 90, effortScore = 80)
+
+        val suppressed = TaskScoringEngine.score(enjoyedTask, defaultPrefs.copy(weightEnjoyment = 0.2f), listOf(enjoyedTask), now)
+        val plain = TaskScoringEngine.score(enjoyedTask, defaultPrefs, listOf(enjoyedTask), now)
+        val amplified = TaskScoringEngine.score(enjoyedTask, defaultPrefs.copy(weightEnjoyment = 1.8f), listOf(enjoyedTask), now)
+
+        (amplified > plain) shouldBe true
+        (plain > suppressed) shouldBe true
+    }
+
+    "scoring a task list matches scoring through a prebuilt context" {
+        val blocker = makeTask().copy(id = "blocker")
+        val waiting = makeTask().copy(id = "waiting", dependsOnTaskIds = "blocker")
+        val free = makeTask().copy(id = "free")
+        val tasks = listOf(blocker, waiting, free)
+
+        val viaList = tasks.map { TaskScoringEngine.score(it, defaultPrefs, tasks, now) }
+        val context = TaskScoringEngine.ScoringContext.from(tasks)
+        val viaContext = tasks.map { TaskScoringEngine.score(it, defaultPrefs, context, now) }
+
+        viaList shouldBe viaContext
+        context.blockedByCount(waiting) shouldBe 1
+        context.blockedByCount(free) shouldBe 0
+        context.unblockCount(blocker) shouldBe 1
+    }
+})

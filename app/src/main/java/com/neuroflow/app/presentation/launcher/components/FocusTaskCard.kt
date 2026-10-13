@@ -38,6 +38,7 @@ package com.neuroflow.app.presentation.launcher.components
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,7 +62,9 @@ import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.scheduler.DueSlot
 import com.neuroflow.app.presentation.common.EnergyInsight
+import com.neuroflow.app.presentation.common.ProtectedSlotTakeoverContent
 import com.neuroflow.app.presentation.common.formatFullDate
 import com.neuroflow.app.presentation.common.formatRelativeTime
 import com.neuroflow.app.presentation.launcher.theme.LocalLauncherTheme
@@ -102,52 +105,71 @@ fun FocusTaskCard(
     prefs: com.neuroflow.app.data.local.UserPreferences? = null,
     effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile? = null,
     energy: EnergyScoreRepository.EnergyUiModel? = null,
+    dueSlot: DueSlot? = null,
     onSkip: (String) -> Unit,
     onStartFocus: (String) -> Unit,
     onComplete: (TaskEntity) -> Unit = {},
     onStopFocus: () -> Unit = {},
     onClearSkipped: () -> Unit = {},
     onEmergencyReset: () -> Unit = {},
+    onOpenTimeline: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val theme = LocalLauncherTheme.current
+    val cardColors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = theme.cardAlpha)
+    )
+    // A running session keeps the card to itself: replacing it would hide its own stop control.
+    val takeover = dueSlot?.takeIf { !focusActive }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag("focus_task_card"),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = theme.cardAlpha)
-        ),
-        elevation = when (theme.taskCardStyle) {
-            com.neuroflow.app.presentation.launcher.domain.CardStyle.ELEVATED -> CardDefaults.cardElevation(defaultElevation = 4.dp)
-            com.neuroflow.app.presentation.launcher.domain.CardStyle.FLAT -> CardDefaults.cardElevation(defaultElevation = 0.dp)
-            com.neuroflow.app.presentation.launcher.domain.CardStyle.OUTLINED -> CardDefaults.cardElevation(defaultElevation = 0.dp)
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (takeover != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clickable(onClick = onOpenTimeline),
+                colors = cardColors
+            ) {
+                ProtectedSlotTakeoverContent(takeover)
+            }
         }
-    ) {
-        if (topTask == null) {
-            EmptyTaskState(
-                hasActiveTasks = hasActiveTasks,
-                onClearSkipped = onClearSkipped
-            )
-        } else {
-            TaskContent(
-                task = topTask,
-                ulyssesContract = ulyssesContract,
-                woopEntity = woopEntity,
-                focusActive = focusActive,
-                focusElapsedSeconds = focusElapsedSeconds,
-                showTaskScore = theme.showTaskScore,
-                prefs = prefs,
-                effectivePeakProfile = effectivePeakProfile,
-                energy = energy,
-                onSkip = { onSkip(topTask.id) },
-                onStartFocus = { onStartFocus(topTask.id) },
-                onComplete = { onComplete(topTask) },
-                onStopFocus = onStopFocus,
-                onEmergencyReset = onEmergencyReset
-            )
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .testTag("focus_task_card"),
+            colors = cardColors,
+            elevation = when (theme.taskCardStyle) {
+                com.neuroflow.app.presentation.launcher.domain.CardStyle.ELEVATED -> CardDefaults.cardElevation(defaultElevation = 4.dp)
+                com.neuroflow.app.presentation.launcher.domain.CardStyle.FLAT -> CardDefaults.cardElevation(defaultElevation = 0.dp)
+                com.neuroflow.app.presentation.launcher.domain.CardStyle.OUTLINED -> CardDefaults.cardElevation(defaultElevation = 0.dp)
+            }
+        ) {
+            if (topTask == null) {
+                EmptyTaskState(
+                    hasActiveTasks = hasActiveTasks,
+                    onClearSkipped = onClearSkipped
+                )
+            } else {
+                TaskContent(
+                    task = topTask,
+                    ulyssesContract = ulyssesContract,
+                    woopEntity = woopEntity,
+                    focusActive = focusActive,
+                    focusElapsedSeconds = focusElapsedSeconds,
+                    showTaskScore = theme.showTaskScore,
+                    prefs = prefs,
+                    effectivePeakProfile = effectivePeakProfile,
+                    energy = energy,
+                    onSkip = { onSkip(topTask.id) },
+                    onStartFocus = { onStartFocus(topTask.id) },
+                    onComplete = { onComplete(topTask) },
+                    onStopFocus = onStopFocus,
+                    onEmergencyReset = onEmergencyReset
+                )
+            }
         }
     }
 }
@@ -412,9 +434,6 @@ private fun PersonalizedPeakHint(
     effectivePeakProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?
 ) {
     if (prefs == null) return
-    val chronotype = prefs.quizChronotype ?: prefs.manualChronotype
-    val isMorningType = EnergyInsight.isMorningType(chronotype)
-    if (!isMorningType) return
 
     val effectiveMinute = effectivePeakProfile?.anchorMinuteOfDay ?: EnergyInsight.effectivePeakMinuteOfDay(prefs)
     val confidencePct = effectivePeakProfile?.confidence?.overall?.let { (it * 100f).toInt() }

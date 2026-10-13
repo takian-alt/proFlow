@@ -126,6 +126,12 @@ object DistractionEngine {
     private const val LOOKBACK_MS = 30L * 24 * 60 * 60 * 1000 // 30 days
 
     /**
+     * Ceiling for one app's uninterrupted foreground stretch. ROMs drop usage events, and an
+     * uncapped stretch can credit a whole night's screen-off time to the last app that was open.
+     */
+    private const val MAX_SINGLE_APP_MS = 60L * 60_000L
+
+    /**
      * System / utility packages that appear in UsageEvents but are never real distractions.
      * Covers: permission dialogs, system UI, GMS, setup wizards, input methods, etc.
      */
@@ -495,5 +501,156 @@ object DistractionEngine {
         score >= 50f -> "🟠 Moderately distracted"
         score >= 25f -> "🟡 Mildly distracted"
         else         -> "🟢 Focused"
+    }
+
+    // ── Daily screen time ────────────────────────────────────────────────────
+
+    /**
+     * Seed for the user-editable distracting-app list. Anything the weight table already
+     * treats as at least moderately distracting (social, games, streaming) counts by default.
+     */
+    val DEFAULT_DISTRACTING_PACKAGES: Set<String> =
+        DISTRACTION_WEIGHTS.filterValues { it >= 0.65f }.keys.toSet()
+
+    /** Roughly how much tracked time is needed before a daily verdict means anything. */
+    const val MIN_TRACKED_MS_FOR_VERDICT = 15L * 60_000L
+
+    data class DailyScreenUsage(
+        /** Foreground time in all real apps today (system UI and this app excluded) */
+        val totalScreenMs: Long,
+        /** Foreground time today in the user's distracting apps */
+        val distractingMs: Long,
+        /** Part of [distractingMs] that fell inside a focus block — not extra attention spent */
+        val distractingInsideFocusMs: Long,
+        /** pkg -> ms today, highest first, restricted to the flagged packages */
+        val distractingByApp: List<Pair<String, Long>>,
+        val permissionGranted: Boolean
+    )
+
+    /**
+     * Today's screen time, split into "everything" and "apps the user flagged as distracting".
+     * Event-based rather than [UsageStatsManager.queryUsageStats] because the interval APIs only
+     * give coarse multi-hour buckets on most ROMs; pairing FOREGROUND/BACKGROUND events gives a
+     * real per-app daily total. Must be called off the main thread.
+     *
+     * [focusWindows] lets flagged time be attributed to the block it interrupted rather than
+     * counted twice, once as distraction and once as deep work.
+     */
+    fun dailyScreenUsage(
+        context: Context,
+        distractingPackages: Set<String>,
+        startOfDayMillis: Long,
+        endMillis: Long = System.currentTimeMillis(),
+        focusWindows: List<Pair<Long, Long>> = emptyList()
+    ): DailyScreenUsage {
+        if (!hasUsagePermission(context)) {
+            return DailyScreenUsage(0L, 0L, 0L, emptyList(), permissionGranted = false)
+        }
+
+        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            ?: return DailyScreenUsage(0L, 0L, 0L, emptyList(), permissionGranted = true)
+        val perAppMs = mutableMapOf<String, Long>()
+        var insideFocusMs = 0L
+
+        fun record(pkg: String, ms: Long, fromMillis: Long, toMillis: Long) {
+            if (ms <= 0L) return
+            perAppMs[pkg] = (perAppMs[pkg] ?: 0L) + ms
+            if (pkg in distractingPackages) {
+                insideFocusMs += focusOverlapMs(fromMillis, toMillis, focusWindows)
+            }
+        }
+
+        var openPkg: String? = null
+        var openAtMillis = 0L
+
+        fun closeOpen(closeAtMillis: Long) {
+            val pkg = openPkg ?: return
+            val duration = (closeAtMillis - openAtMillis).coerceAtMost(MAX_SINGLE_APP_MS)
+            record(pkg, duration, closeAtMillis - duration, closeAtMillis)
+            openPkg = null
+        }
+
+        val events = usm.queryEvents(startOfDayMillis, endMillis)
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val pkg = event.packageName ?: continue
+
+            @Suppress("DEPRECATION")
+            when (event.eventType) {
+                UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                    if (pkg == context.packageName) {
+                        // Focus blocks run here: the previous app's turn still ends.
+                        closeOpen(event.timeStamp)
+                        continue
+                    }
+                    // Same precedence as rankAppsByDistraction: a package with a known weight is a
+                    // real app even if its id looks system-owned, and the user may have flagged it.
+                    if (isSystemPackage(pkg) && pkg !in distractingPackages &&
+                        DISTRACTION_WEIGHTS[pkg] == null
+                    ) {
+                        closeOpen(event.timeStamp)
+                        continue
+                    }
+                    // A background event can be dropped by the system; the next foreground
+                    // event is the only reliable evidence of when the previous app stopped.
+                    closeOpen(event.timeStamp)
+                    openPkg = pkg
+                    openAtMillis = event.timeStamp
+                }
+                UsageEvents.Event.MOVE_TO_BACKGROUND, UsageEvents.Event.ACTIVITY_STOPPED -> {
+                    if (openPkg == pkg) closeOpen(event.timeStamp)
+                }
+                // Screen-off and the keyguard end the day's clock for the last app. Without
+                // this the app left open before sleep swallows the whole night.
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> {
+                    closeOpen(event.timeStamp)
+                }
+                else -> Unit
+            }
+        }
+        closeOpen(endMillis)
+
+        val totalScreenMs = perAppMs.values.sum()
+        val distracting = perAppMs
+            .filter { (pkg, _) -> pkg in distractingPackages }
+            .toList()
+            .sortedByDescending { it.second }
+
+        return DailyScreenUsage(
+            totalScreenMs = totalScreenMs,
+            distractingMs = distracting.sumOf { it.second },
+            distractingInsideFocusMs = insideFocusMs.coerceAtMost(distracting.sumOf { it.second }),
+            distractingByApp = distracting,
+            permissionGranted = true
+        )
+    }
+
+    /** How much of [start]..[end] is already spoken for by a focus block. */
+    private fun focusOverlapMs(start: Long, end: Long, windows: List<Pair<Long, Long>>): Long {
+        if (windows.isEmpty()) return 0L
+        return windows.sumOf { (from, to) ->
+            (minOf(end, to) - maxOf(start, from)).coerceAtLeast(0L)
+        }.coerceAtMost(end - start).coerceAtLeast(0L)
+    }
+
+    /**
+     * Share of the day's tracked attention that went to distracting apps, 0–100.
+     * Deliberately ignores the rest of screen time — the comparison the user cares about
+     * is deep work versus the apps they told us they lose time in.
+     */
+    fun dailyDistractionScore(distractedMs: Long, focusMinutes: Float): Float {
+        val focusMs = (focusMinutes * 60_000f).toLong()
+        val tracked = distractedMs + focusMs
+        if (tracked <= 0L) return 0f
+        return ((distractedMs.toFloat() / tracked) * 100f).coerceIn(0f, 100f)
+    }
+
+    fun appLabel(context: Context, packageName: String): String = try {
+        context.packageManager.getApplicationLabel(
+            context.packageManager.getApplicationInfo(packageName, 0)
+        ).toString()
+    } catch (_: Exception) {
+        packageName
     }
 }

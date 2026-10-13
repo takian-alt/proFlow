@@ -1,12 +1,15 @@
 package com.neuroflow.app.worker
 
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.widget.RemoteViews
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.repository.TaskRepository
@@ -27,22 +30,80 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
         try {
             val tasks = taskRepository.getActiveTasks()
             val preferences = preferencesDataStore.preferencesFlow.first()
+            val scoringContext = TaskScoringEngine.ScoringContext.from(tasks)
             val sorted = TaskScoringEngine.sortedByScore(tasks, preferences)
             val topTask = sorted.firstOrNull()
 
-            val views = RemoteViews(appContext.packageName, R.layout.widget_focus)
+            val appWidgetManager = AppWidgetManager.getInstance(appContext)
 
+            // 1. Update FocusWidgetProvider (widget_focus)
+            val focusViews = RemoteViews(appContext.packageName, R.layout.widget_focus)
             if (topTask != null) {
-                views.setTextViewText(R.id.widget_task_title, topTask.title)
+                focusViews.setTextViewText(R.id.widget_task_title, topTask.title)
+                focusViews.setTextViewText(
+                    R.id.widget_task_score,
+                    "Priority Score: ${TaskScoringEngine.displayScore(topTask, preferences, scoringContext)}"
+                )
+
+                val startIntent = Intent(appContext, MainActivity::class.java).apply {
+                    action = "com.procus.ACTION_OPEN_FOCUS"
+                    putExtra("taskId", topTask.id)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                val startPendingIntent = PendingIntent.getActivity(
+                    appContext, 1001, startIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                focusViews.setOnClickPendingIntent(R.id.widget_start_button, startPendingIntent)
             } else {
-                views.setTextViewText(R.id.widget_task_title, "No tasks — add one in NeuroFlow")
+                focusViews.setTextViewText(R.id.widget_task_title, "No tasks — add one in proFlow")
+                focusViews.setTextViewText(R.id.widget_task_score, "Score: —")
             }
 
-            val componentName = ComponentName(
+            val focusComponentName = ComponentName(
                 appContext,
                 "com.neuroflow.app.presentation.widget.FocusWidgetProvider"
             )
-            AppWidgetManager.getInstance(appContext).updateAppWidget(componentName, views)
+            appWidgetManager.updateAppWidget(focusComponentName, focusViews)
+
+            // 2. Update NextActionWidgetProvider (widget_next_action)
+            val nextActionViews = RemoteViews(appContext.packageName, R.layout.widget_next_action)
+            if (topTask != null) {
+                nextActionViews.setTextViewText(R.id.widget_next_task_title, topTask.title)
+                val durationText = if (topTask.estimatedDurationMinutes > 0) "${topTask.estimatedDurationMinutes}m" else "Quick"
+                val quadrantText = topTask.quadrant.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+                nextActionViews.setTextViewText(R.id.widget_next_task_meta, "$quadrantText · $durationText")
+
+                val focusIntent = Intent(appContext, MainActivity::class.java).apply {
+                    action = "com.procus.ACTION_OPEN_FOCUS"
+                    putExtra("taskId", topTask.id)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                val focusPendingIntent = PendingIntent.getActivity(
+                    appContext, 2001, focusIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                nextActionViews.setOnClickPendingIntent(R.id.widget_next_start_button, focusPendingIntent)
+
+                val containerIntent = Intent(appContext, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                val containerPendingIntent = PendingIntent.getActivity(
+                    appContext, 2002, containerIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                nextActionViews.setOnClickPendingIntent(R.id.widget_next_action_container, containerPendingIntent)
+            } else {
+                nextActionViews.setTextViewText(R.id.widget_next_task_title, "All clear! Plan what's next")
+                nextActionViews.setTextViewText(R.id.widget_next_task_meta, "No active tasks")
+            }
+
+            val nextActionComponentName = ComponentName(
+                appContext,
+                "com.neuroflow.app.presentation.widget.NextActionWidgetProvider"
+            )
+            appWidgetManager.updateAppWidget(nextActionComponentName, nextActionViews)
+
         } catch (_: Exception) {
             // Stale widget preferred over crash
         }
@@ -50,3 +111,4 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
         return Result.success()
     }
 }
+

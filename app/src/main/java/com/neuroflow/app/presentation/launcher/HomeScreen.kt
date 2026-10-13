@@ -473,6 +473,7 @@ private fun PortraitLayout(
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
     val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle(initialValue = null)
     val energy by viewModel.energy.collectAsStateWithLifecycle(initialValue = null)
+    val dueSlot by viewModel.dueProtectedSlot.collectAsStateWithLifecycle()
     val appRepository = viewModel.getAppRepository()
 
     // HyperFocus state — Requirements: 6.2
@@ -526,6 +527,7 @@ private fun PortraitLayout(
                     prefs = userPreferences,
                     effectivePeakProfile = peakDetection?.effectiveProfile,
                     energy = energy,
+                    dueSlot = dueSlot,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
                         val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
@@ -539,6 +541,14 @@ private fun PortraitLayout(
                     onComplete = { task -> viewModel.completeTask(task) },
                     onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
+                    onOpenTimeline = {
+                        context.startActivity(
+                            Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
+                                action = "com.procus.ACTION_OPEN_SCHEDULE"
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                        )
+                    },
                     onEmergencyReset = { viewModel.triggerEmergencyReset() },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -649,6 +659,7 @@ private fun LandscapeLayout(
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
     val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle(initialValue = null)
     val energy by viewModel.energy.collectAsStateWithLifecycle(initialValue = null)
+    val dueSlot by viewModel.dueProtectedSlot.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -685,6 +696,7 @@ private fun LandscapeLayout(
                     prefs = userPreferences,
                     effectivePeakProfile = peakDetection?.effectiveProfile,
                     energy = energy,
+                    dueSlot = dueSlot,
                     onSkip = { taskId -> viewModel.skipTask(taskId) },
                     onStartFocus = { taskId ->
                         val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
@@ -698,6 +710,14 @@ private fun LandscapeLayout(
                     onComplete = { task -> viewModel.completeTask(task) },
                     onStopFocus = { viewModel.stopFocusSession() },
                     onClearSkipped = { viewModel.clearSkippedTasks() },
+                    onOpenTimeline = {
+                        context.startActivity(
+                            Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
+                                action = "com.procus.ACTION_OPEN_SCHEDULE"
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -757,6 +777,7 @@ private fun TwoColumnLayout(
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle(initialValue = null)
     val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle(initialValue = null)
     val energy by viewModel.energy.collectAsStateWithLifecycle(initialValue = null)
+    val dueSlot by viewModel.dueProtectedSlot.collectAsStateWithLifecycle()
 
     Row(
         modifier = Modifier
@@ -781,6 +802,7 @@ private fun TwoColumnLayout(
                 prefs = userPreferences,
                 effectivePeakProfile = peakDetection?.effectiveProfile,
                 energy = energy,
+                dueSlot = dueSlot,
                 onSkip = { taskId -> viewModel.skipTask(taskId) },
                 onStartFocus = { taskId ->
                     val effectiveTaskId = if (taskSessionActive) activeFocusTaskId ?: taskId else taskId
@@ -794,6 +816,14 @@ private fun TwoColumnLayout(
                 onComplete = { task -> viewModel.completeTask(task) },
                 onStopFocus = { viewModel.stopFocusSession() },
                 onClearSkipped = { viewModel.clearSkippedTasks() },
+                onOpenTimeline = {
+                        context.startActivity(
+                            Intent(context, com.neuroflow.app.MainActivity::class.java).apply {
+                                action = "com.procus.ACTION_OPEN_SCHEDULE"
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                        )
+                    },
                 modifier = Modifier.fillMaxWidth()
             )
         }

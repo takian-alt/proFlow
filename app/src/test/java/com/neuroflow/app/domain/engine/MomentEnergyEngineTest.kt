@@ -1,12 +1,11 @@
 package com.neuroflow.app.domain.engine
 
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
 
-class MomentEnergyEngineTest {
+class MomentEnergyEngineTest : StringSpec({
 
-    @Test
-    fun `calm productive context nudges energy upward`() {
+    "calm productive context nudges energy upward" {
         val result = MomentEnergyEngine.predict(
             MomentEnergyEngine.MomentSignalSnapshot(
                 baselineRawEnergy = 12f,
@@ -26,13 +25,12 @@ class MomentEnergyEngineTest {
             )
         )
 
-        assertTrue(result.adjustedRawEnergy > 12f)
-        assertTrue(result.confidence > 0.5f)
-        assertTrue(result.summary.contains("supportive") || result.summary.contains("confidence"))
+        (result.adjustedRawEnergy > 12f) shouldBe true
+        (result.confidence > 0.5f) shouldBe true
+        (result.summary.contains("supportive") || result.summary.contains("confidence")) shouldBe true
     }
 
-    @Test
-    fun `heavy interruption and overdue load pushes energy down`() {
+    "heavy interruption and overdue load pushes energy down" {
         val result = MomentEnergyEngine.predict(
             MomentEnergyEngine.MomentSignalSnapshot(
                 baselineRawEnergy = 40f,
@@ -52,8 +50,8 @@ class MomentEnergyEngineTest {
             )
         )
 
-        assertTrue(result.adjustedRawEnergy < 40f)
-        assertTrue(result.adjustment < 0f)
-        assertTrue(result.confidence >= 0.35f)
+        (result.adjustedRawEnergy < 40f) shouldBe true
+        (result.adjustment < 0f) shouldBe true
+        (result.confidence >= 0.35f) shouldBe true
     }
-}
+})

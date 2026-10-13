@@ -32,6 +32,15 @@ fun QuadrantDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val quadrant = Quadrant.valueOf(quadrantName)
+    if (quadrant == Quadrant.ELIMINATE) {
+        // On Hold & Planning owns Q4; a plain quadrant list here would show the same tasks twice.
+        OnHoldPlanningScreen(
+            onNavigateBack = onNavigateBack,
+            onNavigateToFocus = onNavigateToFocus,
+            viewModel = viewModel
+        )
+        return
+    }
     // Sort tasks by score so weight changes are reflected in the list order
     val tasks = remember(uiState.tasksByQuadrant, uiState.preferences) {
         val raw = uiState.tasksByQuadrant[quadrant] ?: emptyList()
@@ -105,31 +114,29 @@ fun QuadrantDetailScreen(
                             },
                             onEditClick = { editingTask = task }
                         )
-                        if (quadrant != Quadrant.ELIMINATE) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 2.dp),
-                                horizontalArrangement = Arrangement.End
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = { viewModel.moveTask(task, Quadrant.ELIMINATE) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.height(26.dp)
                             ) {
-                                TextButton(
-                                    onClick = { viewModel.moveTask(task, Quadrant.ELIMINATE) },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(26.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.PauseCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(13.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        "Put On Hold",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                Icon(
+                                    Icons.Filled.PauseCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    "Put On Hold",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }

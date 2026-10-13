@@ -1,13 +1,17 @@
 package com.neuroflow.app.presentation.focus
 
+import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.WoopRepository
+import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.WoopEngine
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 @Singleton
 class FocusWoopManager @Inject constructor(
@@ -30,6 +34,7 @@ class FocusWoopManager @Inject constructor(
         val showWoopPrompt = prefs.woopEnabled && WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
         val completedTasks = taskRepository.getCompletedTasks()
         val dreadedTaskInsight = WoopEngine.dreadedTaskInsight(completedTasks)
+        syncEnjoymentForecastBias(completedTasks, prefs)
 
         return WoopLoadResult(
             showWoopPrompt = showWoopPrompt,
@@ -37,6 +42,21 @@ class FocusWoopManager @Inject constructor(
             dreadedTaskInsight = dreadedTaskInsight,
             affectiveForecastError = task?.affectiveForecastError
         )
+    }
+
+    /**
+     * Ratings are only ever displayed by WOOP; task priority reads the learned correction from
+     * preferences. Re-derived whenever the focus screen opens so a user's existing ratings count
+     * before their next rating arrives.
+     */
+    private suspend fun syncEnjoymentForecastBias(
+        completedTasks: List<TaskEntity>,
+        prefs: UserPreferences
+    ) {
+        val bias = AnalyticsEngine.EnjoymentCalibration.from(completedTasks).offsetPoints
+        if (abs(bias - prefs.enjoymentForecastBias) >= 0.5f) {
+            preferencesDataStore.updatePreferences { it.copy(enjoymentForecastBias = bias) }
+        }
     }
 
     suspend fun submit(taskId: String, wish: String, outcome: String, obstacle: String, plan: String): WoopEntity? {
@@ -56,6 +76,10 @@ class FocusWoopManager @Inject constructor(
     suspend fun submitAffordanceRating(taskId: String, rating: Float): Boolean {
         val task = taskRepository.getById(taskId) ?: return false
         taskRepository.update(task.copy(affectiveForecastError = rating, updatedAt = System.currentTimeMillis()))
+        syncEnjoymentForecastBias(
+            completedTasks = taskRepository.getCompletedTasks(),
+            prefs = preferencesDataStore.preferencesFlow.first()
+        )
         return true
     }
 }

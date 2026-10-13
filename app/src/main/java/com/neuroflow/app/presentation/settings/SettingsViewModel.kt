@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.settings
 
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -15,6 +16,7 @@ import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.worker.scheduleNotificationWorkers
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,6 +36,48 @@ class SettingsViewModel @Inject constructor(
     private val databaseCleaner: DatabaseCleaner
 ) : ViewModel() {
 
+    data class LaunchableApp(val packageName: String, val label: String)
+
+    private val _launchableApps = MutableStateFlow<List<LaunchableApp>>(emptyList())
+    val launchableApps: StateFlow<List<LaunchableApp>> = _launchableApps.asStateFlow()
+
+    private val _launchableAppsLoading = MutableStateFlow(false)
+    val launchableAppsLoading: StateFlow<Boolean> = _launchableAppsLoading.asStateFlow()
+
+    /**
+     * Enumerating + labelling every launcher activity is PackageManager binder work over
+     * hundreds of apps, so it only happens when the distracting-app picker is opened. A failed or
+     * empty read leaves the list unloadable, so it is retried on the next open instead of being
+     * remembered as "already loaded".
+     */
+    fun loadLaunchableApps() {
+        if (_launchableApps.value.isNotEmpty() || _launchableAppsLoading.value) return
+        _launchableAppsLoading.value = true
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val pm = context.packageManager
+                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                @Suppress("DEPRECATION")
+                val packages = pm.queryIntentActivities(intent, 0)
+                    .asSequence()
+                    .map { it.activityInfo.packageName }
+                    .filter { it != context.packageName }
+                    .distinct()
+                    .map { pkg ->
+                        val label = runCatching {
+                            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                        }.getOrDefault(pkg)
+                        LaunchableApp(pkg, label)
+                    }
+                    .sortedBy { it.label.lowercase() }
+                    .toList()
+                _launchableApps.value = packages
+            } finally {
+                _launchableAppsLoading.value = false
+            }
+        }
+    }
+
     val preferences: StateFlow<UserPreferences> = preferencesDataStore.preferencesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserPreferences())
 
@@ -52,25 +96,35 @@ class SettingsViewModel @Inject constructor(
 
     fun updatePreferences(update: (UserPreferences) -> UserPreferences) {
         viewModelScope.launch {
-            val current = preferences.value
-            val updated = update(current)
-            preferencesDataStore.updatePreferences { updated }
+            // Transform the value the store hands us inside its atomic edit rather than
+            // rebuilding from `preferences.value`: that mirror lags behind writes made by
+            // other screens, and `updatePreferences` persists every key it knows about.
+            var committed: UserPreferences? = null
+            var previous: UserPreferences? = null
+            preferencesDataStore.updatePreferences { current ->
+                val updated = update(current)
+                previous = current
+                committed = updated
+                updated
+            }
+            val after = committed ?: return@launch
+            val before = previous ?: return@launch
 
             val scheduleChanged =
-                current.dailyPlanNotificationsEnabled != updated.dailyPlanNotificationsEnabled ||
-                    current.streakNotificationsEnabled != updated.streakNotificationsEnabled ||
-                    current.deadlineEscalationNotificationsEnabled != updated.deadlineEscalationNotificationsEnabled ||
-                    current.dailyPlanNotificationHour != updated.dailyPlanNotificationHour ||
-                    current.streakCheckNotificationHour != updated.streakCheckNotificationHour
+                before.dailyPlanNotificationsEnabled != after.dailyPlanNotificationsEnabled ||
+                    before.streakNotificationsEnabled != after.streakNotificationsEnabled ||
+                    before.deadlineEscalationNotificationsEnabled != after.deadlineEscalationNotificationsEnabled ||
+                    before.dailyPlanNotificationHour != after.dailyPlanNotificationHour ||
+                    before.streakCheckNotificationHour != after.streakCheckNotificationHour
 
             if (scheduleChanged) {
-                scheduleNotificationWorkers(context, updated)
+                scheduleNotificationWorkers(context, after)
             }
 
-            if (current.autonomyNudgeNotificationsEnabled && !updated.autonomyNudgeNotificationsEnabled) {
+            if (before.autonomyNudgeNotificationsEnabled && !after.autonomyNudgeNotificationsEnabled) {
                 WorkManager.getInstance(context).cancelAllWorkByTag(AutonomyNudgeEngine.globalTag())
             }
-            if (current.deadlineReminderNotificationsEnabled && !updated.deadlineReminderNotificationsEnabled) {
+            if (before.deadlineReminderNotificationsEnabled && !after.deadlineReminderNotificationsEnabled) {
                 WorkManager.getInstance(context).cancelAllWorkByTag("task_reminder_all")
             }
         }

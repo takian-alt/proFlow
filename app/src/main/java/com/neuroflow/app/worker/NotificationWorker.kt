@@ -17,6 +17,8 @@ import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
 import com.neuroflow.app.domain.model.TaskStatus
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -42,6 +44,7 @@ internal data class NotificationWorkerPlan(
 internal fun delayUntilHour(hour: Int, nowMillis: Long = System.currentTimeMillis()): Long {
     val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
     val target = Calendar.getInstance().apply {
+        timeInMillis = nowMillis
         set(Calendar.HOUR_OF_DAY, hour.coerceIn(0, 23))
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
@@ -184,13 +187,8 @@ class StreakCheckWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         var prefs = preferencesDataStore.preferencesFlow.first()
         if (!prefs.streakNotificationsEnabled) return Result.success()
-        val today = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.HOUR_OF_DAY, 0)
-            set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-        }.timeInMillis
-        val yesterday = today - 86_400_000L
+        val today = startOfLocalDay(System.currentTimeMillis())
+        val yesterday = startOfPreviousLocalDay(today)
 
         val completedToday = taskRepository.getCompletedTasks().any { task ->
             task.completedAt != null && task.completedAt >= today
@@ -203,7 +201,9 @@ class StreakCheckWorker @AssistedInject constructor(
         }
 
         // Notify if streak is at risk (active streak, nothing done today yet, evening check)
-        if (!completedToday && prefs.dailyStreak > 0) {
+        // Only when there is actually something to complete — "complete 1 task" with an empty
+        // board sends the user to a screen with nothing to do.
+        if (!completedToday && prefs.dailyStreak > 0 && taskRepository.getActiveTasks().isNotEmpty()) {
             showNotification(
                 "Streak at risk! 🔥",
                 "Your ${prefs.dailyStreak}-day streak ends tonight. Complete 1 task!",

@@ -215,10 +215,41 @@ class PeakEnergyRepository @Inject constructor(
             ?: parsedQuizChronotype
             ?: MEQChronotypeDetector.Chronotype.INTERMEDIATE
 
-        val peakMinuteOfDay = midpointMinuteOfDay(manualPeakStart, manualPeakEnd)
+        val peakMinuteOfDay = profileOverride
+            ?.takeIf { it.enabled && it.anchorMinuteOfDay != null }
+            ?.anchorMinuteOfDay
+            ?.let { ((it % (24 * 60)) + (24 * 60)) % (24 * 60) }
+            ?: midpointMinuteOfDay(manualPeakStart, manualPeakEnd)
         val safeWakeHour = normalizeHour(wakeUpHour)
         val offsetMinutes = minutesDifferenceWrapped(startMinute = safeWakeHour * 60, endMinute = peakMinuteOfDay)
         syncAbstentionTelemetry(abstain = false, reason = "", reasonCategory = null)
+
+        // A manual profile is an explicit user choice and must work before the
+        // optional chronotype quiz has been completed.  Previously this fallback
+        // path silently discarded `profileOverride`, making the settings UI appear
+        // to save a profile while energy scoring continued to use a default one.
+        val effectiveCircadianProfile = profileOverride
+            ?.takeIf { it.enabled && it.windows.isNotEmpty() }
+            ?.let { PeakEnergyEngine.CircadianProfile(windows = it.windows) }
+            ?: PeakEnergyEngine.defaultCircadianProfile(fallbackChronotype)
+        val effectiveProfile = profileOverride
+            ?.takeIf { it.enabled && it.windows.isNotEmpty() }
+            ?.let { override ->
+                PeakEnergyEngine.EffectivePeakProfile(
+                    profileType = override.profileType ?: PeakEnergyEngine.ProfileType.WORKDAY,
+                    anchorMinuteOfDay = peakMinuteOfDay,
+                    windows = override.windows,
+                    confidence = PeakEnergyEngine.ConfidenceComponents(
+                        sleepCoverage = 1f,
+                        wakeConsistency = 1f,
+                        behaviorPerformance = 1f,
+                        overall = 1f
+                    ),
+                    windowConfidences = override.windows.map { 1f },
+                    explanation = "Manual profile"
+                )
+            }
+            ?: PeakEnergyEngine.defaultEffectiveProfile(fallbackChronotype, peakMinuteOfDay)
 
         return PeakEnergyEngine.DetectionResult(
             chronotype = fallbackChronotype,
@@ -228,7 +259,8 @@ class PeakEnergyRepository @Inject constructor(
             peakMinuteOfDay = peakMinuteOfDay,
             peakValue = PeakEnergyEngine.PEAK_VALUE,
             confidence = 1f,
-            circadianProfile = PeakEnergyEngine.defaultCircadianProfile(fallbackChronotype),
+            circadianProfile = effectiveCircadianProfile,
+            effectiveProfile = effectiveProfile,
             detectedAtMillis = System.currentTimeMillis()
         )
     }

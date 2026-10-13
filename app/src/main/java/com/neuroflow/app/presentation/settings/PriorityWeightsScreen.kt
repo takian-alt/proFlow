@@ -1,5 +1,7 @@
 package com.neuroflow.app.presentation.settings
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,7 +30,7 @@ fun PriorityWeightsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Priority Weights") },
+                title = { Text("Priority Weights & Strategy") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -51,19 +53,130 @@ fun PriorityWeightsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                "Adjust how each factor influences task scoring",
+                "Fine-tune the mathematical prioritization formula or choose a tailored 1-click strategy preset.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            // ── STRATEGY PRESETS ─────────────────────────────────────────────
+            Text(
+                "Strategy Presets",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PresetChip(
+                    title = "⚖ Balanced",
+                    description = "Default science-backed blend",
+                    onClick = {
+                        viewModel.updatePreferences { p ->
+                            p.copy(
+                                weightQuadrant = 1.0f,
+                                weightDeadlineUrgency = 1.0f,
+                                weightPriorityLevel = 1.0f,
+                                weightDuration = 1.0f,
+                                weightImpact = 1.0f,
+                                weightFocusMode = 1.0f,
+                                weightCircadianMatch = 1.0f,
+                                weightFrogBonus = 1.0f,
+                                weightPlanBoost = 1.0f,
+                                weightSessionProgress = 1.0f,
+                                weightEnjoyment = 1.0f
+                            )
+                        }
+                    }
+                )
+
+                PresetChip(
+                    title = "🚨 Deadline Driven",
+                    description = "Urgency & critical deadlines first",
+                    onClick = {
+                        viewModel.updatePreferences { p ->
+                            p.copy(
+                                weightQuadrant = 1.4f,
+                                weightDeadlineUrgency = 1.8f,
+                                weightPriorityLevel = 1.4f,
+                                weightDuration = 0.8f,
+                                weightImpact = 0.8f,
+                                weightFocusMode = 0.8f,
+                                weightCircadianMatch = 0.7f,
+                                weightFrogBonus = 0.7f,
+                                weightPlanBoost = 0.8f,
+                                weightSessionProgress = 0.8f,
+                                weightEnjoyment = 0.5f
+                            )
+                        }
+                    }
+                )
+
+                PresetChip(
+                    title = "⚡ Momentum / ADHD",
+                    description = "Quick wins, frogs & plans first",
+                    onClick = {
+                        viewModel.updatePreferences { p ->
+                            p.copy(
+                                weightQuadrant = 0.8f,
+                                weightDeadlineUrgency = 0.8f,
+                                weightPriorityLevel = 0.8f,
+                                weightDuration = 1.8f,
+                                weightImpact = 1.0f,
+                                weightFocusMode = 1.2f,
+                                weightCircadianMatch = 1.4f,
+                                weightFrogBonus = 1.4f,
+                                weightPlanBoost = 1.6f,
+                                weightSessionProgress = 1.8f,
+                                weightEnjoyment = 1.5f
+                            )
+                        }
+                    }
+                )
+
+                PresetChip(
+                    title = "🏛 Pure Eisenhower",
+                    description = "Strict Quadrant & Impact ranking",
+                    onClick = {
+                        viewModel.updatePreferences { p ->
+                            p.copy(
+                                weightQuadrant = 2.0f,
+                                weightDeadlineUrgency = 1.2f,
+                                weightPriorityLevel = 1.6f,
+                                weightDuration = 0.5f,
+                                weightImpact = 1.6f,
+                                weightFocusMode = 0.5f,
+                                weightCircadianMatch = 0.5f,
+                                weightFrogBonus = 0.5f,
+                                weightPlanBoost = 0.5f,
+                                weightSessionProgress = 0.5f,
+                                weightEnjoyment = 0.5f
+                            )
+                        }
+                    }
+                )
+            }
+
+            HorizontalDivider()
+
+            // ── CORE PRIORITY WEIGHTS ─────────────────────────────────────────
+            Text(
+                "Core Priority Weights",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
             WeightSlider(
-                label = "Quadrant (DO FIRST > others)",
+                label = "Quadrant (DO FIRST > SCHEDULE > DELEGATE)",
                 value = prefs.weightQuadrant,
                 onValueChange = { viewModel.updatePreferences { p -> p.copy(weightQuadrant = it) } }
             )
 
             WeightSlider(
-                label = "Deadline Urgency",
+                label = "Deadline Urgency (exponential proximity boost)",
                 value = prefs.weightDeadlineUrgency,
                 onValueChange = { viewModel.updatePreferences { p -> p.copy(weightDeadlineUrgency = it) } }
             )
@@ -75,21 +188,60 @@ fun PriorityWeightsScreen(
             )
 
             WeightSlider(
-                label = "Duration (shorter tasks boost)",
+                label = "Quick-Win Duration (shorter tasks boost)",
                 value = prefs.weightDuration,
                 onValueChange = { viewModel.updatePreferences { p -> p.copy(weightDuration = it) } }
             )
 
             WeightSlider(
-                label = "Impact (higher impact boost)",
+                label = "Strategic Impact & Value",
                 value = prefs.weightImpact,
                 onValueChange = { viewModel.updatePreferences { p -> p.copy(weightImpact = it) } }
             )
 
             WeightSlider(
-                label = "Focus Mode (active task boost)",
+                label = "Focus Mode & Effort Alignment",
                 value = prefs.weightFocusMode,
                 onValueChange = { viewModel.updatePreferences { p -> p.copy(weightFocusMode = it) } }
+            )
+
+            HorizontalDivider()
+
+            // ── BEHAVIORAL & MOTIVATION HEURISTICS ────────────────────────────
+            Text(
+                "Behavioral & Motivation Heuristics",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            WeightSlider(
+                label = "Circadian Energy Match (Task Type vs Time-of-Day)",
+                value = prefs.weightCircadianMatch,
+                onValueChange = { viewModel.updatePreferences { p -> p.copy(weightCircadianMatch = it) } }
+            )
+
+            WeightSlider(
+                label = "Eat the Frog Bonus (Hardest task morning boost)",
+                value = prefs.weightFrogBonus,
+                onValueChange = { viewModel.updatePreferences { p -> p.copy(weightFrogBonus = it) } }
+            )
+
+            WeightSlider(
+                label = "Implementation Plan Boost (If-Then concrete steps)",
+                value = prefs.weightPlanBoost,
+                onValueChange = { viewModel.updatePreferences { p -> p.copy(weightPlanBoost = it) } }
+            )
+
+            WeightSlider(
+                label = "Progress Momentum (Started tasks boost)",
+                value = prefs.weightSessionProgress,
+                onValueChange = { viewModel.updatePreferences { p -> p.copy(weightSessionProgress = it) } }
+            )
+
+            WeightSlider(
+                label = "Enjoyment & Motivation (Temptation bundling)",
+                value = prefs.weightEnjoyment,
+                onValueChange = { viewModel.updatePreferences { p -> p.copy(weightEnjoyment = it) } }
             )
 
             // Reset to defaults
@@ -102,13 +254,18 @@ fun PriorityWeightsScreen(
                             weightPriorityLevel = 1.0f,
                             weightDuration = 1.0f,
                             weightImpact = 1.0f,
-                            weightFocusMode = 1.0f
+                            weightFocusMode = 1.0f,
+                            weightCircadianMatch = 1.0f,
+                            weightFrogBonus = 1.0f,
+                            weightPlanBoost = 1.0f,
+                            weightSessionProgress = 1.0f,
+                            weightEnjoyment = 1.0f
                         )
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Reset to Defaults")
+                Text("Reset All to Defaults")
             }
 
             // Tip
@@ -118,7 +275,7 @@ fun PriorityWeightsScreen(
                 colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.PurpleLight)
             ) {
                 Text(
-                    text = "💡 Tip: Increase weights for factors that matter most to your workflow. Lower impact and focus mode weights if you want traditional urgency-based sorting.",
+                    text = "💡 Tip: Increase weights for factors that matter most to your workflow. If you prefer pure urgency over energy matching, lower the Circadian and Enjoyment weights.",
                     modifier = Modifier.padding(16.dp),
                     fontSize = 13.sp,
                     color = NeuroFlowColors.PurpleDark
@@ -126,6 +283,26 @@ fun PriorityWeightsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun PresetChip(
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

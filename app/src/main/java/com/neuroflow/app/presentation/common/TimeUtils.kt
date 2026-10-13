@@ -59,3 +59,20 @@ fun formatFullDate(millis: Long, hasTime: Boolean): String {
     val sdf = SimpleDateFormat(formatStr, Locale.getDefault())
     return sdf.format(Date(millis))
 }
+
+/**
+ * A live session outranks the calendar: the block is happening, so the card must stop announcing
+ * when it was going to start.
+ */
+fun timeBlockLabel(isRecurring: Boolean, isTracking: Boolean): String = when {
+    isTracking -> "🎯 FOCUSING NOW"
+    isRecurring -> "🔁 RECURRENCE TIME"
+    else -> "📅 SCHEDULED"
+}
+
+fun timeBlockHeadline(
+    anchorMillis: Long,
+    hasTime: Boolean,
+    isTracking: Boolean,
+    now: Long = System.currentTimeMillis()
+): String = if (isTracking) "Focusing now" else formatRelativeTime(anchorMillis, hasTime, now)

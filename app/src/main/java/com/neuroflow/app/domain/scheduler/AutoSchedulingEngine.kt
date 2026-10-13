@@ -3,6 +3,8 @@ package com.neuroflow.app.domain.scheduler
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.engine.AnalyticsEngine
+import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.PtsCategory
 import com.neuroflow.app.domain.model.PtsRecurrence
@@ -127,8 +129,7 @@ class AutoSchedulingEngine @Inject constructor(
 
     data class DeadlinePressure(
         val daysUntilDeadline: Long,
-        val pressureLevel: PressureLevel, // URGENT, HIGH, MODERATE, LOW
-        val recommendedPacingDensity: Float // 0.3 (spread out) to 1.0 (pack tight)
+        val pressureLevel: PressureLevel // URGENT, HIGH, MODERATE, LOW
     )
 
     enum class PressureLevel { URGENT, HIGH, MODERATE, LOW }
@@ -136,6 +137,14 @@ class AutoSchedulingEngine @Inject constructor(
     data class TimeInterval(
         val startMillis: Long,
         val endMillis: Long
+    )
+
+    /** Task-level inputs that do not depend on the candidate slot, resolved once per planning pass. */
+    private data class TaskPlanningInputs(
+        val priorityScore: Float,
+        val deadlinePressure: DeadlinePressure,
+        val tagProfiles: List<TagSchedulingProfile>,
+        val durationFactor: Float
     )
 
     // ==================== Public API ====================
@@ -158,10 +167,12 @@ class AutoSchedulingEngine @Inject constructor(
         energyScoreFn: suspend (Long) -> Pair<Int, Float>,
         busySlotStartMillis: Set<Long> = emptySet(),
         busyIntervals: List<TimeInterval> = emptyList(),
-        allActiveTasks: List<TaskEntity> = emptyList()
+        allActiveTasks: List<TaskEntity> = emptyList(),
+        allKnownTasks: List<TaskEntity> = emptyList()
     ): List<ScheduleDecision> {
-        // Build dependency graph once for all tasks (performance optimization)
-        val taskMap = unscheduledTasks.associateBy { it.id }
+        // Build dependency graph once for all tasks (combining all known tasks for resolution)
+        val combinedTasks = (allKnownTasks + allActiveTasks + unscheduledTasks).distinctBy { it.id }
+        val taskMap = combinedTasks.associateBy { it.id }
         val dependencyGraph = buildDependencyGraph(unscheduledTasks)
         val blockedTaskIds = detectBlockedTasks(dependencyGraph, taskMap)
 
@@ -194,24 +205,36 @@ class AutoSchedulingEngine @Inject constructor(
             return emptyList()
         }
 
-        // **Deadline-first scheduling**: Tasks with imminent deadlines must be scheduled first
-        // to guarantee they land before their deadline, then by priority+impact for the rest.
+        // Prioritize tasks balancing imminent deadlines and comprehensive priority score.
+        // Per-task inputs are resolved once here: priority, deadline pressure and tag profiles
+        // used to be recomputed inside the comparator and again in every loop below.
+        val scoringContext = TaskScoringEngine.ScoringContext.from(allActiveTasks)
+        val calibration = AnalyticsEngine.PlanningCalibration.from(combinedTasks)
+        val inputsByTaskId = eligibleTasks.associate { task ->
+            task.id to TaskPlanningInputs(
+                priorityScore = calculateCompositePriorityScore(task, prefs, scoringContext, nowMillis),
+                deadlinePressure = calculateDeadlinePressure(task, nowMillis),
+                tagProfiles = TaskTagSchedulingProfile.profilesFor(task.tags),
+                durationFactor = durationCalibrationFactor(task, calibration)
+            )
+        }
         val sortedTasks = eligibleTasks.sortedWith(
-            // 1. Urgent deadlines first (within 24h) — these MUST be scheduled before anything else
+            // 1. Urgent deadlines first (within 24h or overdue) — these MUST be scheduled before anything else to prevent breach
             compareBy<TaskEntity> {
                 val dl = it.deadlineDate?.plus(it.deadlineTime ?: 0L)
                 when {
-                    dl == null -> 3 // No deadline: scheduled after deadline tasks
-                    dl <= nowMillis -> 0 // Past deadline: highest urgency (overdue!)
-                    (dl - nowMillis) <= 24 * 3_600_000L -> 0 // Within 24h: highest urgency
-                    (dl - nowMillis) <= 3 * 24 * 3_600_000L -> 1 // Within 3 days: high
-                    else -> 2 // Far deadline (> 3 days)
+                    dl != null && dl <= nowMillis -> 0 // Past deadline: highest urgency (overdue!)
+                    dl != null && (dl - nowMillis) <= 24 * 3_600_000L -> 0 // Within 24h: highest urgency
+                    else -> 1 // Non-urgent: rank by composite priority score
                 }
             }
-            // 2. Within the same urgency tier, earlier deadline wins
-            .thenBy { it.deadlineDate?.plus(it.deadlineTime ?: 0L) ?: Long.MAX_VALUE }
-            // 3. Then by priority + impact for tiebreaking
-            .thenByDescending { priorityLevelScore(it) + impactPriorityBlend(it) }
+            // 2. Urgent tier: earlier deadline wins
+            .thenBy {
+                val dl = it.deadlineDate?.plus(it.deadlineTime ?: 0L)
+                if (dl != null && (dl - nowMillis) <= 24 * 3_600_000L) dl else Long.MAX_VALUE
+            }
+            // 3. For non-urgent tier (and tiebreaking within urgent tier): rank by composite priority score
+            .thenByDescending { task -> inputsByTaskId.getValue(task.id).priorityScore }
         )
 
         // Initialize occupied intervals from passed busyIntervals, busySlotStartMillis, existing active tasks, and Protected Time Slots
@@ -229,19 +252,39 @@ class AutoSchedulingEngine @Inject constructor(
                 !targetTaskIds.contains(task.id)
             ) {
                 val start = task.scheduledDate + task.scheduledTime
-                val duration = task.estimatedDurationMinutes.coerceAtLeast(15)
+                val duration = TaskBlockPlan.plannedMinutes(task)
                 occupiedIntervals.add(TimeInterval(start, start + (duration * 60_000L)))
             }
         }
 
+        // Free-time packing: leftover capacity on the first day should not go unused while
+        // valuable work drifts to later days.
+        val hasMeaningfulTodaySlack =
+            calculateUnusedDayMinutes(horizon.slots, occupiedIntervals, dayIndex = 0) >= 60
+
         // Score all task-slot combinations per task
         val fitScoresByTask = mutableMapOf<String, MutableList<TaskSlotFitScore>>()
         for (task in sortedTasks) {
-            val tagProfiles = TaskTagSchedulingProfile.profilesFor(task.tags)
-            val deadlinePressure = calculateDeadlinePressure(task, nowMillis)
+            val planningInputs = inputsByTaskId.getValue(task.id)
+            val tagProfiles = planningInputs.tagProfiles
+            val deadlinePressure = planningInputs.deadlinePressure
+            // A deadline-free task with real value should absorb today's leftover time
+            // rather than lose every tie to deadline work and drift to a later day.
+            val isSlackFiller = hasMeaningfulTodaySlack &&
+                task.deadlineDate == null &&
+                isHighValueWork(task)
+            // A manually picked date with no time claims the day, so only the hour is scheduled.
+            val manualDayAnchorMillis = task.scheduledDate?.takeIf { anchor ->
+                task.scheduledTime == null && !task.isAutoScheduled &&
+                    horizon.slots.any { isSlotOnDay(it, anchor) }
+            }
 
             for ((slotIndex, slot) in horizon.slots.withIndex()) {
                 if (slot.endMillis <= nowMillis + 5 * 60_000L) {
+                    continue
+                }
+
+                if (manualDayAnchorMillis != null && !isSlotOnDay(slot, manualDayAnchorMillis)) {
                     continue
                 }
 
@@ -257,8 +300,9 @@ class AutoSchedulingEngine @Inject constructor(
                 }
 
                 val slotUtilization = calculateSlotUtilization(slot)
-                val utilizationLimit = when (slot.energyProfile.zone) {
-                    EnergyZone.CRITICAL -> 0.50f
+                val utilizationLimit = when {
+                    slot.energyProfile.zone == EnergyZone.CRITICAL -> 0.50f
+                    isSlackFiller && slot.dayIndex == 0 -> 0.85f
                     else -> 0.70f
                 }
                 // Urgent deadline tasks bypass utilization hard-blocks (they MUST be scheduled)
@@ -281,7 +325,8 @@ class AutoSchedulingEngine @Inject constructor(
                     deadlinePressure = deadlinePressure,
                     prefs = prefs,
                     nowMillis = nowMillis,
-                    energyPenalty = energyPenalty
+                    energyPenalty = energyPenalty,
+                    packIntoTodaySlack = isSlackFiller
                 )
                 fitScoresByTask.getOrPut(task.id) { mutableListOf() }.add(fitScore)
             }
@@ -291,6 +336,7 @@ class AutoSchedulingEngine @Inject constructor(
             if (fitScoresByTask[task.id].isNullOrEmpty()) {
                 for ((slotIndex, slot) in horizon.slots.withIndex()) {
                     if (slot.endMillis <= nowMillis + 5 * 60_000L) continue
+                    if (manualDayAnchorMillis != null && !isSlotOnDay(slot, manualDayAnchorMillis)) continue
                     if (slot.availableCapacityMinutes <= 0) continue
 
                     val deadlineMillis = task.deadlineDate?.plus(task.deadlineTime ?: 0L)
@@ -310,7 +356,8 @@ class AutoSchedulingEngine @Inject constructor(
                         deadlinePressure = deadlinePressure,
                         prefs = prefs,
                         nowMillis = nowMillis,
-                        energyPenalty = energyPenalty - 0.20f
+                        energyPenalty = energyPenalty - 0.20f,
+                        packIntoTodaySlack = isSlackFiller
                     )
                     fitScoresByTask.getOrPut(task.id) { mutableListOf() }.add(fitScore)
                 }
@@ -346,12 +393,15 @@ class AutoSchedulingEngine @Inject constructor(
                 return@forEach
             }
 
-            val tagProfilesForTask = TaskTagSchedulingProfile.profilesFor(task.tags)
-            val deadlinePressure = calculateDeadlinePressure(task, nowMillis)
+            val planningInputs = inputsByTaskId.getValue(task.id)
+            val tagProfilesForTask = planningInputs.tagProfiles
+            val deadlinePressure = planningInputs.deadlinePressure
             val deadlineMillis = task.deadlineDate?.plus(task.deadlineTime ?: 0L)
             val isDeadlineUrgent = deadlineMillis != null && (deadlineMillis - nowMillis) <= 24 * 3_600_000L
             val isErrandTask = task.isNonWorkOrErrandTask()
-            val maxAllowedHour = if (isErrandTask) (prefs.sleepHour - 1).coerceIn(18, 23) else (prefs.workDayEnd - 1).coerceAtLeast(prefs.workDayStart)
+            // Off-work hours are usable by any task now; work hours are still *preferred*
+            // via offWorkHoursPenalty below, so leftover evening time is not wasted.
+            val maxAllowedHour = resolvePlacementCeilingHour(prefs)
 
             val todayCandidates = mutableListOf<StartCandidate>()
             val futureCandidates = mutableListOf<StartCandidate>()
@@ -360,11 +410,11 @@ class AutoSchedulingEngine @Inject constructor(
                 if (blockedSlotIndices.contains(baseFitScore.slotIndex)) return@forEach
                 val slot = horizon.slots[baseFitScore.slotIndex]
 
-                if (!isErrandTask && (slot.hourOfDay < prefs.workDayStart || slot.hourOfDay >= prefs.workDayEnd)) {
+                if (slot.hourOfDay > maxAllowedHour) {
                     return@forEach
                 }
 
-                val estimatedDuration = calculateRealisticDuration(task, slot)
+                val estimatedDuration = calculateRealisticDuration(task, slot, planningInputs.durationFactor)
 
                 val cStart = findEarliestAvailableStartTime(
                     slot = slot,
@@ -390,7 +440,8 @@ class AutoSchedulingEngine @Inject constructor(
                         highCognitiveMinutesByDay = highCognitiveMinutesByDay,
                         highCognitiveHoursByDay = highCognitiveHoursByDay,
                         blockedSlotIndices = blockedSlotIndices,
-                        slots = horizon.slots
+                        slots = horizon.slots,
+                        slackOverrunAllowed = hasMeaningfulTodaySlack && slot.dayIndex == 0
                     )
                 ) {
                     return@forEach
@@ -399,9 +450,12 @@ class AutoSchedulingEngine @Inject constructor(
                 val cohesionBonus = categoryCohesionBonus(task, baseFitScore.slotIndex, tagProfilesForTask, assignedCategoryBySlot, assignedContextBySlot)
                 val hoursFromNow = ((cStart - nowMillis).coerceAtLeast(0L) / 3_600_000f)
                 val earlinessBonus = maxOf(0f, 1.0f - (hoursFromNow / 36.0f)) * 0.25f
+                val offWorkHoursPenalty = if (!isErrandTask &&
+                    !isHourInWindow(slot.hourOfDay, prefs.workDayStart, prefs.workDayEnd)
+                ) 0.10f else 0f
 
                 val finalFitScore = baseFitScore.copy(
-                    overallScore = (baseFitScore.overallScore + cohesionBonus + earlinessBonus).coerceIn(0f, 1f)
+                    overallScore = (baseFitScore.overallScore + cohesionBonus + earlinessBonus - offWorkHoursPenalty).coerceIn(0f, 1f)
                 )
 
                 val candidate = StartCandidate(finalFitScore, estimatedDuration, cStart, baseFitScore.slotIndex)
@@ -458,12 +512,12 @@ class AutoSchedulingEngine @Inject constructor(
                         horizonDays = prefs.autoSchedulingHorizonDays,
                         wasApplied = false,
                         inputs = AutoScheduleInputsSnapshot(
-                            priorityScore = task.impactScore.toFloat(),
+                            priorityScore = planningInputs.priorityScore,
                             energyScore = actualSlot.availableEnergy.toFloat(),
                             sleepPressurePoints = prefs.sleepPressurePoints,
                             hasDependencies = task.dependsOnTaskIds.isNotEmpty(),
                             estimatedDurationMinutes = estimatedDuration,
-                            tagProfileHints = TaskTagSchedulingProfile.profilesFor(task.tags).map { it.tag }
+                            tagProfileHints = planningInputs.tagProfiles.map { it.tag }
                         )
                     )
                 )
@@ -582,7 +636,7 @@ class AutoSchedulingEngine @Inject constructor(
                 activeTask.scheduledDate != null && activeTask.scheduledTime != null
             ) {
                 val start = activeTask.scheduledDate + activeTask.scheduledTime
-                val duration = activeTask.estimatedDurationMinutes.coerceAtLeast(15)
+                val duration = TaskBlockPlan.plannedMinutes(activeTask)
                 occupiedIntervals.add(TimeInterval(start, start + (duration * 60_000L)))
             }
         }
@@ -590,8 +644,7 @@ class AutoSchedulingEngine @Inject constructor(
         val tagProfiles = TaskTagSchedulingProfile.profilesFor(task.tags)
         val deadlineMillis = task.deadlineDate?.plus(task.deadlineTime ?: 0L)
         val isDeadlineUrgent = deadlineMillis != null && (deadlineMillis - nowMillis) <= 24 * 3_600_000L
-        val isErrandTask = task.isNonWorkOrErrandTask()
-        val maxAllowedHour = if (isErrandTask) (prefs.sleepHour - 1).coerceIn(18, 23) else prefs.workDayEnd
+        val maxAllowedHour = resolvePlacementCeilingHour(prefs)
 
         data class ReplanCandidate(
             val slotIndex: Int,
@@ -606,7 +659,7 @@ class AutoSchedulingEngine @Inject constructor(
             if (slot.endMillis <= nowMillis + 5 * 60_000L) return@forEach
             if (slot.availableCapacityMinutes <= 0) return@forEach
 
-            if (!isErrandTask && (slot.hourOfDay < prefs.workDayStart || slot.hourOfDay > prefs.workDayEnd)) {
+            if (slot.hourOfDay > maxAllowedHour) {
                 return@forEach
             }
 
@@ -668,7 +721,7 @@ class AutoSchedulingEngine @Inject constructor(
                 horizonDays = prefs.autoSchedulingHorizonDays,
                 wasApplied = false,
                 inputs = AutoScheduleInputsSnapshot(
-                    priorityScore = task.impactScore.toFloat(),
+                    priorityScore = calculateCompositePriorityScore(task, prefs, emptyList(), nowMillis),
                     energyScore = bestSlot.availableEnergy.toFloat(),
                     sleepPressurePoints = prefs.sleepPressurePoints,
                     hasDependencies = false,
@@ -714,6 +767,20 @@ class AutoSchedulingEngine @Inject constructor(
             iterations++
             val candidateEnd = candidateStart + durationMs
 
+            // A task is represented by one contiguous calendar block.  Starting
+            // it before the end of a workday is not enough: its whole duration
+            // must fit before that day's allowed end.  The old start-hour-only
+            // check could place a 3-hour task at 17:55 in an 08:00-18:00 day.
+            val latestAllowedEnd = Calendar.getInstance().apply {
+                timeInMillis = candidateStart
+                set(Calendar.HOUR_OF_DAY, maxAllowedHourInclusive)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                add(Calendar.HOUR_OF_DAY, 1)
+            }.timeInMillis
+            if (candidateEnd > latestAllowedEnd) return null
+
             // Earliest intersecting blocking interval:
             val blockingInterval = occupiedIntervals
                 .filter { interval ->
@@ -746,41 +813,6 @@ class AutoSchedulingEngine @Inject constructor(
             }
         }
         return null
-    }
-
-    /**
-     * **Anti-procrastination spacing**: Returns optimal task distribution.
-     * - Close deadline → pack tasks tighter, fill momentum windows
-     * - Far deadline → spread out, maintain anti-procrastination pace (1-2 tasks per day)
-     * - Prevents "I have time" procrastination trap
-     */
-    suspend fun calculateOptimalSpacing(
-        unscheduledTasks: List<TaskEntity>,
-        nowMillis: Long
-    ): Map<String, Float> {
-        val prefs = preferencesDataStore.preferencesFlow.first()
-
-        // Calculate deadline pressure for each task
-        val spacingFactors = mutableMapOf<String, Float>()
-
-        for (task in unscheduledTasks) {
-            val pressure = calculateDeadlinePressure(task, nowMillis)
-
-            // Spacing factor = how to distribute tasks across available time
-            // 1.0 = normal packing
-            // 0.5 = spread out (anti-procrastination)
-            // 1.5 = compress aggressively (deadline urgent)
-            val spacingFactor = when (pressure.pressureLevel) {
-                PressureLevel.URGENT -> 1.5f // Pack tight, maintain momentum
-                PressureLevel.HIGH -> 1.2f   // Moderately compress
-                PressureLevel.MODERATE -> 0.9f // Gentle spacing
-                PressureLevel.LOW -> 0.5f   // Anti-procrastination: spread far out, but not too sparse
-            }
-
-            spacingFactors[task.id] = spacingFactor
-        }
-
-        return spacingFactors
     }
 
     // ==================== Private Implementation ====================
@@ -844,43 +876,25 @@ class AutoSchedulingEngine @Inject constructor(
     }
 
     /**
-     * **Dynamic rescheduling helper**: Calculate deadline pressure to determine pacing.
+     * **Dynamic rescheduling helper**: Calculate deadline pressure.
      * - URGENT: deadline < 1 day away
      * - HIGH: deadline 1–3 days away
      * - MODERATE: deadline 3–7 days away
      * - LOW: deadline > 7 days away
-     *
-     * Returns pacing density (how tightly to pack tasks).
      */
     private fun calculateDeadlinePressure(task: TaskEntity, nowMillis: Long): DeadlinePressure {
         if (task.deadlineDate == null) {
-            return DeadlinePressure(Long.MAX_VALUE, PressureLevel.LOW, 0.5f)
+            return DeadlinePressure(Long.MAX_VALUE, PressureLevel.LOW)
         }
 
         val deadlineMillis = task.deadlineDate + (task.deadlineTime ?: 0L)
         val daysUntil = (deadlineMillis - nowMillis) / (24 * 60 * 60 * 1000L)
 
         return when {
-            daysUntil <= 1 -> DeadlinePressure(
-                daysUntil,
-                PressureLevel.URGENT,
-                1.5f // Pack tight to maintain momentum
-            )
-            daysUntil <= 3 -> DeadlinePressure(
-                daysUntil,
-                PressureLevel.HIGH,
-                1.2f // Moderately compress
-            )
-            daysUntil <= 7 -> DeadlinePressure(
-                daysUntil,
-                PressureLevel.MODERATE,
-                0.9f // Gentle spacing, but don't procrastinate
-            )
-            else -> DeadlinePressure(
-                daysUntil,
-                PressureLevel.LOW,
-                0.5f // Anti-procrastination: spread tasks, prevent "I have time" trap
-            )
+            daysUntil <= 1 -> DeadlinePressure(daysUntil, PressureLevel.URGENT)
+            daysUntil <= 3 -> DeadlinePressure(daysUntil, PressureLevel.HIGH)
+            daysUntil <= 7 -> DeadlinePressure(daysUntil, PressureLevel.MODERATE)
+            else -> DeadlinePressure(daysUntil, PressureLevel.LOW)
         }
     }
 
@@ -899,22 +913,15 @@ class AutoSchedulingEngine @Inject constructor(
     /**
      * Mis-planning prevention: Calculate realistic task duration based on effort and slot energy.
      * Don't optimistically assume tasks will complete in estimated time if energy is low.
-     * Accounts for task type - ANALYTICAL tasks typically take longer than ADMIN tasks.
+     *
+     * [durationFactor] carries the task-type prior, replaced by the user's learned planning bias
+     * when they have outcome history for this kind of work.
      *
      * FIX #6: Cap at 360 minutes (6 hours) instead of 180 to support long-running tasks
      */
-    private fun calculateRealisticDuration(task: TaskEntity, slot: TimeSlot): Int {
-        val defaultBase = when {
-            task.effortScore >= 80 -> 60
-            task.effortScore >= 60 -> 45
-            else -> 30
-        }
-
-        val baseEstimate = if (task.estimatedDurationMinutes > 0) {
-            task.estimatedDurationMinutes
-        } else {
-            defaultBase
-        }
+    private fun calculateRealisticDuration(task: TaskEntity, slot: TimeSlot, durationFactor: Float): Int {
+        val defaultBase = TaskBlockPlan.defaultMinutes(task)
+        val baseEstimate = TaskBlockPlan.expectedMinutes(task)
 
         val historicalEstimate = if (task.actualDurationMinutes != null && task.actualDurationMinutes > 0) {
             ((baseEstimate + task.actualDurationMinutes.toInt()) / 2f).roundToInt()
@@ -928,14 +935,6 @@ class AutoSchedulingEngine @Inject constructor(
 
         val adjustedEstimate = (historicalEstimate * errorAdjustment).toInt().coerceAtLeast(defaultBase)
 
-        // Task type adjustment: ANALYTICAL tasks take longer, ADMIN tasks are faster
-        val taskTypeMultiplier = when (task.taskType) {
-            com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> 1.15f
-            com.neuroflow.app.domain.model.TaskType.CREATIVE -> 1.10f
-            com.neuroflow.app.domain.model.TaskType.ADMIN -> 0.90f
-            com.neuroflow.app.domain.model.TaskType.PHYSICAL -> 1.0f
-        }
-
         val energyAdjustment = when (slot.energyProfile.zone) {
             EnergyZone.PEAK -> 1.0f
             EnergyZone.HIGH -> 1.1f
@@ -945,7 +944,26 @@ class AutoSchedulingEngine @Inject constructor(
         }
 
         // FIX #6: Increase cap from 180 to 360 minutes (6 hours) for long-running tasks
-        return (adjustedEstimate * taskTypeMultiplier * energyAdjustment).toInt().coerceAtMost(360)
+        return (adjustedEstimate * durationFactor * energyAdjustment).toInt().coerceAtMost(360)
+    }
+
+    /**
+     * How long this kind of work really takes for this user. Their measured bias replaces the
+     * guessed type prior once there is history for the category; without any history the factor is
+     * the static prior untouched.
+     */
+    private fun durationCalibrationFactor(
+        task: TaskEntity,
+        calibration: AnalyticsEngine.PlanningCalibration
+    ): Float {
+        val staticTypeMultiplier = when (task.taskType) {
+            com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> 1.15f
+            com.neuroflow.app.domain.model.TaskType.CREATIVE -> 1.10f
+            com.neuroflow.app.domain.model.TaskType.ADMIN -> 0.90f
+            com.neuroflow.app.domain.model.TaskType.PHYSICAL -> 1.0f
+        }
+        return calibration.categoryFactor(task.determineCategory())
+            ?: (calibration.globalFactor * staticTypeMultiplier)
     }
 
     private fun estimateRemainingMinutes(task: TaskEntity, timeSpentMinutes: Int): Int {
@@ -955,15 +973,7 @@ class AutoSchedulingEngine @Inject constructor(
             else -> 0
         }
 
-        val baseEstimate = if (task.estimatedDurationMinutes > 0) {
-            task.estimatedDurationMinutes
-        } else {
-            when {
-                task.effortScore >= 80 -> 60
-                task.effortScore >= 60 -> 45
-                else -> 30
-            }
-        }
+        val baseEstimate = TaskBlockPlan.expectedMinutes(task)
 
         val adjustedEstimate = if (task.actualDurationMinutes != null && task.actualDurationMinutes > 0) {
             ((baseEstimate + task.actualDurationMinutes.toInt()) / 2f).roundToInt()
@@ -1243,7 +1253,7 @@ class AutoSchedulingEngine @Inject constructor(
                 // add +10 cognitive bonus to the energy score (capped at 100).
                 val isPostRecoveryBoosted = prefs.protectedTimeSlots.any { pts ->
                     pts.isEnabled && (pts.category == PtsCategory.EXERCISE || pts.category == PtsCategory.MINDFULNESS) &&
-                    isProtectedSlotActiveOnDay(pts, dayCal.get(Calendar.DAY_OF_WEEK)) &&
+                    ProtectedSlotClock.occursOnDay(pts, dayCal.timeInMillis) &&
                     run {
                         val ptsEndMinuteOfDay = pts.startMinuteOfDay + pts.durationMinutes + pts.recoveryBufferMinutes
                         val slotStartMinuteOfDay = dayCal.get(Calendar.HOUR_OF_DAY) * 60 + dayCal.get(Calendar.MINUTE)
@@ -1294,6 +1304,7 @@ class AutoSchedulingEngine @Inject constructor(
         prefs: UserPreferences,
         nowMillis: Long,
         energyPenalty: Float = 0f,
+        packIntoTodaySlack: Boolean = false,
         assignedCategoryBySlot: Map<Int, TaskCategory> = emptyMap(),
         assignedContextBySlot: Map<Int, String> = emptyMap()
     ): TaskSlotFitScore {
@@ -1402,9 +1413,19 @@ class AutoSchedulingEngine @Inject constructor(
         val deadlinePlacement = calculateDeadlinePlacementScore(slot.dayIndex, deadlinePressure)
         score += deadlinePlacement * 0.08f
 
-        // 5. Priority / value pressure: higher-impact and explicitly high-priority work should land sooner (adjusted weight: 0.08)
-        val priorityPressure = (priorityLevelScore(task) * 0.6f + impactPriorityBlend(task) * 0.4f).coerceIn(0f, 1f)
-        score += priorityPressure * 0.08f
+        // 5. Priority / value pressure: higher-impact and explicitly high-priority work should land sooner (adjusted weight: 0.12)
+        val priorityPressure = (
+            priorityLevelScore(task) * 0.4f +
+            impactPriorityBlend(task) * 0.3f +
+            (if (task.quadrant == com.neuroflow.app.domain.model.Quadrant.DO_FIRST) 0.2f else 0f) +
+            (if (task.isFrog) 0.1f else 0f)
+        ).coerceIn(0f, 1f)
+        score += priorityPressure * 0.12f
+
+        // 5.5. Execution plan readiness: concrete step-by-step plan facilitates immediate action
+        if (task.ifThenPlan.isNotBlank()) {
+            score += 0.04f
+        }
 
         // 6. Temporal proximity & Front-loading: heavily favor today & tomorrow over procrastinating to future days
         val proximity = calculateProximityScore(slot.startMillis, nowMillis)
@@ -1460,6 +1481,12 @@ class AutoSchedulingEngine @Inject constructor(
         // 6. Micro-adjustments (+0.05 bonus)
         if (slot.dayIndex == 0 && slot.hourOfDay in 9..11) {
             score += 0.05f
+        }
+
+        // Free-time packing: valuable deadline-free work should absorb today's slack
+        // instead of drifting to a later day.
+        if (packIntoTodaySlack && slot.dayIndex == 0) {
+            score += 0.12f
         }
 
         score += categoryCohesionBonus(task, slotIndex, tagProfiles, assignedCategoryBySlot, assignedContextBySlot)
@@ -1658,6 +1685,30 @@ class AutoSchedulingEngine @Inject constructor(
                 else -> 0.45f
             }
         }
+    }
+
+    private fun calculateCompositePriorityScore(
+        task: TaskEntity,
+        prefs: UserPreferences,
+        allActiveTasks: List<TaskEntity>,
+        nowMillis: Long
+    ): Float = calculateCompositePriorityScore(
+        task,
+        prefs,
+        TaskScoringEngine.ScoringContext.from(allActiveTasks),
+        nowMillis
+    )
+
+    private fun calculateCompositePriorityScore(
+        task: TaskEntity,
+        prefs: UserPreferences,
+        context: TaskScoringEngine.ScoringContext,
+        nowMillis: Long
+    ): Float {
+        val baseScore = TaskScoringEngine.score(task, prefs, context, nowMillis)
+        val frogBoost = if (task.isFrog) 60f else 0f
+        val planBoost = if (task.ifThenPlan.isNotBlank()) 30f else 0f
+        return baseScore + frogBoost + planBoost
     }
 
     private fun priorityLevelScore(task: TaskEntity): Float {
@@ -1866,6 +1917,7 @@ class AutoSchedulingEngine @Inject constructor(
 
         val (chronotypeStart, chronotypeEnd) = resolveChronotypePeakWindow(prefs)
         val inChronotypeWindow = isHourInWindow(slot.hourOfDay, chronotypeStart, chronotypeEnd)
+        val inWorkWindow = isHourInWindow(slot.hourOfDay, prefs.workDayStart, prefs.workDayEnd)
 
         val typeFit = when (task.taskType) {
             com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> when {
@@ -1875,11 +1927,11 @@ class AutoSchedulingEngine @Inject constructor(
                 else -> 0.45f
             }
             com.neuroflow.app.domain.model.TaskType.CREATIVE -> when {
-                slot.hourOfDay in 10..16 -> 1.0f
-                inChronotypeWindow -> 0.85f
+                inChronotypeWindow -> 1.0f
+                inWorkWindow -> 0.85f
                 else -> 0.65f
             }
-            com.neuroflow.app.domain.model.TaskType.ADMIN -> if (slot.hourOfDay in 10..18) 1.0f else 0.7f
+            com.neuroflow.app.domain.model.TaskType.ADMIN -> if (inWorkWindow) 1.0f else 0.7f
             com.neuroflow.app.domain.model.TaskType.PHYSICAL -> when {
                 slot.energyProfile.zone == EnergyZone.PEAK -> 0.72f
                 slot.hourOfDay in 7..20 && slot.energyProfile.zone in listOf(EnergyZone.HIGH, EnergyZone.MODERATE) -> 1.0f
@@ -1975,6 +2027,55 @@ class AutoSchedulingEngine @Inject constructor(
         return start to end
     }
 
+    /**
+     * Inclusive hour a task may start in. Uses the full planning window (wake-guarded start
+     * to sleep-guarded end) rather than workDayEnd, so hours that are free but outside the
+     * nominal workday can still hold work.
+     */
+    private fun resolvePlacementCeilingHour(prefs: UserPreferences): Int {
+        val (_, dayEndHourInclusive) = resolveDailyPlanningWindow(prefs)
+        return dayEndHourInclusive.coerceAtLeast(0)
+    }
+
+    /**
+     * Minutes in a planning day that no busy interval, protected slot, or existing task claims.
+     */
+    private fun calculateUnusedDayMinutes(
+        slots: List<TimeSlot>,
+        occupiedIntervals: List<TimeInterval>,
+        dayIndex: Int
+    ): Int {
+        val daySlots = slots.filter { it.dayIndex == dayIndex }
+        if (daySlots.isEmpty()) return 0
+
+        val dayStart = daySlots.minOf { it.startMillis }
+        val dayEnd = daySlots.maxOf { it.endMillis }
+        val windowMinutes = ((dayEnd - dayStart) / 60_000L).toInt()
+
+        val occupiedMinutes = occupiedIntervals.sumOf { interval ->
+            val overlapStart = maxOf(interval.startMillis, dayStart)
+            val overlapEnd = minOf(interval.endMillis, dayEnd)
+            if (overlapEnd > overlapStart) (overlapEnd - overlapStart) / 60_000L else 0L
+        }.toInt()
+
+        val reservedByEarlierAssignments = daySlots.sumOf { it.assignedMinutes + it.reservedBreakMinutes }
+        return (windowMinutes - occupiedMinutes - reservedByEarlierAssignments).coerceAtLeast(0)
+    }
+
+    private fun isHighValueWork(task: TaskEntity): Boolean {
+        return task.priority == com.neuroflow.app.domain.model.Priority.HIGH ||
+            task.impactScore >= 70 ||
+            task.isFrog
+    }
+
+    private fun isSlotOnDay(slot: TimeSlot, dayStartMillis: Long): Boolean {
+        val dayEndMillis = Calendar.getInstance().apply {
+            timeInMillis = dayStartMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        return slot.startMillis >= dayStartMillis && slot.startMillis < dayEndMillis
+    }
+
     private fun canAssignWithoutBurnout(
         task: TaskEntity,
         slot: TimeSlot,
@@ -1984,7 +2085,8 @@ class AutoSchedulingEngine @Inject constructor(
         highCognitiveMinutesByDay: MutableMap<Int, Int>,
         highCognitiveHoursByDay: MutableMap<Int, MutableSet<Int>>,
         blockedSlotIndices: Set<Int>,
-        slots: List<TimeSlot>
+        slots: List<TimeSlot>,
+        slackOverrunAllowed: Boolean = false
     ): Boolean {
         if (!isCognitivelyIntense(task)) return true
 
@@ -1992,7 +2094,13 @@ class AutoSchedulingEngine @Inject constructor(
         val urgentDeadline = deadlineMillis != null && (deadlineMillis - nowMillis) <= (24 * 60 * 60 * 1000L)
 
         val baseBudget = calculateDailyCognitiveBudgetMinutes(prefs)
-        val budget = if (urgentDeadline) (baseBudget * 1.2f).roundToInt() else baseBudget
+        // An unused part of the day is capacity the user is offering; a full day that happens
+        // to sit after the nominal budget should not push valuable work out to tomorrow.
+        val budget = when {
+            urgentDeadline -> (baseBudget * 1.2f).roundToInt()
+            slackOverrunAllowed -> (baseBudget * 1.35f).roundToInt()
+            else -> baseBudget
+        }
         val used = highCognitiveMinutesByDay[slot.dayIndex] ?: 0
 
         // Long-task exception: if the task itself exceeds the daily budget, allow it through
@@ -2000,7 +2108,7 @@ class AutoSchedulingEngine @Inject constructor(
         // tasks longer than the budget (e.g. a 6-hour deep-work block) can never be scheduled.
         val isLongTask = durationMinutes > budget
         if (isLongTask) {
-            return used == 0  // Only allow if the day is still cognitively empty
+            return if (slackOverrunAllowed) used < budget else used == 0
         }
 
         if (used + durationMinutes > budget) {
@@ -2309,10 +2417,9 @@ class AutoSchedulingEngine @Inject constructor(
                 timeInMillis = baseCal.timeInMillis
                 add(Calendar.DAY_OF_YEAR, dayIdx)
             }
-            val dayOfWeek = dayCal.get(Calendar.DAY_OF_WEEK)
 
             for (pts in enabledSlots) {
-                if (!isProtectedSlotActiveOnDay(pts, dayOfWeek)) continue
+                if (!ProtectedSlotClock.occursOnDay(pts, dayCal.timeInMillis)) continue
 
                 val slotStartCal = Calendar.getInstance().apply {
                     timeInMillis = dayCal.timeInMillis
@@ -2327,18 +2434,5 @@ class AutoSchedulingEngine @Inject constructor(
         }
 
         return intervals
-    }
-
-    private fun isProtectedSlotActiveOnDay(slot: ProtectedTimeSlot, dayOfWeek: Int): Boolean {
-        return when (slot.recurrence) {
-            PtsRecurrence.DAILY -> true
-            PtsRecurrence.WEEKDAYS -> dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
-            PtsRecurrence.WEEKENDS -> dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
-            PtsRecurrence.CUSTOM -> {
-                // Calendar.SUNDAY = 1, MONDAY = 2, ..., SATURDAY = 7
-                val bit = 1 shl (dayOfWeek - 1)
-                (slot.weekdayBitmask and bit) != 0
-            }
-        }
     }
 }

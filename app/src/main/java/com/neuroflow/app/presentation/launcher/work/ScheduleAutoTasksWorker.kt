@@ -8,12 +8,16 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkerParameters
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.EnergyScoreEngine
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
+import com.neuroflow.app.domain.scheduler.PlacementStability
+import com.neuroflow.app.domain.scheduler.PlacementStability.ReplanVerdict
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.scheduler.AutoSchedulingEngine
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -50,7 +54,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
     private val autoSchedulingEngine: AutoSchedulingEngine,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val energyScoreRepository: EnergyScoreRepository,
-    private val peakEnergyRepository: PeakEnergyRepository
+    private val peakEnergyRepository: PeakEnergyRepository,
+    private val sessionRepository: SessionRepository
 ) : CoroutineWorker(context, params) {
 
     companion object {
@@ -96,20 +101,25 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val forceReplan = inputData.getBoolean("FORCE_REPLAN", false)
             // Check if auto-scheduling is enabled
             val prefs = preferencesDataStore.preferencesFlow.first()
-            if (!prefs.autoSchedulingEnabled && !prefs.isAutoScheduleToggleOn) {
+            if (!prefs.autoSchedulingEnabled) {
                 return Result.success()
             }
 
-            // Query all active tasks for unscheduled and missed scheduled assignments
-            val allTasks = taskRepository.getActiveTasks()
+            // Query all tasks for unscheduled and missed scheduled assignments
+            val allKnownTasks = taskRepository.getAllTasks()
+            val allTasks = allKnownTasks.filter { it.status == TaskStatus.ACTIVE }
             val nowMillis = System.currentTimeMillis()
-            val blockedTaskIds = buildBlockedTaskIds(allTasks)
+            val blockedTaskIds = buildBlockedTaskIds(allTasks, allKnownTasks)
+
+            // A task with an open focus session is being lived in, not planned. Moving it would
+            // rewrite the block the user is already working inside.
+            val focusedTaskIds = sessionRepository.getOpenSessions().map { it.taskId }.toSet()
 
             // Separate tasks into categories
             val unscheduledTasks = allTasks.filter { task ->
                 (task.scheduledDate == null || task.scheduledTime == null) &&
                 !AutoSchedulingContracts.hasManualScheduleData(task)
-            }.filterNot { it.id in blockedTaskIds }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds }
 
             // Post-scheduled-end grace period threshold: 5 min when auto-schedule toggle is ON, 30 min default
             val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
@@ -124,11 +134,14 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                     task.scheduledTime != null &&
                     let {
                         val scheduledStart = task.scheduledDate + task.scheduledTime
-                        val estimatedDuration = if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 30
-                        val scheduledEnd = scheduledStart + (estimatedDuration * 60_000L)
-                        nowMillis > (scheduledEnd + gracePeriodMillis) || (forceReplan && scheduledStart < nowMillis)
+                        TaskBlockPlan.blockHasExpired(
+                            task = task,
+                            startMillis = scheduledStart,
+                            nowMillis = nowMillis,
+                            gracePeriodMillis = gracePeriodMillis
+                        ) || (forceReplan && scheduledStart < nowMillis)
                     }
-            }.filterNot { it.id in blockedTaskIds }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds }
 
             // Auto-scheduled tasks eligible for replanning (future active tasks)
             val replanCandidates = allTasks.filter { task ->
@@ -138,12 +151,14 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                     task.scheduledTime != null &&
                     (task.scheduledDate + task.scheduledTime) >= nowMillis &&
                     shouldReplanAutoScheduledTask(task, nowMillis, prefs, forceReplan)
-            }.filterNot { it.id in blockedTaskIds }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds }
 
             // Combine all tasks needing assignment into a single unified queue
             val targetTasksMap = LinkedHashMap<String, com.neuroflow.app.data.local.entity.TaskEntity>()
             (unscheduledTasks + missedTasks + replanCandidates).forEach { t ->
-                targetTasksMap[t.id] = t.copy(scheduledDate = null, scheduledTime = null)
+                // A manual date with no time keeps its day: the scheduler owns the hour, not the day.
+                val isDateOnlyAnchor = t.scheduledDate != null && t.scheduledTime == null && !t.isAutoScheduled
+                targetTasksMap[t.id] = if (isDateOnlyAnchor) t else t.copy(scheduledDate = null, scheduledTime = null)
             }
             val targetTasks = targetTasksMap.values.toList()
 
@@ -215,7 +230,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 energyScoreFn = energyScoreFn,
                 busySlotStartMillis = currentBusySlotStartMillis,
                 busyIntervals = currentBusyIntervals,
-                allActiveTasks = fixedTasks
+                allActiveTasks = fixedTasks,
+                allKnownTasks = allKnownTasks
             )
 
             if (decisions.isNotEmpty()) {
@@ -236,8 +252,11 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         }
     }
 
-    private fun buildBlockedTaskIds(tasks: List<com.neuroflow.app.data.local.entity.TaskEntity>): Set<String> {
-        val taskMap = tasks.associateBy { it.id }
+    private fun buildBlockedTaskIds(
+        tasks: List<com.neuroflow.app.data.local.entity.TaskEntity>,
+        allKnownTasks: List<com.neuroflow.app.data.local.entity.TaskEntity> = emptyList()
+    ): Set<String> {
+        val taskMap = (allKnownTasks.ifEmpty { tasks }).associateBy { it.id }
         return tasks.filter { task ->
             // Check for external dependency (waitingFor field)
             if (task.waitingFor.isNotBlank()) {
@@ -267,9 +286,19 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         allTasks: List<com.neuroflow.app.data.local.entity.TaskEntity>
     ) {
         val nowMillis = System.currentTimeMillis()
+        // A session can open while this pass is planning, so pin again against fresh state.
+        val focusedTaskIds = sessionRepository.getOpenSessions().map { it.taskId }.toSet()
         decisions.forEach { decision ->
             // Fetch fresh task state from DB to avoid overwriting user edits or completed status during worker execution
             val freshTask = taskRepository.getById(decision.taskId) ?: return@forEach
+
+            if (decision.taskId in focusedTaskIds) {
+                android.util.Log.i(
+                    "ScheduleAutoTasks",
+                    "Keeping placement for task ${decision.taskId}: focus session is running"
+                )
+                return@forEach
+            }
 
             // Re-verify that task is still active and mutable by auto-scheduler
             if (freshTask.status != TaskStatus.ACTIVE ||
@@ -285,11 +314,28 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             // Extract date and time from scheduled start millis
             val (scheduledDate, scheduledTime) = splitMillisToDateAndTime(decision.scheduledStartMillis)
 
+            val previousStartMillis =
+                freshTask.scheduledDate?.let { it + (freshTask.scheduledTime ?: 0L) }
+            val blockLengthChanged =
+                freshTask.plannedBlockMinutes != decision.estimatedDurationMinutes
+            if (!PlacementStability.isMoveWorthApplying(
+                    previousStartMillis = previousStartMillis,
+                    nextStartMillis = decision.scheduledStartMillis,
+                    nowMillis = nowMillis
+                ) && !blockLengthChanged
+            ) {
+                android.util.Log.d(
+                    "ScheduleAutoTasks",
+                    "Keeping placement for task ${decision.taskId}: new start is not materially different"
+                )
+                return@forEach
+            }
+
             val updatedTask = freshTask.copy(
                 scheduledDate = scheduledDate,
                 scheduledTime = scheduledTime,
-                estimatedDurationMinutes = if (freshTask.estimatedDurationMinutes <= 0) decision.estimatedDurationMinutes else freshTask.estimatedDurationMinutes,
                 isAutoScheduled = true,
+                plannedBlockMinutes = decision.estimatedDurationMinutes,
                 lastAutoScheduledAt = nowMillis,  // Track when task was auto-scheduled for replanning cooldown
                 updatedAt = nowMillis
             )
@@ -343,7 +389,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         val scheduledDate = task.scheduledDate ?: return null
         val scheduledTime = task.scheduledTime ?: return null
         val startMillis = scheduledDate + scheduledTime
-        val estimated = task.estimatedDurationMinutes.coerceAtLeast(15)
+        val estimated = TaskBlockPlan.plannedMinutes(task)
         val endMillis = startMillis + (estimated * 60_000L)
         return AutoSchedulingEngine.TimeInterval(startMillis, endMillis)
     }
@@ -360,7 +406,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         val startMillis = scheduledDate + scheduledTime
 
         val roundedStart = roundDownToHour(startMillis)
-        val estimated = task.estimatedDurationMinutes.coerceAtLeast(30)
+        val estimated = TaskBlockPlan.plannedMinutes(task)
         val slotCount = ((estimated + 59) / 60).coerceAtLeast(1)
 
         val slots = mutableSetOf<Long>()
@@ -400,7 +446,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             if (startMillis < nowMillis - 60 * 60 * 1000L) return@forEach
 
             val roundedStart = roundDownToHour(startMillis)
-            val estimated = task.estimatedDurationMinutes.coerceAtLeast(30)
+            val estimated = TaskBlockPlan.plannedMinutes(task)
             val slotCount = ((estimated + 59) / 60).coerceAtLeast(1)
 
             // FIX #5: Handle midnight boundary correctly
@@ -442,14 +488,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
     }
 
     /**
-     * Determines if an auto-scheduled task should be replanned.
-     *
-     * Replanning triggers:
-     * 1. Deadline approaching (< 6 hours) but scheduled too late
-     * 2. Task scheduled in LOW energy but PEAK energy now available earlier
-     * 3. Task postponed multiple times (procrastination pattern)
-     * 4. Scheduled time conflicts with new higher-priority task
-     * 5. Energy prediction changed significantly since scheduling
+     * Whether an already-placed block is worth re-solving. The policy itself lives in
+     * [PlacementStability] so the ordering of the stability guards can be tested directly.
      */
     private fun shouldReplanAutoScheduledTask(
         task: com.neuroflow.app.data.local.entity.TaskEntity,
@@ -457,128 +497,28 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         prefs: com.neuroflow.app.data.local.UserPreferences,
         forceReplan: Boolean
     ): Boolean {
-        if (forceReplan) {
-            android.util.Log.i(
+        val verdict = PlacementStability.verdict(task, nowMillis, prefs, forceReplan)
+        val scheduledMillis = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+        val hoursUntilScheduled = scheduledMillis?.let { (it - nowMillis) / 3_600_000f }
+        val minutesSincePlaced = (nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt)) / 60_000
+        val hoursOut = hoursUntilScheduled?.let { " (${String.format("%.1f", it)} hours out)" } ?: ""
+
+        when (verdict) {
+            ReplanVerdict.NEAR_TERM_FREEZE -> android.util.Log.d(
                 "ScheduleAutoTasks",
-                "Replanning task ${task.id}: forced by manual trigger"
+                "Replanning skipped for task ${task.id}: block starts$hoursOut"
             )
-            return true
-        }
-        val scheduledMillis = (task.scheduledDate ?: return false) + (task.scheduledTime ?: 0L)
-        val hoursUntilScheduled = (scheduledMillis - nowMillis) / 3_600_000f
-
-        // Don't replan tasks scheduled very soon (< 2 hours) - too disruptive
-        if (hoursUntilScheduled < 2f) {
-            android.util.Log.d(
+            ReplanVerdict.COOLDOWN -> android.util.Log.d(
                 "ScheduleAutoTasks",
-                "Replanning skipped for task ${task.id}: scheduled too soon (${String.format("%.1f", hoursUntilScheduled)} hours)"
+                "Replanning skipped for task ${task.id}: $minutesSincePlaced min since last placement"
             )
-            return false
-        }
-
-        // 1. Deadline approaching but scheduled too late
-        val deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
-        if (deadlineMillis != null) {
-            val hoursUntilDeadline = (deadlineMillis - nowMillis) / 3_600_000f
-
-            // If deadline < 6 hours away and task scheduled > 50% of remaining time
-            if (hoursUntilDeadline < 6f && hoursUntilScheduled > hoursUntilDeadline * 0.5f) {
-                android.util.Log.i(
-                    "ScheduleAutoTasks",
-                    "Replanning task ${task.id}: deadline approaching (${String.format("%.1f", hoursUntilDeadline)} hours) but scheduled too late"
-                )
-                return true
-            }
-
-            // If deadline < 12 hours and task is LOW priority but should be HIGH
-            if (hoursUntilDeadline < 12f && task.priority == com.neuroflow.app.domain.model.Priority.LOW) {
-                android.util.Log.i(
-                    "ScheduleAutoTasks",
-                    "Replanning task ${task.id}: deadline approaching (${String.format("%.1f", hoursUntilDeadline)} hours) and priority should be elevated"
-                )
-                return true
-            }
-        }
-
-        // 2. Task postponed multiple times (procrastination pattern)
-        if (task.postponeCount >= 3) {
-            android.util.Log.i(
+            ReplanVerdict.KEEP -> Unit
+            else -> android.util.Log.i(
                 "ScheduleAutoTasks",
-                "Replanning task ${task.id}: postponed ${task.postponeCount} times (procrastination pattern)"
-            )
-            return true
-        }
-
-        // 3. Task scheduled far in future but could be done sooner
-        // Only replan if scheduled > 24 hours away and not locked
-        if (hoursUntilScheduled > 24f && !task.isScheduleLocked) {
-            // Check if this is a high-priority or high-impact task
-            val isImportant = task.priority == com.neuroflow.app.domain.model.Priority.HIGH ||
-                             task.impactScore >= 80 ||
-                             task.isFrog
-
-            if (isImportant) {
-                android.util.Log.i(
-                    "ScheduleAutoTasks",
-                    "Replanning task ${task.id}: important task scheduled far in future (${String.format("%.1f", hoursUntilScheduled)} hours)"
-                )
-                return true
-            }
-        }
-
-        // 4. Periodic refresh: replan tasks to adapt to changing conditions
-        val taskAge = nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt)
-
-        // Check if deadline is urgent (< 6 hours) - if so, reduce cooldown to 1 hour
-        val isUrgentDeadline = deadlineMillis?.let {
-            (it - nowMillis) < 6 * 60 * 60 * 1000L
-        } ?: false
-
-        val cooldownMillis = when {
-            isUrgentDeadline -> 1 * 60 * 60 * 1000L        // 1 hour cooldown for urgent tasks
-            prefs.isAutoScheduleToggleOn -> 4 * 60 * 60 * 1000L // 4 hour cooldown to maintain plan stability
-            else -> 6 * 60 * 60 * 1000L                     // 6 hour cooldown for normal tasks
-        }
-
-        if (taskAge > cooldownMillis && prefs.autoSchedulingEnabled) {
-            // When auto-schedule toggle is ON, bypass rotation bucket so all expired tasks get replanned
-            val shouldRefresh = if (prefs.isAutoScheduleToggleOn) {
-                true
-            } else {
-                val cycleNumber = (nowMillis / (6 * 60 * 60 * 1000L)) % 5
-                val taskBucket = (task.id.hashCode().toLong() and 0x7FFFFFFF) % 5
-                cycleNumber == taskBucket
-            }
-
-            if (shouldRefresh) {
-                val cooldownType = when {
-                    isUrgentDeadline -> "urgent-deadline (1h)"
-                    prefs.isAutoScheduleToggleOn -> "toggle-on (4h)"
-                    else -> "normal (6h)"
-                }
-                android.util.Log.i(
-                    "ScheduleAutoTasks",
-                    "Replanning task ${task.id}: periodic refresh (${taskAge / 60_000} min since last auto-schedule, cooldown: $cooldownType)"
-                )
-                return true
-            } else {
-                android.util.Log.d(
-                    "ScheduleAutoTasks",
-                    "Replanning skipped for task ${task.id}: not in current refresh cycle"
-                )
-            }
-        } else if (taskAge <= cooldownMillis) {
-            val cooldownType = when {
-                prefs.isAutoScheduleToggleOn -> "toggle-on (15m)"
-                isUrgentDeadline -> "urgent (1h)"
-                else -> "normal (6h)"
-            }
-            android.util.Log.d(
-                "ScheduleAutoTasks",
-                "Replanning skipped for task ${task.id}: cooldown active (${taskAge / 60_000} min since last auto-schedule, cooldown: $cooldownType)"
+                "Replanning task ${task.id}: ${verdict.name.lowercase().replace('_', ' ')}$hoursOut"
             )
         }
 
-        return false
+        return verdict.allowsReplan
     }
 }

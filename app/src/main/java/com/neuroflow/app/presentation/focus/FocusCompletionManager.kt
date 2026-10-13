@@ -2,11 +2,12 @@ package com.neuroflow.app.presentation.focus
 
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.Recurrence
-import java.util.Calendar
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -63,15 +64,8 @@ class FocusCompletionManager @Inject constructor(
 
         preferencesDataStore.updatePreferences { prefs ->
             val now2 = System.currentTimeMillis()
-            val todayStart = run {
-                val cal = Calendar.getInstance()
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                cal.set(Calendar.SECOND, 0)
-                cal.set(Calendar.MILLISECOND, 0)
-                cal.timeInMillis
-            }
-            val yesterdayStart = todayStart - 86_400_000L
+            val todayStart = startOfLocalDay(now2)
+            val yesterdayStart = startOfPreviousLocalDay(todayStart)
             val newStreak = when {
                 prefs.lastActiveDate >= todayStart -> prefs.dailyStreak
                 prefs.lastActiveDate >= yesterdayStart -> prefs.dailyStreak + 1

@@ -29,21 +29,33 @@ import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.util.Calendar
 
+enum class AnalyticsMode {
+    ALL,
+    OVERVIEW,
+    INSIGHTS
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
+fun AnalyticsScreen(
+    hideTopBar: Boolean = false,
+    mode: AnalyticsMode = AnalyticsMode.ALL,
+    viewModel: AnalyticsViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val summary = uiState.summary
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Analytics") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+            if (!hideTopBar) {
+                TopAppBar(
+                    title = { Text("Analytics") },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
-            )
+            }
         }
     ) { innerPadding ->
         if (summary == null) {
@@ -53,6 +65,9 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
             return@Scaffold
         }
 
+        val showOverview = mode == AnalyticsMode.ALL || mode == AnalyticsMode.OVERVIEW
+        val showInsights = mode == AnalyticsMode.ALL || mode == AnalyticsMode.INSIGHTS
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -61,92 +76,102 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel = hiltViewModel()) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            uiState.energy?.let { energy ->
-                EnergyPulseCard(energy)
-                MorningCalibrationCard(
-                    profile = energy.effectivePeakProfile,
-                    manualOverrideEnabled = uiState.preferences.manualPeakProfileEnabled,
-                    tuneSleep = uiState.preferences.morningTuneSleepWeight,
-                    tuneWake = uiState.preferences.morningTuneWakeWeight,
-                    tuneBehavior = uiState.preferences.morningTuneBehaviorWeight,
-                    tuneBase = uiState.preferences.morningTuneBaseWeight,
-                    abstentionTriggerCount = uiState.preferences.peakConfidenceAbstentionTriggerCount,
-                    abstentionRecoveryCount = uiState.preferences.peakConfidenceAbstentionRecoveryCount,
-                    abstentionReason = uiState.preferences.peakConfidenceAbstentionReason,
-                    abstentionReasonFreezeCount = uiState.preferences.peakConfidenceAbstentionReasonFreezeCount,
-                    abstentionReasonLowSamplesCount = uiState.preferences.peakConfidenceAbstentionReasonLowSamplesCount,
-                    abstentionReasonLowCoverageCount = uiState.preferences.peakConfidenceAbstentionReasonLowCoverageCount,
-                    abstentionReasonWakeVarianceCount = uiState.preferences.peakConfidenceAbstentionReasonWakeVarianceCount,
-                    abstentionReasonDivergenceCount = uiState.preferences.peakConfidenceAbstentionReasonDivergenceCount,
-                    abstentionReasonOtherCount = uiState.preferences.peakConfidenceAbstentionReasonOtherCount,
-                    abstentionRateTrend7d = uiState.abstentionRateTrend7d
-                )
-                InterruptionTelemetryCard(
-                    pauseResumeCount = uiState.interruptionPauseResumeCount,
-                    appSwitchCount = uiState.interruptionAppSwitchCount,
-                    burstCount = uiState.interruptionBurstCount,
-                    trend7d = uiState.interruptionTrend7d,
-                    ratePerHourTrend7d = uiState.interruptionRatePerHourTrend7d
-                )
+            if (showInsights) {
+                uiState.energy?.let { energy ->
+                    EnergyPulseCard(energy)
+                    MorningCalibrationCard(
+                        profile = energy.effectivePeakProfile,
+                        manualOverrideEnabled = uiState.preferences.manualPeakProfileEnabled,
+                        tuneSleep = uiState.preferences.morningTuneSleepWeight,
+                        tuneWake = uiState.preferences.morningTuneWakeWeight,
+                        tuneBehavior = uiState.preferences.morningTuneBehaviorWeight,
+                        tuneBase = uiState.preferences.morningTuneBaseWeight,
+                        abstentionTriggerCount = uiState.preferences.peakConfidenceAbstentionTriggerCount,
+                        abstentionRecoveryCount = uiState.preferences.peakConfidenceAbstentionRecoveryCount,
+                        abstentionReason = uiState.preferences.peakConfidenceAbstentionReason,
+                        abstentionReasonFreezeCount = uiState.preferences.peakConfidenceAbstentionReasonFreezeCount,
+                        abstentionReasonLowSamplesCount = uiState.preferences.peakConfidenceAbstentionReasonLowSamplesCount,
+                        abstentionReasonLowCoverageCount = uiState.preferences.peakConfidenceAbstentionReasonLowCoverageCount,
+                        abstentionReasonWakeVarianceCount = uiState.preferences.peakConfidenceAbstentionReasonWakeVarianceCount,
+                        abstentionReasonDivergenceCount = uiState.preferences.peakConfidenceAbstentionReasonDivergenceCount,
+                        abstentionReasonOtherCount = uiState.preferences.peakConfidenceAbstentionReasonOtherCount,
+                        abstentionRateTrend7d = uiState.abstentionRateTrend7d
+                    )
+                    InterruptionTelemetryCard(
+                        pauseResumeCount = uiState.interruptionPauseResumeCount,
+                        appSwitchCount = uiState.interruptionAppSwitchCount,
+                        burstCount = uiState.interruptionBurstCount,
+                        trend7d = uiState.interruptionTrend7d,
+                        ratePerHourTrend7d = uiState.interruptionRatePerHourTrend7d
+                    )
+                }
             }
-            TodayCard(summary)
-            XpCard(summary)
-            OverallProgressCard(summary)
-            FocusTimeCard(summary)
-            SevenDayTrendCard(summary)
-            QuadrantCard(summary)
-            PriorityCard(summary)
-            EstimatedTimeCard(summary)
-            MapeCard(summary) { viewModel.resetEstimationData() }
-            SmapeCard(summary)
-            HabitsCard(summary)
-            RecurrenceAndScheduleCard(summary)
-            StreakCard(summary, uiState.preferences.identityLabel, uiState.preferences.topGoal)
-            val useQuizPeak = uiState.preferences.quizPeakEnabled &&
-                uiState.preferences.effectivePeakStart >= 0 &&
-                uiState.preferences.effectivePeakEnd >= 0
-            // Use effective (blended) peak if available, otherwise fall back to manual.
-            val displayPeakStart = if (useQuizPeak)
-                uiState.preferences.effectivePeakStart else uiState.preferences.peakEnergyStart
-            val displayPeakEnd = if (useQuizPeak)
-                uiState.preferences.effectivePeakEnd else uiState.preferences.peakEnergyEnd
-            PeakHourCard(summary, displayPeakStart, displayPeakEnd)
 
-            // Peak info insight
-            val detectedStart = uiState.preferences.detectedPeakStart
-            val detectedEnd = uiState.preferences.detectedPeakEnd
-            val detectedPeakMinuteOfDay = uiState.preferences.detectedPeakMinuteOfDay
-            val effectivePeakMinuteOfDay = if (useQuizPeak && uiState.preferences.effectivePeakMinuteOfDay >= 0) {
-                uiState.preferences.effectivePeakMinuteOfDay
-            } else {
-                displayPeakStart * 60
+            if (showOverview) {
+                TodayCard(summary)
+                XpCard(summary)
+                OverallProgressCard(summary)
+                FocusTimeCard(summary)
+                SevenDayTrendCard(summary)
+                StreakCard(summary, uiState.preferences.identityLabel, uiState.preferences.topGoal)
+                QuadrantCard(summary)
+                PriorityCard(summary)
+                HabitsCard(summary)
+                EstimatedTimeCard(summary)
             }
-            val confidence = uiState.preferences.peakDetectionConfidence
-            val hasDetectedPeak =
-                detectedStart >= 0 &&
-                    detectedPeakMinuteOfDay in 0 until (24 * 60) &&
-                    confidence > 0f
-            DynamicPeakCard(
-                chronotype = uiState.preferences.quizChronotype ?: uiState.preferences.manualChronotype,
-                manualStart = uiState.preferences.peakEnergyStart,
-                manualEnd = uiState.preferences.peakEnergyEnd,
-                detectedStart = detectedStart,
-                detectedEnd = detectedEnd,
-                detectedPeakMinuteOfDay = detectedPeakMinuteOfDay,
-                effectiveStart = displayPeakStart,
-                effectiveEnd = displayPeakEnd,
-                effectivePeakMinuteOfDay = effectivePeakMinuteOfDay,
-                quizPeakEnabled = uiState.preferences.quizPeakEnabled,
-                confidence = confidence,
-                hasDetectedPeak = hasDetectedPeak,
-                effectiveProfile = uiState.energy?.effectivePeakProfile
-            )
 
-            NeuroBoostCard(summary)
-            if (summary.topProcrastinatedTasks.isNotEmpty()) ProcrastinationCard(summary)
-            if (uiState.activeContracts.isNotEmpty() || uiState.archivedContracts.isNotEmpty()) {
-                CommitmentsCard(uiState.activeContracts, uiState.archivedContracts)
+            if (showInsights) {
+                val useQuizPeak = uiState.preferences.quizPeakEnabled &&
+                    uiState.preferences.effectivePeakStart >= 0 &&
+                    uiState.preferences.effectivePeakEnd >= 0
+                // Use effective (blended) peak if available, otherwise fall back to manual.
+                val displayPeakStart = if (useQuizPeak)
+                    uiState.preferences.effectivePeakStart else uiState.preferences.peakEnergyStart
+                val displayPeakEnd = if (useQuizPeak)
+                    uiState.preferences.effectivePeakEnd else uiState.preferences.peakEnergyEnd
+
+                // Peak info insight
+                val detectedStart = uiState.preferences.detectedPeakStart
+                val detectedEnd = uiState.preferences.detectedPeakEnd
+                val detectedPeakMinuteOfDay = uiState.preferences.detectedPeakMinuteOfDay
+                val effectivePeakMinuteOfDay = if (useQuizPeak && uiState.preferences.effectivePeakMinuteOfDay >= 0) {
+                    uiState.preferences.effectivePeakMinuteOfDay
+                } else {
+                    displayPeakStart * 60
+                }
+                val confidence = uiState.preferences.peakDetectionConfidence
+                val hasDetectedPeak =
+                    detectedStart >= 0 &&
+                        detectedPeakMinuteOfDay in 0 until (24 * 60) &&
+                        confidence > 0f
+
+                DynamicPeakCard(
+                    chronotype = uiState.preferences.quizChronotype ?: uiState.preferences.manualChronotype,
+                    manualStart = uiState.preferences.peakEnergyStart,
+                    manualEnd = uiState.preferences.peakEnergyEnd,
+                    detectedStart = detectedStart,
+                    detectedEnd = detectedEnd,
+                    detectedPeakMinuteOfDay = detectedPeakMinuteOfDay,
+                    effectiveStart = displayPeakStart,
+                    effectiveEnd = displayPeakEnd,
+                    effectivePeakMinuteOfDay = effectivePeakMinuteOfDay,
+                    quizPeakEnabled = uiState.preferences.quizPeakEnabled,
+                    confidence = confidence,
+                    hasDetectedPeak = hasDetectedPeak,
+                    effectiveProfile = uiState.energy?.effectivePeakProfile
+                )
+
+                NeuroBoostCard(summary)
+                if (summary.topProcrastinatedTasks.isNotEmpty()) ProcrastinationCard(summary)
+                PeakHourCard(summary, displayPeakStart, displayPeakEnd)
+                MapeCard(summary) { viewModel.resetEstimationData() }
+                SmapeCard(summary)
+                RecurrenceAndScheduleCard(summary)
+                if (uiState.activeContracts.isNotEmpty() || uiState.archivedContracts.isNotEmpty()) {
+                    CommitmentsCard(uiState.activeContracts, uiState.archivedContracts)
+                }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
         }
     }

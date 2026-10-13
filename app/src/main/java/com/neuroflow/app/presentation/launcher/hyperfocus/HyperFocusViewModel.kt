@@ -6,7 +6,6 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.RewardTier
-import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
@@ -52,8 +51,8 @@ class HyperFocusViewModel @Inject constructor(
 
     val progress: StateFlow<HyperFocusProgress> = combine(
         hyperFocusDataStore.flow,
-        tickerFlow
-    ) { prefs, _ ->
+        taskRepository.observeCompletedTasks()
+    ) { prefs, completedTasks ->
         if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {
             return@combine HyperFocusProgress(
                 completedSinceActivation = 0,
@@ -65,12 +64,10 @@ class HyperFocusViewModel @Inject constructor(
         }
 
         val completedSinceActivation = if (prefs.lockedTaskIds.isNotEmpty()) {
-            taskRepository.getAllTasks()
-                .count { it.id in prefs.lockedTaskIds && it.status == TaskStatus.COMPLETED }
+            completedTasks.count { it.id in prefs.lockedTaskIds }
                 .coerceAtLeast(0)
         } else {
-            val totalCompleted = taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED }
-            (totalCompleted - prefs.tasksCompletedAtActivation).coerceAtLeast(0)
+            (completedTasks.size - prefs.tasksCompletedAtActivation).coerceAtLeast(0)
         }
         val fraction = completedSinceActivation.toFloat() / prefs.dailyTaskTarget.coerceAtLeast(1)
         val currentTier = RewardEngine.computeTier(completedSinceActivation, prefs.dailyTaskTarget, prefs.emergencyUsed)
@@ -153,12 +150,9 @@ class HyperFocusViewModel @Inject constructor(
     val activeTasks: StateFlow<List<TaskEntity>> = taskRepository.observeActiveTasks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val activeTaskCount: StateFlow<Int> = flow {
-        while (true) {
-            emit(taskRepository.getActiveTasks().size)
-            delay(2000)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val activeTaskCount: StateFlow<Int> = taskRepository.observeActiveTasks()
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun activate(blockedPackages: Set<String>, selectedTaskIds: Set<String>) {
         viewModelScope.launch {

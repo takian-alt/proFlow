@@ -2,36 +2,30 @@ package com.neuroflow.app.domain.engine
 
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.TaskStatus
-import org.junit.Assert.*
-import org.junit.Test
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
-class AnalyticsEngineTest {
+class AnalyticsEngineTest : StringSpec({
 
-    @Test
-    fun `computeMape returns correct value`() {
-        val mape = AnalyticsEngine.computeMape(estimated = 60f, actual = 90f)
-        assertEquals(50f, mape, 0.1f) // |90-60|/60 * 100 = 50%
+    "computeMape returns correct value" {
+        AnalyticsEngine.computeMape(estimated = 60f, actual = 90f) shouldBe (50f plusOrMinus 0.1f)
     }
 
-    @Test
-    fun `computeMape returns 0 when estimated is 0`() {
-        assertEquals(0f, AnalyticsEngine.computeMape(0f, 50f), 0.01f)
+    "computeMape returns 0 when estimated is 0" {
+        AnalyticsEngine.computeMape(0f, 50f) shouldBe 0f
     }
 
-    @Test
-    fun `computeSmape returns correct value`() {
-        val smape = AnalyticsEngine.computeSmape(estimated = 60f, actual = 90f)
+    "computeSmape returns correct value" {
         // |90-60| / ((60+90)/2) * 100 = 30/75 * 100 = 40%
-        assertEquals(40f, smape, 0.1f)
+        AnalyticsEngine.computeSmape(estimated = 60f, actual = 90f) shouldBe (40f plusOrMinus 0.1f)
     }
 
-    @Test
-    fun `computeSmape returns 0 when both are 0`() {
-        assertEquals(0f, AnalyticsEngine.computeSmape(0f, 0f), 0.01f)
+    "computeSmape returns 0 when both are 0" {
+        AnalyticsEngine.computeSmape(0f, 0f) shouldBe 0f
     }
 
-    @Test
-    fun `computeWeightedMape with known values`() {
+    "computeWeightedMape weights by estimated minutes" {
         val tasks = listOf(
             TaskEntity(
                 title = "Task 1",
@@ -46,25 +40,30 @@ class AnalyticsEngineTest {
                 status = TaskStatus.COMPLETED
             )
         )
-        val wMape = AnalyticsEngine.computeWeightedMape(tasks)
-        // Task1: MAPE=50%, weight=60; Task2: MAPE=0%, weight=30
-        // Weighted = (50*60 + 0*30) / (60+30) = 3000/90 = 33.33%
-        assertEquals(33.33f, wMape, 0.5f)
+
+        // Task1: MAPE 50% weight 60; Task2: MAPE 0% weight 30 -> 3000/90
+        AnalyticsEngine.computeWeightedMape(tasks) shouldBe (33.33f plusOrMinus 0.5f)
     }
 
-    @Test
-    fun `mapeGrade returns correct labels`() {
-        assertEquals("✨ Excellent time estimation!", AnalyticsEngine.mapeGrade(5f))
-        assertEquals("👍 Good estimation, minor drift", AnalyticsEngine.mapeGrade(15f))
-        assertEquals("⚠ Moderate estimation error", AnalyticsEngine.mapeGrade(35f))
-        assertEquals("🚨 High estimation error — recalibrate", AnalyticsEngine.mapeGrade(60f))
-    }
-
-    @Test
-    fun `computeWeightedMape with no valid tasks returns 0`() {
+    "computeWeightedSmape ignores tasks without an actual duration" {
         val tasks = listOf(
-            TaskEntity(title = "No estimate", estimatedDurationMinutes = 0)
+            TaskEntity(title = "Tracked", estimatedDurationMinutes = 60, actualDurationMinutes = 90f),
+            TaskEntity(title = "Untracked", estimatedDurationMinutes = 120, actualDurationMinutes = null)
         )
-        assertEquals(0f, AnalyticsEngine.computeWeightedMape(tasks), 0.01f)
+
+        AnalyticsEngine.computeWeightedSmape(tasks) shouldBe (40f plusOrMinus 0.1f)
     }
-}
+
+    "mapeGrade returns correct labels" {
+        AnalyticsEngine.mapeGrade(0f) shouldBe
+            "No data yet — complete tasks with time tracking to see your accuracy"
+        AnalyticsEngine.mapeGrade(5f) shouldBe "✨ Excellent time estimation!"
+        AnalyticsEngine.mapeGrade(15f) shouldBe "👍 Good estimation, minor drift"
+        AnalyticsEngine.mapeGrade(35f) shouldBe "⚠ Moderate estimation error — try breaking tasks into smaller chunks"
+        AnalyticsEngine.mapeGrade(75f) shouldBe "🚨 High estimation error — recalibrate your estimates"
+    }
+
+    "computeWeightedMape with no valid tasks returns 0" {
+        AnalyticsEngine.computeWeightedMape(listOf(TaskEntity(title = "No estimate", estimatedDurationMinutes = 0))) shouldBe 0f
+    }
+})

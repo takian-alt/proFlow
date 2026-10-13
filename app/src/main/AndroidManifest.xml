@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <!-- Required for DistractionEngine — user must grant via Settings > Special App Access > Usage Access -->
     <uses-permission
@@ -132,6 +133,30 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_focus_info" />
+        </receiver>
+
+        <!-- QuickCapture AppWidget provider -->
+        <receiver
+            android:name=".presentation.widget.QuickCaptureWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_capture_info" />
+        </receiver>
+
+        <!-- NextAction AppWidget provider -->
+        <receiver
+            android:name=".presentation.widget.NextActionWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_next_action_info" />
         </receiver>
 
         <!-- Hilt WorkManager workers -->

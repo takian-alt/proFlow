@@ -6,8 +6,13 @@ import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.scheduler.TaskCategory
+import com.neuroflow.app.domain.scheduler.determineCategory
 import java.util.Calendar
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.roundToInt
 
 object AnalyticsEngine {
 
@@ -52,6 +57,123 @@ object AnalyticsEngine {
         else        -> "🚨 High estimation error — recalibrate your estimates"
     }
 
+    // ── PLANNING CALIBRATION ──────────────────────────────────────────────────
+
+    /**
+     * The user's planning bias, learned from completed tasks. MAPE was already computed here but
+     * only displayed, so chronic under-booking kept producing plans that were too short.
+     *
+     * Estimate/actual ratios are multiplicative, so the central tendency is a geometric mean, shrunk
+     * toward "no adjustment" by sample count (category -> user global -> 1.0f).
+     */
+    data class PlanningCalibration(
+        val globalFactor: Float,
+        private val categoryFactors: Map<String, Float>
+    ) {
+        /** Category-level factor, or null when there is no history for that kind of work. */
+        fun categoryFactor(category: TaskCategory): Float? = categoryFactors[category.name]
+
+        companion object {
+            val UNIFORM = PlanningCalibration(1.0f, emptyMap())
+
+            /** Below this many outcomes there is nothing trustworthy to learn from. */
+            private const val MIN_SAMPLES = 5
+
+            /** Pseudo-observations of the prior; higher means slower to adopt learned bias. */
+            private const val PRIOR_STRENGTH = 4.0
+
+            /** Outlier outcomes are capped so one bad task cannot dominate the learned bias. */
+            private const val MIN_RATIO = 0.4f
+            private const val MAX_RATIO = 3.0f
+
+            /** Even a confidently-learned bias only moves a plan by this much. */
+            private const val MIN_FACTOR = 0.8f
+            private const val MAX_FACTOR = 1.6f
+
+            fun from(tasks: List<TaskEntity>): PlanningCalibration {
+                val samples = tasks.asSequence()
+                    .filter { it.status == TaskStatus.COMPLETED && it.estimatedDurationMinutes > 0 }
+                    .mapNotNull { task ->
+                        val actual = task.actualDurationMinutes ?: return@mapNotNull null
+                        if (actual <= 0f) return@mapNotNull null
+                        task.determineCategory() to (actual / task.estimatedDurationMinutes)
+                            .coerceIn(MIN_RATIO, MAX_RATIO)
+                    }
+                    .toList()
+
+                if (samples.size < MIN_SAMPLES) return UNIFORM
+
+                val global = shrinkToward(
+                    observed = geometricMean(samples.map { it.second }),
+                    prior = 1.0,
+                    samples = samples.size
+                )
+
+                val categoryFactors = samples
+                    .groupBy { it.first }
+                    .mapKeys { (category, _) -> category.name }
+                    .mapValues { (_, group) ->
+                        shrinkToward(
+                            observed = geometricMean(group.map { it.second }),
+                            prior = global.toDouble(),
+                            samples = group.size
+                        )
+                    }
+
+                return PlanningCalibration(global, categoryFactors)
+            }
+
+            private fun geometricMean(ratios: List<Float>): Double =
+                ratios.map { ln(it.toDouble()) }.average().let(::exp)
+
+            /** Blend toward the prior by sample count, then clamp so history can never swing a plan far. */
+            private fun shrinkToward(observed: Double, prior: Double, samples: Int): Float {
+                val weight = samples / (samples + PRIOR_STRENGTH)
+                val blended = prior + (observed - prior) * weight
+                return blended.toFloat().coerceIn(MIN_FACTOR, MAX_FACTOR)
+            }
+        }
+    }
+
+    /**
+     * How the user's enjoyment forecasts compare with how the work actually felt.
+     *
+     * `enjoymentScore` is a guess made when the task is created, and it feeds temptation-bundling
+     * priority for every task afterwards. The affordance rating collected after each session is the
+     * measured error of that guess — this turns it into a bounded correction so a user who keeps
+     * overestimating how much they'll enjoy something stops being steered by that optimism.
+     */
+    data class EnjoymentCalibration(val offsetPoints: Float) {
+
+        /** A new task's predicted enjoyment, corrected by measured history. */
+        fun forecast(enjoymentScore: Int): Int =
+            (enjoymentScore + offsetPoints).roundToInt().coerceIn(0, 100)
+
+        companion object {
+            val NEUTRAL = EnjoymentCalibration(0f)
+
+            private const val MIN_SAMPLES = 5
+            private const val PRIOR_STRENGTH = 4.0
+            /** Ratings run -2..+2; a whole unit of sustained bias is worth this many enjoyment points. */
+            private const val POINTS_PER_RATING = 10f
+            private const val MAX_OFFSET_POINTS = 15f
+
+            fun from(tasks: List<TaskEntity>): EnjoymentCalibration {
+                val ratings = tasks
+                    .filter { it.status == TaskStatus.COMPLETED }
+                    .mapNotNull { it.affectiveForecastError }
+                    .filter { it.isFinite() }
+                if (ratings.size < MIN_SAMPLES) return NEUTRAL
+
+                val observed = ratings.average().toFloat() * POINTS_PER_RATING
+                val weight = (ratings.size / (ratings.size + PRIOR_STRENGTH)).toFloat()
+                return EnjoymentCalibration(
+                    (observed * weight).coerceIn(-MAX_OFFSET_POINTS, MAX_OFFSET_POINTS)
+                )
+            }
+        }
+    }
+
     // ── SESSION HELPERS ───────────────────────────────────────────────────────
 
     /** Returns start-of-day millis for a given timestamp */
@@ -83,19 +205,28 @@ object AnalyticsEngine {
     }
 
     private fun peakWindowsForDay(dayStartMillis: Long, peakStartHour: Int, peakEndHour: Int): List<Pair<Long, Long>> {
-        val hourMs = 3_600_000L
         val start = normalizeHour(peakStartHour)
         val end = normalizeHour(peakEndHour)
+        fun atHour(hour: Int): Long = Calendar.getInstance().apply {
+            timeInMillis = dayStartMillis
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val nextDayStart = Calendar.getInstance().apply {
+            timeInMillis = dayStartMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
 
         return if (start <= end) {
-            listOf(dayStartMillis + start * hourMs to dayStartMillis + (end + 1) * hourMs)
+            listOf(atHour(start) to atHour(end + 1))
         } else {
             // Night window: e.g. 22:00 to 02:00
-            // Day 1: 22:00 to 24:00 (dayStart + 22h to dayStart + 24h)
-            // Day 2: 00:00 to 03:00 (dayStart to dayStart + 3h)
+            // Day 1: start hour to next local midnight; day 2: midnight through end hour.
             listOf(
-                dayStartMillis + start * hourMs to dayStartMillis + 24 * hourMs,
-                dayStartMillis to dayStartMillis + (end + 1) * hourMs
+                atHour(start) to nextDayStart,
+                dayStartMillis to atHour(end + 1)
             )
         }
     }
@@ -108,9 +239,16 @@ object AnalyticsEngine {
         nowMillis: Long = System.currentTimeMillis()
     ): List<Pair<String, Float>> {
         val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        val todayStart = startOfDay(nowMillis)
         return (6 downTo 0).map { daysAgo ->
-            val dayStart = startOfDay(nowMillis) - daysAgo * 86_400_000L
-            val dayEnd = dayStart + 86_400_000L
+            val dayStart = Calendar.getInstance().apply {
+                timeInMillis = todayStart
+                add(Calendar.DAY_OF_YEAR, -daysAgo)
+            }.timeInMillis
+            val dayEnd = Calendar.getInstance().apply {
+                timeInMillis = dayStart
+                add(Calendar.DAY_OF_YEAR, 1)
+            }.timeInMillis
             val daySessions = sessions.filter {
                 it.startedAt >= dayStart && it.startedAt < dayEnd && it.endedAt != null
             }
@@ -294,7 +432,10 @@ object AnalyticsEngine {
             .mapValues { it.value.size }
 
         // ── XP / Points ───────────────────────────────────────────────────────
-        val weekStart = startOfDay(nowMillis) - 6 * 86_400_000L
+        val weekStart = Calendar.getInstance().apply {
+            timeInMillis = startOfDay(nowMillis)
+            add(Calendar.DAY_OF_YEAR, -6)
+        }.timeInMillis
         val totalXp = completed.sumOf { it.focusModePoints }
         val xpToday = completed
             .filter { (it.completedAt ?: 0L) >= todayStart }
@@ -334,7 +475,10 @@ object AnalyticsEngine {
                         peakHourFocusMinutes += (overlapEnd - overlapStart) / 60_000f
                     }
                 }
-                day += 86_400_000L
+                day = Calendar.getInstance().apply {
+                    timeInMillis = day
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }.timeInMillis
             }
         }
         val offPeakFocusMinutes = (focusMinutesTotal - peakHourFocusMinutes).coerceAtLeast(0f)

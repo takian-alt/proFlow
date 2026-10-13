@@ -25,11 +25,18 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
 import com.neuroflow.app.data.local.entity.isRecurringWithAnchor
 import com.neuroflow.app.domain.model.Recurrence
+import com.neuroflow.app.domain.scheduler.DueSlot
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.common.formatFullDate
 import com.neuroflow.app.presentation.common.formatRelativeTime
+import com.neuroflow.app.presentation.common.timeBlockHeadline
+import com.neuroflow.app.presentation.common.timeBlockLabel
 import com.neuroflow.app.presentation.common.getQuadrantLabel
+import com.neuroflow.app.presentation.common.timeText
+import com.neuroflow.app.presentation.common.title
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
+import com.neuroflow.app.presentation.schedule.getPtsCategoryColor
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -41,6 +48,7 @@ fun FocusScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val task = uiState.task
+    var showSplitDialog by remember { mutableStateOf(false) }
 
     // Intercept system back button while tracking
     BackHandler(enabled = uiState.isTracking) {
@@ -95,48 +103,20 @@ fun FocusScreen(
         )
     }
 
-    // 3-step stop confirmation
-    when (uiState.stopConfirmStep) {
-        1 -> AlertDialog(
+    // Single stop confirmation dialog
+    if (uiState.stopConfirmStep > 0) {
+        AlertDialog(
             onDismissRequest = { viewModel.cancelStop() },
-            title = { Text("⚠️ Stop Tracking?") },
-            text = { Text("You're about to stop the timer. This will save your current session. Are you sure?") },
+            title = { Text("Stop tracking session?") },
+            text = { Text("${formatTimer(uiState.elapsedSeconds)} tracked will be recorded to your history.") },
             confirmButton = {
                 Button(
-                    onClick = { viewModel.advanceStopConfirm() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA726))
-                ) { Text("Yes, continue") }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelStop() }) { Text("Cancel") }
-            }
-        )
-        2 -> AlertDialog(
-            onDismissRequest = { viewModel.cancelStop() },
-            title = { Text("⚠️ Are you really sure?") },
-            text = { Text("Once stopped, the timer resets to zero. You cannot undo this. The session will be saved to history.") },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.advanceStopConfirm() },
+                    onClick = { viewModel.confirmStop() },
                     colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.TrackingRed)
-                ) { Text("Yes, stop it") }
+                ) { Text("Stop & Save") }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.cancelStop() }) { Text("Go back") }
-            }
-        )
-        3 -> AlertDialog(
-            onDismissRequest = { viewModel.cancelStop() },
-            title = { Text("🛑 Final confirmation") },
-            text = { Text("This is your last chance. Stopping now will end this tracking session permanently. Your focus time will be recorded.") },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.advanceStopConfirm() },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.TrackingRed)
-                ) { Text("STOP TRACKING") }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelStop() }) { Text("Keep tracking") }
+                TextButton(onClick = { viewModel.cancelStop() }) { Text("Keep Going") }
             }
         )
     }
@@ -683,11 +663,13 @@ fun FocusScreen(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        val timeBlockLabel = if (task.isRecurringWithAnchor()) "🔁 RECURRENCE TIME" else "📅 SCHEDULED"
-                        Text(timeBlockLabel, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 12.sp)
+                        Text(
+                            timeBlockLabel(task.isRecurringWithAnchor(), uiState.isTracking),
+                            fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 12.sp
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = formatRelativeTime(timeBlockMillis, true),
+                            text = timeBlockHeadline(timeBlockMillis, true, uiState.isTracking),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -714,6 +696,21 @@ fun FocusScreen(
                     )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Split into multi-session sprints button
+            if (task.status == com.neuroflow.app.domain.model.TaskStatus.ACTIVE && !uiState.isTracking) {
+                OutlinedButton(
+                    onClick = { showSplitDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = NeuroFlowColors.Purple
+                    )
+                ) {
+                    Text("✂  Split into Multi-Session Sprints", fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             // Row 7: Time Tracking card
@@ -888,7 +885,11 @@ fun FocusScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Next task suggestion (updates dynamically)
-            if (uiState.nextTaskTitle != null) {
+            val takeoverSlot = viewModel.dueProtectedSlot.collectAsStateWithLifecycle().value
+            if (takeoverSlot != null) {
+                UpNextProtectedSlotCard(takeoverSlot)
+                Spacer(modifier = Modifier.height(12.dp))
+            } else if (uiState.nextTaskTitle != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -986,6 +987,9 @@ fun FocusScreen(
 
     // Completion bottom sheet
     if (uiState.showCompletionSheet) {
+        if (task?.isFrog == true) {
+            FrogConfettiOverlay(trigger = true)
+        }
         CompletionSheet(
             task = task!!,
             pointsEarned = uiState.pointsEarned,
@@ -1001,6 +1005,100 @@ fun FocusScreen(
                 onNavigateBack()
             }
         )
+    }
+
+    // Split Task into Multi-Session Sprints Dialog
+    if (showSplitDialog && task != null) {
+        var sessionMins by remember { mutableStateOf(45) }
+        AlertDialog(
+            onDismissRequest = { showSplitDialog = false },
+            title = { Text("Split Task into Sprints") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Break \"${task.title}\" into sequential sessions linked by dependencies.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text("Target session duration: ${sessionMins} mins", fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(25, 30, 45, 60).forEach { mins ->
+                            FilterChip(
+                                selected = sessionMins == mins,
+                                onClick = { sessionMins = mins },
+                                label = { Text("${mins}m") }
+                            )
+                        }
+                    }
+                    val totalMins = if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 90
+                    val count = maxOf(2, (totalMins + sessionMins - 1) / sessionMins)
+                    Text(
+                        "This creates $count sequential parts (~${totalMins / count} min each). Part 1 starts immediately, while subsequent parts unlock automatically as each preceding session is completed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSplitDialog = false
+                        viewModel.splitIntoSessions(sessionMins) { firstSessionId ->
+                            onNavigateToNextTask(firstSessionId, "")
+                        }
+                    }
+                ) {
+                    Text("Split Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSplitDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+/** A protected block that is happening now holds the "up next" line until it ends. */
+@Composable
+private fun UpNextProtectedSlotCard(due: DueSlot) {
+    val accent = getPtsCategoryColor(due.slot.category)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        ),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Shield,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    "Protected time",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "${due.title()} · ${due.timeText()}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
