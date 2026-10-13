@@ -16,14 +16,14 @@
 - **minSdk 26, compileSdk 35, targetSdk 35, JVM 17.** No new dependencies.
 - **New unit tests must be kotest `StringSpec`.** `app/build.gradle.kts:68-75` sets `testOptions.unitTests.all { it.useJUnitPlatform() }`, which makes JUnit4 `@Test` classes and Robolectric **inert** in `app/src/test` — a JUnit4 test there compiles, silently never runs, and looks green. Any logic that needs an Android `Context` must be split so the decision-making is a pure JVM function under test, with a thin untested Android shell.
 - **Work in the isolated worktree, never in `/home/takian/Project/PROCUS`.** This plan is executed from a linked worktree; every path here is relative to the repo root of *your* workspace (`git rev-parse --show-toplevel`). An absolute `cd` into the main checkout would move and delete files in the user's working tree.
-- **Verify command for every task:** `bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble`, plus `verify.sh testone "<fqcn>"` for tasks that add or change a suite, and `verify.sh tests` at the phase gates. **Do not call `./gradlew` directly** — the committed wrapper collapses every 2+ argument invocation into a single task name (`:app:assembleDebug --console=plain` → "task not found"), which looks like a plan error but is not one.
+- **Verify command for every task:** `bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble`, plus `verify.sh testone "<fqcn>"` for tasks that add or change a suite, and `verify.sh tests` at the phase gates. The script `cd`s to its own worktree, so it works from any directory; the other commands in a step that use relative paths still need the repo root (`cd "$(git rev-parse --show-toplevel)"`). **Never call `./gradlew` directly, and never "fix" a wrapper error by re-quoting it:** `gradlew:105` ends with `… GradleWrapperMain \"\$@\""`, which puts every CLI argument after the first into one quoted cluster, so a wrapper call for `:app:testDebugUnitTest --tests "com.foo.BarTest"` reaches Gradle as the single task name `:app:testDebugUnitTest --tests com.foo.BarTest` → *task not found*. Commit `b478278` ("Fix Gradle wrapper quoting issue in gradlew script") added a comment describing this exact bug and left the quoting unchanged, so it is broken at every commit on this branch — a single-argument call is the only form that works. The `--tests=<pattern>` spelling does reach Gradle but then fails inside the JUnit Platform engine with *no tests found to execute*, so it is not a workaround either. Mapping: `:app:assembleDebug` → `verify.sh assemble`, `:app:testDebugUnitTest` → `verify.sh tests`, `:app:testDebugUnitTest --tests X` → `verify.sh testone "X"`, `:app:compileDebugAndroidTestKotlin` → `verify.sh atcompile`, `:app:lintDebug` → `verify.sh lint`, `:app:clean` → `verify.sh clean`, `--stop` → `verify.sh stop`.
 - **Commits must be pathspec-limited. Never a bare `git commit`.** The user keeps ~96 files permanently staged in this tree; a plain commit sweeps their work into mine. Form:
   ```bash
   git add <exact paths> && git commit -q -m "<message>" -- <exact same paths>
   git show --name-only HEAD   # expect ONLY my paths
   ```
   A `needs merge` line on stderr is expected and benign (two stale `DU` entries in `docs/book/`); confirm success with `git show --name-only HEAD`, never by the exit message. Never `git add -A`, never `--amend`, never `--no-verify`, never `git stash`/`checkout`/`reset`.
-- **A commit that moves a file must name BOTH the new path and the deleted old path in its pathspec, and must be checked afterwards with `git ls-tree -r --name-only HEAD <old dir>`.** `git mv` stages the rename, but `git commit -- <new path>` commits only the addition: HEAD then holds two copies of the class. `:app:assembleDebug` still passes (main sources resolve to the new package), so the duplicate is invisible until `:app:compileDebugUnitTestKotlin` fails. This happened on Task 1: `e68088f` left five launcher-path test suites in HEAD and needed a follow-up commit, `a5bbaa9`. Tasks 2 and 3 both move tracked files, so their commit blocks list the old paths explicitly and end with the `ls-tree` gate.
+- **A move is committed in two steps, and the gate decides whether the second step is needed.** `git mv` consumes the old path's index entry, so afterwards `git add -- <old path>` fails with *pathspec did not match any files* and a commit pathspec that omits the old path silently drops its deletion — HEAD then holds two copies of the class, `:app:assembleDebug` still passes (main sources resolve to the new package), and only `:app:compileDebugUnitTestKotlin` fails. The recipe is therefore: (1) commit with a pathspec naming the new paths and every other changed file; (2) run the gate `git ls-tree -r --name-only HEAD <old dir> | grep . && echo DEFECT || echo "old paths gone"`; (3) if it prints DEFECT, the index still carries the staged deletion, so commit it on its own naming the old path — a second commit, never an amend. This recurred on Task 2 (`4f0f1d2` left `presentation/launcher/work/ScheduleAutoTasksWorker.kt` in HEAD; `d8e4cec` removed it) after Task 1 hit the same defect (`e68088f` → `a5bbaa9`), so a task that moves files is not done until the gate prints `old paths gone`.
 - **`BUILD SUCCESSFUL` is not evidence that tests ran.** `:app:testDebugUnitTest` reports `NO-SOURCE` and succeeds with zero tests executed whenever `app/build` is emptied under a live daemon (the ASM transform's cached output comes back empty — observed 2026-10-13 on this plan: 345 tests on disk, task reported NO-SOURCE, build green). Trust only a printed test count parsed from `app/build/test-results/testDebugUnitTest/TEST-*.xml`, which `verify.sh tests` now does; it retries with `--no-build-cache` on NO-SOURCE and fails at 0. A *decrease* in the count versus the ledger's baseline is a dropped suite, and a run that executes 311 instead of 345 still looks green — so compare the number, don't just check it is nonzero.
 - **Phase 3 is gated on the user:** creating the `archive/launcher-2026-10-12` tag and deleting the 37 remaining launcher files (45 with their tests) is irreversible-in-practice. Task 17 stops and asks before the delete lands.
 - **HOME-role behavior cannot be verified on this machine** (no AVD in use for this project, `adb` not on `PATH`). Tasks that end in device-only behavior must report the item as **unverified**, never as working. Full list at the end of this plan.
@@ -235,8 +235,8 @@ Expected: `TESTS CLEAN`. The `for` loop is scoped to test sources only, so `pres
 - [ ] **Step 8: Build and run the HyperFocus suites**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.*"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.*"
 ```
 
 Expected: build succeeds; the four HyperFocus suites (`AESUtilTest`, `HyperFocusManagerTest`, `RewardEngineTest`, `UnlockCodeRepositoryTest`) plus `HyperFocusProgressTest` pass with the same test counts as before the move. Record the counts — a suite that drops out of the report means the `--tests` filter matched nothing, which is a task failure, not a pass.
@@ -345,8 +345,8 @@ class EnergyProjectionBlendingTest : StringSpec({
 - [ ] **Step 4: Build and run — the count is the point**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.worker.EnergyProjectionBlendingTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.worker.EnergyProjectionBlendingTest"
 ```
 
 Expected: build succeeds and the report shows **13 tests** for this class. Before this task it showed 0 (inert JUnit4). Zero tests matched means the class name or package is wrong — treat that as a failed task, not a pass.
@@ -356,8 +356,6 @@ Expected: build succeeds and the report shows **13 tests** for this class. Befor
 ```bash
 git add app/src/main/java/com/neuroflow/app/worker/ScheduleAutoTasksWorker.kt \
         app/src/test/java/com/neuroflow/app/worker/EnergyProjectionBlendingTest.kt \
-        app/src/main/java/com/neuroflow/app/presentation/launcher/work/ScheduleAutoTasksWorker.kt \
-        app/src/test/java/com/neuroflow/app/presentation/launcher/work/EnergyProjectionBlendingTest.kt \
         app/src/main/java/com/neuroflow/app/data/repository/TaskRepository.kt \
         app/src/main/java/com/neuroflow/app/NeuroFlowApplication.kt \
         app/src/main/java/com/neuroflow/app/presentation/schedule/ScheduleViewModel.kt
@@ -374,9 +372,11 @@ git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation
   app/src/test/java/com/neuroflow/app/presentation/launcher/work | grep . && echo "DEFECT: old copies still in HEAD" || echo "old paths gone"
 ```
 
-Expected: the gate prints `old paths gone`. This exact defect occurred on Task 1 (commit
-`e68088f` left the five launcher-path test suites in HEAD; fixed by a follow-up commit `a5bbaa9`),
-which is why the deleted paths are now listed in the `git add` above rather than assumed.
+Expected: the gate prints `old paths gone`. It did not on the first run of this task: commit
+`4f0f1d2` left `presentation/launcher/work/ScheduleAutoTasksWorker.kt` in HEAD and needed the
+follow-up deletion commit `d8e4cec`, exactly Task 1's `e68088f` → `a5bbaa9` shape. A task that moves
+files is not done until this gate prints, and the fix is always a second commit naming the old path —
+never an amend, and never `git add` of that path (its index entry is already consumed by `git mv`).
 
 ## Task 3: Relocate `NotificationBadgeManager` and its service to `data/badge/`
 
@@ -440,7 +440,7 @@ Delete `provideNotificationBadgeManager` and the `NotificationBadgeManager` impo
 - [ ] **Step 4: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && ./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.domain.repository.EnergyScoreRepositoryContractTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.domain.repository.EnergyScoreRepositoryContractTest"
 ```
 
 Expected: build succeeds; the contract suite passes. It is already kotest or JUnit4 — if it is JUnit4 it will report no tests, which is pre-existing, not a regression from this task.
@@ -449,8 +449,6 @@ Expected: build succeeds; the contract suite passes. It is already kotest or JUn
 
 ```bash
 git add app/src/main/java/com/neuroflow/app/data/badge \
-        app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeManager.kt \
-        app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeService.kt \
         app/src/main/java/com/neuroflow/app/domain/repository/EnergyScoreRepository.kt \
         app/src/main/java/com/neuroflow/app/presentation/launcher/LauncherViewModel.kt \
         app/src/main/java/com/neuroflow/app/presentation/launcher/di/LauncherModule.kt \
@@ -462,17 +460,20 @@ git commit -q -m "refactor: move notification badge listener out of the launcher
 EnergyScoreRepository reads badgeCounts as an energy-model signal, so the manager and
 its listener service survive the launcher archive instead of being deleted with it." -- <same paths>
 git show --name-only HEAD
-git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation/launcher/data | grep . \
+git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeManager.kt \
+  app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeService.kt | grep . \
   && echo "DEFECT: old copies still in HEAD" || echo "old paths gone"
 ```
 
-Expected: `old paths gone`. Both moved files must be named in the pathspec: `git mv` stages the
-rename, but a commit whose pathspec lists only the new directory leaves the two deletions behind in
-HEAD, where they duplicate `NotificationBadgeManager` and break `:app:compileDebugUnitTestKotlin`
-while `:app:assembleDebug` stays green. (This is the Task 1 `e68088f`/`a5bbaa9` defect, reproduced
-here on purpose so the gate runs.)
+Expected: `old paths gone`, and if it prints DEFECT, follow the Global Constraint's step 3: the staged
+deletion is still in the index, so commit it on its own naming the two old paths. Never `git add` those
+two paths first — `git mv` has already consumed their index entries and `git add` will fail with *pathspec
+did not match any files*. Name the two files, not the directory: `presentation/launcher/data/` keeps six
+launcher files (`AppInfo`, `AppRepository`, `IconPackManager`, `LauncherBackupManager`,
+`PackageChangeReceiver`, `PinnedAppsDataStore`) until Task 17, so a directory gate there would always
+report DEFECT. (This is the Task 1 `e68088f`/`a5bbaa9` and Task 2 `4f0f1d2`/`d8e4cec` defect.)
 
-**Phase 1 exit check.** `./gradlew :app:assembleDebug :app:testDebugUnitTest` green, and `find app/src/main/java/com/neuroflow/app/presentation/launcher -type f | wc -l` prints **37** (63 − 23 hyperfocus − 1 worker − 2 badge; `HyperFocusModule.kt` lands in `feature/`, not here). Nothing in Phase 1 is user-visible; if it is, a mistake was made.
+**Phase 1 exit check.** `bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh tests` green, and `find app/src/main/java/com/neuroflow/app/presentation/launcher -type f | wc -l` prints **37** (63 − 23 hyperfocus − 1 worker − 2 badge; `HyperFocusModule.kt` lands in `feature/`, not here). Nothing in Phase 1 is user-visible; if it is, a mistake was made.
 
 ---
 
@@ -583,8 +584,8 @@ class HyperFocusAllowlistFieldsTest : StringSpec({
 This suite is a guard on the §8 error-handling row "DataStore blob corrupt → renders off-state, not a locked device": if a default ever becomes a non-empty allowlist or an active pass, an unreadable blob would silently lock the user out.
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.data.HyperFocusAllowlistFieldsTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.data.HyperFocusAllowlistFieldsTest"
 ```
 
 Expected: 1 test, passing.
@@ -715,7 +716,7 @@ class FocusSurfaceModelTest : StringSpec({
 - [ ] **Step 2: Run it and confirm it fails for the right reason**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModelTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModelTest"
 ```
 
 Expected: compile failure `unresolved reference: FocusSurfaceModel`. That is the failing state — the class does not exist yet.
@@ -822,7 +823,7 @@ Its `packages()` return is not unit-testable here (needs `Context`), which is ex
 - [ ] **Step 5: Run the test**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModelTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModelTest"
 ```
 
 Expected: 8 tests, all passing.
@@ -966,7 +967,7 @@ class GateTaskEngineTest : StringSpec({
 - [ ] **Step 2: Run it and confirm the failure is a missing type**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngineTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngineTest"
 ```
 
 Expected: compile failure `unresolved reference: GateTaskEngine`.
@@ -1055,7 +1056,7 @@ class GateTaskEngine(
 - [ ] **Step 4: Verify — and confirm the suite actually ran**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngineTest" && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngineTest" && \
 grep -o 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngineTest.xml
 ```
 
@@ -1153,7 +1154,7 @@ class AppCatalogFilterTest : StringSpec({
 - [ ] **Step 2: Run it, expect `unresolved reference: AppCatalogFilter`**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.data.AppCatalogFilterTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.data.AppCatalogFilterTest"
 ```
 
 - [ ] **Step 3: Implement the filter**
@@ -1255,8 +1256,8 @@ class AppCatalogRepository @Inject constructor(
 - [ ] **Step 5: Verify, including the Hilt graph**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.data.AppCatalogFilterTest" && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.data.AppCatalogFilterTest" && \
 grep -o 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.feature.hyperfocus.data.AppCatalogFilterTest.xml
 ```
 
@@ -1396,7 +1397,7 @@ PL-8 deliberately pins the split: `isPassActive` knows nothing about `isActive`,
 - [ ] **Step 2: Run it and expect `unresolved reference: isPassActive`**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.domain.PassLifecycleTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.domain.PassLifecycleTest"
 ```
 
 - [ ] **Step 3: Replace the two `RewardEngine` unlock functions**
@@ -1549,8 +1550,8 @@ Exact sites, all found by grep (`grep -rn "isUnlockActive\|activeUnlockExpiresAt
 - [ ] **Step 9: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.domain.*" && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.domain.*" && \
 grep -rn "isUnlockActive\|activeUnlockExpiresAt\|RewardEngine.secondsRemaining" app/src || echo "OLD UNLOCK API GONE"
 ```
 
@@ -1634,7 +1635,7 @@ Whether a pass exists is now expressed only by `activePassPackage` + `activePass
 
 ```bash
 grep -rn "FULLY_UNLOCKED\|MICRO_UNLOCKED\|PARTIAL_UNLOCKED\|EARNED_UNLOCKED\|HyperFocusState.PLANNING" app/src || echo "DEAD STATES GONE"
-./gradlew :app:assembleDebug && ./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.*"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.*"
 ```
 
 Expected: `DEAD STATES GONE`, then green. Note `RewardTier` keeps its `MICRO`/`PARTIAL`/`EARNED`/`FULL` entries — those are live and are the pass budget in minutes (spec §4.1); only `HyperFocusState` shrinks. Do not confuse the two enums.
@@ -1833,7 +1834,7 @@ This is the one place in the plan where JUnit4 is correct: `androidTest` runs on
 - [ ] **Step 6: Build, and be honest about what you could not run**
 
 ```bash
-./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh atcompile
 ```
 
 Expected: both green. **`connectedAndroidTest` cannot run on this machine** (no AVD in use for this project, `adb` not on `PATH`), so the migration itself is *written but unexecuted*. Report it that way; do not claim a passing migration test. The build does prove the schema-compilation half: KSP validates the DAO queries and the entity against Room's expected table at compile time, which catches most typos in `countsByPackage` and the column list.
@@ -1956,7 +1957,7 @@ Add `import io.kotest.matchers.shouldBe` and use `.shouldBe true` where the draf
 - [ ] **Step 2: Run it, expect `unresolved reference: AllowlistMigrator`**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.data.AllowlistMigratorTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.data.AllowlistMigratorTest"
 ```
 
 - [ ] **Step 3: Implement the migrator**
@@ -2114,8 +2115,8 @@ Wire the call into `NeuroFlowApplication.kt`, where `hyperFocusDataStore` is alr
 - [ ] **Step 7: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.data.AllowlistMigratorTest" && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.data.AllowlistMigratorTest" && \
 grep -o 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.feature.hyperfocus.data.AllowlistMigratorTest.xml
 ```
 
@@ -2235,7 +2236,7 @@ Read the surrounding function first and place it once per poll, not once per eve
 
 ```bash
 grep -n "blockedPackages\|isUnlockActive" app/src/main/java/com/neuroflow/app/presentation/launcher/hyperfocus/service/AppBlockingService.kt || echo "DENYLIST GONE FROM ENFORCER"
-./gradlew :app:assembleDebug && ./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.*"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.*"
 ```
 
 Expected: `DENYLIST GONE FROM ENFORCER`, then green. Note the path in that grep is still the pre-Task-1 location until Phase 1 has actually run; substitute `feature/hyperfocus` if you are executing the phases in order. **Unverifiable on this machine:** that a gated app is bounced, that an IME still opens, that the pass ends on foreground departure. These go to the device test plan.
@@ -2380,7 +2381,7 @@ Adding them keeps the existing assertions meaningful: with `launchableApps()` re
 - [ ] **Step 5: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && ./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManagerTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManagerTest"
 grep -rn "syncHyperFocusBlockedPackagesSuspension" app/src || echo "OLD SUSPENSION API GONE"
 ```
 
@@ -2784,7 +2785,7 @@ Add `putExtra` at the one place that constructs this intent (`AppBlockingService
 - [ ] **Step 7: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && ./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.*"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.*"
 ```
 
 Expected: green. There is no JVM test for these three composables — Compose UI needs instrumentation and Robolectric is inert here — so the behaviors that matter in this task are the ones Task 6 already proved in `GateTaskEngine`, and the screens are checked on device. **Unverifiable here:** that the submit button's enabled state tracks the engine, that the gateway list is inert without budget, and that the emergency picker lists hidden apps.
@@ -2928,7 +2929,7 @@ HFH-7 is the one that saves the design from itself. The hand-off in HFH-1 is dri
 - [ ] **Step 2: Run it and expect `unresolved reference: homeSurfaceStateOf`**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.home.HomeSurfaceStateTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.home.HomeSurfaceStateTest"
 ```
 
 - [ ] **Step 3: Implement `HomeSurfaceState.kt`**
@@ -3575,8 +3576,8 @@ grep -rln "bringLauncherToFront" app/src/main/java | xargs sed -i 's/bringLaunch
 - [ ] **Step 11: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.home.*" && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.home.*" && \
 grep -o 'tests="[0-9]*"' \
   app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.feature.hyperfocus.home.HomeSurfaceStateTest.xml \
   app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.feature.hyperfocus.home.RealHomeChoiceTest.xml
@@ -3730,7 +3731,7 @@ This suite is `FunSpec` rather than `StringSpec` because AE-3 needs a `for` loop
 - [ ] **Step 2: Run it and expect `unresolved reference: AllowlistDraft`**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.surface.AllowlistEditorTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.surface.AllowlistEditorTest"
 ```
 
 - [ ] **Step 3: Implement `AllowlistEditor.kt`**
@@ -3861,7 +3862,7 @@ fun decideActivation(
 - [ ] **Step 6: Run both new suites, then delete the denylist from the preferences**
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.surface.AllowlistEditorTest" --tests "com.neuroflow.app.feature.hyperfocus.domain.ActivationGuardTest"
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.surface.AllowlistEditorTest" && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.domain.ActivationGuardTest"
 ```
 
 Expected: `tests="6"` and `tests="5"`. Now in `HyperFocusDataStore.kt`: delete `val blockedPackages: Set<String> = emptySet()` (`:26`), the two serialize lines (`:109-110`), and the deserialize block that builds the set and passes it to the constructor (`:135-147`). An old blob carrying `blockedPackages` is now ignored on read, which is safe because Task 11's `AllowlistMigratorRunner` has already derived the two tiers from it on first launch after the upgrade.
@@ -4081,8 +4082,8 @@ Read the extra once into a local and use it as `startDestination` (Task 14 added
 - [ ] **Step 14: Verify**
 
 ```bash
-./gradlew :app:assembleDebug && \
-./gradlew :app:testDebugUnitTest --tests "com.neuroflow.app.feature.hyperfocus.*" && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && \
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.*" && \
 grep -rn "blockedPackages" app/src/main/java | grep -v "HyperFocusSessionEntity\|hyperfocus_sessions\|FirestoreBackupRepository\|NeuroFlowDatabase"
 ```
 
@@ -4125,7 +4126,7 @@ git show --name-only HEAD
 
 ---
 
-**Phase 2 exit check.** `./gradlew :app:assembleDebug :app:testDebugUnitTest` green, and the tree should now be policy-consistent: one `CATEGORY_HOME` activity (`grep -c "category.HOME" app/src/main/AndroidManifest.xml` → `1`), no `blockedPackages` outside the four history/backup files, `RewardEngine.isUnlockActive` gone (`grep -rn "isUnlockActive" app/src/main/java` → no hits), and every new pure component covered by a kotest suite that runs (`app/build/test-results/testDebugUnitTest/` should contain `FocusSurfaceModelTest`, `GateTaskEngineTest`, `PassLifecycleTest`, `AppCatalogFilterTest`, `AllowlistMigratorTest`, `HomeSurfaceStateTest`, `RealHomeChoiceTest`, `AllowlistEditorTest`, `ActivationGuardTest`, `HyperFocusManagerTest`). Also confirm the migration was *not* applied locally — `MIGRATION_20_21` exists in `NeuroFlowDatabase.kt` and `AppModule`'s `addMigrations` list, and Room's schema JSON for version 21 is generated, but nothing on this machine runs it (Task 10's note). `presentation/launcher` should still hold exactly 37 files, all of them compiling and none of them reachable as home.
+**Phase 2 exit check.** `bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh tests` green, and the tree should now be policy-consistent: one `CATEGORY_HOME` activity (`grep -c "category.HOME" app/src/main/AndroidManifest.xml` → `1`), no `blockedPackages` outside the four history/backup files, `RewardEngine.isUnlockActive` gone (`grep -rn "isUnlockActive" app/src/main/java` → no hits), and every new pure component covered by a kotest suite that runs (`app/build/test-results/testDebugUnitTest/` should contain `FocusSurfaceModelTest`, `GateTaskEngineTest`, `PassLifecycleTest`, `AppCatalogFilterTest`, `AllowlistMigratorTest`, `HomeSurfaceStateTest`, `RealHomeChoiceTest`, `AllowlistEditorTest`, `ActivationGuardTest`, `HyperFocusManagerTest`). Also confirm the migration was *not* applied locally — `MIGRATION_20_21` exists in `NeuroFlowDatabase.kt` and `AppModule`'s `addMigrations` list, and Room's schema JSON for version 21 is generated, but nothing on this machine runs it (Task 10's note). `presentation/launcher` should still hold exactly 37 files, all of them compiling and none of them reachable as home.
 
 ---
 
@@ -4217,7 +4218,7 @@ Expected: no hits outside the script itself and no non-sample git hooks. If a ho
 - [ ] **Step 6: Verify**
 
 ```bash
-./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh tests && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh atcompile
 ```
 
 Expected: green. `compileDebugAndroidTestKotlin` is in the list because the two deleted `androidTest` files are the only instrumentation sources that referenced `LauncherActivity`, and their removal is otherwise unchecked until someone plugs in a device. **Unverifiable here:** whether deleting `BIND_APPWIDGET` breaks adding a widget from a third-party launcher — that path binds *our* providers from *their* process and should not need our permission, but it is a device check, not a grep.
@@ -4274,8 +4275,8 @@ Expected: `blockedPackages` → 4 (the session entity, the Room column line, and
 - [ ] **Step 2: Full suite plus a clean build**
 
 ```bash
-./gradlew --stop && ./gradlew :app:clean :app:assembleDebug :app:testDebugUnitTest \
-  :app:compileDebugAndroidTestKotlin :app:lintDebug
+bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh stop && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh clean && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh tests && \
+  bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh atcompile && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh lint
 ```
 
 Expected: green, and `app/build/test-results/testDebugUnitTest/` should now contain a result file for every `StringSpec`/`FunSpec` in `app/src/test` — count them against the suites:
@@ -4318,6 +4319,7 @@ Nothing in this list can be run on this machine — no emulator, no attached dev
 | 9 | Navigation-bar buttons are visible on `Theme.HyperFocusHome`'s black background, and the wallpaper does not show through | XML theme resolution, not compiled here |
 | 10 | The Room 20 → 21 migration runs on a real install with existing data | `androidTest` cannot run; Task 10 ships the migration **unexecuted** |
 | 11 | `AllowlistMigrationRunner` derives a usable first allowlist from a real device's denylist, and never runs while a session is active | Task 11's test uses an in-memory prefs fake |
+| 12 | **After installing a build from Task 1 onward, re-enable HyperFocus in Settings → Accessibility**, then confirm a session still blocks. Until it is re-enabled, enforcement is silently off — no crash, no error, the phone just behaves normally | The service's component ID changed from `.presentation.launcher.hyperfocus.service.AppBlockingService` to `.feature.hyperfocus.service.AppBlockingService`. Android keys `enabled_accessibility_services` by component ID, so the device's existing tick belongs to a component that no longer exists and the new one starts disabled. `AccessibilityUtil.kt:20` builds the string from `context.packageName` plus the new suffix and must match `AndroidManifest.xml:200` — a mismatch compiles and installs fine, and `AccessibilityWatchdogWorker.kt:41-45` only posts a notification. This is the one step in the plan that cannot be recovered from the code |
 | 12 | Removing `BIND_APPWIDGET` does not stop widgets from another launcher | Cross-process permission check |
 | 13 | The off-state placeholder's "Set my home app" opens `android.settings.HOME_SETTINGS` on the vendor ROM | Intent availability |
 
