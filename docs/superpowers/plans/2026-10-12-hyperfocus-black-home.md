@@ -5303,6 +5303,34 @@ swiftshader_indirect`, `-gpu guest` and `-gpu off`, and with both `-accel off` (
 `/dev/kvm` is usable and `adb` does briefly list `emulator-5554`. So rows 1, 3, 6 and 10 ("run before
 merging") cannot be executed on this machine by any flag combination; they need the user's phone.
 
+**6. The final whole-branch review found one real spec violation in committed code. Fixed in `c02a41c`.**
+`GatewayScreen` — reachable only through the gate's `onPassed` (`HyperFocusActivity.kt:104`;
+`DESTINATION_GATEWAY` has no other navigation source) — hosted an `EmergencyControl` that granted the
+session's single one-tap emergency on confirm. Spec §5.3 says the opposite ("**Emergency does not live
+behind the gate.**"), and Task 14's own Step 4 is titled "`EmergencyControl` — on the home screen, not
+behind the gate". The screen even contradicted itself: its budget label reads "…or use Emergency on the
+home screen". Not a bypass — the grant is one-per-session either way — but precisely the failure the spec
+named: the gate must never sit on the path to the only exit, and a user who paid the gate could spend the
+emergency inside it instead of holding it as the way out. Fix is 12 deletions (the control, its
+`emergencyAvailable` collection, its import). `grantEmergencyFor` and `emergencyAvailable` stay live: the
+bounce overlay (`BlockingOverlayScreen.kt:662`, one tap, never gated) and the black home
+(`HyperFocusHomeScreen.kt:124`) both still call them, so no test lost its subject. No JVM test can pin
+this — it is a `Column` layout and Robolectric is inert in `app/src/test` — which is why it survived two
+task reviews. New device row 19.
+
+Invariants that held, with the evidence taken during that review: **A** one HOME-role activity
+(`HyperFocusHomeActivity`, `AndroidManifest.xml:79`; the other `category.HOME` at `:28` is a `<queries>`
+visibility element, not a role); **B2** `blockedPackages` absent from `HyperFocusPreferences.kt` (0 hits);
+**D3** `FocusSurfaceModel.resolvedAllowlist` adds exactly `prefs.activePassPackage` while its deadline is
+live, so a second hidden app stays gated; **E1** `RewardEngine.isPassActive` / `endsPassOnForeground` read
+an absolute deadline, never a counter the action advances; **G1** no `archive*`/`.zip`/`.tar` path in
+`git diff main..HEAD` and the tag exists; `SystemExempt`'s two-role rule holds at all 13 call sites
+(enforcement → `packages()`, user-visible/select → `STATIC`); `components/` is gone and
+`HyperFocusStatusBar` has 0 references. The branch adds exactly one dependency,
+`androidTestImplementation("androidx.room:room-testing:2.6.1")`, which breaks "No new dependencies" and was
+already ruled and recorded in Task 10's amendment delta 3 — it is the only way to execute the Room 20→21
+migration test, and it is test-scoped.
+
 ---
 
 ## Device test plan (blocking before release)
@@ -5326,10 +5354,10 @@ Nothing in this list can be run on this machine — no emulator, no attached dev
 | 13 | The off-state placeholder's "Set my home app" opens `android.settings.HOME_SETTINGS` on the vendor ROM | Intent availability |
 | 14 | **After installing a build from Task 1 onward, re-enable HyperFocus in Settings → Accessibility**, then confirm a session still blocks. Until it is re-enabled, enforcement is silently off — no crash, no error, the phone just behaves normally | The service's component ID changed from `.presentation.launcher.hyperfocus.service.AppBlockingService` to `.feature.hyperfocus.service.AppBlockingService`. Android keys `enabled_accessibility_services` by component ID, so the device's existing tick belongs to a component that no longer exists and the new one starts disabled. `AccessibilityUtil.kt:20` builds the string from `context.packageName` plus the new suffix and must match `AndroidManifest.xml:200` — a mismatch compiles and installs fine, and `AccessibilityWatchdogWorker.kt:41-45` only posts a notification. This is the one step in the plan that cannot be recovered from the code |
 | 15 | **After installing a build from Task 3 onward, re-enable Notification access** (Settings → Special app access → Notification access), then confirm badge counts still move the energy score. This failure is invisible | `BIND_NOTIFICATION_LISTENER_SERVICE` grants live in `Settings.Secure.enabled_notification_listeners`, keyed by component ID — the same mechanism as row 14. The component moved from `.presentation.launcher.data.NotificationBadgeService` to `.data.badge.NotificationBadgeService` (`AndroidManifest.xml:180`), so the existing tick belongs to a component that no longer exists and the new one starts unbound. No code reads the grant (`isNotificationServiceEnabled` has no call sites), there is no watchdog reminder for it, `onListenerConnected` never runs, `badgeCounts` stays `emptyMap()`, `EnergyScoreRepository.kt:188` sums it to 0, and all 358 unit tests stay green while the energy model silently degrades. **Gap beyond this task:** the only in-app route to that screen is `presentation/launcher/settings/LauncherSettings.kt:2275-2298`, which Task 17 deletes while the service survives — after Task 17 the grant cannot be re-earned from inside the app at all |
-
 | 16 | Regenerate `app/src/main/baseline-prof.txt` for the black home (`./scripts/generate-baseline-profile.sh`), then confirm the cold-start and grid-scroll paths are actually AOT-compiled | The checked-in profile is now one rule plus a header: the launcher's 18 rules were deleted in Task 17 and no replacement was invented, because a hand-written profile that names the wrong methods is worse than none. `HyperFocusBaselineProfileGenerator` compiles but has never run |
 | 17 | Navigation-bar buttons still visible on the black home after `android:windowLightNavigationBar` was dropped from `Theme.HyperFocusHome` (Task 18) | Row 9's claim now rests on `android:Theme.Material.NoActionBar`'s inherited default instead of an explicit item. The inheritance is documented, not verified — and it is exactly the kind of default that a vendor ROM's overlay can flip |
 | 18 | Confirm the app is still the only thing the user can reach for **Notification access** re-grants, i.e. accept that it isn't: the grant can now only be re-earned from system Settings | Task 17 deleted the only in-app route — `presentation/launcher/settings/LauncherSettings.kt:2258-2269`'s `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS` "Configure" button (row 15 above cites it as `:2275-2298`; the block is ~17 lines earlier than the plan said, same button). `grep -rn "ACTION_NOTIFICATION_LISTENER_SETTINGS" app/src` is **0** on this branch against **1** at `archive/launcher-2026-10-12`. Row 15's "Gap beyond this task" is therefore live, not hypothetical: badge counts silently stop feeding the energy score and nothing in the app can offer a shortcut back. Whether to restore such a route is the user's call |
+| 19 | On the black home during a session: tap a hidden app, do the gate, and confirm the gateway offers **no** emergency control — only the reward code and the list — then back out and confirm the home's own one-tap Emergency still works and is still unused. `c02a41c` deleted 12 lines of Compose and **all 456 tests stayed green** | Spec §5.3's "Emergency does not live behind the gate" is a layout claim about a `Column`; there is no JVM test that can assert it (Robolectric does not execute in `app/src/test`), so both the violation and its fix are invisible to the suite. The behavioral consequence — spending the session's only exit inside a screen you had to earn — is also only observable on a device |
 
 Run 1, 3, 6 and 10 before merging to `main`; the rest can be a fast-follow on the first device build. **None of the four can be run on the machine that built this branch** (delta 5), so "before merging" now means "before shipping to the user's device", which is the same device in practice.
 
