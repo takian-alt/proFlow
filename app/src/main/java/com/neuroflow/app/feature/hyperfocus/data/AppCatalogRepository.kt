@@ -6,7 +6,7 @@ import android.content.pm.LauncherApps
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
-import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,8 +16,7 @@ import javax.inject.Singleton
 @Singleton
 class AppCatalogRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val launcherApps: LauncherApps,
-    private val systemExempt: SystemExempt
+    private val launcherApps: LauncherApps
 ) {
     data class AppEntry(
         val packageName: String,
@@ -30,31 +29,35 @@ class AppCatalogRepository @Inject constructor(
         val users: List<UserHandle> =
             context.getSystemService(UserManager::class.java)?.userProfiles
                 ?: listOf(Process.myUserHandle())
+        // One paused work profile must not empty the catalog: getActivityList throws there.
         val rows = users.flatMap { user ->
-            launcherApps.getActivityList(null, user).map { info ->
-                InstalledApp(
-                    packageName = info.componentName.packageName,
-                    label = info.label.toString(),
-                    activity = info.componentName.className
-                ) to AppEntry(info.componentName.packageName, info.label.toString(), info.componentName, user)
-            }
+            runCatching { launcherApps.getActivityList(null, user) }.getOrDefault(emptyList())
+                .map { info ->
+                    val pkg = info.componentName.packageName
+                    val label = info.label.toString()
+                    InstalledApp(pkg, label, info.componentName.className) to
+                        AppEntry(pkg, label, info.componentName, user)
+                }
         }
-        val keep = AppCatalogFilter.keep(rows.map { it.first }, systemExempt.packages())
-            .map { it.packageName }.toSet()
-        rows.filter { it.first.packageName in keep }.map { it.second }.distinctBy { it.packageName }
+        val firstByPackage = mutableMapOf<String, AppEntry>()
+        rows.forEach { (_, entry) -> firstByPackage.putIfAbsent(entry.packageName, entry) }
+        AppCatalogFilter.keep(rows.map { it.first }).mapNotNull { firstByPackage[it.packageName] }
     }
 
+    /** Re-queried, not cached: a `UserHandle` from an earlier enumeration throws on launch. */
     suspend fun launch(packageName: String): Boolean = withContext(Dispatchers.Default) {
-        val target = launchableApps().firstOrNull { it.packageName == packageName }
-            ?: return@withContext false
+        val target = runCatching { launchableApps().firstOrNull { it.packageName == packageName } }
+            .getOrNull() ?: return@withContext false
         runCatching {
             launcherApps.startMainActivity(target.component, target.user, null, null)
-        }.isSuccess
+        }.onFailure { Log.w("AppCatalog", "launch failed for $packageName", it) }.isSuccess
     }
 
-    fun labelFor(packageName: String): String =
+    /** Personal profile only, so a work-profile package logs its package name in the audit row. */
+    suspend fun labelFor(packageName: String): String = withContext(Dispatchers.Default) {
         runCatching {
             launcherApps.getActivityList(packageName, Process.myUserHandle())
                 .firstOrNull()?.label?.toString()
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: packageName
+    }
 }
