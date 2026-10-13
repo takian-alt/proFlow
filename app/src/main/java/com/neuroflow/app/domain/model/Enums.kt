@@ -54,13 +54,8 @@ enum class TaskType {
 enum class HyperFocusState {
     INACTIVE,
     ACTIVE,
-    MICRO_UNLOCKED,
-    PARTIAL_UNLOCKED,
-    EARNED_UNLOCKED,
     // All tasks done — user must add ≥3 tasks for tomorrow before apps unlock
-    FULL_REWARD_PENDING,
-    FULLY_UNLOCKED,
-    PLANNING
+    FULL_REWARD_PENDING
 }
 
 enum class HyperFocusSessionMode {

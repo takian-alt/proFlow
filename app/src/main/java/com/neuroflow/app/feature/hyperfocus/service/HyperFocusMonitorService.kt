@@ -72,7 +72,6 @@ class HyperFocusMonitorService : Service() {
                 val prefs = hyperFocusDataStore.flow.first()
 
                 if (!prefs.isActive ||
-                    prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULLY_UNLOCKED ||
                     prefs.state == com.neuroflow.app.domain.model.HyperFocusState.INACTIVE
                 ) {
                     stopSelf()

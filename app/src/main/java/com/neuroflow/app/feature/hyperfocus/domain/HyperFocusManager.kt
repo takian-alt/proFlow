@@ -244,14 +244,12 @@ class HyperFocusManagerImpl @Inject constructor(
 
         if (newTier.ordinal > prefs.currentTier.ordinal ||
             (completedSinceActivation >= prefs.dailyTaskTarget &&
-             prefs.state != HyperFocusState.FULL_REWARD_PENDING &&
-             prefs.state != HyperFocusState.FULLY_UNLOCKED)
+             prefs.state != HyperFocusState.FULL_REWARD_PENDING)
         ) {
             hyperFocusDataStore.update {
                 val updatedTier = if (newTier.ordinal > it.currentTier.ordinal) newTier else it.currentTier
                 val updatedState = if (completedSinceActivation >= prefs.dailyTaskTarget &&
-                    it.state != HyperFocusState.FULL_REWARD_PENDING &&
-                    it.state != HyperFocusState.FULLY_UNLOCKED
+                    it.state != HyperFocusState.FULL_REWARD_PENDING
                 ) HyperFocusState.FULL_REWARD_PENDING else it.state
                 it.copy(currentTier = updatedTier, state = updatedState)
             }

@@ -154,15 +154,6 @@ fun HyperFocusStatusBar(
                         )
                     }
 
-                    prefs.state == HyperFocusState.FULLY_UNLOCKED -> {
-                        Text(
-                            text = "🔓 Apps unlocked — great work today!",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
                     else -> {
                         Text(
                             text = "🔒 FOCUS",
