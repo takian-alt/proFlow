@@ -2726,6 +2726,72 @@ Unverified on this machine; HOME-role and bounce behavior need a device." -- <sa
 git show --name-only HEAD
 ```
 
+### Task 12 amendment (recorded during execution)
+
+**1. Step 2's "currently reads" block is three commits stale, and so is the commit message it
+dictates.** The tree at this task's BASE already had the per-app pass narrowing from Task 8
+(`AppBlockingService.kt:248-251`), and `RewardEngine.isUnlockActive` is **gone from the whole tree**
+(`grep -rn isUnlockActive app/src app/test` → no hits, deleted in Task 8's `b347f36`). So "the device-wide
+exemption is deleted here, and the commit message must say so" describes work already shipped: the
+tightening belongs to Task 8's commit, and repeating it here would claim a change this commit does not
+make. This commit's real tightening is narrower and must be stated as such: an app that is neither
+essential, allowed, nor passed is now bounced even when it was never ticked on a denylist.
+
+**2. Step 2's replacement code would have silently killed every pass on every notification.** It
+clears the pass when `!isGatedApp && pkg != activePassPackage` — but `resolvedAllowlist` adds
+`systemExempt` unconditionally, and the notification shade, the IME, a permission dialog and the
+ringer all post `TYPE_WINDOW_STATE_CHANGED` and all are exempt. Under the brief, arriving at the pass
+app's own text field ends its pass. Fixed by extracting the rule as
+`RewardEngine.endsPassOnForeground(packageName, prefs, systemExempt, nowMillis)` — live pass, not the
+pass holder, and not an enforcement-exempt surface — so the carve-out has a name, a doc comment, and
+tests. The brief's `Files: Test: none on the JVM` is true only while the predicate hides in an
+`AccessibilityService`; extracting it is what makes the highest-stakes timing rule in the design
+verifiable here at all, and it cost no production surface (one object, one new pure function).
+
+**3. The spec contradicts itself and §2 wins.** §5.4 (`:221`) says the pass clears when the enforcer
+observes "a foreground package that is neither the pass **nor allowed**". §2's E1 row — the locked
+decision — says "the pass ends when the **granted app leaves the foreground**". Implemented literally,
+§5.4 keeps a pass alive while the user browses Todoist for ten minutes and then walks back into
+Instagram without re-paying the gate, which is exactly E3 ("pass survives backgrounding"), the option
+§2 rejected as leak-proof-failing. **Ruling: §2's E1 row binds; §5.4's clause is a detection sketch,
+and is implemented as a strict subset of what now ends a pass** — a gated arrival ends it on the way
+to being bounced (what §5.4 names), and so does arrival at any permitted app the user navigated to.
+Cost if wrong: the user loses a pass on a permitted detour they expected to survive, which is visible
+immediately and is one clause in one pure function to change. The budget itself is unaffected either
+way: `clearActivePass()` nulls the package, not the deadline, and `grantPass` inherits a live deadline
+(`passDeadline`), so re-entering the gate costs cognition and elapsed wall-clock, never fresh minutes.
+
+**4. Tamper now outranks a live pass, deliberately.** The old order returned on `isPassActive &&
+activePassPackage == pkg` *before* the tamper branch, so a pass for a package that opened a protected
+settings surface reported nothing. The new order computes `isGated` once, ends the pass, then lets the
+tamper branch run. Not reachable through any grant path (a pass is only ever issued for a hidden app,
+never for `com.android.settings`, which is exempt and unhidden), and strictly stricter where it does
+apply — the direction this redesign goes in.
+
+**5. Step 5 as written would rewrite preferences every two seconds.** `expirePassIfDue` calls
+`update {}` unconditionally and returns the object unchanged when nothing is due, so an unguarded
+per-poll call makes the enforcer's heartbeat a continuous DataStore write for the whole session.
+Placed once inside the polling loop (`:220`, not the event handler — this tree has one poll loop and
+one `checkAndBlockApp`) behind `activePassPackage != null && !RewardEngine.isPassActive(prefs, now)`,
+which is true for at most one poll before the pass is nulled.
+
+**6. Step 4 uses `isGated`, not `!in resolvedAllowlist(…)`.** Same answer; no set allocated per
+broadcast, and the plan's own rule is that everything which gates asks `FocusSurfaceModel` one way.
+The receiver's log strings change with the meaning, as Step 4 says: an install/remove event on a
+*gated* package is the signal, on an allowed one it is noise.
+
+**7. Verification actually run:** `assemble` PASS; `DENYLIST GONE FROM ENFORCER`;
+`PassLifecycleTest` 14 (9 PL + 5 new EP) and full suite **419 / 0 failures** (414 + 5) after a
+`--rerun-tasks` retry, so the count is from this run. Three mutations on `endsPassOnForeground`, each
+restored and `diff -q`-verified: dropping the `!in systemExempt` clause fails **EP-3 alone** (the
+notification-shade bug), dropping the pass-holder clause fails **EP-2 alone**, and replacing the
+liveness conjunct with mere presence fails **EP-5 alone**.
+**Unverified on this machine** (device-test table row 11, ledger U10): that a gated app is actually
+bounced, that an IME still opens mid-session, that a pass survives a shade and dies on a permitted
+detour, and that the polling backstop expires a pass when `UnlockTimerService` is dead. `AppBlockingService`
+itself has no JVM test — an `AccessibilityService` cannot be constructed in `app/src/test`, and this
+task deliberately tests the predicate the service delegates to rather than the service.
+
 ## Task 13: Device-owner suspension suspends the complement of the allowlist
 
 Spec §6.3. `syncHyperFocusBlockedPackagesSuspension` is the strong enforcement path and takes a set to suspend. Under an allowlist the suspended set is "everything launchable that is not allowed", which is a different and much larger set — so this function is re-expressed rather than renamed, and it must enumerate the catalog itself.
