@@ -2944,6 +2944,82 @@ set bookkeeping is retained so an interrupted session cannot leave apps suspende
 git show --name-only HEAD
 ```
 
+
+### Task 13 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+Executed as written for the shape of the API (`syncAllowlistSuspension(context, keepSet, launchable,
+enabled)` plus `HyperFocusManager.resyncSuspension(active)` and the six-caller sweep the Task 11
+amendment required), with seven corrections.
+
+1. **Step 1's replacement body was a regression against the shipped function, so it was not used.**
+   The code in that step drops three things `syncHyperFocusBlockedPackagesSuspension` actually does:
+   it tracks only the packages `setPackagesSuspended` *accepted* (`val applied = requested - failed`,
+   and on disable it stores the `failed` remainder), it normalizes with
+   `filter { it.isNotBlank() && it != context.packageName }`, and it catches `IllegalArgumentException`
+   as well as `SecurityException`. Dropping the first would have been the interesting bug: a package
+   the platform refuses would be recorded as suspended, the next deactivation would "release" an app
+   it never froze, and an app that *is* frozen would stay frozen with nothing pointing at it.
+   `syncAllowlistSuspension` re-expresses the shipped body with the complement substituted for
+   `normalizedBlocked`. **KS-3** in `DeviceOwnerSuspensionSyncTest` pins the failed-package bookkeeping
+   so it cannot be simplified away again.
+2. **Step 2's `launchable = emptySet()` in `deactivate` is wrong, because the disable path is not set-blind.**
+   The step's own note concedes the point in the next sentence: `enabled = false` unsuspends
+   `trackedSuspended + toSuspend` — the union is exactly the repair for a process that died between
+   the `setPackagesSuspended` call and the tracked-set write. Passing an empty launchable set discards
+   that repair for the one caller most likely to hit it (deactivation is where the session ends).
+   `deactivate` now calls `resyncSuspension(false)`, which computes both sets for real. **RS-4** pins it.
+3. **Step 2's `keepSet = DEFAULT_ESSENTIAL_SEED + systemExempt.packages()` is the wrong keep-set.**
+   Under B2 the tiers are global and survive `afterSession()`, so the set to spare is
+   `FocusSurfaceModel.resolvedAllowlist(prefs, …)` — the user's tiers, not the seed. Using the seed
+   would have unsuspended apps the user never allowed (harmless on a disable, but a copy-paste hazard
+   for the next caller). One `resolvedAllowlist` call now serves both paths.
+4. **The two `LauncherViewModel` sites are not "the activation and deactivation paths"** — they are
+   `updateKioskStrictMode` and `updateCompanionMode`, i.e. policy-toggle re-syncs, the same shape as
+   `NeuroFlowApplication`'s startup re-sync and `BootReceiver`'s boot re-sync. All four callers ask
+   "re-apply whatever the current policy implies", which is what makes a single `resyncSuspension(active)`
+   fit. The strict-kiosk term they each computed by hand (`isActive && enabled`, `isActive &&
+   _kioskStrictMode.value`, `isActive && isStrictKioskEnforcementEnabled(context)`) now lives inside
+   `resyncSuspension` as `active && isStrictKioskEnforcementEnabled(context)`; the callers pass only
+   whether a session is live. **RS-7** pins the conjunction (active + lenient ⇒ no suspension), which
+   nothing did before.
+5. **Added: `resyncSuspension` short-circuits on `DeviceOwnerKioskManager.isDeviceOwner(context)`
+   before touching the catalog.** The plan's version enumerated every launchable app on the device,
+   built a keep-set and did the set difference on every boot and every kiosk toggle — on a device where
+   the DevicePolicyManager call then returns false at its own guard. Global constraint (f) says the
+   target device is admin-only, so without the guard this task would have made every boot pay for a
+   PackageManager sweep to accomplish nothing. **RS-5** pins that `launchableApps()` is not called.
+   The body runs on `Dispatchers.IO` because `LauncherViewModel` reaches it from `viewModelScope`
+   (Main) and `systemExempt.packages()` is a binder call.
+6. **New test file the plan did not anticipate: `app/src/test/java/com/neuroflow/app/kiosk/
+   DeviceOwnerSuspensionSyncTest.kt` (KS-1…KS-6).** Task 12's brief assumed the DevicePolicyManager
+   path was untestable on the JVM. It is not: `app/build.gradle.kts` sets
+   `unitTests.isReturnDefaultValues = true`, so the mockable android.jar lets `ComponentName(...)`
+   construct and `StrictMode.allowThreadDiskReads()` return a harmless null, and a mocked
+   `Context`/`DevicePolicyManager`/`SharedPreferences` covers the whole function. Six tests now pin the
+   direction of the subtraction (**KS-1**: `launchable - keepSet`, not the reverse), the self/blank
+   exclusion (**KS-2**), the failed-package bookkeeping (**KS-3**), the disable union (**KS-4**), the
+   stale-release-then-suspend sequence (**KS-5**) and the device-owner guard (**KS-6**). Use the same
+   technique in Task 18 rather than writing off any other `DevicePolicyManager` call site.
+   `setPackagesSuspended` returns `Array<String>` at this compileSdk, not `List<String>`.
+7. **Test count 419 → 432** (+7 `SuspensionResyncTest`, +6 `DeviceOwnerSuspensionSyncTest`).
+   Mutation proofs, all killed: `keepSet - launchable` (KS-1), `applied = toSuspend` i.e. track
+   refusals as suspensions (KS-3), dropped normalization (KS-2), disable without the union (KS-4),
+   dropped device-owner guard (RS-5), keep-set without `systemExempt` (RS-1), `resyncSuspension(true)`
+   moved above the preferences `update` in `activateInternal` (RS-6), and `enabled = active` without
+   the strict-kiosk conjunction (RS-7).
+8. **Task 16's denylist inventory shrinks by four sites.** After this task,
+   `NeuroFlowApplication:110-115`, `BootReceiver:83-88` and `LauncherViewModel:1220`/`:1247` no longer
+   read `blockedPackages`. What remains in the manager is the `activate(blockedPackages, …)` /
+   `activateTimed(blockedPackages, …)` *parameter* list and the `Log.d` that prints it — Task 16's work,
+   not this task's. Nothing outside those signatures reads the field on the enforcement side.
+
+**Still unverified on this machine:** that `setPackagesSuspended` behaves as the tracked-set model
+assumes (a suspended app cannot be launched, and the returned refusals are the only non-suspended
+ones), and that a device-owner setup exists to test against. The target device is admin-only, so this
+entire path no-ops there and Task 12's accessibility gate is the only enforcement that will run. The
+suite is not decoration: the complement set computed here is the same set that decides what the
+overlay bounces, so a bug in it is a bug in the gate's target list.
+
 ## Task 14: The gate, the gateway, and the emergency control
 
 Spec §5.2, §5.3 and §12's correction. Three screens added to `HyperFocusActivity`'s existing NavHost (`:47-75`), which stays the only surface that talks to the user during a session: `gate` (the cognitive task), `gateway` (code entry + the hidden-app list), and the `launch_app` route changes meaning — it now has to spend a pass before launching.
