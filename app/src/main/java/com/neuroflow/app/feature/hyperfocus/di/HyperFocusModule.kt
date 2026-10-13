@@ -2,6 +2,7 @@ package com.neuroflow.app.feature.hyperfocus.di
 
 import android.content.Context
 import com.neuroflow.app.data.local.NeuroFlowDatabase
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStoreImpl
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
@@ -42,5 +43,9 @@ abstract class HyperFocusModule {
         @Provides
         fun provideHyperFocusSessionDao(database: NeuroFlowDatabase): HyperFocusSessionDao =
             database.hyperFocusSessionDao()
+
+        @Provides
+        fun provideGateRequestDao(database: NeuroFlowDatabase): GateRequestDao =
+            database.gateRequestDao()
     }
 }

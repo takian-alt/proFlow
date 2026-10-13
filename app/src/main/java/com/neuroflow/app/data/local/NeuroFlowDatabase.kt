@@ -21,6 +21,8 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestEntity
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionEntity
 import com.neuroflow.app.feature.hyperfocus.data.UnlockCodeDao
@@ -291,9 +293,29 @@ val MIGRATION_19_20 = object : Migration(19, 20) {
     }
 }
 
+val MIGRATION_20_21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `gate_requests` (
+                `id` TEXT NOT NULL,
+                `sessionId` TEXT,
+                `packageName` TEXT NOT NULL,
+                `appLabel` TEXT NOT NULL,
+                `statedReason` TEXT NOT NULL,
+                `taskType` TEXT NOT NULL,
+                `mismatchCount` INTEGER NOT NULL,
+                `elapsedMillis` INTEGER NOT NULL,
+                `grantSource` TEXT NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class, NoteEntity::class],
-    version = 20,
+    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class, NoteEntity::class, GateRequestEntity::class],
+    version = 21,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -308,4 +330,5 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun sleepLogDao(): SleepLogDao
     abstract fun energyPredictionDao(): EnergyPredictionDao
     abstract fun noteDao(): NoteDao
+    abstract fun gateRequestDao(): GateRequestDao
 }
