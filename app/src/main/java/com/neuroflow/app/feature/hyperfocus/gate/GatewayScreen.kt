@@ -29,7 +29,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.screens.CodeEntrySection
-import com.neuroflow.app.feature.hyperfocus.screens.EmergencyControl
 
 /**
  * The gateway: everything the home screen hides, listed once per ViewModel rather than once per
@@ -43,7 +42,6 @@ fun GatewayScreen(
     modifier: Modifier = Modifier
 ) {
     val hiddenApps by viewModel.hiddenApps.collectAsStateWithLifecycle()
-    val emergencyAvailable by viewModel.emergencyAvailable.collectAsStateWithLifecycle()
     val budgetSeconds by viewModel.gateBudgetSecondsRemaining.collectAsStateWithLifecycle()
     val prefs by viewModel.hyperFocusPrefs.collectAsStateWithLifecycle()
     val activePackage = prefs.activePassPackage
@@ -97,16 +95,6 @@ fun GatewayScreen(
                 )
             }
         }
-
-        EmergencyControl(
-            available = emergencyAvailable,
-            hiddenApps = hiddenApps,
-            onConfirm = { packageName ->
-                viewModel.grantEmergencyFor(packageName)
-                onLaunch(packageName)
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
 
         Spacer(modifier = Modifier.height(4.dp))
 
