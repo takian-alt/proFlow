@@ -2219,6 +2219,14 @@ Two more things the brief got wrong in its favour, and one it left undone:
   arrived, it needs no scheduling surface, and the sweep deletes nothing on almost every call. Cost if
   wrong: gate history older than 90 days disappears — which only shrinks what the analytics screen can
   show, never what it enforces.
+- **`recent()` and `countsByPackage()` have no caller in any task.** Grepping the plan for the DAO's
+  read methods finds only `gateRequestDao.insert(…)` in Task 14 — the log as planned is write-only.
+  That inverts §4.3's bargain: the user pays the cognitive floor so the gate can produce information,
+  and as planned the price is charged while nothing reads the receipt. Both queries are kept (a read
+  surface is the cheapest thing to add after the table exists), but this is now a **Task 18
+  obligation**: either wire one of them into the analytics screen, or delete the unread method rather
+  than ship an unused query. Do not let it end as a third entry in the "nothing calls
+  it" column.
 
 **Verification actually run:** `assemble` PASS (so KSP accepted both DAO queries and generated
 `GateRequestDao_Impl`), exported-`21.json` SQL parity as above, 21 migrations registered,
