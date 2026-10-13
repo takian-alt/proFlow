@@ -5111,6 +5111,66 @@ git diff --cached --name-only | wc -l
 
 The `git diff --cached --name-only | wc -l` at the end is not decoration: this repository keeps roughly 70 user files staged, and the pathspec commit is what keeps them there. If the count moved, something was committed that was not launcher code — `git show --name-only HEAD` and fix it before continuing.
 
+### Task 17 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+1. **Step 1's gate failed on a file this task never lists.** `grep -rn "presentation\.launcher" app/src`
+   returned three hits, not two: `NeuroFlowApplication.kt` and `DeviceOwnerKioskManager.kt` (both in
+   Step 5) plus `feature/hyperfocus/service/HyperFocusMonitorService.kt:18-19,100-101`, which imports
+   `LauncherKeepAliveService` / `LauncherKeepAliveScheduler` and calls both in its tamper-recovery
+   block. Step 1 says "fix it in an earlier task", which is not available now that Tasks 15 and 16 are
+   landed and committed; the edit happens here instead, and the commit pathspec must include
+   `HyperFocusMonitorService.kt`.
+
+2. **What deleting the keep-alive actually costs — less than the plan implies, but not nothing.**
+   Read before deciding: the triad is self-referential. `LauncherKeepAliveService.onStartCommand`
+   schedules the alarm, `onDestroy`/`onTaskRemoved` schedule a quick recovery alarm, and
+   `LauncherKeepAliveAlarmReceiver` starts the service. Nothing in it touches the accessibility
+   service or brings a home screen forward, so no enforcement mechanism is lost. Accessibility recovery
+   was never in it either — that is `worker/AccessibilityWatchdogWorker.kt` (15-minute WorkManager
+   periodic that prompts re-enablement) plus `HyperFocusMonitorService`'s tamper notification, both of
+   which survive untouched. Session process
+   liveness is also unaffected — `HyperFocusMonitorService` is itself a `startForeground` service
+   declared in the manifest and started by `HyperFocusManager.kt:83,227` at activation. What *is*
+   lost: on a device-admin-only (non-strict) build, the recovery block in `HyperFocusMonitorService`
+   now has no unconditional effect — it stamps `lastRecoveryAttemptAt` and calls
+   `enableHybridProtection` only under strict kiosk mode. That is the user's actual device
+   configuration, so it is a device check (U-row), not a grep.
+
+3. **`app/src/androidTest/.../launcher/` is 4 files, not 2.** `LauncherIntegrationTest.kt` and
+   `WorkProfileIntegrationTest.kt` plus `MANUAL_TESTING_GUIDE.md` and `TASK_30_SUMMARY.md`, which sit
+   in the same tree and are archived rather than kept, since both document launcher-era manual testing.
+
+4. **`scripts/README.md` documented the deleted script and nothing else.** Its whole body was the
+   isolation check's manual, so deleting `check-launcher-isolation.sh` would have orphaned it; rather
+   than delete a directory README that two surviving scripts should carry, it is rewritten as a short
+   index (`generate-baseline-profile.sh`, `setup-device-owner-kiosk.sh`) that keeps the "Adding new
+   checks" guidance and records the archive tag. `generate-baseline-profile.sh` still says "proFlow
+   Launcher" in two cosmetic lines — Task 18's sweep, not this commit.
+
+5. **A second stale keep-alive mention lived in the build file.** `app/build.gradle.kts:33` described
+   `-PkioskStrictMode=false` as "mixed mode (device-owner policy + keepalive/watchdogs)"; with the
+   keepalive gone it now reads "WorkManager watchdogs". Same commit, because leaving it would describe
+   a mechanism the APK no longer contains.
+
+6. **The permission check was re-run against the surviving sources rather than trusted from the
+   pre-deletion grep.** After the deletion, `READ_CONTACTS`, `USE_BIOMETRIC`, `USE_FINGERPRINT` and
+   `EXPAND_STATUS_BAR` have zero references, and the only widget-adjacent code left is
+   `AppWidgetManager`/`AppWidgetProvider` usage in `presentation/widget/` and
+   `worker/FocusWidgetUpdateWorker.kt` — the *hosted* side, which updates its own providers and does
+   not bind another app's widget, so `BIND_APPWIDGET` stays deleted.
+
+7. **`shouldRequireLauncherAsHome` and `TAMPER_REASON_LAUNCHER` survive, and correctly.** They name our
+   own HOME role, not the deleted package — `DeviceOwnerKioskManager.kt:122-126` reads only
+   strict-mode, device-owner and companion-mode flags, and the monitor service's launcher-changed
+   tamper path calls `bringHyperFocusHomeToFront` (renamed in Task 15). Renaming them is wording work
+   for Task 18.
+
+**Unverifiable here, added to the device list:** whether removing `BIND_APPWIDGET` breaks adding one of
+our three widgets from a third-party launcher, and whether the non-strict recovery block still
+recovers a killed process acceptably now that the alarm keepalive is gone.
+
+
+
 ## Task 18: Dangling-reference sweep and the full verification pass
 
 **Files:**
