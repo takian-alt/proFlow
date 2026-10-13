@@ -3422,6 +3422,137 @@ git show --name-only HEAD
 
 ---
 
+### Task 14 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+**The suite.** `HyperFocusGateControlTest` adds 21 `StringSpec` cases (GC-1…GC-21) that pin the
+decisions the three composables make through the ViewModel: what a pass may spend, what the gateway
+may list, when a request is written down, and what the money line says.
+
+**Corrections to the task text, in file order.**
+
+1. `hiddenApps` (Step 1) must not re-enumerate the catalog or re-read `SystemExempt` per prefs
+   change. Both are cross-process calls, and the drafted version put them inside the `combine`, so a
+   prefs write during a gate answer would sweep the launcher again. It now mirrors Task 15's
+   `combine(prefsFlow, catalogFlow)`: a private `GatewayCatalog(entries, exempt)` is filled **once**
+   in `init`, and only the filtering re-runs. GC-11 pins it — 25 prefs writes, `coVerify(exactly = 1)`
+   for both `launchableApps()` and `packages()`.
+2. Step 1's `grantPassFor` fell back to `RewardTier.MICRO.unlockMinutes` when there was no budget.
+   That is a free code: minutes exist only because a code bought them (E1), so with no budget the
+   answer is "nothing to spend" and the gateway stays shut. GC-1/GC-2 pin the refusal.
+3. Step 3's `spendable` had two clauses, the second being `|| passActivePackage == entry.packageName`.
+   The row for the app already holding the pass would then stay enabled with no budget — which is
+   correct behaviour reached by accident, and it also enabled the row for a *stale* package whose pass
+   expired. One clause (`budgetSeconds != null`) is the honest rule, and the gateway rows are not
+   disabled at all (see 4).
+4. **Gateway rows stay clickable with no budget**, contradicting Step 3's `enabled = spendable`.
+   The ViewModel refuses the spend; a UI `enabled` flag derived from the same clock is a second
+   source of truth that disagrees with the first the moment the budget expires while the screen is
+   open. The list must also remain *readable* — that is the whole point of "visible but inert".
+   Device check U6 covers what the tap does.
+5. Dropped Step 1's `gateStartedAt`: nothing read it, and the elapsed clock that matters is the
+   screen's, which is reset with the task.
+6. One `GateTaskEngine` instance (Step 1 drafted three: a field, a local in `submitGateAnswer`, and
+   another in the screen). The field is the only one; the screen uses `viewModel.gateEngine` so the
+   predicate that enables Continue and the predicate that decides the answer are the same object.
+7. `pendingGatePackage` (Step 1) had a reader and no writer. Added `beginGate(packageName)`, called
+   by `HyperFocusActivity` when the start destination is the gate and by `BlockingOverlayScreen`
+   before it navigates there. Without it every audit row logs an empty package.
+8. Added `consumeGatePass()`: the gate is single-shot. `LaunchedEffect(passed)` calls it and then
+   `onPassed()`, which both shuts the route and rolls the next visit's stimulus. GC-19/GC-20 pin the
+   reset and the re-roll (`gateTask.value !== previous`).
+9. Step 5's "leave `CodeEntryScreen` as a thin wrapper so `blocking_overlay`'s existing route keeps
+   working" is a **gate bypass**: the wrapper's success path still navigated to `launch_app` and
+   opened the blocked app device-wide, which is the retired semantics. The `code_entry` route and the
+   `CodeEntryScreen` composable are deleted; `CodeEntryScreen.kt` → `CodeEntrySection.kt` (`git mv`,
+   same commit) keeps the body and takes `(viewModel, onCodeAccepted, modifier)` with no
+   `NavController`. The overlay's affordance is now "Open the gate" → `gate`.
+10. `grantPassFor`'s `onGranted` fires only after the grant is visible in the store
+    (`current().activePassPackage == packageName`), not straight after `grantPass` returns. Launching
+    on the request rather than the written state lets the enforcer bounce the app the gateway just
+    opened, which looks like the gateway not working.
+11. `(budgetSeconds / 60).coerceAtLeast(1L).toInt()` — `grantPass` refuses `durationMinutes <= 0`, so
+    a sub-minute remainder must round up. The value is otherwise inert: `RewardEngine.passDeadline`
+    inherits a live budget, so a re-grant never shortens the window it did not buy.
+12. `deleteOlderThan(now − 90 d)` runs after every insert (Step 1 omitted the retention prune;
+    Task 10 created the column and the DAO method for exactly this). GC-15 pins the cutoff to within
+    5 s. A failed insert still opens the gate: the audit trail is a record, not a permission check,
+    and a Room write failure must not become a lock-in. GC-14 pins that.
+13. Emergency rows pass `taskType = "NONE"` (a literal, because `GateTaskType` has no NONE) and
+    `grantSource = GateGrantSource.EMERGENCY.name`. `ABANDONED` still has no producer — Task 18.
+14. `activateEmergencyBypass` is **deleted**, superseded by `grantEmergencyFor`, which writes the row
+    that Step 4's control depends on. Task 16's line "keep the function, add the parameter" is now
+    stale, and `HyperFocusHomeViewModel.emergencyOpen` must call `grantEmergencyFor` (the carry-forward
+    from Task 15: an emergency that grants access and writes nothing is the one path the spec says must
+    be logged as a grant).
+15. `gatewayBudgetLabel(budgetSeconds: Long?)` is a top-level pure function in
+    `gate/GatewayScreen.kt`, not inline `Text` copy, because FULL's `Int.MAX_VALUE`-minute deadline
+    would print `35791394m 6s`. GC-21 pins all four strings; `NO_TIMER_SECONDS = 24 * 60 * 60` is the
+    cutoff above which the label says "no timer on this pass".
+16. Gate and gateway use the overlay's explicit dark container colours (`Color(0xFF0A0A0A)` surfaces,
+    `Color(0xFF80CBC4)` actions) rather than `MaterialTheme.colorScheme.background`, so the three
+    surfaces of one session cannot diverge if the app theme is ever changed.
+17. The hold countdown drops Step 2's `+1`s fudge:
+    `holdSeconds = ((MIN_ELAPSED_MILLIS - elapsed) / 1000).coerceAtLeast(0)` and it renders only when
+    it is above zero, so "Hold for 0 more seconds" cannot appear next to an enabled button.
+18. **`submitGateAnswer` returns `Boolean`** (the synchronously computed `willLog`). Step 2's screen
+    wanted to increment the mismatch tally when the answer was wrong, and the only way to learn the
+    outcome after a `viewModelScope.launch` is to read `gatePassed` — which has not been assigned yet,
+    so every attempt would count as a mismatch, including the passing one.
+19. `HyperFocusActivity` keeps the **destination vocabulary on its companion** (`DESTINATION_OVERLAY`,
+    `DESTINATION_PLANNING`, `DESTINATION_GATE`, `DESTINATION_GATEWAY`, `DESTINATION_LAUNCH`,
+    `DESTINATION_SETUP`) plus `EXTRA_BLOCKED_PACKAGE`/`EXTRA_START_DESTINATION`, and no route string
+    literal survives in `BlockingOverlayScreen` or `AppBlockingService`. The `EXTRA_START_DESTINATION_*`
+    aliases Step 5 drafted are not defined — two names for one value is the drift the rule exists to
+    prevent; Tasks 15/16 pass `HyperFocusActivity.DESTINATION_GATE`.
+20. Step 5's `pendingLaunch` field is **not** added. It existed only to route the gateway's launch
+    through `launch_app`; `onLaunch = { launchApp(it) }` reaches the same method (which already calls
+    `finish()`) without a field that could outlive the decision. `launch_app` still launches
+    `blocked_package`, which is the right answer for the overlay's own "Open $appName →" button —
+    that button now renders only when `blockedPackage == prefs.activePassPackage`.
+21. `HyperFocusActivity` gains `onNewIntent` → `setIntent` + `applyIntent`, with `blockedPackage` as
+    `mutableStateOf` and the navController held in a field. Step 5 assumed a fresh activity per
+    destination, but the enforcer starts this activity with `SINGLE_TOP`
+    (`AppBlockingService.kt:281-286`), so once the gate or gateway is open a bounce is delivered to
+    *that* instance and its extras are ignored — the user would see a stale screen for a different
+    app. `EXTRA_START_DESTINATION` is deliberately **not** put on the enforcer's intent: its absence
+    means the overlay, which is the only destination a bounce may open.
+22. Step 4's `hiddenApps` **parameter** is not part of the signature. The control reads
+    `viewModel.hiddenApps` itself, so Task 15's home cannot pass a wrong or empty list, and the
+    "list of things that need an emergency" has one source. The dialog also takes a search field that
+    accepts a package name verbatim when nothing matches, which is the same anti-stranding property
+    Step 4 wanted from the raw-package path.
+23. The pass branch of the overlay is renamed in copy, not restructured: "🔓 $appName IS OPEN" became
+    "🔓 $passAppName is open" + "Only that app. Everything else is still closed.", and
+    "Back to launcher" is "Back to home". `$passAppName` is `prefs.activePassPackage` resolved through
+    a `Context.labelForPackage(...)` extension extracted from the duplicated
+    `getApplicationInfo`/`getApplicationLabel` try-catch that `appName` already had.
+24. `grantPassFor` reads the budget from `hyperFocusDataStore.current()`, not from
+    `gateBudgetSecondsRemaining.value` as Step 3 showed. That flow is
+    `stateIn(WhileSubscribed(5000), null)` — it only carries a value while a screen is collecting it,
+    so a call from anywhere else (a notification action, a test, a later refactor of the gateway)
+    would read `null` and silently refuse a live budget. The store is the source of truth either way.
+25. `SystemExempt.packages()` became `suspend` with `withContext(Dispatchers.Default)` inside it, the
+    same shape `AppCatalogRepository.launchableApps()` already has, and the ViewModel's explicit
+    `withContext(Dispatchers.Default)` around the call was deleted. This is not cosmetics: the VM's
+    catalog sweep is what feeds `hiddenApps`, and a hop to a dispatcher the `TestScheduler` does not
+    own makes every GC-5/6/7 assertion a race with a background thread. Mocked suspend functions do
+    not dispatch, so with the hop inside the class under test the JVM suite stays deterministic. All
+    three production call sites (`AppBlockingService:138`, `AppBlockingService:258`,
+    `HyperFocusManager:103`) were already inside coroutines; only the two test stubs needed
+    `every` → `coEvery`.
+26. Constraint for Tasks 15–18, learned by hanging the suite: no test in this repo may call
+    `testDispatcher.scheduler.advanceUntilIdle()` while a ticker-fed flow is subscribed.
+    `HyperFocusViewModel.tickerFlow` is `flow { while (true) { emit(Unit); delay(1000) } }`, so
+    `advanceUntilIdle()` never returns. Use `runCurrent()`, or `advanceTimeBy(n)` + `runCurrent()`
+    when a tick must actually pass — the precedent is `HyperFocusProgressTest` and
+    `DueProtectedSlotFlowTest.kt:15-16`.
+
+**Unverifiable here** (no AVD, `adb` not on `PATH`): the submit button tracking the engine, the
+gateway row's tap with no budget (U6), the emergency picker listing hidden apps, and every navigation
+edge introduced by `onNewIntent`.
+
+---
+
 ## Task 15: `HyperFocusHomeActivity` — the black home, and the HOME role moves onto it
 
 Four things happen in this task and they must land in one commit: the new surface is built, the `CATEGORY_HOME` filter moves from `LauncherActivity` to it, the persistent-preferred HOME component in `DeviceOwnerKioskManager` follows, and the off-state hand-off to the user's real launcher exists. Split any of them and the device is left in one of two bad states: two HOME-role activities in one package (the system lists the app twice in the launcher chooser and the pinned component decides which one the user actually gets, so the new screen can be built and never open), or zero HOME activities (`HyperFocusManager:212` and `HyperFocusMonitorService:119,124` call `bringLauncherToFront`, which would then resolve to a screen that is no longer the home).
