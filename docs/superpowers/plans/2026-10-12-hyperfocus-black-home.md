@@ -1820,6 +1820,51 @@ to compile, one access leak, one frozen flow and one test that cannot fail.
    *names* — Step 9's narrower pattern is the one that must print `OLD UNLOCK API GONE`. `AESUtilTest`
    is inert and never appears in the XMLs; Task 18 owns it.
 
+### Task 8 amendment, part 2 — deltas found while executing it (these supersede the corresponding lines above)
+
+1. **A seventh call site: `presentation/launcher/components/AppIcon.kt:116`.** The correction above fixes
+   `AppBlockingService` from device-wide to per-package, then Step 8 asks for the same translation here as
+   `!RewardEngine.isPassActive(prefs, System.currentTimeMillis())`. That is inverted-dangerous: under a
+   per-app pass, `isPassActive` is true whenever *any* package holds a pass, so the `!` form suppresses
+   the gate redirect for every blocked app tapped in the drawer while an unrelated app is open. Written
+   instead as `!(RewardEngine.isPassActive(prefs, now) && prefs.activePassPackage == appInfo.packageName)`.
+2. **An eighth call site: `presentation/launcher/HomeScreen.kt:483`** reads the renamed flow
+   (`hyperFocusViewModel.unlockSecondsRemaining` → `passSecondsRemaining`). Only the property access
+   changes; the local name and `HyperFocusStatusBar`'s parameter stay, because both are UI copy that
+   Task 13/15 rewrite and this file dies in Phase 3. **Task 18 sweep:** `HyperFocusStatusBar`'s parameter
+   is still `unlockSecondsRemaining` and its text still says "Apps unlocked", as does
+   `UnlockTimerService`'s notification — all three now describe a per-app pass.
+3. **Item 3's assertion, as written, cannot fail.** `updated.activePassPackage shouldBe null` passed with
+   the reset line deleted, because the fixture's prefs left the package at its default `null`. The
+   fixture must carry a live grant (`activePassPackage = "com.instagram.android"` plus a live budget) for
+   the reset to be observable — otherwise this amendment documents the exact tautology it exists to
+   prevent. Verified: with the fixture fixed, deleting `activePassPackage = null` turns the case RED.
+4. **Step 6's guard is narrowed, not deleted.** Removing `if (expiresAt != null)` entirely starts
+   `UnlockTimerService` for the FULL tier, whose `unlockMinutes` is `Int.MAX_VALUE` — a deadline about
+   4,000 years out that the service counts down in a *persistent foreground notification*, formatting it
+   with `(remainingMillis / 60_000).toInt()`, which overflows `Int` into garbage. Kept
+   `if (match.tier != RewardTier.FULL)`: every timed tier still gets the ticking budget Step 6 wants, and
+   FULL has nothing to count down. Same hazard still ahead of Task 14 — a gateway that grants
+   `grantPass(pkg, Int.MAX_VALUE)` starts the service unguarded, so either skip the timer for a
+   never-expiring grant or clamp the display.
+5. **Step 5 and Step 7 keep the shipped service-flag idiom** (default `true` after the pre-read, flip to
+   `false` inside the conflicting branch) rather than the brief's inverted one. `coEvery { update(any()) }
+   just Runs` never invokes the lambda in the existing mockk harness, so a flag set *inside* it can never
+   become `true` in a test, and `verify(exactly = 1) { context.startForegroundService(…) }` fails.
+   `grantPass` also gains the pre-read `if (!hyperFocusDataStore.current().isActive) return` that
+   `triggerEmergencyBypass` already had: it is what makes "no session, no write" testable and stops a
+   stale grant from starting a foreground service.
+6. **Emergency deliberately does not inherit.** It sets `now + EMERGENCY_MINUTES` directly instead of
+   `RewardEngine.passDeadline(…)`, because inheritance would let a 30-second live budget swallow a
+   10-minute emergency. The one tap that must never under-deliver gets a floor. Accepted cost: an
+   emergency can shorten a longer bought budget — stricter, not a trap.
+7. **Six cases added beyond the brief's test list** (item 6's count changes: the suite is 387 − 5 + 9 + 6 =
+   **397**, `HyperFocusManagerTest` 10 → 16). `grantPass`, `clearActivePass` and `expirePassIfDue` had zero
+   coverage, and `expirePassIfDue` is the function that enforces E1's "the pass ends when you leave the
+   granted app". Covered: inherit-a-live-budget, refuse-without-a-session, clear-when-spent, leave-a-live-
+   pass-alone, keep-a-package-less-budget, close-the-app-but-keep-the-budget. Each was mutation-proven to
+   go RED when its rule is removed.
+
 ## Task 9: Reduce `HyperFocusState` to the three states that are actually written
 
 Spec §5.5. `MICRO_UNLOCKED`, `PARTIAL_UNLOCKED`, `EARNED_UNLOCKED`, `PLANNING` and `FULLY_UNLOCKED` have no write sites anywhere in `app/src/main/java`; they are read in six places that Task 8 already removed two of. Leaving unreachable enum entries alongside live ones is how the next reader decides the state machine means something it does not.
