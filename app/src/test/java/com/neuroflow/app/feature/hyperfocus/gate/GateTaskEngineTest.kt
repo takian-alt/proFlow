@@ -19,6 +19,7 @@ class GateTaskEngineTest : StringSpec({
                 task.expected shouldHaveSize 4
                 val values = task.expected.map { it.toInt() }
                 values[1] shouldBe values[0] - 7
+                values[2] shouldBe values[0] - 14
                 values[3] shouldBe values[0] - 21
                 values[0] shouldBeInRange 100..999
                 (values[0] % 100 == 0) shouldBe false
@@ -26,14 +27,14 @@ class GateTaskEngineTest : StringSpec({
         }
     }
 
-    "GT-2: transcribe and restate are single-item tasks with a non-empty prompt" {
+    "GT-2: every task shows its stimulus — the prompt contains the first expected value" {
         repeat(30) {
             val task = GateTaskEngine(Random(it)).newTask()
             when (task.type) {
                 GateTaskType.TRANSCRIBE, GateTaskType.RESTATED -> task.expected shouldHaveSize 1
                 else -> {}
             }
-            task.prompt.length shouldBeInRange 4..Int.MAX_VALUE
+            task.prompt.contains(task.expected.first()) shouldBe true
         }
     }
 
@@ -72,17 +73,17 @@ class GateTaskEngineTest : StringSpec({
     }
 
     "GT-9: submit is blocked before the twelve-second floor" {
-        engine.allowsSubmit(3, 11_999L, "because it is mine").shouldBeFalse()
-        engine.allowsSubmit(3, 12_000L, "because it is mine").shouldBeTrue()
+        engine.allowsSubmit(11_999L, "because it is mine").shouldBeFalse()
+        engine.allowsSubmit(12_000L, "because it is mine").shouldBeTrue()
     }
 
     "GT-10: submit is blocked while the reason is short even after the floor" {
-        engine.allowsSubmit(3, 60_000L, "short").shouldBeFalse()
+        engine.allowsSubmit(60_000L, "short").shouldBeFalse()
     }
 
-    "GT-11: submit is blocked at one and two mismatches past the floor" {
-        engine.allowsSubmit(1, 60_000L, "because it is mine").shouldBeFalse()
-        engine.allowsSubmit(2, 60_000L, "because it is mine").shouldBeFalse()
+    "GT-11: the mismatch count never closes the button, and one mismatch earns no pass" {
+        engine.allowsSubmit(60_000L, "because it is mine").shouldBeTrue()
+        engine.shouldAutoPass(1).shouldBeFalse()
     }
 
     "GT-12: the task types are reachable and never null" {

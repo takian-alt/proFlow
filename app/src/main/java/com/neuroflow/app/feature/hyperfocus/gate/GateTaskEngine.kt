@@ -18,13 +18,17 @@ class GateTaskEngine(
     private val random: Random = Random.Default
 ) {
     fun newTask(): GateTask = when (GateTaskType.entries.random(random)) {
-        GateTaskType.TRANSCRIBE -> single(TRANSCRIPTIONS, "Type exactly what you see", GateTaskType.TRANSCRIBE)
-        GateTaskType.RESTATED -> single(SENTENCES, "Retype this sentence word for word", GateTaskType.RESTATED)
+        GateTaskType.TRANSCRIBE ->
+            single(TRANSCRIPTIONS, "Type exactly what you see", GateTaskType.TRANSCRIBE)
+        GateTaskType.RESTATED ->
+            single(SENTENCES, "Retype this sentence word for word, including punctuation", GateTaskType.RESTATED)
         GateTaskType.COUNT_BACK -> countBack()
     }
 
-    private fun single(pool: List<String>, prompt: String, type: GateTaskType): GateTask =
-        GateTask(type, prompt, listOf(pool[random.nextInt(pool.size)]))
+    private fun single(pool: List<String>, instruction: String, type: GateTaskType): GateTask {
+        val value = pool[random.nextInt(pool.size)]
+        return GateTask(type, "$instruction:\n\n$value", listOf(value))
+    }
 
     private fun countBack(): GateTask {
         var start = random.nextInt(100, 1000)
@@ -32,7 +36,7 @@ class GateTaskEngine(
         val values = (0 until 4).map { (start - it * 7).toString() }
         return GateTask(
             GateTaskType.COUNT_BACK,
-            "Start at $start and count back by 7. Enter the next four values.",
+            "Start at $start and count back by 7. Enter the four values, starting at $start.",
             values
         )
     }
@@ -46,10 +50,8 @@ class GateTaskEngine(
 
     fun shouldAutoPass(mismatchCount: Int): Boolean = mismatchCount >= MAX_MISMATCHES
 
-    fun allowsSubmit(mismatchCount: Long, elapsedMillis: Long, reason: String): Boolean =
-        isReasonValid(reason) &&
-            elapsedMillis >= MIN_ELAPSED_MILLIS &&
-            (mismatchCount == 0L || mismatchCount % MAX_MISMATCHES == 0L)
+    fun allowsSubmit(elapsedMillis: Long, reason: String): Boolean =
+        isReasonValid(reason) && elapsedMillis >= MIN_ELAPSED_MILLIS
 
     companion object {
         const val MAX_MISMATCHES = 3
