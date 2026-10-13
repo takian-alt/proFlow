@@ -104,6 +104,20 @@ object RewardEngine {
     fun isPassActive(prefs: HyperFocusPreferences, nowMillis: Long): Boolean =
         prefs.activePassPackage != null && (prefs.activePassExpiresAt ?: 0L) > nowMillis
 
+    /**
+     * E1: the pass ends when the granted app leaves the foreground. A system surface arriving *over*
+     * it — the shade, an IME, a permission dialog, the ringer — is not the user leaving, so the
+     * enforcement-exempt set never ends a pass even though it is never the pass either.
+     */
+    fun endsPassOnForeground(
+        packageName: String,
+        prefs: HyperFocusPreferences,
+        systemExempt: Set<String>,
+        nowMillis: Long
+    ): Boolean = isPassActive(prefs, nowMillis) &&
+        packageName != prefs.activePassPackage &&
+        packageName !in systemExempt
+
     fun passSecondsRemaining(prefs: HyperFocusPreferences, nowMillis: Long): Long? {
         if (!isPassActive(prefs, nowMillis)) return null
         return ((prefs.activePassExpiresAt ?: return null) - nowMillis) / 1000

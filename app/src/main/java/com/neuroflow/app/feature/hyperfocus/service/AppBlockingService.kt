@@ -18,6 +18,8 @@ import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.feature.hyperfocus.domain.RewardEngine
+import com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModel
+import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,8 @@ class AppBlockingService : AccessibilityService() {
 
     @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
     @Inject lateinit var hyperFocusManager: HyperFocusManager
+    // An AccessibilityService cannot take constructor injection, so the exemption source is a field.
+    @Inject lateinit var systemExempt: SystemExempt
 
     private val heartbeatScope = CoroutineScope(Dispatchers.IO)
     private var lastBlockedPackage: String? = null
@@ -130,9 +134,12 @@ class AppBlockingService : AccessibilityService() {
                     hyperFocusManager.reportTamper("App package event: $action")
                 }
 
-                if (packageName in prefs.blockedPackages) {
-                    Log.w(TAG, "Tamper: blocked package event detected ($action) for $packageName")
-                    hyperFocusManager.reportTamper("Blocked app package event: $action for $packageName")
+                if (FocusSurfaceModel.isGated(
+                        packageName, prefs, systemExempt.packages(), BuildConfig.APPLICATION_ID,
+                        System.currentTimeMillis()
+                    )) {
+                    Log.w(TAG, "Tamper: event detected for a gated package ($action) for $packageName")
+                    hyperFocusManager.reportTamper("Gated app package event: $action for $packageName")
                 }
             }
         }
@@ -211,6 +218,12 @@ class AppBlockingService : AccessibilityService() {
                 delay(POLLING_INTERVAL_MS)
                 val prefs = cachedPrefs.takeIf { it.isActive } ?: hyperFocusDataStore.current()
                 if (prefs.isActive) {
+                    val now = System.currentTimeMillis()
+                    // UnlockTimerService normally expires a spent pass; this is the backstop for when
+                    // it dies. Guarded on prefs so a poll with nothing to expire writes nothing.
+                    if (prefs.activePassPackage != null && !RewardEngine.isPassActive(prefs, now)) {
+                        hyperFocusManager.expirePassIfDue(now)
+                    }
                     val currentApp = rootInActiveWindow?.packageName?.toString()
                         ?: getForegroundAppFromUsageStats()
                         ?: lastSeenForegroundPackage
@@ -241,22 +254,24 @@ class AppBlockingService : AccessibilityService() {
                 }
             }
 
+            val now = System.currentTimeMillis()
+            val exempt = systemExempt.packages()
             val protectedSurfaceDecision = evaluateProtectedSurface(pkg, className, eventSnapshot)
             val isTamperSensitive = protectedSurfaceDecision?.shouldBlock == true
-            val isUserBlockedApp = pkg in prefs.blockedPackages
-            if (!isUserBlockedApp && !isTamperSensitive) return@launch
-            // Per-app pass (D3): only the granted package is exempt, never the whole device.
-            if (RewardEngine.isPassActive(prefs, System.currentTimeMillis()) && prefs.activePassPackage == pkg) {
-                return@launch
+            val isGatedApp = FocusSurfaceModel.isGated(pkg, prefs, exempt, BuildConfig.APPLICATION_ID, now)
+            // E1: leaving the granted app ends the pass, and the budget clock keeps running. Computed
+            // before either early return, so a gated arrival ends it on the way to being bounced.
+            if (RewardEngine.endsPassOnForeground(pkg, prefs, exempt, now)) {
+                hyperFocusManager.clearActivePass()
             }
+            if (!isGatedApp && !isTamperSensitive) return@launch
 
-            if (isTamperSensitive && !isUserBlockedApp) {
+            if (isTamperSensitive && !isGatedApp) {
                 hyperFocusManager.reportTamper(
                     protectedSurfaceDecision?.tamperReason ?: "Protected settings opened: $pkg"
                 )
             }
 
-            val now = System.currentTimeMillis()
             if (pkg == lastBlockedPackage && (now - lastBlockTime) < BLOCK_DEBOUNCE_MS) return@launch
 
             lastBlockedPackage = pkg

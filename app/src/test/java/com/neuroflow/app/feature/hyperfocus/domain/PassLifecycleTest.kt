@@ -74,4 +74,37 @@ class PassLifecycleTest : StringSpec({
         RewardEngine.passDeadline(null, NOW, 10) shouldBe NOW + 600_000
         RewardEngine.passDeadline(NOW + 1, NOW, Int.MAX_VALUE) shouldBe NOW + 1
     }
+
+    val pass = HyperFocusPreferences(
+        isActive = true,
+        essentialPackages = setOf("com.android.dialer"),
+        allowedPackages = setOf("com.todoist"),
+        activePassPackage = "com.instagram.android",
+        activePassExpiresAt = NOW + 300_000
+    )
+    val exempt = setOf("android", "com.android.systemui", "com.android.settings")
+
+    "EP-1: navigating to another permitted app ends the pass" {
+        RewardEngine.endsPassOnForeground("com.todoist", pass, exempt, NOW).shouldBeTrue()
+    }
+
+    "EP-2: the granted app staying in the foreground does not end its own pass" {
+        RewardEngine.endsPassOnForeground("com.instagram.android", pass, exempt, NOW).shouldBeFalse()
+    }
+
+    "EP-3: a system surface arriving over the granted app is not the user leaving" {
+        RewardEngine.endsPassOnForeground("com.android.systemui", pass, exempt, NOW).shouldBeFalse()
+    }
+
+    "EP-4: arriving at a gated app ends the pass on the way to blocking it" {
+        RewardEngine.endsPassOnForeground("com.netflix.mediaclient", pass, exempt, NOW).shouldBeTrue()
+    }
+
+    "EP-5: with no live pass there is nothing to end, whatever arrives" {
+        val spent = pass.copy(activePassExpiresAt = NOW - 1)
+        RewardEngine.endsPassOnForeground("com.todoist", spent, exempt, NOW).shouldBeFalse()
+        RewardEngine.endsPassOnForeground(
+            "com.todoist", HyperFocusPreferences(), exempt, NOW
+        ).shouldBeFalse()
+    }
 })
