@@ -17,8 +17,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.feature.hyperfocus.home.HyperFocusHomeActivity
-import com.neuroflow.app.presentation.launcher.service.LauncherKeepAliveScheduler
-import com.neuroflow.app.presentation.launcher.service.LauncherKeepAliveService
 import com.neuroflow.app.receiver.DeviceAdminReceiver
 import com.neuroflow.app.worker.KioskPolicyWorker
 import java.util.concurrent.TimeUnit
@@ -82,18 +80,10 @@ object DeviceOwnerKioskManager {
 
     /**
      * Mixed kiosk protection:
-     * 1) DPC/device-owner policy (when enrolled)
-     * 2) Alarm-based keepalive service schedule
-     * 3) WorkManager periodic watchdog fallback
+     * 1) WorkManager periodic watchdog — what re-arms enforcement after a kill
+     * 2) DPC/device-owner policy (when enrolled)
      */
     fun enableHybridProtection(context: Context) {
-        try {
-            LauncherKeepAliveService.start(context)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unable to start keepalive service", e)
-        }
-
-        LauncherKeepAliveScheduler.schedule(context)
         schedulePolicyWatchdog(context)
         applyDeviceOwnerPolicies(context)
     }

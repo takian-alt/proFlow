@@ -15,8 +15,6 @@ import com.neuroflow.app.R
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
-import com.neuroflow.app.presentation.launcher.service.LauncherKeepAliveScheduler
-import com.neuroflow.app.presentation.launcher.service.LauncherKeepAliveService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,8 +95,6 @@ class HyperFocusMonitorService : Service() {
 
                 if (!accessibilityHealthy && (now - lastRecoveryAttemptAt) >= RECOVERY_RETRY_INTERVAL_MS) {
                     lastRecoveryAttemptAt = now
-                    runCatching { LauncherKeepAliveService.start(this@HyperFocusMonitorService) }
-                    runCatching { LauncherKeepAliveScheduler.scheduleRecovery(this@HyperFocusMonitorService) }
                     if (DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@HyperFocusMonitorService)) {
                         runCatching { DeviceOwnerKioskManager.enableHybridProtection(this@HyperFocusMonitorService) }
                     }

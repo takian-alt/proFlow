@@ -6,7 +6,6 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
 import com.neuroflow.app.data.local.DatabaseCleaner
 import com.neuroflow.app.data.repository.TaskRepository
-import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.feature.hyperfocus.data.AllowlistMigrationRunner
@@ -38,7 +37,6 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
     }
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
-    @Inject lateinit var appRepository: AppRepository
     @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var userPreferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
@@ -95,11 +93,6 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
 
         createNotificationChannels(this)
         scheduleDailyWorkers()
-
-        // Pre-warm AppRepository on IO thread
-        applicationScope.launch {
-            appRepository.loadAll()
-        }
 
         DeviceOwnerKioskManager.migrateStrictModeDefault(this)
         DeviceOwnerKioskManager.enableHybridProtection(this)

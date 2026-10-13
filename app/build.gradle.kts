@@ -8,10 +8,6 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-
-// Apply custom lint check for launcher module isolation
-apply(from = "lint-module-isolation.gradle.kts")
-
 android {
     val kioskStrictMode = providers.gradleProperty("kioskStrictMode")
         .map { it.toBooleanStrictOrNull() ?: false }
@@ -29,7 +25,7 @@ android {
 
         // Toggle strict kiosk behavior at build time:
         // -PkioskStrictMode=true  => full lock task + hard restrictions
-        // -PkioskStrictMode=false => mixed mode (device-owner policy + keepalive/watchdogs)
+        // -PkioskStrictMode=false => mixed mode (device-owner policy + WorkManager watchdogs)
         buildConfigField("boolean", "KIOSK_STRICT_MODE", kioskStrictMode.get().toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -45,8 +41,7 @@ android {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
-                "proguard-launcher.pro"
+                "proguard-rules.pro"
             )
         }
     }
