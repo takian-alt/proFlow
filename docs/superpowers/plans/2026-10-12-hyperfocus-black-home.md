@@ -32,6 +32,7 @@
 - **The target device is an active device *administrator*, not a device owner** (user, 2026-10-13). This is not a small downgrade: every `isDeviceOwnerApp` guard in `DeviceOwnerKioskManager` (`:134`, `:258`, `:291`) returns early, so `setPackagesSuspended`, `addPersistentPreferredActivity`, the kiosk user restrictions and lock-task are **dead code on this device**. Two consequences shape Phase 2. (1) Task 12's accessibility service is the *only* enforcement, so a blocked app's window is genuinely visible for the interval between its `TYPE_WINDOW_STATE_CHANGED` event and the overlay — the allowlist is reactive, not preemptive. (2) The black home is HOME only because the user picks it in **Settings → Default apps → Home app**; nothing pins it, and clearing defaults is an escape the code cannot close. Therefore: no user-visible string may describe suspension as protection, and a `dpm` call returning without exception is never evidence that anything happened.
 - **A HOME-role regression and a package-move regression must never share a commit** (G1). Phase 1 changes imports only; Phase 2 owns the manifest.
 - **A predicate that gates an action must not consume state that only that action can advance.** Task 6's review caught the first version of this rule and its fix round caught a second, subtler case, so it is now a constraint rather than a comment: `GateTaskEngine.allowsSubmit` decides whether the Continue button is clickable, and `mismatches` increments only inside that button's `onClick` — so *any* clause on the count in `allowsSubmit` is a deadlock, not a difficulty. `< MAX_MISMATCHES` lets a wrong answer through; `% MAX_MISMATCHES` (the version that shipped at `6da749c`) shuts again at 4 and 5 and strands anyone who reaches them; `>= MAX_MISMATCHES` shuts at 1 and 2 and strands anyone who mistypes once, which is most users. Only the last of the three is caught by reading the predicate alone — you have to follow it into the UI to see it. The same shape is live in the gate's neighbours: `elapsedMillis >= MIN_ELAPSED_MILLIS` is fine *because* the button's own click cannot be the only thing that advances elapsed time, and `isReasonValid` is fine because the user types it. When a later task adds a counter that a screen advances (the `hiddenApps` retry count, a pass-grant count), it belongs in the grant decision (`shouldAutoPass`/`grantPass`), never in the guard that enables the click.
+- **`launchableApps()` is complete by construction: no namespace or package-prefix rule may drop an app from it.** `LauncherApps.getActivityList` already returns only packages that have a real launcher activity, so a `com.android.` prefix test cannot hide the internals it is named after — `SystemExempt.STATIC` re-admits every one of them via the exempt clause — and its only reachable effect is to hide *user* apps in that namespace: `com.android.chrome`, `com.android.vending` (Play Store), and OEM gallery/email/filemanager variants, none of which is in `STATIC`, `CALL_PATH` or the essential seed. Because Task 11's migrator tiers only `launchable` packages and Task 16's picker is fed by the same list, a package dropped here has **no route back**: it is invisible forever, which is the exact defect B2's allowlist was chosen to eliminate. Hiding is `FocusSurfaceModel`'s single job (`isGated`), and the display sites filter with `STATIC`; the catalog is not where it happens. Added after Task 7's review, which traced the consequence end to end.
 
 ## File structure after Phase 2
 
@@ -1325,6 +1326,151 @@ filterable function and the LauncherApps shell stays thin." -- <same paths>
 git show --name-only HEAD
 ```
 
+### Task 7 amendment — ruling after its review (supersedes the Step 3 filter code and the AC-2/AC-4/AC-6 listings above)
+
+Task 7 passed spec review byte-verbatim and still earned six Important findings, because the brief
+itself was wrong in three places it could not see. This block is the corrected contract; the listings
+above are kept unedited so the change and its reason stay visible.
+
+**Ruling (the reviewer explicitly routed I6 to the controller): the `com.android.` prefix rule is
+deleted, not narrowed.** It cannot do its job — every internal it aims at (`systemui`, `settings`,
+`server.telecom`, the installers) is in `SystemExempt.STATIC` and therefore re-admitted by the exempt
+clause on the very next line — so the *only* package it can ever drop is one the user installed or a
+vendor app they can see on their own home screen. `com.android.chrome` and `com.android.vending` carry
+that prefix, have launcher activities, and appear in neither `STATIC`, `CALL_PATH` nor the essential
+seed. Trace what that costs: dropped from `launchableApps()` → Task 11's migrator tiers only launchable
+packages → in no tier → `FocusSurfaceModel.isGated` says gated → Task 16's picker, fed by the same list,
+cannot offer it. **The user has no route to allow their own browser**, which is the invisible-forever
+bug B2 was chosen to kill. A "narrow it to an explicit internals list" option is a denylist and is
+rejected for the same reason; "keep it for the grid but not the picker" splits the definition of
+launchable and breaks the migrator. Consequence to carry into Tasks 12/14/15/16: `launchableApps()` now
+*includes* Settings, systemui, installers and enabled IMEs, so the `STATIC` re-filter at the five display
+sites is load-bearing — a display site that forgets it puts Settings on the black home.
+
+**Ruling on I4 (sort computed then discarded):** the repository preserves the filter's order instead of
+rebuilding in enumeration order. The black home's value is a surface that does not move; `getActivityList`
+order changes when an app is installed or a badge clears, so an unsorted grid reads as unreliability — and
+the spec says nothing about ordering, which made this plan-internal drift.
+
+**Ruling on I1 (the crash path), with a correction to the reviewer's own fix.** Agreed that `launch()`
+must not throw — its return type is `Boolean` and a method that reports failure by throwing reports
+nothing — but the snippet in the review is itself defective: inside `runCatching { … }`,
+`?: return@runCatching false` produces `Result.success(false)`, so `.isSuccess` is `true` and the method
+returns *success* for a package that was never found. That is the same class of bug the review was filed
+for, so it is fixed here rather than passed on: guard the lookup with `runCatching{…}.getOrNull()` and
+return from `withContext`, not from `runCatching`.
+
+```kotlin
+// AppCatalogFilter.kt — one argument now; hiding is FocusSurfaceModel's job, not the catalog's.
+object AppCatalogFilter {
+
+    /**
+     * No namespace rule by design: a package dropped here has no route back, because the migrator
+     * and the picker both read this list. See the Global Constraint on catalog completeness.
+     */
+    fun keep(apps: List<InstalledApp>): List<InstalledApp> =
+        apps.asSequence()
+            .filter { it.packageName.isNotBlank() && it.activity.isNotBlank() }
+            .distinctBy { it.packageName }
+            .sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
+            .toList()
+}
+```
+
+```kotlin
+// AppCatalogRepository.kt — the three corrected members; `SystemExempt` leaves the constructor.
+suspend fun launchableApps(): List<AppEntry> = withContext(Dispatchers.Default) {
+    val users: List<UserHandle> =
+        context.getSystemService(UserManager::class.java)?.userProfiles
+            ?: listOf(Process.myUserHandle())
+    // One paused work profile must not empty the catalog: getActivityList throws there.
+    val rows = users.flatMap { user ->
+        runCatching { launcherApps.getActivityList(null, user) }.getOrDefault(emptyList())
+            .map { info ->
+                val pkg = info.componentName.packageName
+                val label = info.label.toString()
+                InstalledApp(pkg, label, info.componentName.className) to
+                    AppEntry(pkg, label, info.componentName, user)
+            }
+    }
+    val firstByPackage = mutableMapOf<String, AppEntry>()
+    rows.forEach { (_, entry) -> firstByPackage.putIfAbsent(entry.packageName, entry) }
+    AppCatalogFilter.keep(rows.map { it.first }).mapNotNull { firstByPackage[it.packageName] }
+}
+
+/** Re-queried, not cached: a `UserHandle` from an earlier enumeration throws on launch. */
+suspend fun launch(packageName: String): Boolean = withContext(Dispatchers.Default) {
+    val target = runCatching { launchableApps().firstOrNull { it.packageName == packageName } }
+        .getOrNull() ?: return@withContext false
+    runCatching {
+        launcherApps.startMainActivity(target.component, target.user, null, null)
+    }.onFailure { Log.w("AppCatalog", "launch failed for $packageName", it) }.isSuccess
+}
+
+/** Personal profile only, so a work-profile package logs its package name in the audit row. */
+suspend fun labelFor(packageName: String): String = withContext(Dispatchers.Default) {
+    runCatching {
+        launcherApps.getActivityList(packageName, Process.myUserHandle())
+            .firstOrNull()?.label?.toString()
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: packageName
+}
+```
+
+`firstByPackage` uses `putIfAbsent` — the plain `associateBy` the reviewer suggested keeps the **last**
+row per package, which would hand a duplicated package to the work profile and invert the very ordering
+rule AC-4 pins.
+
+The test class becomes six cases with `keep()` taking one argument; the fixture gains an `activity`
+default. AC-2, AC-4 and AC-6 are the three that were mutation-silent, and each is now red under the
+mutation that used to survive it — AC-2 under a reintroduced prefix rule, AC-4 under a
+`distinctBy`/`sortedWith` swap (its labels must *disagree* with the comparator: `Zeta` then `Alpha`),
+AC-6 under any new silent drop.
+
+```kotlin
+private fun app(pkg: String, label: String = pkg, activity: String = "$pkg.MainActivity") =
+    InstalledApp(pkg, label, activity)
+
+"AC-1: ordinary launchable apps keep" {
+    AppCatalogFilter.keep(listOf(app("com.todoist")))
+        .map { it.packageName } shouldContainExactly listOf("com.todoist")
+}
+
+"AC-2: the catalog hides nothing by namespace — a com.android user app survives" {
+    val kept = AppCatalogFilter.keep(
+        listOf(app("com.android.chrome"), app("com.android.vending"),
+               app("com.android.systemui"), app("com.todoist"))
+    )
+    kept.map { it.packageName } shouldContainExactly
+        listOf("com.android.chrome", "com.android.systemui", "com.android.vending", "com.todoist")
+}
+
+"AC-3: blank activity rows are not launchable and drop" {
+    AppCatalogFilter.keep(listOf(InstalledApp("com.example", "Example", ""))).size shouldBe 0
+}
+
+"AC-4: duplicates collapse to the row seen first, not the row that sorts first" {
+    val kept = AppCatalogFilter.keep(listOf(app("com.todoist", "Zeta"), app("com.todoist", "Alpha")))
+    kept.size shouldBe 1
+    kept.first().label shouldBe "Zeta"
+}
+
+"AC-5: ordering is stable by label, then package" {
+    val kept = AppCatalogFilter.keep(listOf(app("z", "Alpha"), app("m", "Beta"), app("a", "Alpha")))
+    kept.map { it.packageName } shouldContainExactly listOf("a", "z", "m")
+}
+
+"AC-6: the seeded essentials are never dropped from the catalog" {
+    val seed = FocusSurfaceModel.DEFAULT_ESSENTIAL_SEED.toList()
+    val kept = AppCatalogFilter.keep(seed.map { app(it) })
+    kept.size shouldBe seed.size
+    kept.map { it.packageName } shouldContainAll seed
+}
+```
+
+Suite count is unchanged at **6**, so the full suite stays at **387**. Not taken in this round, on
+purpose: a last-known-good catalog cache (the shipped `AppRepository.kt:103-107` has one) — that is
+Task 15's per-tap latency measurement to justify, recorded as U5, not a Phase 2 guess.
+
 ## Task 8: Per-app pass lifecycle (D3 + E1) and deletion of the device-wide unlock
 
 Three things happen here and they cannot be separated without leaving a broken build: `activeUnlockExpiresAt` is replaced by `activePassExpiresAt`; `RewardEngine.isUnlockActive`/`secondsRemaining` (which free the *whole device*) are replaced by `isPassActive`/`passSecondsRemaining` (which free one package); and `submitCode` stops being the thing that unlocks, becoming the thing that buys a budget that `grantPass` then spends on one app.
@@ -1620,6 +1766,59 @@ replaced by activePassPackage + activePassExpiresAt, and emergency uses the same
 This tightens existing behavior on purpose." -- <same paths>
 git show --name-only HEAD
 ```
+
+### Task 8 amendment — pre-flight corrections (apply with the task; the listings above are left as written so the deltas stay legible)
+
+Read against the tree, not against itself, Task 8's brief contained two changes that would have failed
+to compile, one access leak, one frozen flow and one test that cannot fail.
+
+1. **`AppBlockingService.kt:248` is a sixth call site, and the brief's own grep prints it.** Step 8
+   claims "exact sites, all found by grep" and lists five files; `AppBlockingService` is not among them,
+   yet it holds `if (RewardEngine.isUnlockActive(prefs)) return@launch`. Deleting `isUnlockActive`
+   without editing here fails `assemble`. It becomes a **per-package** exemption —
+   `if (RewardEngine.isPassActive(prefs, passNow) && prefs.activePassPackage == pkg) return@launch`
+   (`pkg` is already in scope) — never the device-wide form, which would free every app the moment any
+   pass is live and contradict D3 plus this task's own commit message. Side effect to accept: tamper
+   reporting at `:251-255` resumes for every app except the pass app, because the old guard skipped it
+   wholesale. `FULLY_UNLOCKED` was verified to have **no write site** in `app/src/main`, so deleting the
+   short-circuits strands no live session.
+2. **`HyperFocusManagerTest.kt:186` and `:215` call `triggerEmergencyBypass()` with no arguments** and
+   break the test-source compile; the file is absent from the brief's list. Both take
+   `"com.instagram.android"`. The brief's Step 9 mis-attributes `:196-197` to `submitCode` — those lines
+   are inside the *emergency* case; repoint them to `activePassExpiresAt` and add
+   `updated.activePassPackage shouldBe "com.instagram.android"`, which is the only JVM-visible statement
+   of what emergency actually grants under D3.
+3. **`submitCode` leaks the previously-open app onto the freshly bought budget.** Step 6 copies
+   `activePassExpiresAt` alone, so submitting a code while a pass is still live makes `isPassActive`
+   true for the **old** package with the **new** deadline — a reward code re-opens whatever was last open,
+   with no gateway pick. Add `activePassPackage = null` to the same `update`, which is what Step 6's prose
+   already claims, and pin it with `updated.activePassPackage shouldBe null` in the existing
+   `submitCode with valid code returns UnlockResult.Success` case (`:67`).
+4. **`isPassActive` as a `map` flow freezes at its last value.** A wall-clock predicate re-evaluated only
+   on a prefs write keeps reporting `true` after the deadline passes. `passSecondsRemaining` two lines
+   below already uses `combine(tickerFlow, …)`, and `tickerFlow` exists at `HyperFocusViewModel.kt:45`;
+   drive both from it.
+5. **PL-9 is a tautology** — it builds prefs with `sessionMode = TIME_BASED, emergencyUsed = false` and
+   asserts those two constants back. Same defect class as Task 6's GT-2, which is why that suite stayed
+   green over an unanswerable gate. Replace it with E1's arithmetic, which has no test at all, by
+   extracting the rule Step 5 inlines into `grantPass`:
+
+   ```kotlin
+   /** E1: a live budget keeps ticking and is inherited; only a spent or absent budget restarts. */
+   fun passDeadline(existingExpiresAt: Long?, nowMillis: Long, durationMinutes: Int): Long =
+       existingExpiresAt?.takeIf { it > nowMillis }
+           ?: nowMillis + durationMinutes.toLong() * 60_000L
+   ```
+
+   `grantPass` computes its deadline through this. PL-9 then asserts inherit (`NOW+300_000` stays),
+   spent-restarts (`NOW-1` → `NOW+600_000`), absent-restarts (`null` → `NOW+600_000`) and never-extends
+   (`NOW+1` with `Int.MAX_VALUE` minutes stays `NOW+1`). Suite stays at **9**.
+6. **Counts and stale refs.** `RewardEngineTest` loses **five** cases (`:49, :63, :70, :91, :96` — the
+   brief says four), keeping 7, so the suite is 387 − 5 + 9 = **391**; anything lower is a dropped suite.
+   `HyperFocusDataStore.kt` refs move to `:36`/`:129`/`:171`. Step 8's grep pattern also matches
+   `UnlockResult.Lockout(val secondsRemaining)` at `HyperFocusManager.kt:27` and the two emergency case
+   *names* — Step 9's narrower pattern is the one that must print `OLD UNLOCK API GONE`. `AESUtilTest`
+   is inert and never appears in the XMLs; Task 18 owns it.
 
 ## Task 9: Reduce `HyperFocusState` to the three states that are actually written
 
