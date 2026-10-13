@@ -24,6 +24,14 @@ data class HyperFocusPreferences(
     val sessionId: String? = null,
     val state: HyperFocusState = HyperFocusState.INACTIVE,
     val blockedPackages: Set<String> = emptySet(),
+    // --- Allowlist model (B2): global tiers, identical across sessions ---
+    val essentialPackages: Set<String> = emptySet(),
+    val allowedPackages: Set<String> = emptySet(),
+    // --- Per-app pass (D3 + E1): exactly one granted package, wall-clock budget ---
+    val activePassPackage: String? = null,
+    val activePassExpiresAt: Long? = null,
+    // The user's real launcher, resolved once so the off state can hand Home back.
+    val realHomeComponent: String? = null,
     val currentTier: RewardTier = RewardTier.NONE,
     val activeUnlockExpiresAt: Long? = null,
     val tasksCompletedAtActivation: Int = 0,
@@ -108,6 +116,15 @@ class HyperFocusDataStoreImpl @Inject constructor(
         val packagesArray = JSONArray()
         prefs.blockedPackages.forEach { packagesArray.put(it) }
         json.put("blockedPackages", packagesArray)
+        val essentialArray = JSONArray()
+        prefs.essentialPackages.forEach { essentialArray.put(it) }
+        json.put("essentialPackages", essentialArray)
+        val allowedArray = JSONArray()
+        prefs.allowedPackages.forEach { allowedArray.put(it) }
+        json.put("allowedPackages", allowedArray)
+        json.put("activePassPackage", prefs.activePassPackage ?: JSONObject.NULL)
+        json.put("activePassExpiresAt", prefs.activePassExpiresAt ?: JSONObject.NULL)
+        json.put("realHomeComponent", prefs.realHomeComponent ?: JSONObject.NULL)
         json.put("currentTier", prefs.currentTier.name)
         json.put("activeUnlockExpiresAt", prefs.activeUnlockExpiresAt ?: JSONObject.NULL)
         json.put("tasksCompletedAtActivation", prefs.tasksCompletedAtActivation)
@@ -132,19 +149,24 @@ class HyperFocusDataStoreImpl @Inject constructor(
     private fun deserialize(json: String): HyperFocusPreferences {
         return try {
             val obj = JSONObject(json)
-            val packagesArray = obj.optJSONArray("blockedPackages")
-            val blockedPackages = buildSet {
-                if (packagesArray != null) {
-                    for (i in 0 until packagesArray.length()) {
-                        add(packagesArray.getString(i))
-                    }
-                }
+            fun stringSet(key: String): Set<String> = buildSet {
+                val arr = obj.optJSONArray(key)
+                if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
             }
+            val blockedPackages = stringSet("blockedPackages")
             HyperFocusPreferences(
                 isActive = obj.optBoolean("isActive", false),
                 sessionId = if (obj.isNull("sessionId")) null else obj.optString("sessionId", null.toString()).takeIf { it != "null" },
                 state = try { HyperFocusState.valueOf(obj.optString("state", HyperFocusState.INACTIVE.name)) } catch (_: Exception) { HyperFocusState.INACTIVE },
                 blockedPackages = blockedPackages,
+                essentialPackages = stringSet("essentialPackages"),
+                allowedPackages = stringSet("allowedPackages"),
+                activePassPackage = if (obj.isNull("activePassPackage")) null
+                    else obj.optString("activePassPackage").takeIf { it.isNotEmpty() },
+                activePassExpiresAt = if (obj.isNull("activePassExpiresAt")) null
+                    else obj.optLong("activePassExpiresAt").takeIf { it > 0L },
+                realHomeComponent = if (obj.isNull("realHomeComponent")) null
+                    else obj.optString("realHomeComponent").takeIf { it.isNotEmpty() },
                 currentTier = try { RewardTier.valueOf(obj.optString("currentTier", RewardTier.NONE.name)) } catch (_: Exception) { RewardTier.NONE },
                 activeUnlockExpiresAt = if (obj.isNull("activeUnlockExpiresAt")) null else obj.optLong("activeUnlockExpiresAt"),
                 tasksCompletedAtActivation = obj.optInt("tasksCompletedAtActivation", 0),
@@ -156,10 +178,7 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 tamperReason = if (obj.isNull("tamperReason")) null else obj.optString("tamperReason"),
                 tamperDetectedAt = if (obj.isNull("tamperDetectedAt")) null else obj.optLong("tamperDetectedAt"),
                 pendingCodeId = if (obj.isNull("pendingCodeId")) null else obj.optString("pendingCodeId").takeIf { it != "null" },
-                lockedTaskIds = buildSet {
-                    val arr = obj.optJSONArray("lockedTaskIds")
-                    if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
-                },
+                lockedTaskIds = stringSet("lockedTaskIds"),
                 emergencyUsed = obj.optBoolean("emergencyUsed", false),
                 sessionMode = try {
                     HyperFocusSessionMode.valueOf(
