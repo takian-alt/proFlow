@@ -4936,6 +4936,65 @@ git show --name-only HEAD
 
 Two tasks. G1 says the archive is git-only: no `launcher/` copy directory, no `_deprecated` folder, no feature flag. The recovery path is one tag.
 
+### Task 16 amendment — deltas found while executing it (these supersede the corresponding lines above)
+
+1. **Step 6's safety argument for deleting `blockedPackages` was wrong, and following it would have
+   failed the migration open.** The claim was that an old blob carrying the key is safe to ignore
+   "because Task 11's `AllowlistMigratorRunner` has already derived the two tiers from it on first
+   launch". It has not, necessarily: `afterSession()` re-serializes the whole blob, so an upgrade
+   that happens mid-session and ends before the migration runs loses the user's block list, and the
+   migration then derives `allowed = every launchable app` — a session that blocks nothing. The field
+   is therefore gone from the *model* but kept as a storage-only pass-through: `serialize()` copies
+   the legacy array forward while `allowlistMigratedAt == null` and stops the moment the stamp is
+   written, and the runner reads it through `HyperFocusDataStore.legacyBlockedPackages()`. No live
+   model field and no policy reader, which was Step 6's actual goal. `MR-1b` pins it — the test builds
+   prefs with no denylist at all, so the only way the blocked app can be missing from the tiers is the
+   storage read.
+2. **Step 8's `BootReceiver` and `LauncherViewModel` rewrites are obsolete.** Task 13 already
+   repointed both to `hyperFocusManager.resyncSuspension(active)`, which computes the keep-set from
+   the allowlist; neither reads `blockedPackages` any more (verified by grep). Deleting the launcher's
+   two calls would have cost the immediate re-sync after a kiosk toggle and bought nothing. What
+   actually remained of Step 8 was `AppIcon.kt:115` and the `LauncherSettings.kt` summary card.
+3. **Two readers the task list did not name** were found by grepping for the symbol:
+   `HyperFocusSessionResetTest` (asserted the reset cleared the field) and `AllowlistMigrationRunnerTest`
+   (constructed prefs with it). Both updated; SR-2's comment rewritten, since its reasoning cited the
+   field that no longer exists.
+4. `AllowlistEditorTest` is **StringSpec, not FunSpec** — every suite in `app/src/test` is kotest
+   StringSpec (the JUnit4/Robolectric path in this repo is inert), and AE-3's loop needs no FunSpec.
+5. **The sheet counts essentials with `renderableEssentials(...)`, not `prefs.essentialPackages.size`
+   as Step 9's snippet did.** The snippet would have enabled Activate on an essentials tier made of
+   nothing but Settings and this app — precisely the case AG-2 refuses, and the user would have
+   pressed a button that silently did nothing. Copy, button state and guard now ask one question.
+6. `HyperFocusViewModel.selfPackage` is `BuildConfig.APPLICATION_ID`, not `context.packageName`. Step 11
+   asked for `@ApplicationContext` to be injected; the ViewModel already imported BuildConfig, the
+   manager uses the same constant, and `applicationId` *is* `context.packageName`, so the injection
+   would have added a dependency and a second source of truth for one string.
+7. **A third entry point existed and Step 12 missed it:** `SettingsScreen`'s "Launcher" card, wired
+   through `onNavigateToLauncherSettings`, was the main route users actually take to reach these
+   settings. It now navigates to `Screen.HyperFocusAllowlist` and the callback is
+   `onNavigateToHyperFocusAllowlist`, with the card copy "HyperFocus / Allowlist, gate & kiosk mode".
+8. **The black home's editor button was repointed** from `MainActivity` (Task 15's stopgap, the only
+   way to reach the editor before this task) to `HyperFocusActivity`'s `setup` destination, which is
+   what Step 13 intended. `openApp()` and its `MainActivity` import are gone.
+9. `LauncherSettings.kt:278` loses the `distractionScores` argument. `LauncherSettings.kt:1191` keeps
+   its own parameter of the same name — a different composable, still fed from the launcher's VM.
+10. `activateInternal` was already built on `it.afterSession().copy(...)` (Task 13), so the warning
+    about a fresh `HyperFocusPreferences` silently resetting `realHomeComponent` did not apply here.
+11. **Step 10's draft seeding is a data-loss bug as written.** `var draft by remember {
+    mutableStateOf(draftFrom(prefs)) }` runs at first composition, and `hyperFocusPrefs` is a
+    `stateIn(WhileSubscribed(5000), HyperFocusPreferences())` — so the stored tiers arrive *after* the
+    draft is seeded, the editor opens empty over a real allowlist, and the first Save writes the
+    user's tiers away. The screen now keeps an `edited` flag and re-seeds with
+    `LaunchedEffect(prefs) { if (!edited) draft = draftFrom(prefs) }`. Any screen that seeds a draft
+    from a `stateIn` flow in this app has the same hole; this is the pattern to copy.
+
+**Unverifiable here:** the `setup` destination renders inside `HyperFocusActivity`, which registers an
+overlay-priority back callback — on Android 13+ the system back gesture will do nothing on the editor
+and the TopAppBar arrow is the only exit. That, the sheet's new copy, the editor's chip behaviour and
+the two Save/Start paths are all device checks (they join U1–U12).
+
+---
+
 ## Task 17: Tag, then delete the launcher
 
 **Files:**
