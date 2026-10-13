@@ -26,6 +26,7 @@
 - **A move is one commit: `git add` the new paths, and put BOTH the new and the old paths in the *commit* pathspec.** `git mv` consumes the old path's index entry, so `git add -- <old path>` afterwards fails with *pathspec did not match any files* — do not put old paths in the `git add` list. The commit pathspec is matched against HEAD, not the index, so naming the old path there records its deletion in the same commit (verified in a throwaway repo: `git mv` → `git add <new>` → `git commit -- <new> <old>` yields one commit, `R066 old -> new`, with only the new path in the tree). Omit it and HEAD keeps two copies of the class: `:app:assembleDebug` still passes (main sources resolve to the new package), and only `:app:compileDebugUnitTestKotlin` fails. Always run the gate after committing: `git ls-tree -r --name-only HEAD <old path> | grep . && echo DEFECT || echo "old paths gone"`. If it prints DEFECT, the staged deletion is still in the index, so commit it on its own naming the old path — a second commit, never an amend. Tasks 1 and 2 each produced a DEFECT and needed exactly that follow-up (`e68088f`→`a5bbaa9`, `4f0f1d2`→`d8e4cec`); Task 3 produced a third (`8ec4827`→`eb0e438`) before this recipe was measured. A task that moves files is not done until the gate prints `old paths gone`.
 - **`BUILD SUCCESSFUL` is not evidence that tests ran.** `:app:testDebugUnitTest` reports `NO-SOURCE` and succeeds with zero tests executed whenever `app/build` is emptied under a live daemon (the ASM transform's cached output comes back empty — observed 2026-10-13 on this plan: 345 tests on disk, task reported NO-SOURCE, build green). Trust only a printed test count parsed from `app/build/test-results/testDebugUnitTest/TEST-*.xml`, which `verify.sh tests` now does; it retries with `--no-build-cache` on NO-SOURCE and fails at 0. A *decrease* in the count versus the ledger's baseline is a dropped suite, and a run that executes 311 instead of 345 still looks green — so compare the number, don't just check it is nonzero.
 - **Every kotest matcher named in a task's test code must exist in 5.9.1 — verified against the sources jar, not from memory.** `io.kotest.matchers.strings.shouldHaveLengthGreaterThan` appeared in Task 6's draft and does **not** exist (kotest 5.9.1 ships `shouldHaveLength`, `shouldHaveLengthBetween`, `shouldHaveLengthIn` in `io.kotest.matchers.string`, singular); GT-2 now uses `task.prompt.length shouldBeInRange 4..Int.MAX_VALUE`, whose import already sits in the same file. A nonexistent import fails the whole test-source set with *unresolved reference*, which is indistinguishable from the intended red state in Step 2, so an implementer can burn a fix round on it. Check with: `unzip -o -q <kotest-assertions-core-jvm-5.9.1-sources.jar> -d /tmp/ktm` then grep that tree.
+- **`SystemExempt` has two roles and passing the wrong one is a bug: `packages()` for enforcement, `SystemExempt.STATIC` for anything the user can see or select.** `packages()` = `STATIC` + `CALL_PATH` (the dialers, added in Task 5's fix round for spec §6.2) + self + live IME packages, and it is the only correct argument for `FocusSurfaceModel.resolvedAllowlist`/`isGated` (Tasks 12, 13, 14's `hiddenApps`). `STATIC` is the never-gated **and** never-shown machinery set — OS internals, permission controllers, installers, Settings and its vendor twins — and it is the correct argument for `renderableEssentials`/`homeSurfaceStateOf` (Task 15 grid), `decideActivation` (Task 16, both call sites), `editableApps` (Task 16 picker) and `AllowlistMigrator.derive` (Task 11). All five were corrected in the plan after Task 5's re-review: with `packages()` there, the phone vanishes from the home grid, a dialer-only essentials tier is rejected as `EmptySurface`, the phone cannot be pinned in the editor, and the Pixel dialer (`com.google.android.dialer`, which is not in the seed) lands in neither tier while the footer counts an always-reachable app as unreachable. A new call site must choose by question: *does this argument decide whether something may run (packages) or whether it is displayed (STATIC)?*
 - **Phase 3 is gated on the user:** creating the `archive/launcher-2026-10-12` tag and deleting the 37 remaining launcher files (45 with their tests) is irreversible-in-practice. Task 17 stops and asks before the delete lands.
 - **HOME-role behavior cannot be verified on this machine** (no AVD in use for this project, `adb` not on `PATH`). Tasks that end in device-only behavior must report the item as **unverified**, never as working. Full list at the end of this plan.
 - **The target device is an active device *administrator*, not a device owner** (user, 2026-10-13). This is not a small downgrade: every `isDeviceOwnerApp` guard in `DeviceOwnerKioskManager` (`:134`, `:258`, `:291`) returns early, so `setPackagesSuspended`, `addPersistentPreferredActivity`, the kiosk user restrictions and lock-task are **dead code on this device**. Two consequences shape Phase 2. (1) Task 12's accessibility service is the *only* enforcement, so a blocked app's window is genuinely visible for the interval between its `TYPE_WINDOW_STATE_CHANGED` event and the overlay — the allowlist is reactive, not preemptive. (2) The black home is HOME only because the user picks it in **Settings → Default apps → Home app**; nothing pins it, and clearing defaults is an escape the code cannot close. Therefore: no user-visible string may describe suspension as protection, and a `dpm` call returning without exception is never evidence that anything happened.
@@ -2080,7 +2081,10 @@ class AllowlistMigrationRunner @Inject constructor(
             blockedPackages = prefs.blockedPackages,
             launchable = launchable,
             essentialSeed = FocusSurfaceModel.DEFAULT_ESSENTIAL_SEED,
-            systemExempt = systemExempt.packages(),
+            // STATIC, not packages(): a dialer that is exempt for enforcement reasons must still
+            // land in a user tier, or the Pixel dialer belongs to neither tier and the
+            // unreachable-count footer lies about an app that is always reachable.
+            systemExempt = SystemExempt.STATIC,
             selfPackage = BuildConfig.APPLICATION_ID
         )
         val legacyScores = legacyLauncherPrefs.distractionScoresSnapshot()
@@ -3269,7 +3273,9 @@ class HyperFocusHomeViewModel @Inject constructor(
             homeSurfaceStateOf(
                 prefs = prefs,
                 labels = known,
-                systemExempt = systemExempt.packages(),
+                // STATIC, not packages(): the grid must hide never-gated machinery, but the
+                // dialers are in packages() and must stay visible tiles (spec 6.2 + 6.4).
+                systemExempt = SystemExempt.STATIC,
                 selfPackage = context.packageName,
                 nowMillis = now
             )
@@ -3990,7 +3996,9 @@ fun AllowlistSettingsScreen(
         val all = appCatalogRepository.launchableApps()
         val keep = editableApps(
             all = all.map { it.packageName }.toSet(),
-            systemExempt = systemExempt.packages(),
+            // STATIC: the editor lists what the user may pin, so machinery and Settings stay off
+            // it while the dialers remain offerable (spec 6.4).
+            systemExempt = SystemExempt.STATIC,
             selfPackage = context.packageName
         )
         return all.filter { it.packageName in keep }
@@ -4020,7 +4028,7 @@ In `HyperFocusViewModel.kt`:
     fun activate(selectedTaskIds: Set<String>) {
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()
-            when (val decision = decideActivation(prefs, systemExempt.packages(), context.packageName)) {
+            when (val decision = decideActivation(prefs, SystemExempt.STATIC, context.packageName)) {
                 is ActivationDecision.Rejected -> _activationMessage.value = when (decision.reason) {
                     ActivationRejection.AlreadyActive -> "A session is already running."
                     ActivationRejection.EmptySurface -> "Pin at least one app as essential first."
@@ -4044,7 +4052,7 @@ In `HyperFocusViewModel.kt`:
     fun activateTimed(durationMinutes: Int) {
         viewModelScope.launch {
             val prefs = hyperFocusDataStore.current()
-            if (decideActivation(prefs, systemExempt.packages(), context.packageName) == ActivationDecision.Allowed) {
+            if (decideActivation(prefs, SystemExempt.STATIC, context.packageName) == ActivationDecision.Allowed) {
                 hyperFocusManager.activateTimed(durationMinutes)
             } else {
                 _activationMessage.value = "Pin at least one app as essential first."
