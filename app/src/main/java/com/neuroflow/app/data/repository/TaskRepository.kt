@@ -11,7 +11,7 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
-import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
+import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant

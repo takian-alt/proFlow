@@ -15,7 +15,7 @@ import javax.inject.Inject
 
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
-import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
+import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 
 data class ScheduleUiState(
     val selectedDate: Long = todayStartMillis(),
