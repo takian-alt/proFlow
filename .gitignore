@@ -25,3 +25,6 @@ keystore.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Isolated git worktrees for agent-executed plans
+.worktrees/
