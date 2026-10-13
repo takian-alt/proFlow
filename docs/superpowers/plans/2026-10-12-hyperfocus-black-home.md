@@ -507,7 +507,7 @@ Additive only. `blockedPackages` **stays** for now — Task 11 consumes it to bu
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `HyperFocusPreferences(essentialPackages: Set<String>, allowedPackages: Set<String>, activePassPackage: String?, activePassExpiresAt: Long?, realHomeComponent: String?)` — all defaulting to empty/null, so `HyperFocusPreferences()` remains constructible with no arguments (relied on by `HyperFocusManagerImpl.deactivate()` at `:68` and by `deserialize`'s corrupt-blob fallback at `:176`).
+- Produces: `HyperFocusPreferences(essentialPackages: Set<String>, allowedPackages: Set<String>, activePassPackage: String?, activePassExpiresAt: Long?, realHomeComponent: String?)` — all defaulting to empty/null, so `HyperFocusPreferences()` remains constructible with no arguments. **9 such call sites exist** (measured after Task 4, and Task 4 itself adds one of them): `HyperFocusViewModel.kt:43`, `service/AppBlockingService.kt:40`, `data/HyperFocusDataStore.kt:81`/`:88`/`:196`, `domain/HyperFocusManager.kt:68`, `presentation/launcher/LauncherViewModel.kt:499` (deleted by Task 17), `HyperFocusManagerTest.kt:130`, and the new `HyperFocusAllowlistFieldsTest.kt`. Every one of them is a corrupt-blob/off-state seed, so **no default in this data class may ever become a non-empty allowlist or an active pass** — that is §8's "corrupt blob must render off-state, not a locked device", and dropping a default would break 9 sites at once rather than the two this plan originally named.
 
 - [ ] **Step 1: Add the five fields to the data class**
 
@@ -568,7 +568,7 @@ The `stringSet` helper is also the right moment to collapse the two existing han
 
 - [ ] **Step 4: Verify the old-blob contract**
 
-An existing install's blob has none of the new keys. `obj.isNull("activePassPackage")` returns **false** for an absent key (org.json treats missing as non-null here), so the `takeIf { it.isNotEmpty() }` guard is what actually produces `null` — verify with a targeted suite rather than by reading. `HyperFocusDataStoreImpl` needs a `Context` and Robolectric is inert here, so test the pure half: extract nothing, but assert that a fresh `HyperFocusPreferences()` has empty allowlists and no pass, which is what `deserialize` returns for a corrupt or absent blob:
+An existing install's blob has none of the new keys. Both halves of the null-coalescing are load-bearing and neither may be simplified away later: measured against the real AOSP `org.json` (`android-all-instrumented-14`) in Task 4's review, `isNull(absent) = true`, `isNull(JSONObject.NULL) = true`, `isNull("") = false` with `optString(absent) = ""` and `optLong(absent) = 0` — so on-device the absent key takes the `isNull` branch, while on any implementation where `isNull(absent)` is false the `takeIf { it.isNotEmpty() }` / `takeIf { it > 0L }` guards catch exactly the `""` and `0L` the optionals return. The two paths converge on `null` only because the guards are there; deleting one silently changes what an old blob deserializes to. `optJSONArray(absent)` and `optJSONArray(non-array)` are both `null`, so `stringSet` yields `emptySet()` for missing keys. Verify with a targeted suite rather than by reading. `HyperFocusDataStoreImpl` needs a `Context` and Robolectric is inert here, so test the pure half: extract nothing, but assert that a fresh `HyperFocusPreferences()` has empty allowlists and no pass, which is what `deserialize` returns for a corrupt or absent blob:
 
 Create `app/src/test/java/com/neuroflow/app/feature/hyperfocus/data/HyperFocusAllowlistFieldsTest.kt`:
 
