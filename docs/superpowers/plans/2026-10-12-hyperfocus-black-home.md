@@ -878,10 +878,12 @@ Spec §5.2. This is F4's core: effort-only, always completable, and the only pla
       fun checkAnswer(task: GateTask, answer: List<String>): Boolean
       fun isReasonValid(reason: String): Boolean
       fun shouldAutoPass(mismatchCount: Int): Boolean
-      fun allowsSubmit(mismatchCount: Long, elapsedMillis: Long, reason: String): Boolean
+      fun allowsSubmit(elapsedMillis: Long, reason: String): Boolean
   }
   ```
   `GateTaskEngine` takes `Random` as a constructor parameter so the selection is injectable; `elapsedMillis` is a parameter, never `System.currentTimeMillis()`, because the 12-second floor must be testable without sleeping.
+
+  `allowsSubmit` deliberately does **not** take the mismatch count. It is the authority for one question — *may the user act yet?* — and the answer is the floor plus the reason. `shouldAutoPass` is the authority for the other question — *has this count earned the pass?* — and `submitGateAnswer` combines the two with `checkAnswer`. Feeding the count into `allowsSubmit` as well (both `% MAX` and `>= MAX` readings were tried) disables the button at count 1 and 2, and since the count only increments on a click, that makes the auto-pass unreachable: a user who mistypes once can never reach the three failures that would let them through, only cancel and re-roll. See ruling 2 below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -907,6 +909,7 @@ class GateTaskEngineTest : StringSpec({
                 task.expected shouldHaveSize 4
                 val values = task.expected.map { it.toInt() }
                 values[1] shouldBe values[0] - 7
+                values[2] shouldBe values[0] - 14
                 values[3] shouldBe values[0] - 21
                 values[0] shouldBeInRange 100..999
                 (values[0] % 100 == 0) shouldBe false
@@ -914,14 +917,14 @@ class GateTaskEngineTest : StringSpec({
         }
     }
 
-    "GT-2: transcribe and restate are single-item tasks with a non-empty prompt" {
+    "GT-2: every task shows its stimulus — the prompt contains the first expected value" {
         repeat(30) {
             val task = GateTaskEngine(Random(it)).newTask()
             when (task.type) {
                 GateTaskType.TRANSCRIBE, GateTaskType.RESTATED -> task.expected shouldHaveSize 1
                 else -> {}
             }
-            task.prompt.length shouldBeInRange 4..Int.MAX_VALUE
+            task.prompt.contains(task.expected.first()) shouldBe true
         }
     }
 
@@ -960,17 +963,17 @@ class GateTaskEngineTest : StringSpec({
     }
 
     "GT-9: submit is blocked before the twelve-second floor" {
-        engine.allowsSubmit(3, 11_999L, "because it is mine").shouldBeFalse()
-        engine.allowsSubmit(3, 12_000L, "because it is mine").shouldBeTrue()
+        engine.allowsSubmit(11_999L, "because it is mine").shouldBeFalse()
+        engine.allowsSubmit(12_000L, "because it is mine").shouldBeTrue()
     }
 
     "GT-10: submit is blocked while the reason is short even after the floor" {
-        engine.allowsSubmit(3, 60_000L, "short").shouldBeFalse()
+        engine.allowsSubmit(60_000L, "short").shouldBeFalse()
     }
 
-    "GT-11: submit is blocked at one and two mismatches past the floor" {
-        engine.allowsSubmit(1, 60_000L, "because it is mine").shouldBeFalse()
-        engine.allowsSubmit(2, 60_000L, "because it is mine").shouldBeFalse()
+    "GT-11: the mismatch count never closes the button, and one mismatch earns no pass" {
+        engine.allowsSubmit(60_000L, "because it is mine").shouldBeTrue()
+        engine.shouldAutoPass(1).shouldBeFalse()
     }
 
     "GT-12: the task types are reachable and never null" {
@@ -1013,13 +1016,17 @@ class GateTaskEngine(
     private val random: Random = Random.Default
 ) {
     fun newTask(): GateTask = when (GateTaskType.entries.random(random)) {
-        GateTaskType.TRANSCRIBE -> single(TRANSCRIPTIONS, "Type exactly what you see", GateTaskType.TRANSCRIBE)
-        GateTaskType.RESTATED -> single(SENTENCES, "Retype this sentence word for word", GateTaskType.RESTATED)
+        GateTaskType.TRANSCRIBE ->
+            single(TRANSCRIPTIONS, "Type exactly what you see", GateTaskType.TRANSCRIBE)
+        GateTaskType.RESTATED ->
+            single(SENTENCES, "Retype this sentence word for word, including punctuation", GateTaskType.RESTATED)
         GateTaskType.COUNT_BACK -> countBack()
     }
 
-    private fun single(pool: List<String>, prompt: String, type: GateTaskType): GateTask =
-        GateTask(type, prompt, listOf(pool[random.nextInt(pool.size)]))
+    private fun single(pool: List<String>, instruction: String, type: GateTaskType): GateTask {
+        val value = pool[random.nextInt(pool.size)]
+        return GateTask(type, "$instruction:\n\n$value", listOf(value))
+    }
 
     private fun countBack(): GateTask {
         var start = random.nextInt(100, 1000)
@@ -1027,7 +1034,7 @@ class GateTaskEngine(
         val values = (0 until 4).map { (start - it * 7).toString() }
         return GateTask(
             GateTaskType.COUNT_BACK,
-            "Start at $start and count back by 7. Enter the next four values.",
+            "Start at $start and count back by 7. Enter the four values, starting at $start.",
             values
         )
     }
@@ -1041,10 +1048,8 @@ class GateTaskEngine(
 
     fun shouldAutoPass(mismatchCount: Int): Boolean = mismatchCount >= MAX_MISMATCHES
 
-    fun allowsSubmit(mismatchCount: Long, elapsedMillis: Long, reason: String): Boolean =
-        isReasonValid(reason) &&
-            elapsedMillis >= MIN_ELAPSED_MILLIS &&
-            (mismatchCount == 0L || mismatchCount % MAX_MISMATCHES == 0L)
+    fun allowsSubmit(elapsedMillis: Long, reason: String): Boolean =
+        isReasonValid(reason) && elapsedMillis >= MIN_ELAPSED_MILLIS
 
     companion object {
         const val MAX_MISMATCHES = 3
@@ -1067,11 +1072,17 @@ class GateTaskEngine(
 }
 ```
 
-`allowsSubmit`'s modulo clause is the auto-pass made testable without a flag: at mismatch 3 the gate opens, at 1 and 2 it stays shut even past the floor, and at 4 it is shut again until the next multiple of three — so a screen that only reports a running mismatch count needs no separate "auto-passed" state threaded through it. If that reads as too clever when you implement Step 4's screen, replace the modulo with an explicit `shouldAutoPass(mismatchCount) && mismatchCount == lastSeenMismatch` guard in the UI; do **not** weaken the floor or the reason check, which are the two properties F4 actually depends on.
+Two authorities, two questions, no overlap. `allowsSubmit(elapsedMillis, reason)` answers *may the user act yet?* — the floor and the reason, nothing else. `shouldAutoPass(mismatchCount)` answers *has this count earned the pass?* — three or more. `submitGateAnswer` composes them with `checkAnswer`: a row is logged when `(correct || shouldAutoPass(count)) && allowsSubmit(elapsed, reason)`. Do **not** weaken the floor or the reason check; those are the two properties F4 actually depends on.
 
-Two rulings the implementer's review forced on this text, both recorded in the ledger:
-1. **`< MAX_MISMATCHES` was a plan bug and GT-11 caught it.** The first draft's disjunct `mismatchCount < MAX_MISMATCHES` opens the gate at 1 and 2, which is the exact opposite of the sentence above and of GT-11, so this task could never have gone green as written. The shipped predicate is `mismatchCount == 0L || mismatchCount % MAX_MISMATCHES == 0L`: open at 0 (answered correctly), open at every multiple of 3 (auto-pass), shut at 1, 2, 4, 5. The prose was the authority; the code was wrong.
-2. **Task 14 must reset the counter on a correct answer, or clause 1 becomes a trap.** With the shipped predicate, a user who fails once and then types the answer *correctly* sits at `mismatchCount == 1` and cannot submit — the only way out is to fail twice more on purpose, which violates §5.2's non-negotiable ("a gate that can be failed is a trap and traps get uninstalled"). So `GateTaskViewModel` holds the count and sets it back to `0` whenever `checkAnswer` returns true, never monotonic. Task 14's Step 4 carries this as `mismatches = 0` on the correct-answer branch plus the prose that explains why removing it re-creates the trap; the GT suite is what pins it from the engine side.
+Six rulings this text went through, all recorded in the ledger:
+1. **First draft: `mismatchCount < MAX_MISMATCHES`.** Open at 0, 1 and 2, so a wrong answer at count 1 would have logged a pass — the effort F4 buys was free. Superseded.
+2. **Second draft: `mismatchCount % MAX_MISMATCHES == 0L`.** Open at 0 and every multiple of three, shut at 1, 2, 4, 5. Superseded — and so was the `>= MAX_MISMATCHES` replacement that followed it, for the same reason: **any count clause inside `allowsSubmit` deadlocks the gate.** `mismatches` increments only inside the button's `onClick`, and `allowsSubmit` is what makes the button clickable, so a user at count 1 can never click again, can never reach the three failures that earn the auto-pass, and can only cancel and re-roll. The `>= MAX` reading also makes the plan's own hint text ("N more tries before this one is given to you") a lie, and §5.2's non-negotiable is explicit: a gate that can be failed is a trap and traps get uninstalled. Both drafts are recorded here because both were ratified before the trap was traced through the UI path — a reviewer reading either ruling as too clever is reading a mistake, not a trade.
+3. **Final: `allowsSubmit` takes no count at all.** The count is not an input to *may I act*; it is an input to *did this earn it*, which is `shouldAutoPass`'s job and is applied by `submitGateAnswer`. GT-11 is rewritten to pin exactly that pairing — the button stays open while the tally is short, and `shouldAutoPass(1)` is false so a premature click earns nothing. GT-8 keeps the 2/3/7 ladder.
+4. **Task 14 keeps the honest tally; do not reset it.** `GateRequestEntity` stores `mismatchCount` precisely so "passed on the first try" and "passed on the third" stay distinguishable (see Task 10), so the correct-answer branch submits with the count as it stands. The `mismatches = 0` line an earlier ruling demanded is removed — it was a workaround for clause 2's lockout, and it would have rewritten history.
+5. **The stimulus belongs in the prompt** (review C1). `TRANSCRIBE` and `RESTATED` put the drawn phrase only in `expected` and left `prompt` a bare instruction ("Type exactly what you see" — with nothing to see), while `COUNT_BACK` correctly embedded `$start`. Task 14's screen renders `Text(task.prompt)` and destructures `task.expected` with `{ index, _ -> }`, discarding the value, so two of three task types were unanswerable and entry happened only after three forced mismatches — F4 inverted into "fail until the counter reaches 3". `single()` now interpolates the value, and GT-2's `task.prompt.contains(task.expected.first())` keeps it there; the old `prompt.length in 4..Int.MAX_VALUE` was a tautology that could never fail.
+6. **`COUNT_BACK`'s wording contradicted its own answer key** (review I2): "Enter the next four values" after "Start at 411" reads as 404, 397, 390, 383, while `expected` is 411, 404, 397, 390 — a user doing the arithmetic correctly and following the sentence is failed four times for the wrong reason. GT-5 pins the inclusive list, so the list stays and the sentence becomes "Enter the four values, starting at $start". Spec §5.2 has the same loose phrasing and inherits the fix.
+
+GT-1 also gains `values[2] shouldBe values[0] - 14`: the drafted assertions on `values[1]` and `values[3]` alone would pass a series with a wrong middle step.
 
 - [ ] **Step 4: Verify — and confirm the suite actually ran**
 
@@ -2508,7 +2519,7 @@ Then the three functions:
         val task = gateTask.value
         val correct = engine.checkAnswer(task, answer)
         val passed = correct || engine.shouldAutoPass(mismatchCount)
-        val willLog = passed && engine.isReasonValid(reason) && elapsedMillis >= GateTaskEngine.MIN_ELAPSED_MILLIS
+        val willLog = passed && engine.allowsSubmit(elapsedMillis, reason)
         viewModelScope.launch {
             if (willLog) {
                 logRequest(task, reason, mismatchCount, elapsedMillis, grantSource = "REWARD_CODE")
@@ -2646,7 +2657,7 @@ fun GateTaskScreen(
         )
         if (mismatches > 0) {
             Text(
-                "Not quite. ${GateTaskEngine.MAX_MISMATCHES - (mismatches % GateTaskEngine.MAX_MISMATCHES)} " +
+                "Not quite. ${(GateTaskEngine.MAX_MISMATCHES - mismatches).coerceAtLeast(0)} " +
                     "more tries before this one is given to you.",
                 color = Color(0xFFE8A33D)
             )
@@ -2655,7 +2666,6 @@ fun GateTaskScreen(
         Button(
             onClick = {
                 if (viewModel.gateEngine.checkAnswer(task, answers)) {
-                    mismatches = 0
                     viewModel.submitGateAnswer(answers, reason, mismatches, elapsed)
                 } else {
                     mismatches++
@@ -2665,11 +2675,7 @@ fun GateTaskScreen(
                     }
                 }
             },
-            enabled = viewModel.gateEngine.allowsSubmit(
-                mismatchCount = mismatches.toLong(), elapsedMillis = elapsed, reason = reason
-            ) || mismatches >= GateTaskEngine.MAX_MISMATCHES &&
-                reason.trim().length >= GateTaskEngine.MIN_REASON_CHARS &&
-                elapsed >= GateTaskEngine.MIN_ELAPSED_MILLIS
+            enabled = viewModel.gateEngine.allowsSubmit(elapsedMillis = elapsed, reason = reason)
         ) { Text("Continue") }
         TextButton(onClick = onCancel) { Text("Back to focus", color = Color.Gray) }
         Spacer(modifier = Modifier.height(8.dp))
@@ -2678,11 +2684,11 @@ fun GateTaskScreen(
 }
 ```
 
-`mismatches = 0` on the correct-answer branch is not cosmetic — it is the contract Task 6's review wrote into §5.2's engine. `allowsSubmit` opens at `0` and at every multiple of three, so a stale `1` after one early failure would keep the button disabled past the floor with a valid reason, and the only way out would be to fail twice more on purpose. That is precisely the "a gate that can be failed is a trap" failure spec §5.2 forbids. The counter therefore lives in the screen, is scoped to `remember(task)` so a re-rolled task restarts it, and is reset by any correct answer; never let it be monotonic.
+`mismatches` is a **tally, not a lock**. It lives in the screen, is scoped to `remember(task)` so a re-rolled task restarts it, and is read by exactly two things: the `onClick`'s `>= MAX_MISMATCHES` check, which decides when a wrong answer has earned the auto-pass, and `submitGateAnswer`'s `shouldAutoPass`, which decides whether a row is logged. It must never feed the button's `enabled` state and must never be reset to `0` on a correct answer — Task 10 stores `mismatchCount` precisely so "passed on the first try" and "passed on the third" stay distinguishable signals, and an earlier draft of this task did both of those things and thereby made the auto-pass unreachable (Task 6's rulings 2-4).
 
 Add the two imports this draft omits rather than leaving them to guesswork: `androidx.compose.material3.TextButton` and `androidx.compose.runtime.LaunchedEffect`, plus `kotlinx.coroutines.delay`. `viewModel.gateEngine` is a `val gateEngine = GateTaskEngine()` on the ViewModel — expose the same instance the screen reads the task from, so a rotated device does not re-roll the task.
 
-The submit `enabled` expression is deliberately redundant with `allowsSubmit`: the button mirrors the engine instead of the engine mirroring the button, and if the two ever disagree the engine's version is the one that decides whether a row is logged in Step 1. That is the property that matters, and it is why the count-down text is a hint rather than the gate.
+The button's `enabled` state is `allowsSubmit` and nothing else. An earlier draft OR-ed a second copy of the floor and reason test onto it, described as "deliberately redundant"; that copy was load-bearing in the wrong direction — it was the only thing that would reopen the button at three or more mismatches under the count-clause predicate, and once the count leaves `allowsSubmit` alone it is pure duplication that hides a lockout whenever someone deletes one half. One question, one authority. The engine still decides whether a row is logged, in `submitGateAnswer`, and that is why the count-down text is a hint rather than the gate.
 
 - [ ] **Step 3: `GatewayScreen`**
 
