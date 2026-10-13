@@ -1,6 +1,7 @@
 package com.neuroflow.app.feature.hyperfocus.screens
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -62,6 +63,7 @@ import com.neuroflow.app.MainActivity
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import androidx.navigation.NavController
 import com.neuroflow.app.domain.model.RewardTier
+import com.neuroflow.app.feature.hyperfocus.HyperFocusActivity
 import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -86,13 +88,12 @@ fun BlockingOverlayScreen(
     val coroutineScope = rememberCoroutineScope()
     val isTimeBasedSession = prefs.sessionMode == HyperFocusSessionMode.TIME_BASED
     
-    val appName = remember(blockedPackage) {
-        try {
-            val appInfo = context.packageManager.getApplicationInfo(blockedPackage, 0)
-            context.packageManager.getApplicationLabel(appInfo).toString()
-        } catch (e: Exception) {
-            blockedPackage
-        }
+    val appName = remember(blockedPackage) { context.labelForPackage(blockedPackage) }
+
+    // A pass names one app (D3). The card has to name the app the pass holds, not the app the
+    // enforcer bounced — those differ the moment a pass is live and the user opens something else.
+    val passAppName = remember(prefs.activePassPackage, blockedPackage) {
+        context.labelForPackage(prefs.activePassPackage ?: blockedPackage)
     }
 
     // Check if this is a messenger app
@@ -466,7 +467,7 @@ fun BlockingOverlayScreen(
                 }
             }
 
-            // ============ UNLOCK STATUS (IF ACTIVE) ============
+            // ============ PASS STATUS (IF ACTIVE) ============
             if (isPassActive) {
                 val timeLabel = passSecondsRemaining?.let { secs ->
                     "${secs / 60}m ${secs % 60}s"
@@ -490,11 +491,16 @@ fun BlockingOverlayScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "🔓 APP UNLOCKED",
+                            text = "🔓 $passAppName is open",
                             color = Color(0xFF69F0AE),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = "Only that app. Everything else is still closed.",
+                            color = Color(0xFFA5D6A7),
+                            fontSize = 11.sp
                         )
                         Text(
                             text = "$timeLabel remaining",
@@ -505,23 +511,25 @@ fun BlockingOverlayScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                if (blockedPackage == prefs.activePassPackage) {
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("launch_app")
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF1B5E20),
-                        contentColor = Color(0xFF69F0AE)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("Open $appName →", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate(HyperFocusActivity.DESTINATION_LAUNCH)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1B5E20),
+                            contentColor = Color(0xFF69F0AE)
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Open $appName →", fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 OutlinedButton(
@@ -534,7 +542,7 @@ fun BlockingOverlayScreen(
                         .height(50.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Back to launcher", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Back to home", color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             } else {
                 // ============ ACTION BUTTONS (LOCKED) ============
@@ -545,7 +553,7 @@ fun BlockingOverlayScreen(
                             prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING
 
                         if (isPlanningPending) {
-                            navController.navigate("planning_prompt")
+                            navController.navigate(HyperFocusActivity.DESTINATION_PLANNING)
                             return@Button
                         }
 
@@ -589,14 +597,15 @@ fun BlockingOverlayScreen(
                     OutlinedButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            navController.navigate("code_entry")
+                            viewModel.beginGate(blockedPackage)
+                            navController.navigate(HyperFocusActivity.DESTINATION_GATE)
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text("Enter unlock code", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("Open the gate", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
 
@@ -650,7 +659,7 @@ fun BlockingOverlayScreen(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         showEmergencyDialog = false
-                        viewModel.activateEmergencyBypass(blockedPackage)
+                        viewModel.grantEmergencyFor(blockedPackage)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF6B6B)),
                     shape = RoundedCornerShape(16.dp)
@@ -668,6 +677,13 @@ fun BlockingOverlayScreen(
             }
         )
     }
+}
+
+private fun Context.labelForPackage(packageName: String): String = try {
+    val info = packageManager.getApplicationInfo(packageName, 0)
+    packageManager.getApplicationLabel(info).toString()
+} catch (e: Exception) {
+    packageName
 }
 
 private fun formatSeconds(seconds: Long?): String {

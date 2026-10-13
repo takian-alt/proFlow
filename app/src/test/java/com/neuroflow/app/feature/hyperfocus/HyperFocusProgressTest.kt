@@ -4,10 +4,13 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
+import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.feature.hyperfocus.domain.UnlockCodeRepository
+import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
@@ -57,7 +60,12 @@ class HyperFocusProgressTest : StringSpec({
             hyperFocusManager = mockk<HyperFocusManager>(relaxed = true),
             hyperFocusDataStore = dataStore,
             unlockCodeRepository = mockk<UnlockCodeRepository>(relaxed = true),
-            taskRepository = taskRepository
+            taskRepository = taskRepository,
+            // Relaxed: this suite reads `progress`, which touches none of the three. The catalog
+            // sweep they would take runs in an init coroutine, not in the flow under test.
+            gateRequestDao = mockk<GateRequestDao>(relaxed = true),
+            appCatalogRepository = mockk<AppCatalogRepository>(relaxed = true),
+            systemExempt = mockk<SystemExempt>(relaxed = true)
         )
         // progress is a WhileSubscribed StateFlow — it only computes once something collects it.
         val scope = CoroutineScope(testDispatcher + Job())

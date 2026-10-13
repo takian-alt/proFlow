@@ -35,6 +35,9 @@ data class HyperFocusPreferences(
     val activePassExpiresAt: Long? = null,
     // The user's real launcher, resolved once so the off state can hand Home back.
     val realHomeComponent: String? = null,
+    // Which app the gate currently open was entered for. The gate screen and the row it writes are
+    // separated by a navigation, so the answer has to survive it or the log cannot say "which app".
+    val pendingGatePackage: String? = null,
     val currentTier: RewardTier = RewardTier.NONE,
     val tasksCompletedAtActivation: Int = 0,
     val dailyTaskTarget: Int = 0,
@@ -69,6 +72,7 @@ data class HyperFocusPreferences(
         blockedPackages = emptySet(),
         activePassPackage = null,
         activePassExpiresAt = null,
+        pendingGatePackage = null,
         currentTier = RewardTier.NONE,
         tasksCompletedAtActivation = 0,
         dailyTaskTarget = 0,
@@ -158,6 +162,7 @@ class HyperFocusDataStoreImpl @Inject constructor(
         json.put("activePassPackage", prefs.activePassPackage ?: JSONObject.NULL)
         json.put("activePassExpiresAt", prefs.activePassExpiresAt ?: JSONObject.NULL)
         json.put("realHomeComponent", prefs.realHomeComponent ?: JSONObject.NULL)
+        json.put("pendingGatePackage", prefs.pendingGatePackage ?: JSONObject.NULL)
         json.put("currentTier", prefs.currentTier.name)
         json.put("tasksCompletedAtActivation", prefs.tasksCompletedAtActivation)
         json.put("dailyTaskTarget", prefs.dailyTaskTarget)
@@ -210,6 +215,8 @@ class HyperFocusDataStoreImpl @Inject constructor(
                     else obj.optLong("activePassExpiresAt").takeIf { it > 0L },
                 realHomeComponent = if (obj.isNull("realHomeComponent")) null
                     else obj.optString("realHomeComponent").takeIf { it.isNotEmpty() },
+                pendingGatePackage = if (obj.isNull("pendingGatePackage")) null
+                    else obj.optString("pendingGatePackage").takeIf { it.isNotEmpty() },
                 currentTier = try { RewardTier.valueOf(obj.optString("currentTier", RewardTier.NONE.name)) } catch (_: Exception) { RewardTier.NONE },
                 tasksCompletedAtActivation = obj.optInt("tasksCompletedAtActivation", 0),
                 dailyTaskTarget = obj.optInt("dailyTaskTarget", 0),

@@ -4,6 +4,8 @@ import android.content.Context
 import android.view.inputmethod.InputMethodManager
 import com.neuroflow.app.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,12 +17,14 @@ import javax.inject.Singleton
 class SystemExempt @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    fun packages(): Set<String> = buildSet {
-        addAll(STATIC)
-        addAll(CALL_PATH)
-        add(BuildConfig.APPLICATION_ID)
-        val imm = context.getSystemService(InputMethodManager::class.java)
-        imm?.enabledInputMethodList?.forEach { add(it.packageName) }
+    suspend fun packages(): Set<String> = withContext(Dispatchers.Default) {
+        buildSet {
+            addAll(STATIC)
+            addAll(CALL_PATH)
+            add(BuildConfig.APPLICATION_ID)
+            val imm = context.getSystemService(InputMethodManager::class.java)
+            imm?.enabledInputMethodList?.forEach { add(it.packageName) }
+        }
     }
 
     companion object {

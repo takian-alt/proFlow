@@ -81,7 +81,7 @@ class SuspensionResyncTest : StringSpec({
         coEvery { unlockCodeRepository.generateCodePool(any()) } just Runs
         coEvery { unlockCodeRepository.deleteSessionCodes(any()) } just Runs
         coEvery { taskRepository.getAllTasks() } returns emptyList()
-        every { systemExempt.packages() } returns setOf("android", "com.android.systemui")
+        coEvery { systemExempt.packages() } returns setOf("android", "com.android.systemui")
         coEvery { catalog.launchableApps() } returns catalogEntries(allPackages)
 
         mockkObject(DeviceOwnerKioskManager)
