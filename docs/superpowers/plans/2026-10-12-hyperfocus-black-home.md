@@ -15,7 +15,8 @@
 - **Locked decisions — do not re-litigate:** A (one permanent `CATEGORY_HOME` activity), B2 (two global allowlist tiers, not per-session), D3 (unlock is a per-app pass), E1 (pass budget is wall-clock, never refunded, ends when the granted app leaves the foreground), F4 (randomized effort-only cognitive task + written reason, logged every request), G1 (git-only archive: extract → invert → delete behind a tag).
 - **minSdk 26, compileSdk 35, targetSdk 35, JVM 17.** No new dependencies.
 - **New unit tests must be kotest `StringSpec`.** `app/build.gradle.kts:68-75` sets `testOptions.unitTests.all { it.useJUnitPlatform() }`, which makes JUnit4 `@Test` classes and Robolectric **inert** in `app/src/test` — a JUnit4 test there compiles, silently never runs, and looks green. Any logic that needs an Android `Context` must be split so the decision-making is a pure JVM function under test, with a thin untested Android shell.
-- **Verify command for every task:** `./gradlew :app:assembleDebug` plus, for tasks that add or change a suite, `./gradlew :app:testDebugUnitTest --tests "<fqcn>"`.
+- **Work in the isolated worktree, never in `/home/takian/Project/PROCUS`.** This plan is executed from a linked worktree; every path here is relative to the repo root of *your* workspace (`git rev-parse --show-toplevel`). An absolute `cd` into the main checkout would move and delete files in the user's working tree.
+- **Verify command for every task:** `bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble`, plus `verify.sh testone "<fqcn>"` for tasks that add or change a suite, and `verify.sh tests` at the phase gates. **Do not call `./gradlew` directly** — the committed wrapper collapses every 2+ argument invocation into a single task name (`:app:assembleDebug --console=plain` → "task not found"), which looks like a plan error but is not one.
 - **Commits must be pathspec-limited. Never a bare `git commit`.** The user keeps ~96 files permanently staged in this tree; a plain commit sweeps their work into mine. Form:
   ```bash
   git add <exact paths> && git commit -q -m "<message>" -- <exact same paths>
@@ -87,7 +88,7 @@ Three tasks. Each is a `git mv` plus import rewrites plus a green build. If any 
 - [ ] **Step 1: Move the main-source package with git, preserving history**
 
 ```bash
-cd /home/takian/Project/PROCUS
+cd "$(git rev-parse --show-toplevel)"   # never an absolute path: this runs in a worktree
 mkdir -p app/src/main/java/com/neuroflow/app/feature
 git mv app/src/main/java/com/neuroflow/app/presentation/launcher/hyperfocus \
        app/src/main/java/com/neuroflow/app/feature/hyperfocus
@@ -105,7 +106,7 @@ cd app/src/main/java/com/neuroflow/app/feature/hyperfocus
 grep -rl "presentation\.launcher\.hyperfocus" . | while read -r f; do
   sed -i 's/presentation\.launcher\.hyperfocus/feature.hyperfocus/g' "$f"
 done
-cd /home/takian/Project/PROCUS
+cd "$(git rev-parse --show-toplevel)"
 grep -rn "presentation\.launcher\.hyperfocus" app/src/main/java/com/neuroflow/app/feature/ || echo "CLEAN"
 ```
 
