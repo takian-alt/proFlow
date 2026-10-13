@@ -23,6 +23,8 @@
   git show --name-only HEAD   # expect ONLY my paths
   ```
   A `needs merge` line on stderr is expected and benign (two stale `DU` entries in `docs/book/`); confirm success with `git show --name-only HEAD`, never by the exit message. Never `git add -A`, never `--amend`, never `--no-verify`, never `git stash`/`checkout`/`reset`.
+- **A commit that moves a file must name BOTH the new path and the deleted old path in its pathspec, and must be checked afterwards with `git ls-tree -r --name-only HEAD <old dir>`.** `git mv` stages the rename, but `git commit -- <new path>` commits only the addition: HEAD then holds two copies of the class. `:app:assembleDebug` still passes (main sources resolve to the new package), so the duplicate is invisible until `:app:compileDebugUnitTestKotlin` fails. This happened on Task 1: `e68088f` left five launcher-path test suites in HEAD and needed a follow-up commit, `a5bbaa9`. Tasks 2 and 3 both move tracked files, so their commit blocks list the old paths explicitly and end with the `ls-tree` gate.
+- **`BUILD SUCCESSFUL` is not evidence that tests ran.** `:app:testDebugUnitTest` reports `NO-SOURCE` and succeeds with zero tests executed whenever `app/build` is emptied under a live daemon (the ASM transform's cached output comes back empty — observed 2026-10-13 on this plan: 345 tests on disk, task reported NO-SOURCE, build green). Trust only a printed test count parsed from `app/build/test-results/testDebugUnitTest/TEST-*.xml`, which `verify.sh tests` now does; it retries with `--no-build-cache` on NO-SOURCE and fails at 0. A *decrease* in the count versus the ledger's baseline is a dropped suite, and a run that executes 311 instead of 345 still looks green — so compare the number, don't just check it is nonzero.
 - **Phase 3 is gated on the user:** creating the `archive/launcher-2026-10-12` tag and deleting the 37 remaining launcher files (45 with their tests) is irreversible-in-practice. Task 17 stops and asks before the delete lands.
 - **HOME-role behavior cannot be verified on this machine** (no AVD in use for this project, `adb` not on `PATH`). Tasks that end in device-only behavior must report the item as **unverified**, never as working. Full list at the end of this plan.
 - **The target device is an active device *administrator*, not a device owner** (user, 2026-10-13). This is not a small downgrade: every `isDeviceOwnerApp` guard in `DeviceOwnerKioskManager` (`:134`, `:258`, `:291`) returns early, so `setPackagesSuspended`, `addPersistentPreferredActivity`, the kiosk user restrictions and lock-task are **dead code on this device**. Two consequences shape Phase 2. (1) Task 12's accessibility service is the *only* enforcement, so a blocked app's window is genuinely visible for the interval between its `TYPE_WINDOW_STATE_CHANGED` event and the overlay — the allowlist is reactive, not preemptive. (2) The black home is HOME only because the user picks it in **Settings → Default apps → Home app**; nothing pins it, and clearing defaults is an escape the code cannot close. Therefore: no user-visible string may describe suspension as protection, and a `dpm` call returning without exception is never evidence that anything happened.
@@ -354,6 +356,8 @@ Expected: build succeeds and the report shows **13 tests** for this class. Befor
 ```bash
 git add app/src/main/java/com/neuroflow/app/worker/ScheduleAutoTasksWorker.kt \
         app/src/test/java/com/neuroflow/app/worker/EnergyProjectionBlendingTest.kt \
+        app/src/main/java/com/neuroflow/app/presentation/launcher/work/ScheduleAutoTasksWorker.kt \
+        app/src/test/java/com/neuroflow/app/presentation/launcher/work/EnergyProjectionBlendingTest.kt \
         app/src/main/java/com/neuroflow/app/data/repository/TaskRepository.kt \
         app/src/main/java/com/neuroflow/app/NeuroFlowApplication.kt \
         app/src/main/java/com/neuroflow/app/presentation/schedule/ScheduleViewModel.kt
@@ -363,7 +367,16 @@ The worker is app-level auto-scheduling, not launcher behavior, and its test was
 JUnit4 class that this repo's JUnit-Platform test config never runs. Converted to
 kotest StringSpec so its 13 assertions execute." -- <same paths>
 git show --name-only HEAD
+# A `git mv` stages the rename, but a commit pathspec that names only the new path leaves
+# the old path's deletion out of the commit: HEAD then holds BOTH copies, `:app:assembleDebug`
+# still passes, and only the unit-test compile breaks. This gate is what catches it:
+git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation/launcher/work \
+  app/src/test/java/com/neuroflow/app/presentation/launcher/work | grep . && echo "DEFECT: old copies still in HEAD" || echo "old paths gone"
 ```
+
+Expected: the gate prints `old paths gone`. This exact defect occurred on Task 1 (commit
+`e68088f` left the five launcher-path test suites in HEAD; fixed by a follow-up commit `a5bbaa9`),
+which is why the deleted paths are now listed in the `git add` above rather than assumed.
 
 ## Task 3: Relocate `NotificationBadgeManager` and its service to `data/badge/`
 
@@ -436,6 +449,8 @@ Expected: build succeeds; the contract suite passes. It is already kotest or JUn
 
 ```bash
 git add app/src/main/java/com/neuroflow/app/data/badge \
+        app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeManager.kt \
+        app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeService.kt \
         app/src/main/java/com/neuroflow/app/domain/repository/EnergyScoreRepository.kt \
         app/src/main/java/com/neuroflow/app/presentation/launcher/LauncherViewModel.kt \
         app/src/main/java/com/neuroflow/app/presentation/launcher/di/LauncherModule.kt \
@@ -447,7 +462,15 @@ git commit -q -m "refactor: move notification badge listener out of the launcher
 EnergyScoreRepository reads badgeCounts as an energy-model signal, so the manager and
 its listener service survive the launcher archive instead of being deleted with it." -- <same paths>
 git show --name-only HEAD
+git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation/launcher/data | grep . \
+  && echo "DEFECT: old copies still in HEAD" || echo "old paths gone"
 ```
+
+Expected: `old paths gone`. Both moved files must be named in the pathspec: `git mv` stages the
+rename, but a commit whose pathspec lists only the new directory leaves the two deletions behind in
+HEAD, where they duplicate `NotificationBadgeManager` and break `:app:compileDebugUnitTestKotlin`
+while `:app:assembleDebug` stays green. (This is the Task 1 `e68088f`/`a5bbaa9` defect, reproduced
+here on purpose so the gate runs.)
 
 **Phase 1 exit check.** `./gradlew :app:assembleDebug :app:testDebugUnitTest` green, and `find app/src/main/java/com/neuroflow/app/presentation/launcher -type f | wc -l` prints **37** (63 − 23 hyperfocus − 1 worker − 2 badge; `HyperFocusModule.kt` lands in `feature/`, not here). Nothing in Phase 1 is user-visible; if it is, a mistake was made.
 
