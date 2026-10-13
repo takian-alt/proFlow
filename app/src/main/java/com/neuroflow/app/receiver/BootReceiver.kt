@@ -12,7 +12,7 @@ import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.work.*
 import com.neuroflow.app.data.local.UserPreferencesDataStore
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.worker.FocusWidgetUpdateWorker
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.worker.scheduleNotificationWorkers
@@ -105,7 +105,7 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        return com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+        return com.neuroflow.app.feature.hyperfocus.util.AccessibilityUtil
             .isAppBlockingServiceEnabled(context)
     }
 

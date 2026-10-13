@@ -11,7 +11,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.neuroflow.app.R
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -46,7 +46,7 @@ class AccessibilityWatchdogWorker @AssistedInject constructor(
     }
 
     private fun isAccessibilityEnabled(): Boolean {
-        return com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+        return com.neuroflow.app.feature.hyperfocus.util.AccessibilityUtil
             .isAppBlockingServiceEnabled(appContext)
     }
 

@@ -10,7 +10,7 @@ import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
-import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
+import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
 import dagger.Lazy
 import kotlinx.coroutines.flow.Flow

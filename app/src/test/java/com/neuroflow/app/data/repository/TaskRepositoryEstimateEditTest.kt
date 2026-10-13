@@ -3,7 +3,7 @@ package com.neuroflow.app.data.repository
 import androidx.work.WorkManager
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.presentation.launcher.hyperfocus.domain.HyperFocusManager
+import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import dagger.Lazy
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe

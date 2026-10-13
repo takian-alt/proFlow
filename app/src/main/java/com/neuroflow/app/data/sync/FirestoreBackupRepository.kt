@@ -20,7 +20,7 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionEntity
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionEntity
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject

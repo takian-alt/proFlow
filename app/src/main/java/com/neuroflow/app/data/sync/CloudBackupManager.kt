@@ -11,7 +11,7 @@ import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionDao
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first

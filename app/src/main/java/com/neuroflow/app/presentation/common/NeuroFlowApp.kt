@@ -63,7 +63,7 @@ import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.settings.AccountSyncScreen
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
+import com.neuroflow.app.feature.hyperfocus.screens.RewardsScreen
 import com.neuroflow.app.presentation.notes.NotesScreen
 import com.neuroflow.app.presentation.matrix.OnHoldPlanningScreen
 import com.neuroflow.app.presentation.schedule.WeeklyScheduleScreen

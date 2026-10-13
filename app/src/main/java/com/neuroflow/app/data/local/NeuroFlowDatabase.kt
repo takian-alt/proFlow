@@ -21,10 +21,10 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionDao
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionEntity
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.UnlockCodeDao
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.UnlockCodeEntity
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionEntity
+import com.neuroflow.app.feature.hyperfocus.data.UnlockCodeDao
+import com.neuroflow.app.feature.hyperfocus.data.UnlockCodeEntity
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {

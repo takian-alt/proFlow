@@ -35,8 +35,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardSection
+import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.feature.hyperfocus.screens.RewardSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

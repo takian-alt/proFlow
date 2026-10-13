@@ -9,7 +9,7 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.presentation.launcher.work.ScheduleAutoTasksWorker
 import com.neuroflow.app.worker.DistractionSyncWorker
 import com.neuroflow.app.worker.createNotificationChannels

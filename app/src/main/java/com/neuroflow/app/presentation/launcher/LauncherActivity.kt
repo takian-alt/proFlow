@@ -28,9 +28,9 @@ import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
 import com.neuroflow.app.presentation.launcher.drawer.AppDrawer
 import com.neuroflow.app.presentation.launcher.stats.QuickStatsPanel
 import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
-import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PlanningPromptScreen
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.RewardsScreen
+import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.feature.hyperfocus.screens.PlanningPromptScreen
+import com.neuroflow.app.feature.hyperfocus.screens.RewardsScreen
 import com.neuroflow.app.presentation.launcher.theme.ProvideLauncherTheme
 import com.neuroflow.app.presentation.launcher.theme.mapPreferencesToTheme
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager

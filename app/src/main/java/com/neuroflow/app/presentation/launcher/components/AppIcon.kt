@@ -5,9 +5,9 @@ import android.content.pm.LauncherApps
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.provider.Settings
-import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusActivity
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
-import com.neuroflow.app.presentation.launcher.hyperfocus.domain.RewardEngine
+import com.neuroflow.app.feature.hyperfocus.HyperFocusActivity
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
+import com.neuroflow.app.feature.hyperfocus.domain.RewardEngine
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background

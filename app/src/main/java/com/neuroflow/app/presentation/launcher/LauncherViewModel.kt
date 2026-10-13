@@ -20,8 +20,8 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusDataStore
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusPreferences
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus

@@ -187,7 +187,7 @@
 
         <!-- Hyper Focus: blocking overlay activity -->
         <activity
-            android:name=".presentation.launcher.hyperfocus.HyperFocusActivity"
+            android:name=".feature.hyperfocus.HyperFocusActivity"
             android:launchMode="singleTask"
             android:taskAffinity="com.neuroflow.app.hyperfocus"
             android:excludeFromRecents="true"
@@ -197,7 +197,7 @@
 
         <!-- Hyper Focus: accessibility service for app blocking -->
         <service
-            android:name=".presentation.launcher.hyperfocus.service.AppBlockingService"
+            android:name=".feature.hyperfocus.service.AppBlockingService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -210,7 +210,7 @@
 
         <!-- Hyper Focus: foreground timer service for unlock countdowns -->
         <service
-            android:name=".presentation.launcher.hyperfocus.service.UnlockTimerService"
+            android:name=".feature.hyperfocus.service.UnlockTimerService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -220,7 +220,7 @@
 
         <!-- Hyper Focus: foreground monitor service to keep session active -->
         <service
-            android:name=".presentation.launcher.hyperfocus.service.HyperFocusMonitorService"
+            android:name=".feature.hyperfocus.service.HyperFocusMonitorService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

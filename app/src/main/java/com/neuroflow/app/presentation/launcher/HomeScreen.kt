@@ -42,8 +42,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.presentation.launcher.components.*
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.presentation.launcher.domain.LauncherGestureHandler
-import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
-import com.neuroflow.app.presentation.launcher.hyperfocus.components.HyperFocusStatusBar
+import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.feature.hyperfocus.components.HyperFocusStatusBar
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 import androidx.compose.foundation.layout.WindowInsets

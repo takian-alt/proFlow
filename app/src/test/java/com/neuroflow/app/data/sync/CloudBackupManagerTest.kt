@@ -12,7 +12,7 @@ import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionDao
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf

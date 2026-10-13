@@ -15,7 +15,7 @@ import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.sync.CloudBackupManager
 import com.neuroflow.app.data.sync.FirestoreBackupRepository
 import com.neuroflow.app.data.sync.GoogleSignInManager
-import com.neuroflow.app.presentation.launcher.hyperfocus.data.HyperFocusSessionDao
+import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

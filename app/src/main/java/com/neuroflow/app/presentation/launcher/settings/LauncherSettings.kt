@@ -37,9 +37,9 @@ import com.neuroflow.app.presentation.launcher.data.AppInfo
 import com.neuroflow.app.presentation.launcher.data.ClockStyle
 import com.neuroflow.app.presentation.launcher.data.IconShape
 import com.neuroflow.app.presentation.launcher.data.ImportResult
-import com.neuroflow.app.presentation.launcher.hyperfocus.HyperFocusViewModel
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.HyperFocusActivationSheet
-import com.neuroflow.app.presentation.launcher.hyperfocus.screens.PermissionSetupScreen
+import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.feature.hyperfocus.screens.HyperFocusActivationSheet
+import com.neuroflow.app.feature.hyperfocus.screens.PermissionSetupScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -131,7 +131,7 @@ fun LauncherSettings(
                         HyperFocusSettingsSection(
                             isActive = hyperFocusPrefs.isActive,
                             onSetup = {
-                                val accessibilityEnabled = com.neuroflow.app.presentation.launcher.hyperfocus.util.AccessibilityUtil
+                                val accessibilityEnabled = com.neuroflow.app.feature.hyperfocus.util.AccessibilityUtil
                                     .isAppBlockingServiceEnabled(context)
                                 val usageStatsEnabled = try {
                                     val appOps = context.getSystemService(android.app.AppOpsManager::class.java)
