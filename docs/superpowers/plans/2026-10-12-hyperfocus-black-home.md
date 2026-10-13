@@ -23,7 +23,7 @@
   git show --name-only HEAD   # expect ONLY my paths
   ```
   A `needs merge` line on stderr is expected and benign (two stale `DU` entries in `docs/book/`); confirm success with `git show --name-only HEAD`, never by the exit message. Never `git add -A`, never `--amend`, never `--no-verify`, never `git stash`/`checkout`/`reset`.
-- **A move is committed in two steps, and the gate decides whether the second step is needed.** `git mv` consumes the old path's index entry, so afterwards `git add -- <old path>` fails with *pathspec did not match any files* and a commit pathspec that omits the old path silently drops its deletion — HEAD then holds two copies of the class, `:app:assembleDebug` still passes (main sources resolve to the new package), and only `:app:compileDebugUnitTestKotlin` fails. The recipe is therefore: (1) commit with a pathspec naming the new paths and every other changed file; (2) run the gate `git ls-tree -r --name-only HEAD <old dir> | grep . && echo DEFECT || echo "old paths gone"`; (3) if it prints DEFECT, the index still carries the staged deletion, so commit it on its own naming the old path — a second commit, never an amend. This recurred on Task 2 (`4f0f1d2` left `presentation/launcher/work/ScheduleAutoTasksWorker.kt` in HEAD; `d8e4cec` removed it) after Task 1 hit the same defect (`e68088f` → `a5bbaa9`), so a task that moves files is not done until the gate prints `old paths gone`.
+- **A move is one commit: `git add` the new paths, and put BOTH the new and the old paths in the *commit* pathspec.** `git mv` consumes the old path's index entry, so `git add -- <old path>` afterwards fails with *pathspec did not match any files* — do not put old paths in the `git add` list. The commit pathspec is matched against HEAD, not the index, so naming the old path there records its deletion in the same commit (verified in a throwaway repo: `git mv` → `git add <new>` → `git commit -- <new> <old>` yields one commit, `R066 old -> new`, with only the new path in the tree). Omit it and HEAD keeps two copies of the class: `:app:assembleDebug` still passes (main sources resolve to the new package), and only `:app:compileDebugUnitTestKotlin` fails. Always run the gate after committing: `git ls-tree -r --name-only HEAD <old path> | grep . && echo DEFECT || echo "old paths gone"`. If it prints DEFECT, the staged deletion is still in the index, so commit it on its own naming the old path — a second commit, never an amend. Tasks 1 and 2 each produced a DEFECT and needed exactly that follow-up (`e68088f`→`a5bbaa9`, `4f0f1d2`→`d8e4cec`); Task 3 produced a third (`8ec4827`→`eb0e438`) before this recipe was measured. A task that moves files is not done until the gate prints `old paths gone`.
 - **`BUILD SUCCESSFUL` is not evidence that tests ran.** `:app:testDebugUnitTest` reports `NO-SOURCE` and succeeds with zero tests executed whenever `app/build` is emptied under a live daemon (the ASM transform's cached output comes back empty — observed 2026-10-13 on this plan: 345 tests on disk, task reported NO-SOURCE, build green). Trust only a printed test count parsed from `app/build/test-results/testDebugUnitTest/TEST-*.xml`, which `verify.sh tests` now does; it retries with `--no-build-cache` on NO-SOURCE and fails at 0. A *decrease* in the count versus the ledger's baseline is a dropped suite, and a run that executes 311 instead of 345 still looks green — so compare the number, don't just check it is nonzero.
 - **Phase 3 is gated on the user:** creating the `archive/launcher-2026-10-12` tag and deleting the 37 remaining launcher files (45 with their tests) is irreversible-in-practice. Task 17 stops and asks before the delete lands.
 - **HOME-role behavior cannot be verified on this machine** (no AVD in use for this project, `adb` not on `PATH`). Tasks that end in device-only behavior must report the item as **unverified**, never as working. Full list at the end of this plan.
@@ -363,20 +363,28 @@ git commit -q -m "refactor: move ScheduleAutoTasksWorker out of the launcher pac
 
 The worker is app-level auto-scheduling, not launcher behavior, and its test was a
 JUnit4 class that this repo's JUnit-Platform test config never runs. Converted to
-kotest StringSpec so its 13 assertions execute." -- <same paths>
+kotest StringSpec so its 13 assertions execute." \
+  -- app/src/main/java/com/neuroflow/app/worker/ScheduleAutoTasksWorker.kt \
+     app/src/test/java/com/neuroflow/app/worker/EnergyProjectionBlendingTest.kt \
+     app/src/main/java/com/neuroflow/app/data/repository/TaskRepository.kt \
+     app/src/main/java/com/neuroflow/app/NeuroFlowApplication.kt \
+     app/src/main/java/com/neuroflow/app/presentation/schedule/ScheduleViewModel.kt \
+     app/src/main/java/com/neuroflow/app/presentation/launcher/work/ScheduleAutoTasksWorker.kt \
+     app/src/test/java/com/neuroflow/app/presentation/launcher/work/EnergyProjectionBlendingTest.kt
 git show --name-only HEAD
-# A `git mv` stages the rename, but a commit pathspec that names only the new path leaves
-# the old path's deletion out of the commit: HEAD then holds BOTH copies, `:app:assembleDebug`
-# still passes, and only the unit-test compile breaks. This gate is what catches it:
+# Name the two OLD paths in the commit pathspec (never in the `git add` above — `git mv` has already
+# consumed their index entries and `git add` would fail). The commit pathspec matches against HEAD, so
+# this is what records the deletions. Omit them and HEAD holds BOTH copies: `:app:assembleDebug` still
+# passes, and only the unit-test compile breaks. This gate catches it:
 git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation/launcher/work \
   app/src/test/java/com/neuroflow/app/presentation/launcher/work | grep . && echo "DEFECT: old copies still in HEAD" || echo "old paths gone"
 ```
 
-Expected: the gate prints `old paths gone`. It did not on the first run of this task: commit
-`4f0f1d2` left `presentation/launcher/work/ScheduleAutoTasksWorker.kt` in HEAD and needed the
-follow-up deletion commit `d8e4cec`, exactly Task 1's `e68088f` → `a5bbaa9` shape. A task that moves
-files is not done until this gate prints, and the fix is always a second commit naming the old path —
-never an amend, and never `git add` of that path (its index entry is already consumed by `git mv`).
+Expected: the gate prints `old paths gone`. It did not on this task's first run: commit `4f0f1d2` left
+`presentation/launcher/work/ScheduleAutoTasksWorker.kt` in HEAD and needed follow-up `d8e4cec`, because
+the recipe then told me to `git add` the old path, which `git mv` makes impossible. Task 3 hit the same
+shape (`8ec4827` → `eb0e438`). If the gate still prints DEFECT, the deletion is sitting in the index —
+commit it on its own naming the old path, never an amend.
 
 ## Task 3: Relocate `NotificationBadgeManager` and its service to `data/badge/`
 
@@ -452,13 +460,20 @@ git add app/src/main/java/com/neuroflow/app/data/badge \
         app/src/main/java/com/neuroflow/app/domain/repository/EnergyScoreRepository.kt \
         app/src/main/java/com/neuroflow/app/presentation/launcher/LauncherViewModel.kt \
         app/src/main/java/com/neuroflow/app/presentation/launcher/di/LauncherModule.kt \
-        app/src/main/java/com/neuroflow/app/di/AppModule.kt \
         app/src/main/AndroidManifest.xml \
         app/src/test/java/com/neuroflow/app/domain/repository/EnergyScoreRepositoryContractTest.kt
 git commit -q -m "refactor: move notification badge listener out of the launcher package
 
 EnergyScoreRepository reads badgeCounts as an energy-model signal, so the manager and
-its listener service survive the launcher archive instead of being deleted with it." -- <same paths>
+its listener service survive the launcher archive instead of being deleted with it." \
+  -- app/src/main/java/com/neuroflow/app/data/badge \
+     app/src/main/java/com/neuroflow/app/domain/repository/EnergyScoreRepository.kt \
+     app/src/main/java/com/neuroflow/app/presentation/launcher/LauncherViewModel.kt \
+     app/src/main/java/com/neuroflow/app/presentation/launcher/di/LauncherModule.kt \
+     app/src/main/AndroidManifest.xml \
+     app/src/test/java/com/neuroflow/app/domain/repository/EnergyScoreRepositoryContractTest.kt \
+     app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeManager.kt \
+     app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeService.kt
 git show --name-only HEAD
 git ls-tree -r --name-only HEAD app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeManager.kt \
   app/src/main/java/com/neuroflow/app/presentation/launcher/data/NotificationBadgeService.kt | grep . \
@@ -4319,9 +4334,10 @@ Nothing in this list can be run on this machine — no emulator, no attached dev
 | 9 | Navigation-bar buttons are visible on `Theme.HyperFocusHome`'s black background, and the wallpaper does not show through | XML theme resolution, not compiled here |
 | 10 | The Room 20 → 21 migration runs on a real install with existing data | `androidTest` cannot run; Task 10 ships the migration **unexecuted** |
 | 11 | `AllowlistMigrationRunner` derives a usable first allowlist from a real device's denylist, and never runs while a session is active | Task 11's test uses an in-memory prefs fake |
-| 12 | **After installing a build from Task 1 onward, re-enable HyperFocus in Settings → Accessibility**, then confirm a session still blocks. Until it is re-enabled, enforcement is silently off — no crash, no error, the phone just behaves normally | The service's component ID changed from `.presentation.launcher.hyperfocus.service.AppBlockingService` to `.feature.hyperfocus.service.AppBlockingService`. Android keys `enabled_accessibility_services` by component ID, so the device's existing tick belongs to a component that no longer exists and the new one starts disabled. `AccessibilityUtil.kt:20` builds the string from `context.packageName` plus the new suffix and must match `AndroidManifest.xml:200` — a mismatch compiles and installs fine, and `AccessibilityWatchdogWorker.kt:41-45` only posts a notification. This is the one step in the plan that cannot be recovered from the code |
 | 12 | Removing `BIND_APPWIDGET` does not stop widgets from another launcher | Cross-process permission check |
 | 13 | The off-state placeholder's "Set my home app" opens `android.settings.HOME_SETTINGS` on the vendor ROM | Intent availability |
+| 14 | **After installing a build from Task 1 onward, re-enable HyperFocus in Settings → Accessibility**, then confirm a session still blocks. Until it is re-enabled, enforcement is silently off — no crash, no error, the phone just behaves normally | The service's component ID changed from `.presentation.launcher.hyperfocus.service.AppBlockingService` to `.feature.hyperfocus.service.AppBlockingService`. Android keys `enabled_accessibility_services` by component ID, so the device's existing tick belongs to a component that no longer exists and the new one starts disabled. `AccessibilityUtil.kt:20` builds the string from `context.packageName` plus the new suffix and must match `AndroidManifest.xml:200` — a mismatch compiles and installs fine, and `AccessibilityWatchdogWorker.kt:41-45` only posts a notification. This is the one step in the plan that cannot be recovered from the code |
+| 15 | **After installing a build from Task 3 onward, re-enable Notification access** (Settings → Special app access → Notification access), then confirm badge counts still move the energy score. This failure is invisible | `BIND_NOTIFICATION_LISTENER_SERVICE` grants live in `Settings.Secure.enabled_notification_listeners`, keyed by component ID — the same mechanism as row 14. The component moved from `.presentation.launcher.data.NotificationBadgeService` to `.data.badge.NotificationBadgeService` (`AndroidManifest.xml:180`), so the existing tick belongs to a component that no longer exists and the new one starts unbound. No code reads the grant (`isNotificationServiceEnabled` has no call sites), there is no watchdog reminder for it, `onListenerConnected` never runs, `badgeCounts` stays `emptyMap()`, `EnergyScoreRepository.kt:188` sums it to 0, and all 358 unit tests stay green while the energy model silently degrades. **Gap beyond this task:** the only in-app route to that screen is `presentation/launcher/settings/LauncherSettings.kt:2275-2298`, which Task 17 deletes while the service survives — after Task 17 the grant cannot be re-earned from inside the app at all |
 
 Run 1, 3, 6 and 10 before merging to `main`; the rest can be a fast-follow on the first device build.
 
