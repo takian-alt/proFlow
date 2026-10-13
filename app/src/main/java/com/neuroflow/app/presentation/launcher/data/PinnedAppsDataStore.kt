@@ -1,9 +1,8 @@
 package com.neuroflow.app.presentation.launcher.data
 
 import android.content.Context
-import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
-import androidx.datastore.preferences.preferencesDataStore
+import com.neuroflow.app.feature.hyperfocus.data.launcherPreferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -11,8 +10,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private val Context.launcherDataStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_prefs")
 
 enum class ClockStyle {
     DIGITAL, MINIMAL, STACKED, SMART_PILL
@@ -126,7 +123,7 @@ class PinnedAppsDataStore @Inject constructor(
         val THEMED_ICONS = booleanPreferencesKey("themed_icons")
     }
 
-    val launcherPrefsFlow: Flow<LauncherPreferences> = context.launcherDataStore.data.map { prefs ->
+    val launcherPrefsFlow: Flow<LauncherPreferences> = context.launcherPreferencesDataStore.data.map { prefs ->
         mapToLauncherPreferences(prefs)
     }
 
@@ -257,7 +254,7 @@ class PinnedAppsDataStore @Inject constructor(
     }
 
     suspend fun updatePreferences(update: (LauncherPreferences) -> LauncherPreferences) {
-        context.launcherDataStore.edit { prefs ->
+        context.launcherPreferencesDataStore.edit { prefs ->
             val current = mapToLauncherPreferences(prefs)
             val updated = update(current)
             prefs[Keys.DOCK_PACKAGES] = encodeStringList(updated.dockPackages)
@@ -295,7 +292,7 @@ class PinnedAppsDataStore @Inject constructor(
     }
 
     suspend fun updateThemedIconsEnabled(enabled: Boolean) {
-        context.launcherDataStore.edit { prefs ->
+        context.launcherPreferencesDataStore.edit { prefs ->
             prefs[Keys.THEMED_ICONS] = enabled
         }
     }

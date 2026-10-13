@@ -9,6 +9,7 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.presentation.launcher.data.AppRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
+import com.neuroflow.app.feature.hyperfocus.data.AllowlistMigrationRunner
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import com.neuroflow.app.worker.DistractionSyncWorker
@@ -40,6 +41,7 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
     @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var userPreferencesDataStore: UserPreferencesDataStore
     @Inject lateinit var hyperFocusDataStore: HyperFocusDataStore
+    @Inject lateinit var allowlistMigrationRunner: AllowlistMigrationRunner
     @Inject lateinit var databaseCleaner: DatabaseCleaner
     @Inject lateinit var energyTelemetryCleanupScheduler: EnergyTelemetryCleanupScheduler
 
@@ -110,6 +112,13 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                 hfPrefs.blockedPackages,
                 hfPrefs.isActive && DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(this@NeuroFlowApplication)
             )
+        }
+
+        // One-shot denylist -> allowlist, before any surface reads the tiers. runCatching because
+        // launchableApps() throws on a paused work profile, and a half-migrated install must still boot.
+        applicationScope.launch {
+            runCatching { allowlistMigrationRunner.runIfNeeded() }
+                .onFailure { android.util.Log.w("NeuroFlowApp", "Allowlist migration did not complete", it) }
         }
 
         // Seed the persistent tag catalog from all existing tasks.

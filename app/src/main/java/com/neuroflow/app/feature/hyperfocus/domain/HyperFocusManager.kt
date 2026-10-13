@@ -10,7 +10,6 @@ import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
-import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
 import com.neuroflow.app.feature.hyperfocus.service.UnlockTimerService
@@ -69,7 +68,7 @@ class HyperFocusManagerImpl @Inject constructor(
                 false
             )
         }
-        hyperFocusDataStore.update { HyperFocusPreferences() }
+        hyperFocusDataStore.update { it.afterSession() }
         if (sessionId != null) {
             unlockCodeRepository.deleteSessionCodes(sessionId)
         }
@@ -175,18 +174,14 @@ class HyperFocusManagerImpl @Inject constructor(
         unlockCodeRepository.generateCodePool(sessionId)
 
         hyperFocusDataStore.update {
-            HyperFocusPreferences(
+            // afterSession() gives the same clean slate the old fresh object did, without taking the
+            // user's global tiers down with it.
+            it.afterSession().copy(
                 isActive = true,
                 sessionId = sessionId,
                 state = HyperFocusState.ACTIVE,
                 blockedPackages = blockedPackages,
                 dailyTaskTarget = dailyTaskTarget,
-                tasksCompletedAtActivation = 0,
-                currentTier = RewardTier.NONE,
-                activePassExpiresAt = null,
-                wrongCodeAttempts = 0,
-                lockoutExpiresAt = null,
-                lockedTaskIds = lockedTaskIds,
                 sessionMode = sessionMode,
                 sessionDurationMinutes = sessionDurationMinutes,
                 sessionEndsAtMillis = sessionEndsAtMillis,

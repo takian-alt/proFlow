@@ -334,9 +334,9 @@ class LauncherViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     /**
-     * Distraction scores from PinnedAppsDataStore.
+     * Distraction scores, now stored in the HyperFocus preferences.
      */
-    val distractionScores: StateFlow<Map<String, Int>> = pinnedAppsDataStore.launcherPrefsFlow
+    val distractionScores: StateFlow<Map<String, Int>> = hyperFocusDataStore.flow
         .map { it.distractionScores }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
@@ -817,7 +817,7 @@ class LauncherViewModel @Inject constructor(
      */
     fun updateDistractionScore(packageName: String, score: Int) {
         viewModelScope.launch {
-            pinnedAppsDataStore.updatePreferences { prefs ->
+            hyperFocusDataStore.update { prefs ->
                 prefs.copy(
                     distractionScores = prefs.distractionScores + (packageName to score)
                 )

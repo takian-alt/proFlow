@@ -27,6 +27,9 @@ data class HyperFocusPreferences(
     // --- Allowlist model (B2): global tiers, identical across sessions ---
     val essentialPackages: Set<String> = emptySet(),
     val allowedPackages: Set<String> = emptySet(),
+    val distractionScores: Map<String, Int> = emptyMap(),
+    // Null means this install has never been migrated; non-null is what makes the runner one-shot.
+    val allowlistMigratedAt: Long? = null,
     // --- Per-app pass (D3 + E1): exactly one granted package, wall-clock budget ---
     val activePassPackage: String? = null,
     val activePassExpiresAt: Long? = null,
@@ -55,7 +58,34 @@ data class HyperFocusPreferences(
     // Used for time-based sessions.
     val sessionDurationMinutes: Int? = null,
     val sessionEndsAtMillis: Long? = null
-)
+) {
+    // Session state out, user settings in: the tiers, the scores and allowlistMigratedAt are global
+    // (B2), so a deactivation must not erase them — nor re-arm the one-shot migration, which would
+    // then derive "allow everything" from the blockedPackages this same reset empties.
+    fun afterSession(): HyperFocusPreferences = copy(
+        isActive = false,
+        sessionId = null,
+        state = HyperFocusState.INACTIVE,
+        blockedPackages = emptySet(),
+        activePassPackage = null,
+        activePassExpiresAt = null,
+        currentTier = RewardTier.NONE,
+        tasksCompletedAtActivation = 0,
+        dailyTaskTarget = 0,
+        lastServiceHeartbeat = 0L,
+        wrongCodeAttempts = 0,
+        lockoutExpiresAt = null,
+        isTamperDetected = false,
+        tamperReason = null,
+        tamperDetectedAt = null,
+        pendingCodeId = null,
+        lockedTaskIds = emptySet(),
+        emergencyUsed = false,
+        sessionMode = HyperFocusSessionMode.TASK_BASED,
+        sessionDurationMinutes = null,
+        sessionEndsAtMillis = null
+    )
+}
 
 interface HyperFocusDataStore {
     val flow: Flow<HyperFocusPreferences>
@@ -121,6 +151,10 @@ class HyperFocusDataStoreImpl @Inject constructor(
         val allowedArray = JSONArray()
         prefs.allowedPackages.forEach { allowedArray.put(it) }
         json.put("allowedPackages", allowedArray)
+        val scores = JSONObject()
+        prefs.distractionScores.forEach { (pkg, score) -> scores.put(pkg, score) }
+        json.put("distractionScores", scores)
+        json.put("allowlistMigratedAt", prefs.allowlistMigratedAt ?: JSONObject.NULL)
         json.put("activePassPackage", prefs.activePassPackage ?: JSONObject.NULL)
         json.put("activePassExpiresAt", prefs.activePassExpiresAt ?: JSONObject.NULL)
         json.put("realHomeComponent", prefs.realHomeComponent ?: JSONObject.NULL)
@@ -159,6 +193,17 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 blockedPackages = blockedPackages,
                 essentialPackages = stringSet("essentialPackages"),
                 allowedPackages = stringSet("allowedPackages"),
+                distractionScores = buildMap {
+                    val objScores = obj.optJSONObject("distractionScores")
+                    if (objScores != null) {
+                        objScores.keys().forEach { key ->
+                            val value = objScores.opt(key)
+                            if (value is Number) put(key, value.toInt())
+                        }
+                    }
+                },
+                allowlistMigratedAt = if (obj.isNull("allowlistMigratedAt")) null
+                    else obj.optLong("allowlistMigratedAt").takeIf { it > 0L },
                 activePassPackage = if (obj.isNull("activePassPackage")) null
                     else obj.optString("activePassPackage").takeIf { it.isNotEmpty() },
                 activePassExpiresAt = if (obj.isNull("activePassExpiresAt")) null
