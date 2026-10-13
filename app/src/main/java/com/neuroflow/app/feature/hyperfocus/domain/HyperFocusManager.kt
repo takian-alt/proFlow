@@ -33,8 +33,8 @@ sealed class UnlockResult {
 }
 
 interface HyperFocusManager {
-    suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>)
-    suspend fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int)
+    suspend fun activate(dailyTaskTarget: Int, lockedTaskIds: Set<String>)
+    suspend fun activateTimed(durationMinutes: Int)
     suspend fun addTasksToSession(taskIds: Set<String>)
     suspend fun isTaskDeletionBlocked(taskId: String): Boolean
     suspend fun deactivate()
@@ -114,9 +114,8 @@ class HyperFocusManagerImpl @Inject constructor(
         }
     }
 
-    override suspend fun activate(blockedPackages: Set<String>, dailyTaskTarget: Int, lockedTaskIds: Set<String>) {
+    override suspend fun activate(dailyTaskTarget: Int, lockedTaskIds: Set<String>) {
         activateInternal(
-            blockedPackages = blockedPackages,
             dailyTaskTarget = dailyTaskTarget,
             lockedTaskIds = lockedTaskIds,
             sessionMode = HyperFocusSessionMode.TASK_BASED,
@@ -124,10 +123,9 @@ class HyperFocusManagerImpl @Inject constructor(
         )
     }
 
-    override suspend fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int) {
+    override suspend fun activateTimed(durationMinutes: Int) {
         val safeDuration = durationMinutes.coerceAtLeast(1)
         activateInternal(
-            blockedPackages = blockedPackages,
             dailyTaskTarget = 0,
             lockedTaskIds = emptySet(),
             sessionMode = HyperFocusSessionMode.TIME_BASED,
@@ -176,7 +174,6 @@ class HyperFocusManagerImpl @Inject constructor(
     }
 
     private suspend fun activateInternal(
-        blockedPackages: Set<String>,
         dailyTaskTarget: Int,
         lockedTaskIds: Set<String>,
         sessionMode: HyperFocusSessionMode,
@@ -191,7 +188,13 @@ class HyperFocusManagerImpl @Inject constructor(
         }
 
         Log.d(TAG, "Activating Hyper Focus - Session: $sessionId")
-        Log.d(TAG, "Blocked packages (${blockedPackages.size}): ${blockedPackages.joinToString()}")
+        val keep = FocusSurfaceModel.resolvedAllowlist(
+            hyperFocusDataStore.current(),
+            systemExempt.packages(),
+            BuildConfig.APPLICATION_ID,
+            now
+        )
+        Log.d(TAG, "Allowlist keeps $keep; everything else is gated")
         Log.d(TAG, "Session mode: $sessionMode")
         if (sessionMode == HyperFocusSessionMode.TASK_BASED) {
             Log.d(TAG, "Daily task target: $dailyTaskTarget")
@@ -210,7 +213,6 @@ class HyperFocusManagerImpl @Inject constructor(
                 isActive = true,
                 sessionId = sessionId,
                 state = HyperFocusState.ACTIVE,
-                blockedPackages = blockedPackages,
                 dailyTaskTarget = dailyTaskTarget,
                 sessionMode = sessionMode,
                 sessionDurationMinutes = sessionDurationMinutes,

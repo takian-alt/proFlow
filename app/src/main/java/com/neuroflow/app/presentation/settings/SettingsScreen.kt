@@ -43,7 +43,7 @@ import kotlinx.coroutines.delay
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToPriorityWeights: () -> Unit,
-    onNavigateToLauncherSettings: () -> Unit = {},
+    onNavigateToHyperFocusAllowlist: () -> Unit = {},
     onNavigateToAppGuide: () -> Unit = {},
     onNavigateToPrivacyPermissions: () -> Unit = {},
     onNavigateToMEQQuiz: () -> Unit = {},
@@ -797,11 +797,11 @@ fun SettingsScreen(
                 }
             }
 
-            // Launcher
+            // HyperFocus
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                onClick = onNavigateToLauncherSettings
+                onClick = onNavigateToHyperFocusAllowlist
             ) {
                 Row(
                     modifier = Modifier
@@ -811,9 +811,9 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Launcher", fontWeight = FontWeight.Bold)
+                        Text("HyperFocus", fontWeight = FontWeight.Bold)
                         Text(
-                            "Home screen pages, icons, dock, distraction scoring",
+                            "Allowlist, gate & kiosk mode",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

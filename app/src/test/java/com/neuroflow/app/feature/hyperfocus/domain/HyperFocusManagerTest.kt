@@ -143,7 +143,7 @@ class HyperFocusManagerTest : StringSpec({
             coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences()
             coEvery { taskRepository.getAllTasks() } returns emptyList()
 
-            manager.activate(setOf("com.example.app"), 5, emptySet())
+            manager.activate(5, emptySet())
 
             coVerifyOrder {
                 unlockCodeRepository.generateCodePool(any())

@@ -23,7 +23,6 @@ data class HyperFocusPreferences(
     val isActive: Boolean = false,
     val sessionId: String? = null,
     val state: HyperFocusState = HyperFocusState.INACTIVE,
-    val blockedPackages: Set<String> = emptySet(),
     // --- Allowlist model (B2): global tiers, identical across sessions ---
     val essentialPackages: Set<String> = emptySet(),
     val allowedPackages: Set<String> = emptySet(),
@@ -64,12 +63,11 @@ data class HyperFocusPreferences(
 ) {
     // Session state out, user settings in: the tiers, the scores and allowlistMigratedAt are global
     // (B2), so a deactivation must not erase them — nor re-arm the one-shot migration, which would
-    // then derive "allow everything" from the blockedPackages this same reset empties.
+    // then re-derive the tiers from a catalog the user has since changed.
     fun afterSession(): HyperFocusPreferences = copy(
         isActive = false,
         sessionId = null,
         state = HyperFocusState.INACTIVE,
-        blockedPackages = emptySet(),
         activePassPackage = null,
         activePassExpiresAt = null,
         pendingGatePackage = null,
@@ -97,6 +95,12 @@ interface HyperFocusDataStore {
     suspend fun updateHeartbeat(timestamp: Long)
     fun getHeartbeat(): Long = 0L
     suspend fun current(): HyperFocusPreferences
+
+    /**
+     * The pre-allowlist denylist, read straight out of the stored blob. Only the one-shot migration
+     * may ask: the live model has no denylist (B2), so nothing that decides policy can reach this.
+     */
+    suspend fun legacyBlockedPackages(): Set<String> = emptySet()
 }
 
 @Singleton
@@ -118,16 +122,31 @@ class HyperFocusDataStoreImpl @Inject constructor(
 
     override suspend fun update(transform: (HyperFocusPreferences) -> HyperFocusPreferences) {
         context.hyperFocusDataStore.edit { prefs ->
-            val current = prefs[Keys.PREFS_JSON]?.let { deserialize(it) } ?: HyperFocusPreferences()
+            val blob = prefs[Keys.PREFS_JSON]
+            val current = blob?.let { deserialize(it) } ?: HyperFocusPreferences()
             val hb = serviceHeartbeat.get()
             val currentWithHb = if (hb > 0L) current.copy(lastServiceHeartbeat = hb) else current
             val updated = transform(currentWithHb)
             if (updated.lastServiceHeartbeat != currentWithHb.lastServiceHeartbeat) {
                 serviceHeartbeat.set(updated.lastServiceHeartbeat)
             }
-            prefs[Keys.PREFS_JSON] = serialize(updated)
+            // Carry the legacy denylist across rewrites until the migration has stamped itself. Without
+            // this, an upgrade that ends a session before migrating loses the user's block list and the
+            // migration then derives "allow everything".
+            prefs[Keys.PREFS_JSON] = serialize(
+                updated,
+                legacyBlocked = legacyArray(blob).takeIf { updated.allowlistMigratedAt == null }
+            )
         }
     }
+
+    override suspend fun legacyBlockedPackages(): Set<String> {
+        val array = legacyArray(context.hyperFocusDataStore.data.first()[Keys.PREFS_JSON]) ?: return emptySet()
+        return buildSet { for (i in 0 until array.length()) add(array.getString(i)) }
+    }
+
+    private fun legacyArray(blob: String?): JSONArray? =
+        blob?.let { runCatching { JSONObject(it).optJSONArray("blockedPackages") }.getOrNull() }
 
     override suspend fun updateHeartbeat(timestamp: Long) {
         serviceHeartbeat.set(timestamp)
@@ -141,14 +160,12 @@ class HyperFocusDataStoreImpl @Inject constructor(
         return if (hb > 0L) base.copy(lastServiceHeartbeat = hb) else base
     }
 
-    private fun serialize(prefs: HyperFocusPreferences): String {
+    private fun serialize(prefs: HyperFocusPreferences, legacyBlocked: JSONArray?): String {
         val json = JSONObject()
         json.put("isActive", prefs.isActive)
         json.put("sessionId", prefs.sessionId ?: JSONObject.NULL)
         json.put("state", prefs.state.name)
-        val packagesArray = JSONArray()
-        prefs.blockedPackages.forEach { packagesArray.put(it) }
-        json.put("blockedPackages", packagesArray)
+        if (legacyBlocked != null) json.put("blockedPackages", legacyBlocked)
         val essentialArray = JSONArray()
         prefs.essentialPackages.forEach { essentialArray.put(it) }
         json.put("essentialPackages", essentialArray)
@@ -190,12 +207,10 @@ class HyperFocusDataStoreImpl @Inject constructor(
                 val arr = obj.optJSONArray(key)
                 if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
             }
-            val blockedPackages = stringSet("blockedPackages")
             HyperFocusPreferences(
                 isActive = obj.optBoolean("isActive", false),
                 sessionId = if (obj.isNull("sessionId")) null else obj.optString("sessionId", null.toString()).takeIf { it != "null" },
                 state = try { HyperFocusState.valueOf(obj.optString("state", HyperFocusState.INACTIVE.name)) } catch (_: Exception) { HyperFocusState.INACTIVE },
-                blockedPackages = blockedPackages,
                 essentialPackages = stringSet("essentialPackages"),
                 allowedPackages = stringSet("allowedPackages"),
                 distractionScores = buildMap {

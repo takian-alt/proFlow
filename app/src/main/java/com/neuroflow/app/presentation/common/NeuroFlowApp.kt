@@ -62,7 +62,8 @@ import com.neuroflow.app.presentation.settings.MEQQuizScreen
 import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.settings.AccountSyncScreen
-import com.neuroflow.app.presentation.launcher.settings.LauncherSettings
+import com.neuroflow.app.feature.hyperfocus.screens.AllowlistSettingsScreen
+import com.neuroflow.app.feature.hyperfocus.screens.HyperFocusActivationSheet
 import com.neuroflow.app.feature.hyperfocus.screens.RewardsScreen
 import com.neuroflow.app.presentation.notes.NotesScreen
 import com.neuroflow.app.presentation.matrix.OnHoldPlanningScreen
@@ -90,7 +91,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     data object AppGuide : Screen("app_guide", "App Guide", null)
     data object LogTime : Screen("log_time", "Log Time", Icons.Filled.Timer)
     data object Identity : Screen("identity", "Identity", Icons.Filled.Psychology)
-    data object LauncherSettingsScreen : Screen("launcher_settings", "Launcher Settings", null)
+    data object HyperFocusAllowlist : Screen("hyperfocus_allowlist", "HyperFocus", null)
     data object Rewards : Screen("rewards", "Rewards", null)
     data object MiniWoop : Screen("mini_woop/{taskId}", "WOOP Reflection", null)
     data object AccountSync : Screen("account_sync", "Account & Cloud Sync", null)
@@ -419,8 +420,8 @@ fun NeuroFlowApp(
                         onNavigateToPriorityWeights = {
                             navController.navigate(Screen.PriorityWeights.route)
                         },
-                        onNavigateToLauncherSettings = {
-                            navController.navigate(Screen.LauncherSettingsScreen.route)
+                        onNavigateToHyperFocusAllowlist = {
+                            navController.navigate(Screen.HyperFocusAllowlist.route)
                         },
                         onNavigateToAppGuide = {
                             navController.navigate(Screen.AppGuide.route)
@@ -460,10 +461,9 @@ fun NeuroFlowApp(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
-                composable(Screen.LauncherSettingsScreen.route) {
-                    LauncherSettingsRoute(
-                        onNavigateBack = { navController.popBackStack() },
-                        onNavigateToRewards = { navController.navigate(Screen.Rewards.route) }
+                composable(Screen.HyperFocusAllowlist.route) {
+                    HyperFocusAllowlistRoute(
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
                 composable(Screen.Rewards.route) {
@@ -562,16 +562,24 @@ private fun GoalsEditContent(
 }
 
 /**
- * Wraps LauncherSettings as a standalone nav destination within the main app.
- * Shows the full launcher settings screen with a back button.
+ * The allowlist editor as a destination in the main app's graph. The activation sheet is hosted here
+ * rather than inside the editor so the same editor composable can be mounted from HyperFocusActivity,
+ * where a session start is a destination rather than a setting.
  */
 @Composable
-private fun LauncherSettingsRoute(onNavigateBack: () -> Unit, onNavigateToRewards: () -> Unit = {}) {
-    val viewModel: com.neuroflow.app.presentation.launcher.LauncherViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-    LauncherSettings(
-        isOpen = true,
-        onDismiss = onNavigateBack,
-        onNavigateToRewards = onNavigateToRewards,
-        viewModel = viewModel
+private fun HyperFocusAllowlistRoute(onNavigateBack: () -> Unit) {
+    val viewModel: com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel = hiltViewModel()
+    var showActivationSheet by remember { mutableStateOf(false) }
+
+    AllowlistSettingsScreen(
+        viewModel = viewModel,
+        onNavigateBack = onNavigateBack,
+        onStartSession = { showActivationSheet = true }
     )
+    if (showActivationSheet) {
+        HyperFocusActivationSheet(
+            viewModel = viewModel,
+            onDismiss = { showActivationSheet = false }
+        )
+    }
 }

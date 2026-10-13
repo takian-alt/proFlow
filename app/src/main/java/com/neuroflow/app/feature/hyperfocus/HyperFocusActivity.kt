@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -19,7 +20,9 @@ import androidx.navigation.compose.rememberNavController
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import com.neuroflow.app.feature.hyperfocus.gate.GateTaskScreen
 import com.neuroflow.app.feature.hyperfocus.gate.GatewayScreen
+import com.neuroflow.app.feature.hyperfocus.screens.AllowlistSettingsScreen
 import com.neuroflow.app.feature.hyperfocus.screens.BlockingOverlayScreen
+import com.neuroflow.app.feature.hyperfocus.screens.HyperFocusActivationSheet
 import com.neuroflow.app.feature.hyperfocus.screens.PlanningPromptScreen
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -72,6 +75,7 @@ class HyperFocusActivity : ComponentActivity() {
             val startDestination =
                 intent.getStringExtra(EXTRA_START_DESTINATION) ?: DESTINATION_OVERLAY
             val viewModel: HyperFocusViewModel = hiltViewModel()
+            var showActivationSheet by remember { mutableStateOf(false) }
 
             // The gate logs which app it was opened for, and the log row is written by a screen two
             // navigations away. Naming the app here, before anything is rendered, is what survives it.
@@ -119,6 +123,22 @@ class HyperFocusActivity : ComponentActivity() {
                         launchApp(blockedPackage)
                     }
                 }
+                // The same editor the More menu opens, reached with no session and no launcher to hand
+                // off to — the state where it is the only useful thing on the screen. Back is finish():
+                // the gesture callback above already eats the system back.
+                composable(DESTINATION_SETUP) {
+                    AllowlistSettingsScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = { finish() },
+                        onStartSession = { showActivationSheet = true }
+                    )
+                }
+            }
+            if (showActivationSheet) {
+                HyperFocusActivationSheet(
+                    viewModel = viewModel,
+                    onDismiss = { showActivationSheet = false }
+                )
             }
         }
     }

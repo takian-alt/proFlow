@@ -112,7 +112,6 @@ fun AppIcon(
         val prefs = hyperFocusPrefs
         if (prefs != null &&
             prefs.isActive &&
-            appInfo.packageName in prefs.blockedPackages &&
             !(RewardEngine.isPassActive(prefs, System.currentTimeMillis()) &&
                 prefs.activePassPackage == appInfo.packageName)
         ) {

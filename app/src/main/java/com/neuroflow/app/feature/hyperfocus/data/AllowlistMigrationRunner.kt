@@ -30,7 +30,9 @@ class AllowlistMigrationRunner @Inject constructor(
         if (launchable.isEmpty()) return
 
         val tiers = AllowlistMigrator.derive(
-            blockedPackages = prefs.blockedPackages,
+            // Read from the blob, not the model: the denylist is not a live concept (B2), and this is
+            // the only code allowed to look at it.
+            blockedPackages = hyperFocusDataStore.legacyBlockedPackages(),
             launchable = launchable,
             essentialSeed = FocusSurfaceModel.DEFAULT_ESSENTIAL_SEED,
             // STATIC, not packages(): an app exempt for enforcement must still land in a user tier, or

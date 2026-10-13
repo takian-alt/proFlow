@@ -13,16 +13,23 @@ import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
+import com.neuroflow.app.feature.hyperfocus.domain.ActivationDecision
+import com.neuroflow.app.feature.hyperfocus.domain.ActivationRejection
 import com.neuroflow.app.feature.hyperfocus.domain.RewardEngine
 import com.neuroflow.app.feature.hyperfocus.domain.UnlockCodeRepository
+import com.neuroflow.app.feature.hyperfocus.domain.decideActivation
 import com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngine
+import com.neuroflow.app.feature.hyperfocus.surface.AllowlistDraft
 import com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModel
 import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
+import com.neuroflow.app.feature.hyperfocus.surface.applyDraft
+import com.neuroflow.app.feature.hyperfocus.surface.editableApps
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -299,26 +306,66 @@ class HyperFocusViewModel @Inject constructor(
         }
     }
 
-    fun activate(blockedPackages: Set<String>, selectedTaskIds: Set<String>) {
+    val selfPackage: String = BuildConfig.APPLICATION_ID
+
+    private val _activationMessage = MutableStateFlow<String?>(null)
+    val activationMessage: StateFlow<String?> = _activationMessage.asStateFlow()
+
+    fun clearActivationMessage() {
+        _activationMessage.value = null
+    }
+
+    fun saveAllowlist(essential: Set<String>, allowed: Set<String>) {
         viewModelScope.launch {
-            if (blockedPackages.isEmpty()) return@launch
-
-            val activeIds = taskRepository.getActiveTasks().map { it.id }.toSet()
-            val normalizedSelection = selectedTaskIds.intersect(activeIds)
-            if (normalizedSelection.isEmpty()) return@launch
-
-            hyperFocusManager.activate(
-                blockedPackages = blockedPackages,
-                dailyTaskTarget = normalizedSelection.size,
-                lockedTaskIds = normalizedSelection
-            )
+            hyperFocusDataStore.update { applyDraft(it, AllowlistDraft(essential, allowed)) }
         }
     }
 
-    fun activateTimed(blockedPackages: Set<String>, durationMinutes: Int) {
+    /** The editor lists what the user may pin; `STATIC` keeps the machinery off that list but leaves
+     *  the dialers on it. */
+    suspend fun loadEditableApps(): List<AppCatalogRepository.AppEntry> {
+        val all = appCatalogRepository.launchableApps()
+        val keep = editableApps(
+            all = all.map { it.packageName }.toSet(),
+            systemExempt = SystemExempt.STATIC,
+            selfPackage = selfPackage
+        )
+        return all.filter { it.packageName in keep }
+    }
+
+    private fun rejectionText(reason: ActivationRejection): String = when (reason) {
+        ActivationRejection.AlreadyActive -> "A session is already running."
+        ActivationRejection.EmptySurface -> "Pin at least one app as essential first."
+    }
+
+    fun activate(selectedTaskIds: Set<String>) {
         viewModelScope.launch {
-            if (blockedPackages.isEmpty()) return@launch
-            hyperFocusManager.activateTimed(blockedPackages, durationMinutes)
+            val prefs = hyperFocusDataStore.current()
+            when (val decision = decideActivation(prefs, SystemExempt.STATIC, selfPackage)) {
+                is ActivationDecision.Rejected -> _activationMessage.value = rejectionText(decision.reason)
+                ActivationDecision.Allowed -> {
+                    val activeIds = taskRepository.getActiveTasks().map { it.id }.toSet()
+                    val normalized = selectedTaskIds.intersect(activeIds)
+                    if (normalized.isEmpty()) {
+                        _activationMessage.value = "Pick at least one task to lock."
+                    } else {
+                        hyperFocusManager.activate(
+                            dailyTaskTarget = normalized.size,
+                            lockedTaskIds = normalized
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun activateTimed(durationMinutes: Int) {
+        viewModelScope.launch {
+            val prefs = hyperFocusDataStore.current()
+            when (val decision = decideActivation(prefs, SystemExempt.STATIC, selfPackage)) {
+                is ActivationDecision.Rejected -> _activationMessage.value = rejectionText(decision.reason)
+                ActivationDecision.Allowed -> hyperFocusManager.activateTimed(durationMinutes)
+            }
         }
     }
 

@@ -45,7 +45,7 @@ class HyperFocusHomeActivity : ComponentActivity() {
                 onOpenGate = { openHyperFocus(HyperFocusActivity.DESTINATION_GATE) },
                 onEmergencyOpen = viewModel::emergencyOpen,
                 onDeactivate = viewModel::deactivate,
-                onOpenAllowlistEditor = ::openApp,
+                onOpenAllowlistEditor = { openHyperFocus(HyperFocusActivity.DESTINATION_SETUP) },
                 onOpenHomeAppSettings = viewModel::openHomeAppSettings
             )
         }
@@ -69,10 +69,6 @@ class HyperFocusHomeActivity : ComponentActivity() {
             Intent(this, HyperFocusActivity::class.java)
                 .putExtra(HyperFocusActivity.EXTRA_START_DESTINATION, startDestination)
         )
-    }
-
-    private fun openApp() {
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private fun handOffIfAllowed() {

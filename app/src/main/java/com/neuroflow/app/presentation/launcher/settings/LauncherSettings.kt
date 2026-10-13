@@ -275,7 +275,6 @@ fun LauncherSettings(
         if (showActivationSheet) {
             HyperFocusActivationSheet(
                 viewModel = hyperFocusViewModel,
-                distractionScores = distractionScores,
                 onDismiss = { showActivationSheet = false }
             )
         }
@@ -923,34 +922,6 @@ private fun HyperFocusSettingsSection(
                     }
                 }
 
-                // Debug: Show blocked packages
-                HorizontalDivider()
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "Blocked Apps (${hyperFocusPrefs.blockedPackages.size})",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    hyperFocusPrefs.blockedPackages.take(5).forEach { pkg ->
-                        Text(
-                            text = "• $pkg",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (hyperFocusPrefs.blockedPackages.size > 5) {
-                        Text(
-                            text = "... and ${hyperFocusPrefs.blockedPackages.size - 5} more",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
             }
         }
     }

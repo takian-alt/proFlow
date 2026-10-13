@@ -109,11 +109,11 @@ fun MoreMenuSheet(
             )
             MoreMenuItem(
                 icon = Icons.Filled.RocketLaunch,
-                title = "HyperFocus & Launcher",
-                subtitle = "App blocking, kiosk mode & reward vaults",
+                title = "HyperFocus",
+                subtitle = "Allowlist, gate & kiosk mode",
                 onClick = {
                     onDismiss()
-                    onNavigate(Screen.LauncherSettingsScreen.route)
+                    onNavigate(Screen.HyperFocusAllowlist.route)
                 }
             )
 

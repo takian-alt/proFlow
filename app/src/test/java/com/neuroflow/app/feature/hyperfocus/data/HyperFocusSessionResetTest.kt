@@ -12,7 +12,6 @@ class HyperFocusSessionResetTest : StringSpec({
         isActive = true,
         sessionId = "session-1",
         state = HyperFocusState.FULL_REWARD_PENDING,
-        blockedPackages = setOf("com.instagram.android"),
         essentialPackages = setOf("com.android.dialer"),
         allowedPackages = setOf("com.todoist"),
         activePassPackage = "com.todoist",
@@ -43,7 +42,6 @@ class HyperFocusSessionResetTest : StringSpec({
         cleared.isActive shouldBe false
         cleared.sessionId shouldBe null
         cleared.state shouldBe HyperFocusState.INACTIVE
-        cleared.blockedPackages shouldBe emptySet()
         cleared.currentTier shouldBe RewardTier.NONE
         cleared.tasksCompletedAtActivation shouldBe 0
         cleared.dailyTaskTarget shouldBe 0
@@ -70,9 +68,8 @@ class HyperFocusSessionResetTest : StringSpec({
 
     "SR-2: the migration flag outlives the session it was written in" {
         // If deactivation erased allowlistMigratedAt, the runner would fire again at the next
-        // startup — but blockedPackages is cleared by the same reset, so the second run would
-        // derive "allow everything" from an empty denylist and overwrite an allowlist the user had
-        // since edited. One-shot has to mean one-shot.
+        // startup and overwrite an allowlist the user had since edited with a fresh derivation of
+        // the installed app catalog. One-shot has to mean one-shot.
         val afterDeactivation = session.afterSession()
         afterDeactivation.allowlistMigratedAt shouldBe session.allowlistMigratedAt
         afterDeactivation.allowedPackages shouldBe session.allowedPackages

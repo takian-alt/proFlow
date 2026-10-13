@@ -160,7 +160,7 @@ class SuspensionResyncTest : StringSpec({
             activePassExpiresAt = System.currentTimeMillis() + 60_000L
         )
 
-        runTest { manager.activate(emptySet(), 0, emptySet()) }
+        runTest { manager.activate(dailyTaskTarget = 0, lockedTaskIds = emptySet()) }
 
         // afterSession() drops the previous session's pass, so a keep-set read before the update
         // would still spare com.instagram.android.

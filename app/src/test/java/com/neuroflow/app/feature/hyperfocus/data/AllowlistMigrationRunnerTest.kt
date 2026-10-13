@@ -26,6 +26,7 @@ class AllowlistMigrationRunnerTest : StringSpec({
     beforeTest {
         clearAllMocks()
         coEvery { hyperFocusDataStore.update(any()) } just Runs
+        coEvery { hyperFocusDataStore.legacyBlockedPackages() } returns emptySet()
         coEvery { legacyLauncherPrefs.distractionScoresSnapshot() } returns emptyMap()
     }
 
@@ -38,9 +39,11 @@ class AllowlistMigrationRunnerTest : StringSpec({
     fun run(
         prefs: HyperFocusPreferences,
         launchable: List<AppCatalogRepository.AppEntry> = catalog("com.todoist"),
-        legacyScores: Map<String, Int> = emptyMap()
+        legacyScores: Map<String, Int> = emptyMap(),
+        legacyBlocked: Set<String> = emptySet()
     ): HyperFocusPreferences {
         coEvery { hyperFocusDataStore.current() } returns prefs
+        coEvery { hyperFocusDataStore.legacyBlockedPackages() } returns legacyBlocked
         coEvery { appCatalogRepository.launchableApps() } returns launchable
         coEvery { legacyLauncherPrefs.distractionScoresSnapshot() } returns legacyScores
         val transform = slot<(HyperFocusPreferences) -> HyperFocusPreferences>()
@@ -52,19 +55,27 @@ class AllowlistMigrationRunnerTest : StringSpec({
     }
 
     "MR-1: an unmigrated install gets the complement of its denylist and the stamp" {
-        val prefs = HyperFocusPreferences(blockedPackages = setOf("com.instagram.android"))
-
         val updated = run(
-            prefs,
-            launchable = catalog("com.android.dialer", "com.instagram.android", "com.todoist")
+            HyperFocusPreferences(),
+            launchable = catalog("com.android.dialer", "com.instagram.android", "com.todoist"),
+            legacyBlocked = setOf("com.instagram.android")
         )
 
         updated.essentialPackages shouldContain "com.android.dialer"
         updated.allowedPackages shouldContain "com.todoist"
         updated.allowedPackages shouldNotContain "com.instagram.android"
-        // The denylist still drives enforcement until Task 12 flips it — the migration must not clear it.
-        updated.blockedPackages shouldBe setOf("com.instagram.android")
         updated.allowlistMigratedAt.shouldNotBeNull()
+    }
+
+    "MR-1b: the denylist is read from storage, not from the live model" {
+        // B2 deleted blockedPackages from HyperFocusPreferences. If the migration silently read an
+        // empty set instead, every launchable app would land in `allowed` and an upgrading user's
+        // block list would stop blocking anything. prefs has no denylist at all here, so the only
+        // way instagram can be missing from the tiers is the storage read.
+        val updated = run(HyperFocusPreferences(), legacyBlocked = setOf("com.instagram.android"))
+
+        updated.allowedPackages shouldNotContain "com.instagram.android"
+        coVerify(exactly = 1) { hyperFocusDataStore.legacyBlockedPackages() }
     }
 
     "MR-2: an already migrated install reads nothing and writes nothing" {
@@ -80,10 +91,7 @@ class AllowlistMigrationRunnerTest : StringSpec({
     }
 
     "MR-3: a live session is never rewritten underneath" {
-        coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences(
-            isActive = true,
-            blockedPackages = setOf("com.instagram.android")
-        )
+        coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences(isActive = true)
 
         runTest { runner.runIfNeeded() }
 
@@ -91,9 +99,7 @@ class AllowlistMigrationRunnerTest : StringSpec({
     }
 
     "MR-4: an empty catalog is a failed query, so the install stays unmigrated and retries" {
-        coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences(
-            blockedPackages = setOf("com.instagram.android")
-        )
+        coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences()
         coEvery { appCatalogRepository.launchableApps() } returns emptyList()
 
         runTest { runner.runIfNeeded() }

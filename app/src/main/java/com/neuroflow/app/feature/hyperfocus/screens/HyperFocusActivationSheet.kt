@@ -1,7 +1,6 @@
 package com.neuroflow.app.feature.hyperfocus.screens
 
 import android.provider.Settings
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -40,21 +39,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
+import com.neuroflow.app.feature.hyperfocus.home.renderableEssentials
+import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HyperFocusActivationSheet(
     viewModel: HyperFocusViewModel,
-    distractionScores: Map<String, Int>,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -77,7 +75,6 @@ fun HyperFocusActivationSheet(
         } else {
             ActivationSheetContent(
                 viewModel = viewModel,
-                distractionScores = distractionScores,
                 onDismiss = onDismiss
             )
         }
@@ -87,34 +84,14 @@ fun HyperFocusActivationSheet(
 @Composable
 private fun ActivationSheetContent(
     viewModel: HyperFocusViewModel,
-    distractionScores: Map<String, Int>,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val activeTasks by viewModel.activeTasks.collectAsState()
+    val prefs by viewModel.hyperFocusPrefs.collectAsState()
+    val activationMessage by viewModel.activationMessage.collectAsState()
     val hasActiveTasks = activeTasks.isNotEmpty()
 
-    // Build full app list with labels, sorted alphabetically, only including launchable apps
-    val allApps = remember {
-        val intent = android.content.Intent(android.content.Intent.ACTION_MAIN, null)
-        intent.addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-        val resolveInfos = context.packageManager.queryIntentActivities(intent, 0)
-        
-        resolveInfos.mapNotNull { info ->
-            if (info.activityInfo.packageName == context.packageName) null
-            else {
-                val label = info.loadLabel(context.packageManager).toString()
-                label to info.activityInfo.packageName
-            }
-        }.distinctBy { it.second }.sortedBy { it.first.lowercase() }
-    }
-
-    // Pre-select apps with distraction score > 70
-    val selectedPackages = remember {
-        mutableStateMapOf<String, Boolean>().also { map ->
-            distractionScores.filter { it.value > 70 }.keys.forEach { pkg -> map[pkg] = true }
-        }
-    }
     val selectedTaskIds = remember { mutableStateMapOf<String, Boolean>() }
 
     LaunchedEffect(activeTasks) {
@@ -129,19 +106,11 @@ private fun ActivationSheetContent(
     }
 
     var taskSearchQuery by remember { mutableStateOf("") }
-    var appSearchQuery by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
     var sessionMode by remember { mutableStateOf(HyperFocusSessionMode.TASK_BASED) }
     val durationOptions = remember { listOf(15, 25, 45, 60, 90, 120) }
     var selectedDurationMinutes by remember { mutableStateOf(25) }
 
-    val filteredApps = remember(appSearchQuery, allApps) {
-        if (appSearchQuery.isBlank()) allApps
-        else allApps.filter { (label, pkg) ->
-            label.contains(appSearchQuery, ignoreCase = true) ||
-            pkg.contains(appSearchQuery, ignoreCase = true)
-        }
-    }
     val filteredTasks = remember(taskSearchQuery, activeTasks) {
         if (taskSearchQuery.isBlank()) activeTasks
         else activeTasks.filter { task ->
@@ -151,8 +120,11 @@ private fun ActivationSheetContent(
     }
 
     val haptic = LocalHapticFeedback.current
-    val selectedCount = selectedPackages.count { it.value }
     val selectedTaskCount = selectedTaskIds.count { it.value }
+    // Counted the way the home renders it, so this number and the grid that appears after activation
+    // cannot disagree — and so the button cannot enable on a tier of nothing but Settings.
+    val essentialCount = renderableEssentials(prefs, SystemExempt.STATIC, context.packageName).size
+    val allowedCount = prefs.allowedPackages.size
 
     Column(
         modifier = Modifier
@@ -353,19 +325,32 @@ private fun ActivationSheetContent(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // Activate button near top for faster access
+        // The tiers are global (B2): this sheet confirms a session, it no longer chooses apps.
+        Text(
+            text = if (essentialCount == 0) {
+                "No essential apps pinned. Pin at least one app as essential in the allowlist editor " +
+                    "before starting — a session whose home has no icons has nowhere to hand you back to."
+            } else {
+                "Blocking everything except $essentialCount essential apps and the " +
+                    "${prefs.allowedPackages.size} you allowed behind the gate. Hidden apps need a pass."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (essentialCount == 0) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Button(
             onClick = {
-                val selected = selectedPackages.filter { it.value }.keys.toSet()
                 if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                    viewModel.activateTimed(selected, selectedDurationMinutes)
+                    viewModel.activateTimed(selectedDurationMinutes)
                 } else {
                     val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
-                    viewModel.activate(selected, selectedTasks)
+                    viewModel.activate(selectedTasks)
                 }
                 onDismiss()
             },
-            enabled = confirmText == "FOCUS" && selectedCount > 0 &&
+            enabled = confirmText == "FOCUS" && essentialCount > 0 &&
                 (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
@@ -380,96 +365,16 @@ private fun ActivationSheetContent(
             Text(label, fontWeight = FontWeight.Bold)
         }
 
-        HorizontalDivider()
 
-        // App selector header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        // A rejection is a fact about the screen the user is standing on, so it renders here rather
+        // than as a toast the sheet has already dismissed.
+        activationMessage?.let {
             Text(
-                text = "Apps to block",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth()
             )
-            Text(
-                text = "$selectedCount selected",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        // Search field
-        OutlinedTextField(
-            value = appSearchQuery,
-            onValueChange = { appSearchQuery = it },
-            placeholder = { Text("Search apps...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        // App list
-        if (filteredApps.isEmpty()) {
-            Text(
-                text = "No apps found.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            filteredApps.forEach { (label, pkg) ->
-                val isChecked = selectedPackages[pkg] == true
-                val appIcon = remember(pkg) {
-                    try {
-                        context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap()
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            selectedPackages[pkg] = !isChecked
-                        }
-                        .padding(vertical = 4.dp, horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isChecked,
-                        onCheckedChange = { checked ->
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            selectedPackages[pkg] = checked
-                        }
-                    )
-                    if (appIcon != null) {
-                        Image(
-                            bitmap = appIcon,
-                            contentDescription = label,
-                            modifier = Modifier
-                                .padding(end = 12.dp)
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = pkg,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
         }
 
         // No tasks warning
