@@ -1,50 +1,40 @@
-# Baseline Profile for proFlow Launcher
+# Baseline Profile for proFlow
 
 ## Overview
 
-This directory contains the baseline profile generator for the proFlow Launcher. The baseline profile causes ART (Android Runtime) to AOT-compile critical launcher code paths, eliminating JIT warm-up jank on first launch and ensuring the home screen composes within 100ms on Snapdragon 6xx class devices.
+This directory holds the baseline profile generator for the HyperFocus black home. The profile causes
+ART to AOT-compile the code the home screen runs on its first frame, removing JIT warm-up work on
+launch. The composition-time target below has never been measured on a device — treat it as intent,
+not a result.
 
 ## Critical Paths Covered
 
-The baseline profile generator (`LauncherBaselineProfileGenerator.kt`) covers the following critical paths:
+The generator (`HyperFocusBaselineProfileGenerator.kt`) covers:
 
-1. **LauncherActivity Cold Start**
+1. **HyperFocusHomeActivity cold start**
    - Activity initialization
-   - ViewModel creation
-   - Initial state loading
+   - `HyperFocusHomeViewModel` creation
+   - First read of the allowlist preferences
 
-2. **FocusTaskCard Composition**
-   - Task data loading from TaskRepository
-   - TaskScoringEngine computation
-   - Card rendering with all task fields
+2. **Essentials grid composition**
+   - `RealHomeResolver` deciding the surface state
+   - Tile rendering for the pinned essential apps
 
-3. **Icon Loading from LruCache**
-   - AppRepository icon cache access
-   - Coil image loading pipeline
-   - AdaptiveIconProcessor shape masking
+3. **Icon resolution during scroll**
+   - Per-tile `PackageManager` icon lookup
 
-4. **AppDrawer Open**
-   - Drawer slide-up animation
-   - App list rendering
-   - Search bar focus
-
-5. **AppDrawer Scroll**
-   - LazyVerticalGrid scrolling
-   - Icon loading during scroll
-   - Badge rendering
-
-6. **QuickStatsPanel Open**
-   - Panel slide-in animation
-   - AnalyticsEngine data loading
-   - Stats rendering
+The launcher surfaces this document used to list — app drawer, dock, focus task card, quick-stats
+overlay — were archived at tag `archive/launcher-2026-10-12` and deleted by Task 17, so they are no
+longer profiled.
 
 ## Requirements
 
 ### Device Requirements
 - Android device or emulator running API 26+
-- **Recommended**: Snapdragon 6xx class device for accurate profiling
+- **Recommended**: a low/mid-tier device, since warm-up cost is what is being measured
 - Device should be rooted or using a userdebug build for best results
-- Device should have the launcher set as the default home screen
+- proFlow should be set as the default home app (Settings → Default apps → Home app) while a session
+  is active, which is what makes `pressHome()` land on the black home
 
 ### Build Requirements
 - Gradle 8.7.3+
@@ -77,15 +67,11 @@ The baseline profile generator (`LauncherBaselineProfileGenerator.kt`) covers th
 
 1. The test builds the app in release mode
 2. Installs the app on the connected device
-3. Runs the `LauncherBaselineProfileGenerator` test
+3. Runs the `HyperFocusBaselineProfileGenerator` test
 4. The test performs the following actions:
-   - Launches the launcher (cold start)
-   - Waits for FocusTaskCard to render
-   - Opens the AppDrawer (swipe up)
-   - Scrolls through the AppDrawer
-   - Closes the AppDrawer
-   - Opens the QuickStatsPanel (swipe left)
-   - Closes the QuickStatsPanel
+   - Launches the app (cold start)
+   - Waits for the black home to render
+   - Scrolls the essentials grid down and back up
 5. Collects profiling data across 5 iterations (3 stable)
 6. Generates `baseline-prof.txt` in `app/src/main/`
 
@@ -100,9 +86,16 @@ After generation, verify the profile is working:
 # Install on device
 adb install app/build/outputs/apk/release/app-release.apk
 
-# Launch the launcher and observe startup time
-# The home screen should compose within 100ms
+# Launch the black home and measure its first frame
 ```
+
+## About the checked-in `app/src/main/baseline-prof.txt`
+
+That file was generated against the launcher. Task 17 deleted those classes, so the entries naming
+them were removed rather than renamed — a profile rule for a class that does not exist is dead weight
+in every APK. `TaskScoringEngine` is the one entry that still names live code. **The file is therefore
+stale in the other direction too: it no longer covers the black home.** Regenerate it on a device
+before trusting startup performance numbers from it.
 
 ## Troubleshooting
 
@@ -115,36 +108,18 @@ adb install app/build/outputs/apk/release/app-release.apk
 - Or start an Android emulator
 
 ### "Baseline profile generation failed"
-- Ensure the launcher is set as the default home screen
+- Ensure proFlow is set as the default home app and a session is active
 - Ensure the device is not locked
 - Check logcat for errors: `adb logcat | grep BaselineProfile`
 
 ### "Profile is empty or incomplete"
 - The test may have failed to interact with the UI
-- Check that the launcher is properly installed and set as default
-- Verify the device has sufficient apps installed for the AppDrawer to render
+- Check that the app is installed and set as the default home app
+- Verify the allowlist has at least one essential app pinned, otherwise the black home shows the
+  activation prompt instead of a grid
 
 ## Performance Targets
 
-With the baseline profile in place, the launcher should meet these targets:
+Unmeasured on this project so far — no device has run either the generator or the profile:
 
-- **Home screen composition**: < 100ms on Snapdragon 6xx class devices
-- **AppDrawer open**: < 200ms from swipe to fully rendered
-- **Icon loading**: < 50ms per icon from LruCache
-- **FocusTaskCard update**: < 1 second from task data change
-
-## Maintenance
-
-The baseline profile should be regenerated when:
-
-- Major refactoring of launcher code paths
-- New critical UI components are added
-- Performance regressions are detected
-- Android SDK version is updated
-
-## References
-
-- [Android Baseline Profiles Documentation](https://developer.android.com/topic/performance/baselineprofiles)
-- [Macrobenchmark Library](https://developer.android.com/topic/performance/benchmarking/macrobenchmark-overview)
-- Requirements: 14.1, 14.8 in `requirements.md`
-
+- **Home screen composition**: < 100ms on a mid-tier device (target, not a result)

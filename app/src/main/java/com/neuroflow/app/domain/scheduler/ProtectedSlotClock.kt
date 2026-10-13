@@ -28,7 +28,7 @@ data class DueSlot(
 
 /**
  * Answers "is one of the user's protected blocks happening right now, or about to?". One place
- * computes it so the Today hero, the launcher card and the Focus screen cannot disagree.
+ * computes it so the Today hero and the Focus screen cannot disagree.
  *
  * A slot's own recovery buffer is deliberately not part of the takeover: the buffer exists to stop
  * the auto-scheduler from packing work immediately after exercise, not to keep a card on screen.

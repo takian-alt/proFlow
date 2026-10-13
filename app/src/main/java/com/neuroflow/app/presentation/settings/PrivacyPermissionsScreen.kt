@@ -15,7 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
@@ -87,7 +86,7 @@ fun PrivacyPermissionsScreen(onNavigateBack: () -> Unit) {
                         )
                     }
                     Text(
-                        "proFlow is a launcher and focus tool. It asks for powerful Android permissions so it can show your apps, track focus, block distractions, and keep reminders working. Those permissions can look risky in a sideloaded app even when the app is legitimate.",
+                        "proFlow is a focus tool that can also act as your home screen. It asks for powerful Android permissions so it can show your apps, track focus, block distractions, and keep reminders working. Those permissions can look risky in a sideloaded app even when the app is legitimate.",
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         lineHeight = 20.sp
                     )
@@ -97,22 +96,17 @@ fun PrivacyPermissionsScreen(onNavigateBack: () -> Unit) {
             InfoRow(
                 icon = Icons.Filled.Search,
                 title = "Installed apps",
-                body = "Needed so the launcher drawer can list and open apps, and so search can find them.",
+                body = "Needed so the allowlist picker can list your apps and so the black home can resolve their icons.",
             )
             InfoRow(
                 icon = Icons.Filled.Visibility,
                 title = "Usage access",
-                body = "Needed to detect which app you are using during focus sessions and to dim distracting apps.",
+                body = "Needed to tell which app you are using during a focus session, which is how distraction scoring and blocking decide what to gate.",
             )
             InfoRow(
                 icon = Icons.Filled.Lock,
                 title = "Accessibility service",
                 body = "Needed only for Hyper Focus app blocking and on-screen protection while focus is active.",
-            )
-            InfoRow(
-                icon = Icons.Filled.CheckCircle,
-                title = "Contacts",
-                body = "Used only for launcher search suggestions. If you do not want this, do not grant the permission.",
             )
             InfoRow(
                 icon = Icons.Filled.BugReport,
@@ -126,7 +120,7 @@ fun PrivacyPermissionsScreen(onNavigateBack: () -> Unit) {
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Trust checklist", fontWeight = FontWeight.Bold)
-                    Text("Only install from a source you trust. Review the permissions before enabling them. If you do not use launcher search, contacts can stay denied. If you do not use focus blocking, accessibility can stay off.")
+                    Text("Only install from a source you trust. Review the permissions before enabling them. If you do not use focus blocking, accessibility can stay off.")
                 }
             }
 
@@ -155,7 +149,7 @@ fun PrivacyPermissionsScreen(onNavigateBack: () -> Unit) {
                     Text("We do not sell personal data. We do not need an account. We do not upload your contacts or task data for ads.")
                     HorizontalDivider()
                     Text("If you want the safest setup", fontWeight = FontWeight.Bold)
-                    Text("Leave optional permissions off until you need them. The launcher will still work, but some features may be limited.")
+                    Text("Leave optional permissions off until you need them. Reminders and logging still work, but focus blocking and the black home will be limited.")
                 }
             }
 

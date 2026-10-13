@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Script to generate Baseline Profile for proFlow Launcher
+# Script to generate Baseline Profile for proFlow
 # This script runs the baseline profile generator test and places the result in app/src/main/
 
 set -e
 
 echo "=========================================="
-echo "Baseline Profile Generation for proFlow Launcher"
+echo "Baseline Profile Generation for proFlow"
 echo "=========================================="
 echo ""
 echo "This will:"

@@ -9,7 +9,6 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import com.neuroflow.app.MainActivity
 import com.neuroflow.app.feature.hyperfocus.HyperFocusActivity
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import dagger.hilt.android.AndroidEntryPoint

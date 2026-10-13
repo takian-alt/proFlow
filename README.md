@@ -20,7 +20,7 @@ Download the latest release APK from the [GitHub Releases page](https://github.c
 
 ## Features
 
-- **Focus Launcher** — a full Android home-screen replacement purpose-built for deep work; surfaces your top-priority task front and centre, integrates with the neuroscience scoring engine, and removes friction between intention and action
+- **HyperFocus Black Home** — when a session is active, proFlow can take the HOME role and show a black, scrollable home screen holding only your essential apps; everything else is behind a gate, and turning the session off hands the device back to your previous launcher
 - **Eisenhower Matrix** — visualize tasks across the classic four-quadrant do/schedule/delegate/eliminate grid
 - **Smart Scoring Engine** — composite priority scores (0–1000) driven by Temporal Motivation Theory, Cognitive Load Theory, Circadian Rhythm research, the Zeigarnik Effect, BJ Fogg's Tiny Habits, and more
 - **Focus Timer** — built-in Pomodoro-style focus sessions with per-task time tracking and post-session WOOP reflection
@@ -39,20 +39,9 @@ Download the latest release APK from the [GitHub Releases page](https://github.c
 - **Peak Energy Detector** — learns your personal focus windows from session history using exponential recency weighting; blends with manually configured peak hours
 - **Manual Time Logging** — log time spent on a task outside of timed focus sessions via a dedicated bottom sheet and log-time screen
 - **Affordance Rating** — after a focus session rate how difficult the task felt vs. your expectation; data feeds into WOOP calibration insights
-- **HyperFocus Mode** — whole-phone distraction blocker: select apps to block, set a task target, and activate HyperFocus; blocked apps show a motivational overlay until you hit your goal; exit requires a time-limited AES-encrypted unlock code; backed by biometric app lock and escalating reward tiers
-- **Distraction Engine** — correlates Android `UsageStatsManager` data with focus sessions to compute a per-app distraction score (0–100); accounts for app-switch frequency, per-app category weight (social media → messaging → email), interruption depth, recovery time, and circadian timing; scores surface in Launcher Settings and feed the `TaskScoringEngine`
-- **App Drawer** — full-screen searchable app drawer with locale-aware alphabetical grouping, swipe-up gesture trigger, and instant filtering powered by `LauncherSearchEngineImpl`
-- **App Folders** — long-press any home-screen icon to create or edit folders; folders expand into an animated overlay grid and are persisted in `PinnedAppsDataStore`
-- **Dock** — configurable 5-slot bottom dock with folder support, long-press context menu (open/lock/hide/folder/info), and auto-populated defaults on first launch
-- **Multi-page Home Screen** — paged app grid (configurable columns/rows), page-dot indicator, drag-and-drop reordering, and widget slots on any page
-- **Focus Task Card** — always-visible card on the home screen showing the current top-scored task with its score, quadrant badge, and a one-tap "Start Focus" button; supports *Skip* to advance to the next task without completing it
-- **Habit Quick Row** — horizontal row of today's due habits surfaced directly on the home screen for frictionless habit check-in
-- **Quick Stats Panel** — swipe-right overlay showing today's completed task count, active streak, current XP, and recent session totals without leaving the launcher
-- **Launcher Settings** — comprehensive settings sheet covering distraction scores, dock management, icon packs, icon shapes, grid size, clock style, notification badges, biometric app lock, backup / restore, and HyperFocus configuration
-- **Icon Pack Support** — queries all installed icon packs at startup via `IconPackManager`; resolved icons are cached and applied per `IconShape` through `AdaptiveIconProcessor`
-- **Notification Badges** — `NotificationBadgeService` (NotificationListenerService) tracks unread counts; `NotificationBadgeManager` exposes them as a `StateFlow` consumed by every `AppIcon` composable
-- **Biometric App Lock** — individual apps can be locked via `BiometricAppLock` (BiometricPrompt); launch attempts are intercepted and prompt authentication before forwarding the intent
-- **Launcher Backup / Restore** — `LauncherBackupManager` serialises the full launcher state (pinned apps, dock, folders, distraction scores, preferences) to JSON for export/import
+- **HyperFocus Mode** — whole-phone distraction barrier built on an allowlist rather than a block list: pin essential apps onto the black home, allow a second tier to sit behind the gate, and everything else needs a pass. A pass costs a short cognitive task plus a written reason, opens exactly one app, and is measured in wall-clock minutes that keep ticking while you are out of that app. A one-tap 10-minute emergency and reward-earned codes are the other routes through
+- **Distraction Engine** — correlates Android `UsageStatsManager` data with focus sessions to compute a per-app distraction score (0–100); accounts for app-switch frequency, per-app category weight (social media → messaging → email), interruption depth, recovery time, and circadian timing; scores feed the `TaskScoringEngine`
+- **Notification Badges** — `NotificationBadgeService` (NotificationListenerService) tracks unread counts; `NotificationBadgeManager` exposes them as a `StateFlow` read by `EnergyScoreRepository` when scoring the current moment
 - **Theming** — Material 3 dark/light theme with user-configurable priority weights
 
 ---
@@ -117,44 +106,28 @@ app/
     │   ├── logtime/           # Manual time log screen
     │   ├── settings/          # Settings & priority weights screens
     │   ├── onboarding/        # Onboarding & app guide screens
-    │   ├── widget/            # Home screen widget (RemoteViews AppWidget)
-    │   └── launcher/          # Focus Launcher (home-screen replacement)
-    │       ├── LauncherActivity.kt        # HOME intent-filter activity
-    │       ├── LauncherViewModel.kt       # Central launcher state (StateFlow)
-    │       ├── HomeScreen.kt              # Paged home screen + widget slots
-    │       ├── SafeHomeScreen.kt          # Crash-recovery fallback screen
-    │       ├── components/                # AppIcon, DateTimeDisplay, DockRow,
-    │       │                              #   FocusTaskCard, HabitQuickRow,
-    │       │                              #   HomeScreenGrid, HomeScreenPages,
-    │       │                              #   ShortcutPopup, WidgetHost, WidgetSlotRow
-    │       ├── data/                      # AppRepository, PinnedAppsDataStore,
-    │       │                              #   IconPackManager, LauncherBackupManager,
-    │       │                              #   NotificationBadgeManager/Service,
-    │       │                              #   PackageChangeReceiver
-    │       ├── di/                        # LauncherModule (Hilt bindings)
-    │       ├── domain/                    # AdaptiveIconProcessor, AppWidgetHostWrapper,
-    │       │                              #   BiometricAppLock, LauncherGestureHandler,
-    │       │                              #   LauncherModels, LauncherSearchEngine(Impl)
-    │       ├── drawer/                    # AppDrawer (searchable full-screen drawer)
-    │       ├── folder/                    # AppFolderOverlay
-    │       ├── hyperfocus/                # HyperFocus distraction-blocking subsystem
-    │       │   ├── HyperFocusActivity.kt
-    │       │   ├── HyperFocusViewModel.kt
-    │       │   ├── components/            # HyperFocusStatusBar
-    │       │   ├── data/                  # HyperFocusDataStore, HyperFocusSession/
-    │       │   │                          #   UnlockCode DAOs & Entities
-    │       │   ├── domain/                # AESUtil, HyperFocusManager,
-    │       │   │                          #   RewardEngine, UnlockCodeRepository
-    │       │   ├── screens/               # BlockingOverlayScreen, CodeEntryScreen,
-    │       │   │                          #   HyperFocusActivationSheet,
-    │       │   │                          #   PermissionSetupScreen, PlanningPromptScreen,
-    │       │   │                          #   RewardSection, RewardsScreen
-    │       │   ├── service/               # AppBlockingService (AccessibilityService),
-    │       │   │                          #   HyperFocusMonitorService, UnlockTimerService
-    │       │   └── util/                  # AccessibilityUtil
-    │       ├── settings/                  # LauncherSettings composable
-    │       ├── stats/                     # QuickStatsPanel
-    │       └── theme/                     # LauncherTheme
+    │   └── widget/            # Home screen widget (RemoteViews AppWidget)
+    ├── feature/hyperfocus/    # HyperFocus: the black home, the gate and the enforcement path
+    │   ├── HyperFocusActivity.kt          # NavHost for overlay / planning / gate / gateway / setup
+    │   ├── HyperFocusViewModel.kt
+    │   ├── home/                          # HyperFocusHomeActivity (the CATEGORY_HOME surface),
+    │   │                                  #   HyperFocusHomeScreen, HyperFocusHomeViewModel,
+    │   │                                  #   HomeSurfaceState, RealHomeResolver, RealHomeChoice
+    │   ├── gate/                          # GateTaskEngine, GateTaskScreen, GatewayScreen
+    │   ├── screens/                       # AllowlistSettingsScreen, BlockingOverlayScreen,
+    │   │                                  #   EmergencyControl, HyperFocusActivationSheet,
+    │   │                                  #   PermissionSetupScreen, PlanningPromptScreen,
+    │   │                                  #   CodeEntrySection, RewardSection, RewardsScreen
+    │   ├── surface/                       # FocusSurfaceModel, SystemExempt, AllowlistEditor
+    │   ├── domain/                        # HyperFocusManager, ActivationGuard, RewardEngine,
+    │   │                                  #   AESUtil, UnlockCodeRepository
+    │   ├── data/                          # HyperFocusDataStore, AllowlistMigrator(+Runner),
+    │   │                                  #   AppCatalogRepository/Filter, GateRequest*,
+    │   │                                  #   HyperFocusSession*, UnlockCode*, LegacyLauncherPrefs
+    │   ├── service/                       # AppBlockingService (AccessibilityService),
+    │   │                                  #   HyperFocusMonitorService, UnlockTimerService
+    │   ├── di/                            # HyperFocusModule (Hilt bindings)
+    │   └── util/                          # AccessibilityUtil
     ├── worker/                # WorkManager background workers (incl.
     │                          #   AutonomyNudgeWorker, UlyssesEvaluatorWorker,
     │                          #   FocusWidgetUpdateWorker, NotificationWorker,

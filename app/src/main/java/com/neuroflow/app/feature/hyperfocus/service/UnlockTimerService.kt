@@ -39,7 +39,7 @@ class UnlockTimerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Apps unlocked"))
+        startForeground(NOTIFICATION_ID, buildNotification("Pass active"))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -58,7 +58,7 @@ class UnlockTimerService : Service() {
                     val remainingMillis = expiresAt - System.currentTimeMillis()
                     val minutes = (remainingMillis / 60_000).toInt()
                     val seconds = ((remainingMillis % 60_000) / 1_000).toInt()
-                    val text = "Apps unlocked — ${minutes}m ${seconds}s remaining"
+                    val text = "One app open — ${minutes}m ${seconds}s remaining"
                     notificationManager.notify(NOTIFICATION_ID, buildNotification(text))
                 }
             }

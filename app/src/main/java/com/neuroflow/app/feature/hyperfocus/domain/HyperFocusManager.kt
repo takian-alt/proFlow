@@ -237,7 +237,8 @@ class HyperFocusManagerImpl @Inject constructor(
             )
         }
 
-        // Ensure strict kiosk protections are applied even when activation happens outside LauncherActivity.
+        // Ensure strict kiosk protections are applied however activation was reached, including from
+        // the allowlist editor while the black home is not yet the foreground activity.
         if (DeviceOwnerKioskManager.isStrictKioskEnforcementEnabled(context)) {
             runCatching { DeviceOwnerKioskManager.enableHybridProtection(context) }
             runCatching { DeviceOwnerKioskManager.bringHyperFocusHomeToFront(context) }

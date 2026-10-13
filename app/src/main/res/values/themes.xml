@@ -3,15 +3,16 @@
     <style name="Theme.NeuroFlow" parent="android:Theme.Material.Light.NoActionBar" />
 
     <!-- HyperFocus black home: opaque black, no wallpaper, edge-to-edge.
-         Parent is the dark Material theme so windowLight* stays false and the system-bar
-         buttons remain visible; the wallpaper theme this replaced set both light flags true,
-         and copying that here would make the navigation buttons invisible. -->
+         Parent is the dark Material theme, whose windowLight* defaults are already false, so the
+         system-bar buttons stay visible. The wallpaper theme this replaced set both light flags
+         true; copying that here would have made the navigation buttons invisible.
+         android:windowLightNavigationBar is deliberately absent: it needs API 27 (minSdk is 26),
+         which lint fails on, and the inherited default is the value wanted. -->
     <style name="Theme.HyperFocusHome" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/black</item>
         <item name="android:navigationBarColor">@android:color/black</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowShowWallpaper">false</item>
         <item name="android:windowDisablePreview">true</item>
     </style>
