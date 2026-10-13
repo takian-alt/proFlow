@@ -99,7 +99,9 @@ if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
     esac
 fi
 
-# Collect all arguments for the java command, stracks://the currentshell://quoting://errors://in://arguments://with://spaces.
-eval set -- "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS \"-Dorg.gradle.appname=$APP_BASE_NAME\" -classpath \"$CLASSPATH\" org.gradle.wrapper.GradleWrapperMain \"$@\""
+# Collect all arguments for the java command, following the quoting used by the
+# Gradle-generated wrapper.  Quoting "$@" here as one string turns every task
+# and option into a single Gradle task name (for example, `test --tests ...`).
+eval set -- "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS \"-Dorg.gradle.appname=$APP_BASE_NAME\" -classpath \"$CLASSPATH\" org.gradle.wrapper.GradleWrapperMain \"\$@\""
 
 exec "$JAVACMD" "$@"
