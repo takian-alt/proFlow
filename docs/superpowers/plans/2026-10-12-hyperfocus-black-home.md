@@ -2245,7 +2245,7 @@ Spec §4.4: the complement of the old denylist becomes the new allowlist, so an 
 **Files:**
 - Create: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/data/AllowlistMigrator.kt`
 - Create: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/data/AllowlistMigrationRunner.kt`
-- Modify: `feature/hyperfocus/data/HyperFocusDataStore.kt` (add `allowlistMigratedAt: Long?` and `distractionScores: Map<String, Int>`; `blockedPackages` **stays** — Task 15 deletes it in the same commit that stops reading it)
+- Modify: `feature/hyperfocus/data/HyperFocusDataStore.kt` (add `allowlistMigratedAt: Long?` and `distractionScores: Map<String, Int>`; `blockedPackages` **stays** — Task 16 deletes it in the same commit that stops reading it)
 - Modify: `NeuroFlowApplication.kt` (invoke the runner at startup)
 - Modify: `presentation/launcher/LauncherViewModel.kt:339-340,818-823` (the distraction-scores map changes store; this file dies in Phase 3 but must compile and keep working now)
 - Test: `app/src/test/java/com/neuroflow/app/feature/hyperfocus/data/AllowlistMigratorTest.kt`
@@ -2263,7 +2263,7 @@ Spec §4.4: the complement of the old denylist becomes the new allowlist, so an 
       suspend fun runIfNeeded()
   }
   ```
-  And `HyperFocusPreferences` gains `allowlistMigratedAt: Long? = null` and `distractionScores: Map<String, Int> = emptyMap()`. `blockedPackages` is still present at the end of this task — Task 15 removes the field and its last two readers together, so no build state ever has an enforcement path with nothing to read.
+  And `HyperFocusPreferences` gains `allowlistMigratedAt: Long? = null` and `distractionScores: Map<String, Int> = emptyMap()`. `blockedPackages` is still present at the end of this task — Task 16 removes the field and its last readers together, so no build state ever has an enforcement path with nothing to read.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2449,7 +2449,7 @@ class AllowlistMigrationRunner @Inject constructor(
 }
 ```
 
-`blockedPackages` is still a live field at the end of this task (Task 15 removes it together with its last readers), so the migration reads the denylist straight off the preferences. That is precisely why these two tasks must stay in this order: the value has to outlive the code that reads it by exactly one commit.
+`blockedPackages` is still a live field at the end of this task (Task 16 removes it together with its last readers), so the migration reads the denylist straight off the preferences. That is precisely why these two tasks must stay in this order: the value has to outlive the code that reads it by exactly one commit.
 
 The `if (prefs.isActive) return` guard is the difference between a migration and a surprise. An upgrading user who is mid-session would otherwise watch their allowlist change underneath them, and `AppBlockingService` reads that list on every foreground event. Skipping an active session costs nothing: the guard runs again at the next startup, and a session's own deactivation (`HyperFocusManagerImpl.deactivate`, which writes a fresh `HyperFocusPreferences()` at `:68`) leaves `isActive` false for the run that follows.
 
@@ -2527,6 +2527,94 @@ distraction scores copy across before launcher_prefs stops being read. Guarded b
 allowlistMigratedAt so it runs once per install." -- <same paths>
 git show --name-only HEAD
 ```
+
+### Task 11 amendment (recorded during execution)
+
+**1. Step 7's expected inventory is wrong, and the error hides the plan's one real hole.** Run
+against HEAD as shipped it reports nine groups, not three. Six are owned and were simply not listed
+here: `HyperFocusViewModel.kt:158-177` (Task 16 `:4410`), `AppIcon.kt:115` and
+`LauncherSettings.kt:935-948` (Task 16 `:4294` and its Phase-3 deletion), `HyperFocusDataStore.kt`
+(the field's own declaration/serialize/deserialize, deleted by Task 16 `:4252`), and
+`HyperFocusSessionEntity.kt:13` with `FirestoreBackupRepository.kt:730,745` and
+`NeuroFlowDatabase.kt:126` — that last trio is the *session history table*, not the live policy, and
+Task 16's own grep at `:4473` already excludes it. Two groups in this task's text name the wrong
+owner: the enforcement flip is **Task 12**, not 15, and the kiosk suspension is **Task 13**, not 12/16.
+
+**2. One live reader had no owner anywhere in the plan: `NeuroFlowApplication.kt:110-115`.** It calls
+`syncHyperFocusBlockedPackagesSuspension(context, hfPrefs.blockedPackages, …)` and is named by
+neither Task 13's Files (`:2646`, which lists only the two callers inside `HyperFocusManager`) nor
+Task 16's reader list (`:4012`, which lists `BootReceiver:84` and `LauncherViewModel:1219,:1246` but
+not this one), nor Task 17's `NeuroFlowApplication.kt:9,39,95-97`. As planned it survives Task 13's
+rename and the build goes red with no owner. **Ruling: Task 13 owns all six call sites**, because the
+rename plus the new `launchable` parameter breaks every caller in the same commit — an owner who
+delays any of them to Task 16 or 17 leaves a commit that does not compile. Task 13's Files is
+corrected below. Cost if wrong: none to correctness; if the complement turns out to be wrong for a
+boot-time caller, the fix is one line in one commit rather than four scattered across three tasks.
+
+**3. The plan contradicts itself about which task deletes `blockedPackages`.** `:2248`, `:2266` and
+`:2452` all say "Task 15 removes the field"; the deletion is actually specified in **Task 16**
+(`:4012`, `:4252`, `:4294`), and `:70` agrees. Ruling: Task 16, since Task 16 is where the last
+readers die and the rule is to delete a field in the commit that deletes its last reader. Task 15
+must not touch the field.
+
+**4. `deactivate()` and `activateInternal()` would have erased this task's own output.** Both built
+a fresh `HyperFocusPreferences()` (`:72` and the `update {}` inside `activateInternal`). Under B2 the
+two tiers, `distractionScores` and `allowlistMigratedAt` are global, so a deactivation that writes a
+blank object destroys the allowlist the user curated *and* re-arms the one-shot migration — which
+then runs against the `blockedPackages` that same reset just emptied and derives "allow everything".
+That is not a hypothetical: it is the state of every install after its first session ends. Fixed by
+`HyperFocusPreferences.afterSession()`, which clears the session fields and leaves the globals alone,
+used by both call sites. Proved by SR-1/SR-2 and by mutating `afterSession` to wipe the four globals
+(both cases fail).
+
+**5. The brief's `LegacyLauncherPrefs` duplicated the DataStore delegate.** Adding a second
+`preferencesDataStore(name = "launcher_prefs")` property in a new file while
+`PinnedAppsDataStore.kt:15` still declares one gives the process two `DataStore` instances over the
+same file, which is the documented crash condition ("The data store must be a top-level private
+property… only one instance per file can exist for a given context") — and the delegate caches per
+property, not per name, so both exist. Fixed by hoisting the single delegate to
+`feature/hyperfocus/data/LegacyLauncherPrefs.kt` as `launcherPreferencesDataStore`, deleting the one
+in `PinnedAppsDataStore.kt` and repointing its three call sites. Task 17's launcher deletion must keep
+this file alive: the delegate outlives the launcher because the tiers' scores live in
+`HyperFocusPreferences`, but the *legacy read* needs the old name for one migration.
+
+**6. Dropped the brief's unused `systemExempt: SystemExempt` constructor injection.** The runner
+passes `SystemExempt.STATIC`, a static companion val, so injecting the singleton bought nothing and
+made the runner need a context in tests. Its absence is what lets all seven MR cases run on the JVM.
+
+**7. Three places where the brief's code would have written data the user never had.**
+`distractionScores = it.distractionScores.ifEmpty { legacyScores }` instead of a plain assignment (a
+score written between `current()` and `update {}` must not be clobbered — MR-6), `launchable.isEmpty()
+→ return` before deriving (an empty catalog is a failed `PackageManager` query, not a user with zero
+apps; stamping it as migrated would pin an empty allowlist for the life of the install — MR-4), and a
+`Number`-checked parse of the `distractionScores` JSON object instead of the brief's
+`optInt(key, 50)`, which would invent a score of 50 for any value that failed to parse.
+
+**8. Test count is 17, not the 7 Step 7 expects.** AM-1..AM-6 as briefed, **AM-7 replaced** (the
+brief's "derive is pure and idempotent" called `derive` twice and compared the results — it passes for
+any function, including one that returns the wrong constant; it now asserts the two tiers are a
+partition, which is what caught the `- essential` mutation), plus AM-8, SR-1, SR-2, MR-1..MR-7.
+**MR-7 exists because the `SystemExempt.STATIC` decision was unpinned**: every other clause of
+`derive` has a mutation that fails a test, but passing `packages()` instead of `STATIC` — which would
+drop the dialer out of *both* tiers and leave it invisible to the editor — failed nothing. It now
+fails MR-7.
+
+**9. Step 8's commit list is short by five files.** It covers `feature/hyperfocus/data`,
+`NeuroFlowApplication.kt`, the test package and `LauncherViewModel.kt`; the task also changes
+`HyperFocusManager.kt` (defect 4) and `presentation/launcher/data/PinnedAppsDataStore.kt` (defect 5),
+and those must be in the same commit or the build state after Step 8 has two `launcher_prefs`
+delegates again — or a `deactivate()` that no longer compiles.
+
+**Verification actually run:** `assemble` PASS; `AllowlistMigratorTest` 8, `HyperFocusSessionResetTest`
+2, `AllowlistMigrationRunnerTest` 7 green; full unit suite 414 / 0 failures (baseline 397 + 17). Nine
+mutations, each restored and confirmed byte-identical by `diff -q`: dropping `- blockedPackages` from
+essential fails AM-3 alone; dropping `- essential` from allowed fails AM-7 alone; dropping
+`- systemExempt` fails AM-4 + AM-7; dropping `- blockedPackages` from allowed fails AM-1, AM-3, AM-7;
+making `afterSession()` wipe the four globals fails SR-1 + SR-2; dropping each of the runner's three
+guards fails MR-2/MR-3/MR-4 respectively; a plain `legacyScores` assignment fails MR-6; and
+`STATIC + CALL_PATH` fails MR-7. **Nothing in this task was run on a device** — the migration is
+JVM-proved against a mocked catalog, and whether it derives the right tiers from a real install's
+denylist is device-test table row 11 (ledger U9).
 
 ## Task 12: Invert `AppBlockingService` from denylist to allowlist
 
@@ -2619,7 +2707,7 @@ Read the surrounding function first and place it once per poll, not once per eve
 - [ ] **Step 7: Verify, then state plainly what you did not verify**
 
 ```bash
-grep -n "blockedPackages\|isUnlockActive" app/src/main/java/com/neuroflow/app/presentation/launcher/hyperfocus/service/AppBlockingService.kt || echo "DENYLIST GONE FROM ENFORCER"
+grep -n "blockedPackages\|isUnlockActive" app/src/main/java/com/neuroflow/app/feature/hyperfocus/service/AppBlockingService.kt || echo "DENYLIST GONE FROM ENFORCER"
 bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh assemble && bash .superpowers/sdd/2026-10-12-hyperfocus-black-home/verify.sh testone "com.neuroflow.app.feature.hyperfocus.*"
 ```
 
@@ -2644,6 +2732,11 @@ Spec §6.3. `syncHyperFocusBlockedPackagesSuspension` is the strong enforcement 
 
 **Files:**
 - Modify: `app/src/main/java/com/neuroflow/app/kiosk/DeviceOwnerKioskManager.kt` — `syncHyperFocusBlockedPackagesSuspension` (`:285-330`), its tracked-set helpers (`getTrackedHyperFocusSuspendedPackages`), and the two callers in `feature/hyperfocus/domain/HyperFocusManager.kt` (`:62-67` in `deactivate`, `:216-222` in `activateInternal`)
+  - **Corrected during Task 11 (see that amendment, defect 2):** this function has **six** callers, not two. Replacing it breaks all of them in this commit, so this task owns every one:
+    - `app/src/main/java/com/neuroflow/app/NeuroFlowApplication.kt:110-115` — startup re-sync, owned by **no other task** as originally written
+    - `app/src/main/java/com/neuroflow/app/receiver/BootReceiver.kt:83-88`
+    - `app/src/main/java/com/neuroflow/app/presentation/launcher/LauncherViewModel.kt:1220` and `:1247`
+    All four read `hfPrefs.blockedPackages` and have no `AppCatalogRepository`. Rather than inject the catalog into a `Application`, a `BroadcastReceiver` and a launcher ViewModel that Phase 3 deletes, **compute the complement once inside `HyperFocusManager`** and expose it: `suspend fun resyncSuspension(active: Boolean)` on the interface, which reads prefs, builds `keepSet`/`launchable` with the injections this task already adds, and calls `DeviceOwnerKioskManager.syncAllowlistSuspension`. The four external callers then call `hyperFocusManager.resyncSuspension(hfPrefs.isActive)` (BootReceiver and NeuroFlowApplication already hold a manager reference or can inject it; LauncherViewModel must, since its two sites are the activation and deactivation paths). Task 16's reader list at `:4012` therefore no longer claims `BootReceiver:84` or `LauncherViewModel:1219,:1246`.
 - Modify: `feature/hyperfocus/domain/HyperFocusManager.kt` — inject `AppCatalogRepository` and `SystemExempt`, compute the keep-set at both call sites
 
 **Interfaces:**
@@ -4010,6 +4103,8 @@ Check `git show --name-only HEAD` against the file list above before moving on: 
 ## Task 16: The allowlist editor, activation without a denylist, and the navigation swap
 
 This is the task that deletes `HyperFocusPreferences.blockedPackages`. Task 11 deliberately left the field in place because `AppBlockingService` and `LauncherViewModel` still read it; every reader is now accounted for — `AppBlockingService:133,:246` (Task 12), `AppIcon.kt:116` (Task 8), the manager and its suspension calls (Task 13), and the five sites below (`AppIcon.kt:115`, `BootReceiver:84`, `LauncherViewModel:1219,:1246`, `HyperFocusActivationSheet:359-364`, `LauncherSettings:935-948`). Delete the field in the same commit that deletes its last reader, or the build goes red with no owner.
+
+> **Corrected during Task 11.** Two fixes to that list. (a) The three suspension call sites — `BootReceiver:84`, `LauncherViewModel:1219,:1246` and the `NeuroFlowApplication:110-115` this list omitted entirely — die in **Task 13**, not here, because Task 13 replaces the function they call and cannot leave them reading `blockedPackages`; see Task 13's corrected Files. What remains owned here is the field and its serialize/deserialize (`:4252`), `AppIcon.kt:115`, `LauncherSettings:935-948`, and the activation path. (b) The line numbers for the last two have drifted since the plan was written: `HyperFocusActivationSheet` is at `feature/hyperfocus/screens/` and its picker is `:392` ("Apps to block"), not `:359-364`; `HyperFocusViewModel`'s activate/activateTimed pair is `:158-177`, not `:157-176`. Locate both by content, not by number.
 
 **Files:**
 - Create: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/surface/AllowlistEditor.kt`
