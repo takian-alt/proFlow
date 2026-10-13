@@ -17,6 +17,7 @@ class SystemExempt @Inject constructor(
 ) {
     fun packages(): Set<String> = buildSet {
         addAll(STATIC)
+        addAll(CALL_PATH)
         add(BuildConfig.APPLICATION_ID)
         val imm = context.getSystemService(InputMethodManager::class.java)
         imm?.enabledInputMethodList?.forEach { add(it.packageName) }
@@ -35,6 +36,15 @@ class SystemExempt @Inject constructor(
             "com.android.settings",
             "com.samsung.android.settings",
             "com.miui.securitycenter"
+        )
+
+        /**
+         * The call path: never gated under any user configuration (spec 6.2), but unlike STATIC it
+         * stays a home-screen icon (spec 6.4), so it is deliberately not in STATIC.
+         */
+        val CALL_PATH: Set<String> = setOf(
+            "com.android.dialer", "com.google.android.apps.dialer", "com.samsung.android.dialer",
+            "com.google.android.dialer"
         )
     }
 }

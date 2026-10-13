@@ -1,11 +1,13 @@
 package com.neuroflow.app.feature.hyperfocus.surface
 
+import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusPreferences
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 private const val SELF = "com.neuroflow.app"
 private val EXEMPT = setOf("com.android.systemui", "android")
@@ -72,5 +74,22 @@ class FocusSurfaceModelTest : StringSpec({
             "com.android.contacts", "com.android.camera", "com.google.android.Camera",
             "com.android.deskclock", "com.google.android.deskclock", SELF
         )
+    }
+
+    "FS-9: a pass whose deadline is exactly now is over" {
+        val prefs = HyperFocusPreferences(
+            activePassPackage = "com.instagram.android",
+            activePassExpiresAt = NOW
+        )
+        FocusSurfaceModel.resolvedAllowlist(prefs, EXEMPT, SELF, NOW) shouldNotContain "com.instagram.android"
+        FocusSurfaceModel.isGated("com.instagram.android", prefs, EXEMPT, SELF, NOW) shouldBe true
+    }
+
+    "FS-10: no essential seed entry is hidden by the exempt machinery set" {
+        val seededWithoutSelf = FocusSurfaceModel.DEFAULT_ESSENTIAL_SEED - BuildConfig.APPLICATION_ID
+        // STATIC members are never gated *and* never an icon (spec 6.4), so the seed must not
+        // overlap it; the dialers are seeded *and* protected, so the seed must overlap CALL_PATH.
+        (seededWithoutSelf intersect SystemExempt.STATIC) shouldBe emptySet<String>()
+        (FocusSurfaceModel.DEFAULT_ESSENTIAL_SEED intersect SystemExempt.CALL_PATH) shouldNotBe emptySet<String>()
     }
 })
