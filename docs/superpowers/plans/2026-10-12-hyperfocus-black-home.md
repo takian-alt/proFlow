@@ -947,8 +947,8 @@ class GateTaskEngineTest : StringSpec({
     }
 
     "GT-7: reason needs eight trimmed characters" {
-        engine.isReasonValid("I need it").shouldBeFalse()        // 7 trimmed
-        engine.isReasonValid("I need it ").shouldBeFalse()       // still 7 after trim
+        engine.isReasonValid("It's me").shouldBeFalse()         // 7 trimmed
+        engine.isReasonValid("It's me ").shouldBeFalse()        // still 7 after trim
         engine.isReasonValid("I need this one").shouldBeTrue()   // 15
         engine.isReasonValid("        ").shouldBeFalse()
     }
@@ -1044,7 +1044,7 @@ class GateTaskEngine(
     fun allowsSubmit(mismatchCount: Long, elapsedMillis: Long, reason: String): Boolean =
         isReasonValid(reason) &&
             elapsedMillis >= MIN_ELAPSED_MILLIS &&
-            (mismatchCount < MAX_MISMATCHES || mismatchCount % MAX_MISMATCHES == 0L)
+            (mismatchCount == 0L || mismatchCount % MAX_MISMATCHES == 0L)
 
     companion object {
         const val MAX_MISMATCHES = 3
@@ -1068,6 +1068,10 @@ class GateTaskEngine(
 ```
 
 `allowsSubmit`'s modulo clause is the auto-pass made testable without a flag: at mismatch 3 the gate opens, at 1 and 2 it stays shut even past the floor, and at 4 it is shut again until the next multiple of three — so a screen that only reports a running mismatch count needs no separate "auto-passed" state threaded through it. If that reads as too clever when you implement Step 4's screen, replace the modulo with an explicit `shouldAutoPass(mismatchCount) && mismatchCount == lastSeenMismatch` guard in the UI; do **not** weaken the floor or the reason check, which are the two properties F4 actually depends on.
+
+Two rulings the implementer's review forced on this text, both recorded in the ledger:
+1. **`< MAX_MISMATCHES` was a plan bug and GT-11 caught it.** The first draft's disjunct `mismatchCount < MAX_MISMATCHES` opens the gate at 1 and 2, which is the exact opposite of the sentence above and of GT-11, so this task could never have gone green as written. The shipped predicate is `mismatchCount == 0L || mismatchCount % MAX_MISMATCHES == 0L`: open at 0 (answered correctly), open at every multiple of 3 (auto-pass), shut at 1, 2, 4, 5. The prose was the authority; the code was wrong.
+2. **Task 14 must reset the counter on a correct answer, or clause 1 becomes a trap.** With the shipped predicate, a user who fails once and then types the answer *correctly* sits at `mismatchCount == 1` and cannot submit — the only way out is to fail twice more on purpose, which violates §5.2's non-negotiable ("a gate that can be failed is a trap and traps get uninstalled"). So `GateTaskViewModel` holds the count and sets it back to `0` whenever `checkAnswer` returns true, never monotonic. Task 14's Step 4 carries this as `mismatches = 0` on the correct-answer branch plus the prose that explains why removing it re-creates the trap; the GT suite is what pins it from the engine side.
 
 - [ ] **Step 4: Verify — and confirm the suite actually ran**
 
@@ -2651,6 +2655,7 @@ fun GateTaskScreen(
         Button(
             onClick = {
                 if (viewModel.gateEngine.checkAnswer(task, answers)) {
+                    mismatches = 0
                     viewModel.submitGateAnswer(answers, reason, mismatches, elapsed)
                 } else {
                     mismatches++
@@ -2672,6 +2677,8 @@ fun GateTaskScreen(
     }
 }
 ```
+
+`mismatches = 0` on the correct-answer branch is not cosmetic — it is the contract Task 6's review wrote into §5.2's engine. `allowsSubmit` opens at `0` and at every multiple of three, so a stale `1` after one early failure would keep the button disabled past the floor with a valid reason, and the only way out would be to fail twice more on purpose. That is precisely the "a gate that can be failed is a trap" failure spec §5.2 forbids. The counter therefore lives in the screen, is scoped to `remember(task)` so a re-rolled task restarts it, and is reset by any correct answer; never let it be monotonic.
 
 Add the two imports this draft omits rather than leaving them to guesswork: `androidx.compose.material3.TextButton` and `androidx.compose.runtime.LaunchedEffect`, plus `kotlinx.coroutines.delay`. `viewModel.gateEngine` is a `val gateEngine = GateTaskEngine()` on the ViewModel — expose the same instance the screen reads the task from, so a rotated device does not re-roll the task.
 
