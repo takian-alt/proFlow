@@ -396,7 +396,6 @@ class HyperFocusManagerImpl @Inject constructor(
         if (packageName.isBlank()) return
         val prefs = hyperFocusDataStore.current()
         if (!prefs.isActive || prefs.emergencyUsed) return
-        if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) return
 
         val now = System.currentTimeMillis()
         val expiresAt = now + EMERGENCY_MINUTES * 60_000L
@@ -405,7 +404,7 @@ class HyperFocusManagerImpl @Inject constructor(
         var shouldStartService = true
 
         hyperFocusDataStore.update {
-            if (!it.isActive || it.emergencyUsed || it.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+            if (!it.isActive || it.emergencyUsed) {
                 shouldStartService = false
                 it
             } else {

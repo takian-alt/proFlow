@@ -98,7 +98,7 @@ class HyperFocusHomeViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val emergencyAvailable: StateFlow<Boolean> = hyperFocusDataStore.flow
-        .map { it.isActive && !it.emergencyUsed && it.sessionMode != HyperFocusSessionMode.TIME_BASED }
+        .map { it.isActive && !it.emergencyUsed }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Called from the activity's `onCreate` and `onResume`; cheap and idempotent. */
@@ -162,6 +162,20 @@ class HyperFocusHomeViewModel @Inject constructor(
             }
         }
         return willEnd
+    }
+
+    fun endSessionImmediately() {
+        viewModelScope.launch {
+            gateRequestLogger.log(
+                packageName = "",
+                statedReason = "Direct end session",
+                taskType = "DIRECT",
+                mismatchCount = 0,
+                elapsedMillis = 0,
+                grantSource = GateGrantSource.ABANDONED
+            )
+            hyperFocusManager.deactivate()
+        }
     }
 
     fun openHomeAppSettings() {

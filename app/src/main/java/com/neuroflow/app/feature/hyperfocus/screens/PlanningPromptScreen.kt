@@ -35,10 +35,8 @@ import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
 @Composable
 fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit = {}) {
     val haptic = LocalHapticFeedback.current
-    val taskTitles = remember { mutableStateListOf("", "", "") }
+    val taskTitles = remember { mutableStateListOf("") }
     val extraTitles = remember { mutableStateListOf<String>() }
-
-    val allMandatoryFilled = taskTitles.all { it.isNotBlank() }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -62,16 +60,19 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                     fontWeight = FontWeight.Bold
                 )
 
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = {
+                    viewModel.completePlanning(emptyList())
+                    onDismiss()
+                }) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close"
+                        contentDescription = "Close and Unlock"
                     )
                 }
             }
 
             Text(
-                text = "Add at least 3 tasks for tomorrow to claim your full reward and unlock your apps.",
+                text = "Plan tasks for tomorrow (optional), or finish now to unlock all your apps.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -82,7 +83,7 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                 OutlinedTextField(
                     value = value,
                     onValueChange = { taskTitles[index] = it },
-                    label = { Text("Task ${index + 1}") },
+                    label = { Text("Task ${index + 1} (optional)") },
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -109,16 +110,29 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewModel.completePlanning(taskTitles + extraTitles.filter { it.isNotBlank() })
+                    viewModel.completePlanning((taskTitles + extraTitles).filter { it.isNotBlank() })
                     onDismiss()
                 },
-                enabled = allMandatoryFilled,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                Text("Claim Reward & Unlock Apps", fontWeight = FontWeight.SemiBold)
+                val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
+                Text(
+                    text = if (hasAnyTask) "Save Tasks & Unlock Apps" else "Unlock Apps & Finish",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            TextButton(
+                onClick = {
+                    viewModel.completePlanning(emptyList())
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Skip & Unlock Apps Now", color = MaterialTheme.colorScheme.primary)
             }
         }
     }

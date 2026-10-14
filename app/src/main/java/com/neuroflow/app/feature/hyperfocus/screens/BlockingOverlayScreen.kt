@@ -584,7 +584,7 @@ fun BlockingOverlayScreen(
                 ) {
                     Text(
                         if (prefs.state == com.neuroflow.app.domain.model.HyperFocusState.FULL_REWARD_PENDING)
-                            "Plan tomorrow's tasks →"
+                            "Unlock apps / Finish session →"
                         else
                             "Go back to tasks",
                         fontWeight = FontWeight.Bold

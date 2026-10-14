@@ -71,6 +71,8 @@ fun HyperFocusActivationSheet(
         }
     }
 
+    var skippedHomeRole by remember { mutableStateOf(false) }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -79,8 +81,11 @@ fun HyperFocusActivationSheet(
     ) {
         if (!accessibilityEnabled) {
             PermissionSetupScreen(onBothGranted = { accessibilityEnabled = true })
-        } else if (!homeRoleHeld) {
-            HomeRoleSetupScreen(onGranted = { homeRoleHeld = true })
+        } else if (!homeRoleHeld && !skippedHomeRole) {
+            HomeRoleSetupScreen(
+                onGranted = { homeRoleHeld = true },
+                onSkip = { skippedHomeRole = true }
+            )
         } else {
             ActivationSheetContent(
                 viewModel = viewModel,

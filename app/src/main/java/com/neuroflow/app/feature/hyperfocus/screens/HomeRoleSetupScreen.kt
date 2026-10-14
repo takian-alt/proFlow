@@ -40,7 +40,10 @@ import kotlinx.coroutines.delay
  * by pressing Home and living with whatever the real launcher shows.
  */
 @Composable
-fun HomeRoleSetupScreen(onGranted: () -> Unit) {
+fun HomeRoleSetupScreen(
+    onGranted: () -> Unit,
+    onSkip: () -> Unit = onGranted
+) {
     val context = LocalContext.current
 
     var holdsRole by remember { mutableStateOf(HomeRoleUtil.holdsHomeRole(context)) }
@@ -105,8 +108,8 @@ fun HomeRoleSetupScreen(onGranted: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "The black home only appears when you press Home. Pick NeuroFlow as the " +
-                    "home app, then come back here to start a session.",
+                text = "The black home appears when you press Home. You can set NeuroFlow as " +
+                    "your home app, or continue with background app blocking.",
                 color = Color.Gray,
                 fontSize = 14.sp
             )
@@ -134,6 +137,15 @@ fun HomeRoleSetupScreen(onGranted: () -> Unit) {
                 fontSize = 13.sp,
                 fontWeight = if (holdsRole) FontWeight.Bold else FontWeight.Normal
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            androidx.compose.material3.TextButton(
+                onClick = onSkip,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Continue without changing home app", color = Color(0xFF80CBC4), fontSize = 14.sp)
+            }
         }
     }
 }

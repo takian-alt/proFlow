@@ -84,8 +84,8 @@ class PassLifecycleTest : StringSpec({
     )
     val exempt = setOf("android", "com.android.systemui", "com.android.settings")
 
-    "EP-1: navigating to another permitted app ends the pass" {
-        RewardEngine.endsPassOnForeground("com.todoist", pass, exempt, NOW).shouldBeTrue()
+    "EP-1: navigating to another permitted app does not end the active pass prematurely" {
+        RewardEngine.endsPassOnForeground("com.todoist", pass, exempt, NOW).shouldBeFalse()
     }
 
     "EP-2: the granted app staying in the foreground does not end its own pass" {
@@ -96,8 +96,8 @@ class PassLifecycleTest : StringSpec({
         RewardEngine.endsPassOnForeground("com.android.systemui", pass, exempt, NOW).shouldBeFalse()
     }
 
-    "EP-4: arriving at a gated app ends the pass on the way to blocking it" {
-        RewardEngine.endsPassOnForeground("com.netflix.mediaclient", pass, exempt, NOW).shouldBeTrue()
+    "EP-4: arriving at another app does not end the pass before the timer expires" {
+        RewardEngine.endsPassOnForeground("com.netflix.mediaclient", pass, exempt, NOW).shouldBeFalse()
     }
 
     "EP-5: with no live pass there is nothing to end, whatever arrives" {

@@ -19,8 +19,10 @@ class RealHomeResolver @Inject constructor(
 ) {
     fun candidates(): List<ComponentName> {
         val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        return context.packageManager
-            .queryIntentActivities(home, PackageManager.MATCH_DEFAULT_ONLY)
+        val flags = PackageManager.MATCH_ALL
+        val queried = context.packageManager.queryIntentActivities(home, flags)
+            .ifEmpty { context.packageManager.queryIntentActivities(home, 0) }
+        return queried
             .mapNotNull { info ->
                 info.activityInfo?.let { ComponentName(it.packageName, it.name) }
             }

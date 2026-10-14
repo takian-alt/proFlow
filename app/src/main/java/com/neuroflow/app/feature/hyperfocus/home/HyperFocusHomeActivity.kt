@@ -35,39 +35,66 @@ class HyperFocusHomeActivity : ComponentActivity() {
             val hiddenApps by viewModel.hiddenApps.collectAsState()
             val emergencyAvailable by viewModel.emergencyAvailable.collectAsState()
             val endTask by viewModel.endGateTask.collectAsState()
-            // The exit gate is a surface of its own rather than a dialog over the grid: the grid
-            // behind it would still be showing essentials while the user argues with a task.
-            var showingEndGate by remember { mutableStateOf(false) }
+            var showEndConfirmation by remember { mutableStateOf(false) }
             // The hand-off is driven off the collected pair, not off onResume: resolveHandoff()
             // is a coroutine, so on a cold start the target arrives after onResume has finished.
             LaunchedEffect(state, target) {
                 if (state is HomeSurfaceState.HandOff && target != null) handOffIfAllowed()
             }
-            if (showingEndGate) {
-                EndSessionGateScreen(
-                    task = endTask,
-                    onSubmit = { answer, reason, mismatches, elapsed ->
-                        val ended = viewModel.submitEndAttempt(answer, reason, mismatches, elapsed)
-                        if (ended) showingEndGate = false
-                        ended
+            if (showEndConfirmation) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showEndConfirmation = false },
+                    title = {
+                        androidx.compose.material3.Text(
+                            text = "End HyperFocus Session?",
+                            color = androidx.compose.ui.graphics.Color.White
+                        )
                     },
-                    onCancel = { showingEndGate = false }
-                )
-            } else {
-                HyperFocusHomeScreen(
-                    state = state,
-                    canHandOff = target != null,
-                    handoffResolved = resolved,
-                    hiddenApps = hiddenApps,
-                    emergencyAvailable = emergencyAvailable,
-                    onOpenEssential = viewModel::open,
-                    onOpenGate = { openHyperFocus(HyperFocusActivity.DESTINATION_GATE) },
-                    onEmergencyOpen = viewModel::emergencyOpen,
-                    onDeactivate = { showingEndGate = true },
-                    onOpenAllowlistEditor = { openHyperFocus(HyperFocusActivity.DESTINATION_SETUP) },
-                    onOpenHomeAppSettings = viewModel::openHomeAppSettings
+                    text = {
+                        androidx.compose.material3.Text(
+                            text = "Ending the session will deactivate HyperFocus and unblock your apps.",
+                            color = androidx.compose.ui.graphics.Color(0xFFAAAAAA)
+                        )
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                showEndConfirmation = false
+                                viewModel.endSessionImmediately()
+                            }
+                        ) {
+                            androidx.compose.material3.Text(
+                                "End Session",
+                                color = androidx.compose.ui.graphics.Color(0xFFFF6B6B)
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(
+                            onClick = { showEndConfirmation = false }
+                        ) {
+                            androidx.compose.material3.Text(
+                                "Cancel",
+                                color = androidx.compose.ui.graphics.Color(0xFF80CBC4)
+                            )
+                        }
+                    },
+                    containerColor = androidx.compose.ui.graphics.Color(0xFF1E1E1E)
                 )
             }
+            HyperFocusHomeScreen(
+                state = state,
+                canHandOff = target != null,
+                handoffResolved = resolved,
+                hiddenApps = hiddenApps,
+                emergencyAvailable = emergencyAvailable,
+                onOpenEssential = viewModel::open,
+                onOpenGate = { openHyperFocus(HyperFocusActivity.DESTINATION_GATE) },
+                onEmergencyOpen = viewModel::emergencyOpen,
+                onDeactivate = { showEndConfirmation = true },
+                onOpenAllowlistEditor = { openHyperFocus(HyperFocusActivity.DESTINATION_SETUP) },
+                onOpenHomeAppSettings = viewModel::openHomeAppSettings
+            )
         }
     }
 
