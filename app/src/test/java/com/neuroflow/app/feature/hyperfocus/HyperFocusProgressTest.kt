@@ -4,6 +4,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.feature.hyperfocus.data.AllowlistMigrationRunner
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
@@ -65,7 +66,8 @@ class HyperFocusProgressTest : StringSpec({
             // sweep they would take runs in an init coroutine, not in the flow under test.
             gateRequestLogger = mockk<GateRequestLogger>(relaxed = true),
             appCatalogRepository = mockk<AppCatalogRepository>(relaxed = true),
-            systemExempt = mockk<SystemExempt>(relaxed = true)
+            systemExempt = mockk<SystemExempt>(relaxed = true),
+            allowlistMigrationRunner = mockk<AllowlistMigrationRunner>(relaxed = true)
         )
         // progress is a WhileSubscribed StateFlow — it only computes once something collects it.
         val scope = CoroutineScope(testDispatcher + Job())

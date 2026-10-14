@@ -21,8 +21,11 @@ class AllowlistMigrationRunner @Inject constructor(
         val prefs = hyperFocusDataStore.current()
         if (prefs.allowlistMigratedAt != null) return
         // Never rewrite tiers underneath a live session: AppBlockingService reads them on every
-        // foreground event. The flag is still null, so the next startup retries.
-        if (prefs.isActive) return
+        // foreground event. Tiers that were never derived are not a rewrite — `isActive` survives an
+        // upgrade from the pre-allowlist build, and guarding on it alone skipped the migration on
+        // every startup of the very install that needs it most.
+        val hasTiers = prefs.essentialPackages.isNotEmpty() || prefs.allowedPackages.isNotEmpty()
+        if (prefs.isActive && hasTiers) return
 
         val launchable = appCatalogRepository.launchableApps().map { it.packageName }.toSet()
         // An empty catalog is a failed query, not a user who installed nothing. Leaving the flag

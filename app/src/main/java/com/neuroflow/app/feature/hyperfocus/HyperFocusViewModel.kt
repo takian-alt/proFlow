@@ -7,6 +7,7 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.RewardTier
+import com.neuroflow.app.feature.hyperfocus.data.AllowlistMigrationRunner
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.data.GateGrantSource
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
@@ -54,6 +55,7 @@ class HyperFocusViewModel @Inject constructor(
     private val gateRequestLogger: GateRequestLogger,
     private val appCatalogRepository: AppCatalogRepository,
     private val systemExempt: SystemExempt,
+    private val allowlistMigrationRunner: AllowlistMigrationRunner,
 ) : ViewModel() {
 
     val hyperFocusPrefs: StateFlow<HyperFocusPreferences> = hyperFocusDataStore.flow
@@ -340,6 +342,9 @@ class HyperFocusViewModel @Inject constructor(
 
     fun activate(selectedTaskIds: Set<String>) {
         viewModelScope.launch {
+            // Before the guard, not after: an install whose tiers were never derived would otherwise
+            // be refused with "pin at least one app as essential" on a screen that has nothing to pin.
+            allowlistMigrationRunner.runIfNeeded()
             val prefs = hyperFocusDataStore.current()
             when (val decision = decideActivation(prefs, SystemExempt.STATIC, selfPackage)) {
                 is ActivationDecision.Rejected -> _activationMessage.value = rejectionText(decision.reason)
@@ -361,6 +366,7 @@ class HyperFocusViewModel @Inject constructor(
 
     fun activateTimed(durationMinutes: Int) {
         viewModelScope.launch {
+            allowlistMigrationRunner.runIfNeeded()
             val prefs = hyperFocusDataStore.current()
             when (val decision = decideActivation(prefs, SystemExempt.STATIC, selfPackage)) {
                 is ActivationDecision.Rejected -> _activationMessage.value = rejectionText(decision.reason)

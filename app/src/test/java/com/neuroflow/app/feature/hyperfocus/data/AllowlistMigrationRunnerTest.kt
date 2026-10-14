@@ -90,12 +90,32 @@ class AllowlistMigrationRunnerTest : StringSpec({
         coVerify(exactly = 0) { hyperFocusDataStore.update(any()) }
     }
 
-    "MR-3: a live session is never rewritten underneath" {
-        coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences(isActive = true)
+    "MR-3: a live session that already has tiers is never rewritten underneath" {
+        coEvery { hyperFocusDataStore.current() } returns HyperFocusPreferences(
+            isActive = true,
+            essentialPackages = setOf("com.android.dialer")
+        )
 
         runTest { runner.runIfNeeded() }
 
         coVerify(exactly = 0) { hyperFocusDataStore.update(any()) }
+    }
+
+    "MR-8: an active session with no tiers at all is still migrated" {
+        // The upgrade trap this test exists to kill: `isActive` survives from the pre-allowlist build,
+        // so MR-3's guard used to skip the migration on every startup of its own accord. The result
+        // was a black home with zero tiles, everything except the system exempt gated, and — once the
+        // user ended the session — ActivationGuard refusing EmptySurface forever. Tiers that were
+        // never created are not tiers being rewritten underneath a live session.
+        val updated = run(
+            HyperFocusPreferences(isActive = true, sessionId = "session-1"),
+            launchable = catalog("com.android.dialer", "com.todoist")
+        )
+
+        updated.essentialPackages shouldContain "com.android.dialer"
+        updated.allowedPackages shouldContain "com.todoist"
+        updated.isActive shouldBe true
+        updated.allowlistMigratedAt.shouldNotBeNull()
     }
 
     "MR-4: an empty catalog is a failed query, so the install stays unmigrated and retries" {

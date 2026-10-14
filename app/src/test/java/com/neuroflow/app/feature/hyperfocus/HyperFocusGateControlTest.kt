@@ -2,6 +2,7 @@ package com.neuroflow.app.feature.hyperfocus
 
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
+import com.neuroflow.app.feature.hyperfocus.data.AllowlistMigrationRunner
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.data.GateGrantSource
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
@@ -99,6 +100,9 @@ class HyperFocusGateControlTest : StringSpec({
             gateRequestLogger = GateRequestLogger(gateRequestDao, catalog, dataStore),
             appCatalogRepository = catalog,
             systemExempt = systemExempt,
+            // Relaxed: activation is not under test here, and its migration call has a suite of its
+            // own (HyperFocusActivationMigrationTest).
+            allowlistMigrationRunner = mockk<AllowlistMigrationRunner>(relaxed = true),
         )
         return Harness(viewModel, prefsFlow, CoroutineScope(testDispatcher + Job()))
     }
