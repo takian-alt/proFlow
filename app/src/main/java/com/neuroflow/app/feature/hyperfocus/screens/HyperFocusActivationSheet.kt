@@ -64,6 +64,13 @@ fun HyperFocusActivationSheet(
             .isAppBlockingServiceEnabled(context)
     }
 
+    var homeRoleHeld by remember { mutableStateOf(false) }
+    LaunchedEffect(accessibilityEnabled) {
+        if (accessibilityEnabled) {
+            homeRoleHeld = com.neuroflow.app.feature.hyperfocus.util.HomeRoleUtil.holdsHomeRole(context)
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -72,6 +79,8 @@ fun HyperFocusActivationSheet(
     ) {
         if (!accessibilityEnabled) {
             PermissionSetupScreen(onBothGranted = { accessibilityEnabled = true })
+        } else if (!homeRoleHeld) {
+            HomeRoleSetupScreen(onGranted = { homeRoleHeld = true })
         } else {
             ActivationSheetContent(
                 viewModel = viewModel,
