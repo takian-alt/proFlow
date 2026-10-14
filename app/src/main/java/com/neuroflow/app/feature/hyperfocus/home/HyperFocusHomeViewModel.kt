@@ -7,9 +7,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
+import com.neuroflow.app.feature.hyperfocus.data.GateGrantSource
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestLogger
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusDataStore
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
+import com.neuroflow.app.feature.hyperfocus.gate.GateTaskEngine
 import com.neuroflow.app.feature.hyperfocus.surface.FocusSurfaceModel
 import com.neuroflow.app.feature.hyperfocus.surface.SystemExempt
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,9 +42,17 @@ class HyperFocusHomeViewModel @Inject constructor(
     private val tick = MutableStateFlow(System.currentTimeMillis())
     private val labels = MutableStateFlow<Map<String, String>>(emptyMap())
     private val entries = MutableStateFlow<List<AppCatalogRepository.AppEntry>>(emptyList())
+
+    /** One engine, so the stimulus the screen shows is the one the answer is checked against. */
+    private val endGateEngine = GateTaskEngine()
+    val endGateTask = MutableStateFlow(endGateEngine.newTask())
     private var storedHome: String? = null
     private val _handoffTarget = MutableStateFlow<ComponentName?>(null)
     val handoffTarget: StateFlow<ComponentName?> = _handoffTarget.asStateFlow()
+
+    /** False until a resolution has actually run, so the surface never claims there is no launcher. */
+    private val _handoffResolved = MutableStateFlow(false)
+    val handoffResolved: StateFlow<Boolean> = _handoffResolved.asStateFlow()
 
     val state: StateFlow<HomeSurfaceState> =
         combine(hyperFocusDataStore.flow, tick, labels) { prefs, now, known ->
@@ -99,6 +109,7 @@ class HyperFocusHomeViewModel @Inject constructor(
             storedHome = known
             val target = realHomeResolver.handoff(known)
             _handoffTarget.value = target
+            _handoffResolved.value = true
             if (known == null && target != null) {
                 hyperFocusDataStore.update { it.copy(realHomeComponent = componentKey(target)) }
             }
@@ -123,8 +134,34 @@ class HyperFocusHomeViewModel @Inject constructor(
         }
     }
 
-    fun deactivate() {
-        viewModelScope.launch { hyperFocusManager.deactivate() }
+    /**
+     * Ending a session is the largest exit available: it removes every block on the device at once.
+     * A tap that did it outright made the whole surface negotiable, so it now asks for the same
+     * thing the gateway does — attention and a written reason — and only then lets it through.
+     */
+    fun submitEndAttempt(
+        answer: List<String>,
+        reason: String,
+        mismatchCount: Int,
+        elapsedMillis: Long
+    ): Boolean {
+        val task = endGateTask.value
+        val passed = endGateEngine.checkAnswer(task, answer) || endGateEngine.shouldAutoPass(mismatchCount)
+        val willEnd = passed && endGateEngine.allowsSubmit(elapsedMillis, reason)
+        if (willEnd) {
+            viewModelScope.launch {
+                gateRequestLogger.log(
+                    packageName = "",
+                    statedReason = reason.trim(),
+                    taskType = task.type.name,
+                    mismatchCount = mismatchCount,
+                    elapsedMillis = elapsedMillis,
+                    grantSource = GateGrantSource.ABANDONED
+                )
+                hyperFocusManager.deactivate()
+            }
+        }
+        return willEnd
     }
 
     fun openHomeAppSettings() {

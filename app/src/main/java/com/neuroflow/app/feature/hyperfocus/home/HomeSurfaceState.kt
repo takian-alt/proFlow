@@ -27,6 +27,14 @@ fun renderableEssentials(
     selfPackage: String
 ): Set<String> = prefs.essentialPackages - systemExempt - selfPackage
 
+/**
+ * The dead-end placeholder claims no other launcher exists. That is only a fact once a resolution
+ * has completed: on a cold start `handoffTarget` is still null while the DataStore read is in
+ * flight, and showing the dead end there announces a conclusion we have not reached yet.
+ */
+fun showsOffPlaceholder(handoffResolved: Boolean, canHandOff: Boolean): Boolean =
+    handoffResolved && !canHandOff
+
 fun homeSurfaceStateOf(
     prefs: HyperFocusPreferences,
     labels: Map<String, String>,

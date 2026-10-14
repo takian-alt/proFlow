@@ -88,4 +88,14 @@ class HomeSurfaceStateTest : StringSpec({
         (state is HomeSurfaceState.Active) shouldBe true
         (state as HomeSurfaceState.Active).essentials shouldBe emptyList()
     }
+
+    "HFH-8: the dead end is only shown once a resolution has actually run" {
+        // Cold start: handoffTarget is still null because the DataStore read is in flight. Painting
+        // "no other home app could be found" there states a conclusion we have not reached, and it
+        // is the frame the user sees before the launcher takes over.
+        showsOffPlaceholder(handoffResolved = false, canHandOff = false) shouldBe false
+        showsOffPlaceholder(handoffResolved = false, canHandOff = true) shouldBe false
+        showsOffPlaceholder(handoffResolved = true, canHandOff = true) shouldBe false
+        showsOffPlaceholder(handoffResolved = true, canHandOff = false) shouldBe true
+    }
 })

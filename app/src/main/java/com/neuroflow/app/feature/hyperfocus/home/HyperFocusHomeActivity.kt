@@ -9,6 +9,9 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.neuroflow.app.feature.hyperfocus.HyperFocusActivity
 import com.neuroflow.app.kiosk.DeviceOwnerKioskManager
 import dagger.hilt.android.AndroidEntryPoint
@@ -28,25 +31,43 @@ class HyperFocusHomeActivity : ComponentActivity() {
         setContent {
             val state by viewModel.state.collectAsState()
             val target by viewModel.handoffTarget.collectAsState()
+            val resolved by viewModel.handoffResolved.collectAsState()
             val hiddenApps by viewModel.hiddenApps.collectAsState()
             val emergencyAvailable by viewModel.emergencyAvailable.collectAsState()
+            val endTask by viewModel.endGateTask.collectAsState()
+            // The exit gate is a surface of its own rather than a dialog over the grid: the grid
+            // behind it would still be showing essentials while the user argues with a task.
+            var showingEndGate by remember { mutableStateOf(false) }
             // The hand-off is driven off the collected pair, not off onResume: resolveHandoff()
             // is a coroutine, so on a cold start the target arrives after onResume has finished.
             LaunchedEffect(state, target) {
                 if (state is HomeSurfaceState.HandOff && target != null) handOffIfAllowed()
             }
-            HyperFocusHomeScreen(
-                state = state,
-                canHandOff = target != null,
-                hiddenApps = hiddenApps,
-                emergencyAvailable = emergencyAvailable,
-                onOpenEssential = viewModel::open,
-                onOpenGate = { openHyperFocus(HyperFocusActivity.DESTINATION_GATE) },
-                onEmergencyOpen = viewModel::emergencyOpen,
-                onDeactivate = viewModel::deactivate,
-                onOpenAllowlistEditor = { openHyperFocus(HyperFocusActivity.DESTINATION_SETUP) },
-                onOpenHomeAppSettings = viewModel::openHomeAppSettings
-            )
+            if (showingEndGate) {
+                EndSessionGateScreen(
+                    task = endTask,
+                    onSubmit = { answer, reason, mismatches, elapsed ->
+                        val ended = viewModel.submitEndAttempt(answer, reason, mismatches, elapsed)
+                        if (ended) showingEndGate = false
+                        ended
+                    },
+                    onCancel = { showingEndGate = false }
+                )
+            } else {
+                HyperFocusHomeScreen(
+                    state = state,
+                    canHandOff = target != null,
+                    handoffResolved = resolved,
+                    hiddenApps = hiddenApps,
+                    emergencyAvailable = emergencyAvailable,
+                    onOpenEssential = viewModel::open,
+                    onOpenGate = { openHyperFocus(HyperFocusActivity.DESTINATION_GATE) },
+                    onEmergencyOpen = viewModel::emergencyOpen,
+                    onDeactivate = { showingEndGate = true },
+                    onOpenAllowlistEditor = { openHyperFocus(HyperFocusActivity.DESTINATION_SETUP) },
+                    onOpenHomeAppSettings = viewModel::openHomeAppSettings
+                )
+            }
         }
     }
 
@@ -82,8 +103,12 @@ class HyperFocusHomeActivity : ComponentActivity() {
                 Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_HOME)
                     .setComponent(target)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
+            // New task, not clear task: CLEAR_TASK wipes the launcher's stack, so every hand-off
+            // cold-starts it and the swap is visible as a rebuild rather than a resume.
+            // This window has no business staying behind the launcher it just resumed.
+            finish()
         }.onFailure {
             handoffGuard.set(false)
             Log.w(TAG, "Hand-off to ${componentKey(target)} failed", it)

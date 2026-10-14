@@ -43,6 +43,7 @@ import com.neuroflow.app.feature.hyperfocus.screens.EmergencyControl
 fun HyperFocusHomeScreen(
     state: HomeSurfaceState,
     canHandOff: Boolean,
+    handoffResolved: Boolean,
     hiddenApps: List<AppCatalogRepository.AppEntry>,
     emergencyAvailable: Boolean,
     onOpenEssential: (String) -> Unit,
@@ -55,12 +56,13 @@ fun HyperFocusHomeScreen(
 ) {
     when (state) {
         HomeSurfaceState.HandOff ->
-            if (!canHandOff) OffPlaceholder(
+            if (showsOffPlaceholder(handoffResolved, canHandOff)) OffPlaceholder(
                 onOpenAllowlistEditor = onOpenAllowlistEditor,
                 onOpenHomeAppSettings = onOpenHomeAppSettings
             )
             // When a hand-off target exists the activity is already finishing; painting a
-            // black frame here only makes the swap visible.
+            // black frame here only makes the swap visible. While the resolution is still in
+            // flight there is nothing true to say, so the frame stays plain.
             else Box(modifier = modifier.fillMaxSize().background(Color.Black))
 
         is HomeSurfaceState.Active -> ActiveSurface(
