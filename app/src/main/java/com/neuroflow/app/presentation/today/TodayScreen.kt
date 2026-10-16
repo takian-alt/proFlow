@@ -37,6 +37,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.DistractionEngine
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.presentation.common.NewTaskSheet
+import com.neuroflow.app.presentation.common.QuickTaskModalBottomSheet
 import com.neuroflow.app.presentation.common.ProtectedSlotQueueRow
 import com.neuroflow.app.presentation.common.ProtectedSlotTakeoverCard
 import com.neuroflow.app.presentation.common.formatFullDate
@@ -479,11 +480,10 @@ fun TodayScreen(
         }
     }
 
-    // Add Task Sheet
+    // Streamlined Quick Task Capture Sheet
     if (showNewTaskSheet) {
-        NewTaskSheet(
+        QuickTaskModalBottomSheet(
             onDismiss = { showNewTaskSheet = false },
-            availableTasks = uiState.allActiveTasks,
             onSave = { task ->
                 showNewTaskSheet = false
                 viewModel.addTask(task)

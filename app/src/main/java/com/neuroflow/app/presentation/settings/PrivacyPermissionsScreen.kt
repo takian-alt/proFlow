@@ -86,7 +86,7 @@ fun PrivacyPermissionsScreen(onNavigateBack: () -> Unit) {
                         )
                     }
                     Text(
-                        "proFlow is a focus tool that can also act as your home screen. It asks for powerful Android permissions so it can show your apps, track focus, block distractions, and keep reminders working. Those permissions can look risky in a sideloaded app even when the app is legitimate.",
+                        "neuroFlow is a focus tool that can also act as your home screen. It asks for powerful Android permissions so it can show your apps, track focus, block distractions, and keep reminders working. Those permissions can look risky in a sideloaded app even when the app is legitimate.",
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         lineHeight = 20.sp
                     )

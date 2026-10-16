@@ -12,6 +12,7 @@ import com.neuroflow.app.domain.model.PtsCategory
 import com.neuroflow.app.domain.model.PtsRecurrence
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlin.math.ceil
 import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
@@ -57,6 +58,7 @@ data class UserPreferences(
     val lastFreshStartShownWeek: Int = 0,
     val lastFreshStartShownYear: Int = 0,
     val lastAppOpenMillis: Long = 0L,
+    val firstAppOpenMillis: Long = 0L,
     // Dynamic peak energy detection
     val detectedPeakStart: Int = -1,      // -1 = not yet detected
     val detectedPeakEnd: Int = -1,
@@ -202,6 +204,7 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_FRESH_START_SHOWN_WEEK = intPreferencesKey("last_fresh_start_shown_week")
         val LAST_FRESH_START_SHOWN_YEAR = intPreferencesKey("last_fresh_start_shown_year")
         val LAST_APP_OPEN_MILLIS = longPreferencesKey("last_app_open_millis")
+        val FIRST_APP_OPEN_MILLIS = longPreferencesKey("first_app_open_millis")
         val DETECTED_PEAK_START = intPreferencesKey("detected_peak_start")
         val DETECTED_PEAK_END = intPreferencesKey("detected_peak_end")
         val DETECTED_PEAK_MINUTE_OF_DAY = intPreferencesKey("detected_peak_minute_of_day")
@@ -325,6 +328,7 @@ class UserPreferencesDataStore @Inject constructor(
             lastFreshStartShownWeek = prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] ?: 0,
             lastFreshStartShownYear = prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] ?: 0,
             lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L,
+            firstAppOpenMillis = prefs[Keys.FIRST_APP_OPEN_MILLIS] ?: 0L,
             detectedPeakStart = prefs[Keys.DETECTED_PEAK_START] ?: -1,
             detectedPeakEnd = prefs[Keys.DETECTED_PEAK_END] ?: -1,
             detectedPeakMinuteOfDay = prefs[Keys.DETECTED_PEAK_MINUTE_OF_DAY] ?: -1,
@@ -514,6 +518,7 @@ class UserPreferencesDataStore @Inject constructor(
                 lastFreshStartShownWeek = prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] ?: 0,
                 lastFreshStartShownYear = prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] ?: 0,
                 lastAppOpenMillis = prefs[Keys.LAST_APP_OPEN_MILLIS] ?: 0L,
+                firstAppOpenMillis = prefs[Keys.FIRST_APP_OPEN_MILLIS] ?: 0L,
                 detectedPeakStart = prefs[Keys.DETECTED_PEAK_START] ?: -1,
                 detectedPeakEnd = prefs[Keys.DETECTED_PEAK_END] ?: -1,
                 detectedPeakMinuteOfDay = prefs[Keys.DETECTED_PEAK_MINUTE_OF_DAY] ?: -1,
@@ -633,6 +638,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_FRESH_START_SHOWN_WEEK] = updated.lastFreshStartShownWeek
             prefs[Keys.LAST_FRESH_START_SHOWN_YEAR] = updated.lastFreshStartShownYear
             prefs[Keys.LAST_APP_OPEN_MILLIS] = updated.lastAppOpenMillis
+            prefs[Keys.FIRST_APP_OPEN_MILLIS] = updated.firstAppOpenMillis
             prefs[Keys.DETECTED_PEAK_START] = updated.detectedPeakStart
             prefs[Keys.DETECTED_PEAK_END] = updated.detectedPeakEnd
             prefs[Keys.DETECTED_PEAK_MINUTE_OF_DAY] = updated.detectedPeakMinuteOfDay
@@ -793,4 +799,23 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun clearAll() {
         context.dataStore.edit { it.clear() }
     }
+}
+
+fun UserPreferences.isAdvancedFeaturesUnlocked(nowMillis: Long = System.currentTimeMillis()): Boolean {
+    if (dailyStreak >= 7) return true
+    if (firstAppOpenMillis == 0L) {
+        return onboardingCompleted
+    }
+    val oneWeekMillis = 7L * 24 * 60 * 60 * 1000L
+    return (nowMillis - firstAppOpenMillis) >= oneWeekMillis
+}
+
+fun UserPreferences.daysUntilAdvancedUnlock(nowMillis: Long = System.currentTimeMillis()): Int {
+    if (isAdvancedFeaturesUnlocked(nowMillis)) return 0
+    if (firstAppOpenMillis == 0L) return 7
+    val oneWeekMillis = 7L * 24 * 60 * 60 * 1000L
+    val oneDayMillis = 24.0 * 60 * 60 * 1000.0
+    val elapsed = nowMillis - firstAppOpenMillis
+    val remaining = oneWeekMillis - elapsed
+    return if (remaining <= 0) 0 else ceil(remaining / oneDayMillis).toInt().coerceIn(1, 7)
 }

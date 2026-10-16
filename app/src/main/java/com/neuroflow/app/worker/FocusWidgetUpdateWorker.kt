@@ -56,7 +56,7 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                 )
                 focusViews.setOnClickPendingIntent(R.id.widget_start_button, startPendingIntent)
             } else {
-                focusViews.setTextViewText(R.id.widget_task_title, "No tasks — add one in proFlow")
+                focusViews.setTextViewText(R.id.widget_task_title, "No tasks — add one in neuroFlow")
                 focusViews.setTextViewText(R.id.widget_task_score, "Score: —")
             }
 

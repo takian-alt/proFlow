@@ -109,26 +109,26 @@ fun BlockingOverlayScreen(
         blockedPackage in messengerPackages
     }
 
-    // Motivational quotes
+    // Supportive focus guidance
     val blockedAppQuotes = listOf(
-        "Lol. Don't say, (you lost your motivation).",
-        "Your goals are more important than this distraction.",
-        "This moment defines your discipline. Stay strong.",
-        "Your focus is worth more than this.",
-        "Remember why you activated HyperFocus. You've got this.",
-        "Every second without this app is a win.",
-        "Your future self will thank you for this choice.",
-        "Distraction is temporary. Your goals are permanent.",
-        "You're stronger than this urge. Prove it to yourself.",
-        "This app doesn't serve your mission today.",
-        "One moment of resistance = lasting progress.",
-        "Your attention is your most valuable asset.",
-        "Control the urge, control your destiny.",
-        "Success requires saying 'no' to distractions.",
-        "The harder it is to resist, the more you need to.",
-        "Your mind is more powerful than this impulse.",
-        "Is this really worth it? Do you really want to become dumber?",
-        "Look! who we have here!! Lamao,lol.. I thought ,you have finally became smarter. Ig, you are still stupid"
+        "Notice the urge to switch. Take a slow inhale before deciding.",
+        "Your goals are meaningful and worthy of this focused block.",
+        "This moment builds neural momentum. Stay present.",
+        "Your focus is your deepest creative superpower.",
+        "Remember why you activated HyperFocus. You are doing important work.",
+        "Every mindful choice strengthens cognitive resilience.",
+        "Your future self will appreciate your intentionality.",
+        "Urges are temporary waves. Ground yourself in your intention.",
+        "You are capable of deep, deliberate work.",
+        "This boundary protects what truly matters to you today.",
+        "A mindful pause is a victory for cognitive clarity.",
+        "Your attention is your most valuable cognitive asset.",
+        "Reflect on your chosen direction and breathe.",
+        "Deep focus creates quiet mastery.",
+        "Honoring this boundary preserves your focus state.",
+        "Your attention is safe in this sanctuary.",
+        "Take a slow breath: Is this switch aligned with your intention?",
+        "Mindful pause: choose what aligns best with your core mission."
     )
 
     val selectedQuote = remember(blockedPackage) {

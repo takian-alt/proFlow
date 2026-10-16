@@ -134,4 +134,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideWorkManager(@ApplicationContext context: Context): WorkManager = WorkManager.getInstance(context)
+
+    @Provides
+    @Singleton
+    fun providePassiveSleepSyncRepository(
+        manager: com.neuroflow.app.data.repository.PassiveSleepSyncManager
+    ): com.neuroflow.app.domain.repository.PassiveSleepSyncRepository = manager
 }

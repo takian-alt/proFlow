@@ -159,6 +159,132 @@ class EnergyScoreEngineTest : StringSpec({
         target shouldBe (todayStart + 9 * 3600_000L)
     }
 
+    "pre-peak morning hours maintain high energy baseline without zeroing" {
+        val morningDetection = PeakEnergyEngine.DetectionResult(
+            chronotype = MEQChronotypeDetector.Chronotype.MODERATE_MORNING,
+            wakeUpHour = 7,
+            peakOffsetHours = 2.5f,
+            peakHourOfDay = 9,
+            peakMinuteOfDay = 570, // 9:30 AM
+            peakValue = PeakEnergyEngine.PEAK_VALUE,
+            confidence = 1.0f
+        )
+
+        // At 7:00 AM (wake time), value must be 80% baseline (3200), not zero
+        val wakeVal = morningDetection.currentValueAt(millisAtMinuteOfDay(420))
+        wakeVal shouldBe 3200
+
+        // At 8:15 AM (halfway to peak), value must be 90% (3600)
+        val midRampVal = morningDetection.currentValueAt(millisAtMinuteOfDay(495))
+        midRampVal shouldBe 3600
+
+        // At 9:30 AM (peak), value must be 100% (4000)
+        val peakVal = morningDetection.currentValueAt(millisAtMinuteOfDay(570))
+        peakVal shouldBe 4000
+
+        // In EnergyScoreEngine at 7:00 AM for rested user, usable energy must remain high (> 60%)
+        val snapshot = EnergyScoreEngine.EnergySnapshot(
+            peakEnergy = morningDetection,
+            sleepPressurePoints = 0,
+            nowMillis = millisAtMinuteOfDay(420)
+        )
+        val scoreResult = EnergyScoreEngine.calculateDetailed(snapshot)
+        (scoreResult.usableEnergy >= 65f) shouldBe true
+        (scoreResult.peakScore >= 60f) shouldBe true
+    }
+
+    "circadian peakWindow wraps smoothly across midnight for evening chronotypes" {
+        val eveningProfile = PeakEnergyEngine.CircadianProfile(
+            windows = listOf(
+                PeakEnergyEngine.PeakWindow(
+                    startMinuteOffset = 1320, // 22:00
+                    durationMinutes = 240,    // 4 hours (ends at 02:00 AM)
+                    amplitude = 1.0f
+                )
+            )
+        )
+
+        // At 23:00 (60 minutes past window start)
+        val preMidnight = EnergyScoreEngine.circadianFactor(1380, eveningProfile)
+        (preMidnight > 0.4f) shouldBe true
+
+        // At 00:00 midnight (120 minutes past window start, apex of cosine)
+        val midnight = EnergyScoreEngine.circadianFactor(0, eveningProfile)
+        (midnight >= 0.99f) shouldBe true
+
+        // At 00:30 AM (150 minutes past window start, across midnight boundary)
+        val postMidnight = EnergyScoreEngine.circadianFactor(30, eveningProfile)
+        (postMidnight > 0.7f) shouldBe true
+
+        // At 03:00 AM (outside window)
+        val outsideWindow = EnergyScoreEngine.circadianFactor(180, eveningProfile)
+        outsideWindow shouldBe 0.0f
+    }
+
+    "cold start statistical confidence does not penalize physical energy magnitude" {
+        val lowConfidenceDetection = detectionResult(confidence = 0.20f)
+        val snapshot = EnergyScoreEngine.EnergySnapshot(
+            peakEnergy = lowConfidenceDetection,
+            sleepPressurePoints = 0,
+            nowMillis = millisAtMinuteOfDay(105)
+        )
+
+        val result = EnergyScoreEngine.calculateDetailed(snapshot)
+
+        // Confidence should be tracked for telemetry
+        result.confidenceFactor shouldBe 0.20f
+
+        // But peakScore should NOT be crushed down by 80%
+        (result.peakScore > 80f) shouldBe true
+        (result.usableEnergy > 80f) shouldBe true
+    }
+
+    "EnergyScoreEngine applies sleep inertia penalty within 30 minutes of waking" {
+        val snapshotWaking = EnergyScoreEngine.EnergySnapshot(
+            peakEnergy = detectionResult(confidence = 1.0f),
+            sleepPressurePoints = 0,
+            nowMillis = millisAtMinuteOfDay(105),
+            minutesSinceWake = 0 // Just woke up -> maximum sleep inertia penalty (35%)
+        )
+        val wakingResult = EnergyScoreEngine.calculateDetailed(snapshotWaking)
+
+        val snapshotRested = EnergyScoreEngine.EnergySnapshot(
+            peakEnergy = detectionResult(confidence = 1.0f),
+            sleepPressurePoints = 0,
+            nowMillis = millisAtMinuteOfDay(105),
+            minutesSinceWake = 60 // Fully awake, inertia expired
+        )
+        val restedResult = EnergyScoreEngine.calculateDetailed(snapshotRested)
+
+        // Usable energy right at waking should be depressed by sleep inertia grogginess
+        (wakingResult.fatiguePenalty > restedResult.fatiguePenalty) shouldBe true
+        (wakingResult.usableEnergy < restedResult.usableEnergy) shouldBe true
+        closeTo(wakingResult.fatiguePenalty, 35.0f, tolerance = 0.01f)
+    }
+
+    "EnergyScoreEngine compounds fatigue penalty under chronic sleep restriction (<6h)" {
+        val snapshotChronicDebt = EnergyScoreEngine.EnergySnapshot(
+            peakEnergy = detectionResult(confidence = 1.0f),
+            sleepPressurePoints = 1000,
+            nowMillis = millisAtMinuteOfDay(105),
+            minutesSinceWake = 120,
+            rollingAverageSleepMinutes = 300f // 5 hours/night (<6h threshold)
+        )
+        val chronicResult = EnergyScoreEngine.calculateDetailed(snapshotChronicDebt)
+
+        val snapshotNormalSleep = EnergyScoreEngine.EnergySnapshot(
+            peakEnergy = detectionResult(confidence = 1.0f),
+            sleepPressurePoints = 1000,
+            nowMillis = millisAtMinuteOfDay(105),
+            minutesSinceWake = 120,
+            rollingAverageSleepMinutes = 480f // 8 hours/night (optimal)
+        )
+        val normalResult = EnergyScoreEngine.calculateDetailed(snapshotNormalSleep)
+
+        // Chronic debt compounds the fatigue penalty
+        (chronicResult.fatiguePenalty > normalResult.fatiguePenalty) shouldBe true
+        (chronicResult.usableEnergy < normalResult.usableEnergy) shouldBe true
+    }
 })
 
 private fun closeTo(actual: Float, expected: Float, tolerance: Float = 0.001f) {

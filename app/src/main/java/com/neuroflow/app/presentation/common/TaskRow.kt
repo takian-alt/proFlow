@@ -52,10 +52,10 @@ fun TaskRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Completion circle
+                // Completion circle with accessible 48dp touch target
                 IconButton(
                     onClick = onCompleteClick,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     if (task.status == TaskStatus.COMPLETED) {
                         Icon(
@@ -67,7 +67,7 @@ fun TaskRow(
                     } else {
                         Icon(
                             Icons.Outlined.Circle,
-                            contentDescription = "Incomplete",
+                            contentDescription = "Mark task completed",
                             tint = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(24.dp)
                         )
@@ -132,8 +132,8 @@ fun TaskRow(
                     }
                     if (onEditClick != null) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        IconButton(onClick = onEditClick, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Edit, "Edit", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                        IconButton(onClick = onEditClick, modifier = Modifier.size(48.dp)) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit task details", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
                         }
                     }
                 }

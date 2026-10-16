@@ -123,7 +123,7 @@ fun MoreMenuSheet(
             MoreMenuSectionHeader("Settings & Support")
             MoreMenuItem(
                 icon = Icons.AutoMirrored.Filled.MenuBook,
-                title = "How proFlow Works",
+                title = "How neuroFlow Works",
                 subtitle = "Neuroscience principles, daily loops & guide",
                 onClick = {
                     onDismiss()

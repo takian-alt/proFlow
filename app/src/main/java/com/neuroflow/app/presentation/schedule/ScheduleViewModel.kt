@@ -17,6 +17,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 
+import com.neuroflow.app.domain.scheduler.ConflictResolver
+import com.neuroflow.app.domain.scheduler.ScheduleConflict
+
 data class ScheduleUiState(
     val selectedDate: Long = todayStartMillis(),
     val tasksForDay: List<TaskEntity> = emptyList(),
@@ -28,7 +31,8 @@ data class ScheduleUiState(
     val isAutoScheduleOn: Boolean = false,
     val isAutoScheduling: Boolean = false,
     val autoScheduleResultMessage: String? = null,
-    val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList()
+    val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList(),
+    val conflictsForDay: List<ScheduleConflict> = emptyList()
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -53,12 +57,20 @@ class ScheduleViewModel @Inject constructor(
     private fun observeWorkHoursAndPreferences() {
         viewModelScope.launch {
             preferencesDataStore.preferencesFlow.collect { prefs ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    val conflicts = ConflictResolver.analyzeScheduleConflicts(
+                        tasks = current.tasksForDay,
+                        protectedSlots = prefs.protectedTimeSlots,
+                        workDayStart = prefs.workDayStart,
+                        workDayEnd = prefs.workDayEnd,
+                        dayMillis = current.selectedDate
+                    )
+                    current.copy(
                         workDayStart = prefs.workDayStart,
                         workDayEnd = prefs.workDayEnd,
                         isAutoScheduleOn = prefs.autoSchedulingEnabled,
-                        protectedTimeSlots = prefs.protectedTimeSlots
+                        protectedTimeSlots = prefs.protectedTimeSlots,
+                        conflictsForDay = conflicts
                     )
                 }
             }
@@ -124,16 +136,31 @@ class ScheduleViewModel @Inject constructor(
                             .thenBy { it.createdAt }
                     )
                     val locked = sortedTasks.filter { it.isScheduleLocked }
+                    val conflicts = ConflictResolver.analyzeScheduleConflicts(
+                        tasks = sortedTasks,
+                        protectedSlots = _uiState.value.protectedTimeSlots,
+                        workDayStart = _uiState.value.workDayStart,
+                        workDayEnd = _uiState.value.workDayEnd,
+                        dayMillis = selectedDateFlow.value
+                    )
                     _uiState.update {
                         it.copy(
                             selectedDate = selectedDateFlow.value,
                             tasksForDay = sortedTasks,
                             lockedTasks = locked,
+                            conflictsForDay = conflicts,
                             isLoading = false
                         )
                     }
                 }
         }
+    }
+
+    fun resolveConflictByMoving(taskId: String, newStartMinute: Int) {
+        val task = _uiState.value.tasksForDay.find { it.id == taskId } ?: return
+        val hour = (newStartMinute / 60).coerceIn(0, 23)
+        val minute = (newStartMinute % 60).coerceIn(0, 59)
+        scheduleTask(task, hour, minute)
     }
 
     fun selectDate(date: Long) {

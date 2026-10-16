@@ -1,0 +1,100 @@
+// NeuroFlow — domain engines, the stores they read, and the 11 persisted feedback loops.
+// Render: dot -Tsvg flow-engine-feedback.dot -o flow-engine-feedback.svg
+// Base path for all sourceRefs: app/src/main/java/com/neuroflow/app/
+// Solid edge = read/call. Orange dashed = a write that later becomes an input (a feedback loop).
+digraph engine_feedback {
+  rankdir=TB;
+  graph [fontname="Helvetica", labelloc=t, nodesep=0.4, ranksep=0.9,
+         label="Domain engine graph — 16 pure components, none of them bound in a Hilt module"];
+  node  [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#94a3b8"];
+  edge  [fontname="Helvetica", fontsize=9, color="#64748b", arrowsize=0.8];
+
+  // ------------------------------------------------------ stores
+  subgraph cluster_stores {
+    label="stores"; fontsize=11; color="#bfdbfe"; style="rounded";
+    tasks      [label="Room tasks", fillcolor="#dbeafe", color="#2563eb"];
+    sessions   [label="Room time_sessions", fillcolor="#dbeafe", color="#2563eb"];
+    sleepLogs  [label="Room sleep_logs", fillcolor="#dbeafe", color="#2563eb"];
+    telemetry  [label="Room energy_predictions\nread by Analytics trend only\nno engine consumes it", fillcolor="#f1f5f9", color="#94a3b8", style="rounded,filled,dashed"];
+    prefs      [label="DataStore user_preferences\n104 keys, ~40 machine-owned", fillcolor="#fef9c3", color="#ca8a04"];
+    usageStats [label="Android UsageStatsManager\nnever persisted", fillcolor="#dcfce7", color="#16a34a"];
+    clock      [label="System clock\ninjected as nowMillis", fillcolor="#dcfce7", color="#16a34a"];
+  }
+
+  // ------------------------------------------------------ engines
+  subgraph cluster_engines {
+    label="domain/engine + domain/scheduler"; fontsize=11; color="#e9d5ff"; style="rounded";
+    Distraction [label="DistractionEngine\nengine/DistractionEngine.kt:224-647\nimpure: takes Context", fillcolor="#f3e8ff", color="#7c3aed"];
+    SleepDet    [label="SleepPressureDetector\nengine/SleepPressureDetector.kt", fillcolor="#f3e8ff", color="#7c3aed"];
+    PeakDet     [label="PeakEnergyEngine\nengine/PeakEnergyEngine.kt:165-811", fillcolor="#f3e8ff", color="#7c3aed"];
+    EnergyScore [label="EnergyScoreEngine\nengine/EnergyScoreEngine.kt:41-127", fillcolor="#f3e8ff", color="#7c3aed"];
+    Moment      [label="MomentEnergyEngine\nengine/MomentEnergyEngine.kt:118-205", fillcolor="#f3e8ff", color="#7c3aed"];
+    Analytics   [label="AnalyticsEngine\nengine/AnalyticsEngine.kt:21-545", fillcolor="#f3e8ff", color="#7c3aed"];
+    Scoring     [label="TaskScoringEngine\nengine/TaskScoringEngine.kt:438-1162", fillcolor="#f3e8ff", color="#7c3aed"];
+    TagProfile  [label="TaskTagSchedulingProfile\n33 profiles, determineCategory", fillcolor="#f3e8ff", color="#7c3aed"];
+    Contracts   [label="AutoSchedulingContracts\n.isMutableByAutoScheduler", fillcolor="#f3e8ff", color="#7c3aed"];
+    Stability   [label="PlacementStability\nverdict + isMoveWorthApplying", fillcolor="#f3e8ff", color="#7c3aed"];
+    BlockPlan   [label="TaskBlockPlan\nplannedMinutes cap 360", fillcolor="#f3e8ff", color="#7c3aed"];
+    SlotClock   [label="ProtectedSlotClock\ndueSlots / takeoverOf", fillcolor="#f3e8ff", color="#7c3aed"];
+    Planner     [label="AutoSchedulingEngine\n@Singleton(UserPreferencesDataStore)\n2438 lines, 19-step pipeline", fillcolor="#ede9fe", color="#6d28d9"];
+  }
+
+  // ------------------------------------------------------ loop repositories
+  subgraph cluster_looprepos {
+    label="domain/repository — concrete, cross-store, write on read paths"; fontsize=11; color="#fde68a"; style="rounded";
+    SleepRepo   [label="SleepPressureRepository\nrefreshCurrentPressure :143-225", fillcolor="#fef3c7", color="#b45309"];
+    PeakRepo    [label="PeakEnergyRepository\n3 DataStore write-backs :482,:627,:883", fillcolor="#fef3c7", color="#b45309"];
+    EnergyRepo  [label="EnergyScoreRepository\nobserveEnergy :167-288", fillcolor="#fef3c7", color="#b45309"];
+    MetricsRepo [label="EnergyMetricsRepository\nsole telemetry writer :67-98", fillcolor="#fef3c7", color="#b45309"];
+  }
+
+  // ------------------------------------------------------ actuators
+  subgraph cluster_actors {
+    label="workers that mutate"; fontsize=11; color="#fed7aa"; style="rounded";
+    SchedWorker [label="ScheduleAutoTasksWorker", fillcolor="#ffedd5", color="#ea580c"];
+    DistrSync   [label="DistractionSyncWorker", fillcolor="#ffedd5", color="#ea580c"];
+    SleepWorker [label="SleepPressureRefreshWorker\nhard-codes 19:00", fillcolor="#ffedd5", color="#ea580c"];
+  }
+
+  // ------------------------------------------------------ reads
+  tasks      -> Scoring;      prefs    -> Scoring;   clock -> Scoring;
+  tasks      -> Analytics;    sessions -> Analytics; prefs -> Analytics;
+  usageStats -> Distraction;  sessions -> Distraction; prefs -> Distraction;
+  sleepLogs  -> SleepRepo;    SleepRepo -> SleepDet;  SleepRepo -> prefs [label="sleepPressurePoints", color="#ea580c", fontcolor="#ea580c"];
+  sessions   -> PeakRepo;     PeakRepo -> PeakDet;    prefs  -> PeakDet; SleepDet -> PeakDet;
+  PeakRepo   -> prefs [label="abstention / freeze / morningTune", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  PeakDet    -> EnergyScore;  prefs -> EnergyScore;   clock -> EnergyScore;
+  EnergyScore-> Moment;       Moment-> EnergyRepo;    EnergyRepo -> prefs [label="reads", color="#ea580c", fontcolor="#ea580c"];
+  EnergyRepo -> MetricsRepo [label="when energyTelemetryEnabled", style=dashed];
+  MetricsRepo-> telemetry   [color="#94a3b8", fontcolor="#94a3b8", label="~1 row/min"];
+  telemetry -> Planner [style=invis];
+  Scoring    -> Planner;      Analytics-> Planner;    TagProfile -> Planner;
+  Contracts  -> Planner;      BlockPlan -> Planner;   SlotClock  -> Planner;
+  EnergyRepo -> Planner [label="energyScoreFn (Path A)"];
+  SchedWorker-> Planner;      SchedWorker-> Stability; SchedWorker-> BlockPlan;
+  DistrSync  -> Distraction;
+  SleepWorker-> SleepRepo;
+
+  // ------------------------------------------------------ the 11 feedback loops
+  SchedWorker -> tasks [label="1 plannedBlockMinutes", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  SchedWorker -> tasks [label="12 placement + isAutoScheduled + lastAutoScheduledAt", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  Scoring     -> tasks [label="", style=invis];
+  Analytics   -> tasks [label="2 actual + mape/smape (via FocusCompletionManager)", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  Analytics   -> prefs [label="3 enjoymentForecastBias", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  DistrSync   -> tasks [label="4 distractionScore", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  SleepRepo   -> sleepLogs [label="8 creates AUTO_DEFAULT rows it later reads as truth", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  Scoring     -> tasks [label="5 habitStreak / 6 postponeCount / 10 sessionCount\n(via TaskRepository, FocusSessionManager)", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  Analytics   -> prefs [label="11 dailyStreak, longestStreak, XP", color="#ea580c", fontcolor="#ea580c", style=dashed];
+  Stability   -> tasks [label="6 POSTPONE_PATTERN >= 3 past the cooldown", color="#ea580c", fontcolor="#ea580c", style=dashed];
+
+  // ------------------------------------------------------ engine->engine calls
+  Scoring -> Distraction [label="priorityBoost :708"];
+  Scoring -> Analytics   [label="correctedEnjoymentScore :738"];
+  Scoring -> PeakDet     [label="defaultCircadianProfile :176-220"];
+  Planner -> Scoring     [label="composite priority :215"];
+  Planner -> Analytics   [label="PlanningCalibration :212"];
+
+  note [shape=note, fontsize=10, fillcolor="#fef9c3", color="#ca8a04",
+        label="Tier 1: 16 pure `object`s, no DI, nowMillis defaulted.\nTier 2: AutoSchedulingEngine + 5 repositories are the only @Inject components.\nExceptions: DistractionEngine needs Context (UsageStatsManager); AutonomyNudgeEngine calls WorkManager."];
+  note -> Planner [style=invis];
+}

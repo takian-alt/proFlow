@@ -887,7 +887,7 @@ fun SettingsScreen(
 
             // About
             SettingsSection("About") {
-                Text("proFlow v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("neuroFlow v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(modifier = Modifier.height(32.dp))

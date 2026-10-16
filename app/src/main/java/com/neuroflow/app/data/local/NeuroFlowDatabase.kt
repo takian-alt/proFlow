@@ -249,7 +249,6 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("DROP INDEX IF EXISTS index_notes_updatedAt")
         db.execSQL("DROP INDEX IF EXISTS index_notes_isPinned")
-        db.execSQL("DROP TABLE IF EXISTS `notes`")
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS `notes` (
                 `id` TEXT NOT NULL,
@@ -270,7 +269,6 @@ val MIGRATION_17_19 = object : Migration(17, 19) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("DROP INDEX IF EXISTS index_notes_updatedAt")
         db.execSQL("DROP INDEX IF EXISTS index_notes_isPinned")
-        db.execSQL("DROP TABLE IF EXISTS `notes`")
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS `notes` (
                 `id` TEXT NOT NULL,

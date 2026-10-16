@@ -73,9 +73,9 @@ import com.neuroflow.app.presentation.plan.PlanScreen
 import com.neuroflow.app.presentation.progress.ProgressScreen
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
-    data object Today : Screen("today", "Today", Icons.Filled.Today)
+    data object Today : Screen("flow", "Flow", Icons.Filled.Today)
     data object Plan : Screen("plan", "Plan", Icons.Filled.CalendarMonth)
-    data object Progress : Screen("progress", "Progress", Icons.Filled.TrendingUp)
+    data object Progress : Screen("insights", "Insights", Icons.Filled.TrendingUp)
 
     data object Matrix : Screen("matrix", "Matrix", Icons.Filled.GridView)
     data object Schedule : Screen("schedule", "Schedule", Icons.Filled.CalendarMonth)
@@ -217,7 +217,7 @@ fun NeuroFlowApp(
                 showGuidePrompt = false
                 drawerViewModel.markUserGuidePromptShown()
             },
-            title = { Text("Welcome to proFlow") },
+            title = { Text("Welcome to neuroFlow") },
             text = {
                 Text("Want a 2-minute walkthrough? The User Guide gives a quick setup checklist and a simple daily workflow.")
             },
@@ -254,7 +254,7 @@ fun NeuroFlowApp(
                             NavigationBarItem(
                                 icon = { Icon(screen.icon!!, contentDescription = screen.title) },
                                 label = { Text(screen.title) },
-                                selected = currentDestination?.hierarchy?.any { it.route == screen.route || (screen == Screen.Schedule && it.route?.startsWith("schedule") == true) } == true,
+                                selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                                 onClick = {
                                     navController.navigate(screen.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
@@ -304,6 +304,30 @@ fun NeuroFlowApp(
                         onInitialNewTaskConsumed = onInitialNewTaskConsumed
                     )
                 }
+                composable("today") {
+                    TodayScreen(
+                        onOpenMoreMenu = { showMoreMenuSheet = true },
+                        onNavigateToPlan = {
+                            navController.navigate(Screen.Plan.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        onNavigateToFocus = { taskId ->
+                            navController.navigate("focus/$taskId")
+                        },
+                        onNavigateToSchedule = { dateMillis ->
+                            navController.navigate("schedule?date=$dateMillis") {
+                                launchSingleTop = true
+                            }
+                        },
+                        initialNewTaskOpen = initialNewTaskOpen,
+                        onInitialNewTaskConsumed = onInitialNewTaskConsumed
+                    )
+                }
                 composable(Screen.Plan.route) {
                     PlanScreen(
                         onOpenMoreMenu = { showMoreMenuSheet = true },
@@ -328,9 +352,13 @@ fun NeuroFlowApp(
                         onOpenMoreMenu = { showMoreMenuSheet = true }
                     )
                 }
+                composable("progress") {
+                    ProgressScreen(
+                        onOpenMoreMenu = { showMoreMenuSheet = true }
+                    )
+                }
                 composable(Screen.Matrix.route) {
                     MatrixScreen(
-                        onOpenDrawer = null,
                         onNavigateToQuadrant = { quadrantName ->
                             navController.navigate("quadrant/$quadrantName")
                         },

@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroFlow — end-to-end data flow, as built</title>
+<style>
+  :root{
+    --ink:#15181d; --ink2:#4b5563; --line:#c9d1d9; --bg:#fbfcfd; --card:#ffffff;
+    --src:#dcfce7; --srcB:#16a34a; --store:#dbeafe; --storeB:#2563eb; --pref:#fef9c3; --prefB:#ca8a04;
+    --eng:#f3e8ff; --engB:#7c3aed; --act:#ffedd5; --actB:#ea580c; --ui:#fce7f3; --uiB:#db2777;
+    --warn:#fee2e2; --warnB:#dc2626; --mute:#f1f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  header{padding:28px 32px 18px;border-bottom:1px solid var(--line);background:var(--card)}
+  h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
+  header p{margin:0;color:var(--ink2);max-width:78ch}
+  nav{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--line);padding:8px 32px;display:flex;flex-wrap:wrap;gap:6px}
+  nav a{font-size:12.5px;text-decoration:none;color:var(--ink2);padding:4px 9px;border-radius:999px;border:1px solid var(--line)}
+  nav a:hover{background:var(--mute);color:var(--ink)}
+  main{padding:8px 32px 80px;max-width:1320px}
+  section{margin:34px 0 0;padding:0}
+  h2{font-size:20px;margin:0 0 2px;letter-spacing:-.01em}
+  h2 .tag{font:600 11px/1 ui-monospace,monospace;color:#fff;background:var(--ink);padding:4px 7px;border-radius:5px;vertical-align:3px;margin-left:8px}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--ink2);margin:0 0 14px;max-width:96ch}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0;overflow-x:auto}
+  .scroll{overflow-x:auto}
+  .scroll svg{min-width:1000px}
+  svg{display:block;max-width:100%;height:auto}
+  .node rect{rx:9;stroke-width:1.4}
+  .node text{font-size:11.5px;fill:var(--ink)}
+  .node .t2{font-size:9.5px;fill:var(--ink2)}
+  .n-src rect{fill:var(--src);stroke:var(--srcB)} .n-store rect{fill:var(--store);stroke:var(--storeB)}
+  .n-pref rect{fill:var(--pref);stroke:var(--prefB)} .n-eng rect{fill:var(--eng);stroke:var(--engB)}
+  .n-act rect{fill:var(--act);stroke:var(--actB)} .n-ui rect{fill:var(--ui);stroke:var(--uiB)}
+  .n-dead rect{fill:var(--mute);stroke:#94a3b8;stroke-dasharray:4 3}
+  .lane{fill:none;stroke:var(--line);stroke-width:1}
+  .colhead{font:700 11px ui-sans-serif,system-ui,sans-serif;fill:var(--ink2);letter-spacing:.08em;text-transform:uppercase}
+  .edge{fill:none;stroke:#64748b;stroke-width:1.4}
+  .edge.wr{stroke:var(--actB);stroke-dasharray:5 3}
+  .edge.obs{stroke:var(--uiB)}
+  .edge.dead{stroke:#94a3b8;stroke-dasharray:4 3}
+  .elbl{font-size:10px;fill:var(--ink2)}
+  .elbl.mono{font-family:ui-monospace,monospace;font-size:9.5px}
+  .num circle{fill:#fff;stroke:#94a3b8} .num text{font:700 9px ui-monospace,monospace;fill:var(--ink2)}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin:10px 0 4px}
+  th{background:var(--mute);text-align:left;font-weight:600;padding:7px 9px;border:1px solid var(--line);white-space:nowrap}
+  td{padding:7px 9px;border:1px solid var(--line);vertical-align:top}
+  td code,li code,p code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:11.5px;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0 3px}
+  .num-col{width:34px;text-align:center;font-family:ui-monospace,monospace;color:var(--ink2)}
+  ul{margin:6px 0 6px 18px;padding:0}
+  li{margin:3px 0}
+  .key{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 2px}
+  .k{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2)}
+  .sw{width:22px;height:13px;border-radius:4px;border:1.4px solid}
+  .warn{border-left:4px solid var(--warnB);background:#fff5f5}
+  .warn h3{margin-top:0}
+  .conf{font:700 10px ui-monospace,monospace;padding:1px 5px;border-radius:4px}
+  .hi{background:#dcfce7;color:#14532d} .med{background:#fef9c3;color:#713f12} .low{background:#fee2e2;color:#7f1d1d}
+  .q{font-family:ui-monospace,monospace;font-size:11.5px;color:#334155}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:1000px){.two{grid-template-columns:1fr}}
+  .note{font-size:12px;color:var(--ink2);margin:8px 0 0}
+  footer{padding:24px 32px 60px;color:var(--ink2);font-size:12px;border-top:1px solid var(--line);margin-top:40px}
+</style>
+</head>
+<body>
+<header>
+  <h1>NeuroFlow — end-to-end data flow, as built</h1>
+  <p>Every piece of data in this app has a creator, a home, a reader, and usually a writer that
+  changes it later. This document maps that movement so the logic can be re-derived and rebuilt:
+  where the 10 Room tables and 104 preference keys come from, which of the 16 domain engines
+  consumes them, what each engine produces, which of the 14 workers writes results back, and how
+  ViewModels, screens, notifications, and widgets read the outcome.</p>
+  <p style="margin-top:8px"><strong>Scope:</strong> current state of <code>app/src/main/java/com/neuroflow/app/</code>
+  at Room schema v20. Nothing here is a proposal. Claims carry file:line citations and a confidence
+  label; the gaps and contradictions found while mapping are collected in the last section.</p>
+</header>
+
+<nav>
+  <a href="#how">How to read</a><a href="#layers">Layer map</a><a href="#lifecycle">Task lifecycle</a>
+  <a href="#scheduler">Scheduler tick</a><a href="#energy">Energy chain</a><a href="#distraction">Distraction loop</a>
+  <a href="#loops">11 feedback loops</a><a href="#lineage">Field lineage</a><a href="#engines">Engine formulas</a>
+  <a href="#stores">Stores &amp; workers</a><a href="#rebuild">Rebuild checklist</a><a href="#gaps">Gaps &amp; divergences</a>
+</nav>
+
+<main>
+
+<section id="how">
+  <h2>How to read these diagrams</h2>
+  <p class="sub">One question per diagram. Colour tells you what kind of thing a box is; line style tells you
+  how data moves. Dense graphs are also written as Graphviz sources (<code>*.dot</code>) for tooling.</p>
+  <div class="key">
+    <span class="k"><span class="sw" style="background:var(--src);border-color:var(--srcB)"></span>source — enters from a human or the OS</span>
+    <span class="k"><span class="sw" style="background:var(--store);border-color:var(--storeB)"></span>Room table</span>
+    <span class="k"><span class="sw" style="background:var(--pref);border-color:var(--prefB)"></span>DataStore preference key</span>
+    <span class="k"><span class="sw" style="background:var(--eng);border-color:var(--engB)"></span>domain engine (pure logic)</span>
+    <span class="k"><span class="sw" style="background:var(--act);border-color:var(--actB)"></span>worker / actuator — runs in background, writes</span>
+    <span class="k"><span class="sw" style="background:var(--ui);border-color:var(--uiB)"></span>consumer — ViewModel, screen, notification, widget</span>
+    <span class="k"><span class="sw" style="background:var(--mute);border-color:#94a3b8"></span>inert — written, never read back</span>
+  </div>
+  <div class="key">
+    <span class="k"><svg width="46" height="12"><line x1="2" y1="6" x2="44" y2="6" class="edge"/></svg>read / call, synchronous, in-process</span>
+    <span class="k"><svg width="46" height="12"><line x1="2" y1="6" x2="44" y2="6" class="edge wr"/></svg>write-back (a background job mutates stored data)</span>
+    <span class="k"><svg width="46" height="12"><line x1="2" y1="6" x2="44" y2="6" class="edge obs"/></svg>observation (Room <code>Flow</code> pushes to UI)</span>
+    <span class="k"><svg width="46" height="12"><line x1="2" y1="6" x2="44" y2="6" class="edge dead"/></svg>assumed / unsupported / dead path</span>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Three facts that explain most of the rest</h3>
+    <ul>
+      <li><strong>Scores are never stored; placements are.</strong> <code>TaskScoringEngine</code> recomputes on every call
+      (<span class="q">domain/engine/TaskScoringEngine.kt:438</span>). What <em>is</em> persisted are the
+      <em>inputs</em> the engines feed themselves back in — 15 machine-written columns on <code>TaskEntity</code> and
+      ~40 machine-owned preference keys.</li>
+      <li><strong>There are no foreign keys, no cascades, and no DB triggers.</strong> Referential cleanup, recurrence rollover,
+      streak counting, and scheduling gates are all hand-written in <code>TaskRepository</code> and the scheduler worker
+      (<span class="q">data/local/entity/TaskEntity.kt</span> — no <code>@ForeignKey</code> anywhere in 10 entities).</li>
+      <li><strong>Storage is not the only source.</strong> Android usage-stats events and the system clock feed engines directly;
+      <code>nowMillis</code> is injected as a default parameter in every pure engine so the logic stays testable
+      (<span class="q">domain/engine/*.kt</span>).</li>
+    </ul>
+  </div>
+</section>
+
+<section id="layers">
+  <h2>1. The layer map <span class="tag">who creates, who stores, who computes, who reads</span></h2>
+  <p class="sub">Representative edges only — the numbered ones below. Every engine reads <code>user_preferences</code>
+  and the system clock; engine-to-engine calls are drawn in <a href="#loops">section 6</a>. Field-level detail is in
+  <a href="#lineage">section 7</a>.</p>
+
+  <div class="card scroll">
+    <svg viewBox="0 0 1240 664" role="img" aria-label="Layer map: sources, stores, engines, consumers">
+      <defs>
+        <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#64748b"/></marker>
+        <marker id="aw" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#ea580c"/></marker>
+        <marker id="ao" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#db2777"/></marker>
+        <marker id="ad" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#94a3b8"/></marker>
+      </defs>
+
+      <text class="colhead" x="38" y="34">Source</text>
+      <text class="colhead" x="298" y="34">Store</text>
+      <text class="colhead" x="622" y="34">Domain engine (pure)</text>
+      <text class="colhead" x="918" y="34">Consumer</text>
+
+      <!-- lanes -->
+      <path class="edge obs" d="M500,104 V68 H1150 V104" marker-end="url(#ao)"/>
+      <path class="edge wr" d="M918,352 H892 V80 H340 V104" marker-end="url(#aw)"/>
+      <path class="edge wr" d="M622,184 H596 V92 H430 V104" marker-end="url(#aw)"/>
+
+      <!-- col 1 -->
+      <g class="node n-src"><rect x="38" y="104" width="208" height="44"/><text x="50" y="123">User input</text><text class="t2" x="50" y="138">new task / edit / settings</text></g>
+      <g class="node n-src"><rect x="38" y="162" width="208" height="44"/><text x="50" y="181">Focus stopwatch</text><text class="t2" x="50" y="196">start, pause, interruptions</text></g>
+      <g class="node n-src"><rect x="38" y="220" width="208" height="44"/><text x="50" y="239">Sleep record</text><text class="t2" x="50" y="254">manual, or auto-default</text></g>
+      <g class="node n-src"><rect x="38" y="278" width="208" height="44"/><text x="50" y="297">MEQ quiz</text><text class="t2" x="50" y="312">19 answers &#8594; chronotype</text></g>
+      <g class="node n-src"><rect x="38" y="336" width="208" height="44"/><text x="50" y="355">System clock</text><text class="t2" x="50" y="370">injected as nowMillis</text></g>
+      <g class="node n-src"><rect x="38" y="394" width="208" height="44"/><text x="50" y="413">Firebase user</text><text class="t2" x="50" y="428">uid scopes every backup</text></g>
+      <g class="node n-src"><rect x="38" y="568" width="208" height="44"/><text x="50" y="587">UsageStatsManager</text><text class="t2" x="50" y="602">foreground events, 30d</text></g>
+
+      <!-- col 2 -->
+      <g class="node n-store"><rect x="298" y="104" width="272" height="44"/><text x="310" y="123">Room · tasks</text><text class="t2" x="310" y="138">the widest table; 15 machine-written columns</text></g>
+      <g class="node n-store"><rect x="298" y="162" width="272" height="44"/><text x="310" y="181">Room · time_sessions</text><text class="t2" x="310" y="196">endedAt IS NULL == a live session</text></g>
+      <g class="node n-store"><rect x="298" y="220" width="272" height="44"/><text x="310" y="239">Room · sleep_logs</text><text class="t2" x="310" y="254">only table with indices</text></g>
+      <g class="node n-store"><rect x="298" y="278" width="272" height="44"/><text x="310" y="297">Room · energy_predictions</text><text class="t2" x="310" y="312">telemetry, ~1 row/min</text></g>
+      <g class="node n-store"><rect x="298" y="336" width="272" height="44"/><text x="310" y="355">Room · goals notes woop</text><text class="t2" x="310" y="370">contracts, unlock_codes, hyperfocus_sessions</text></g>
+      <g class="node n-pref"><rect x="298" y="394" width="272" height="44"/><text x="310" y="413">DataStore · user_preferences</text><text class="t2" x="310" y="428">104 keys; mapping duplicated 3&#215;</text></g>
+      <g class="node n-pref"><rect x="298" y="452" width="272" height="44"/><text x="310" y="471">DataStore · launcher_prefs</text><text class="t2" x="310" y="486">hyperfocus_prefs, 4 SharedPreferences files</text></g>
+      <g class="node n-store"><rect x="298" y="510" width="272" height="44"/><text x="310" y="529">Firestore · users/{uid}/backups</text><text class="t2" x="310" y="544">hand-written toMap/fromMap per entity</text></g>
+
+      <!-- col 3 -->
+      <g class="node n-eng"><rect x="622" y="104" width="244" height="44"/><text x="634" y="123">TaskScoringEngine</text><text class="t2" x="634" y="138">1163 lines, max 1200 &#8594; 0..999</text></g>
+      <g class="node n-eng"><rect x="622" y="162" width="244" height="44"/><text x="634" y="181">DistractionEngine</text><text class="t2" x="634" y="196">0..100 per task / per app</text></g>
+      <g class="node n-eng"><rect x="622" y="220" width="244" height="44"/><text x="634" y="239">SleepPressureDetector</text><text class="t2" x="634" y="254">PeakEnergyEngine (840 lines)</text></g>
+      <g class="node n-eng"><rect x="622" y="278" width="244" height="44"/><text x="634" y="297">EnergyScoreEngine</text><text class="t2" x="634" y="312">MomentEnergyEngine</text></g>
+      <g class="node n-eng"><rect x="622" y="336" width="244" height="44"/><text x="634" y="355">AnalyticsEngine</text><text class="t2" x="634" y="370">MAPE/SMAPE, calibrations</text></g>
+      <g class="node n-eng"><rect x="622" y="394" width="244" height="58"/><text x="634" y="413">AutoSchedulingEngine</text><text class="t2" x="634" y="428">2438 lines, 19-step pipeline</text><text class="t2" x="634" y="442">+ PlacementStability, TaskBlockPlan</text></g>
+      <g class="node n-eng"><rect x="622" y="466" width="244" height="44"/><text x="634" y="485">Woop / FreshStart / Autonomy</text><text class="t2" x="634" y="500">small policy engines</text></g>
+
+      <!-- col 4 -->
+      <g class="node n-ui"><rect x="918" y="104" width="284" height="44"/><text x="930" y="123">ViewModel StateFlow</text><text class="t2" x="930" y="138">25 ViewModels, scores recomputed per collect</text></g>
+      <g class="node n-ui"><rect x="918" y="162" width="284" height="44"/><text x="930" y="181">Compose screens</text><text class="t2" x="930" y="196">Today, Launcher, Focus, Matrix, Analytics&#8230;</text></g>
+      <g class="node n-ui"><rect x="918" y="220" width="284" height="44"/><text x="930" y="239">Notifications</text><text class="t2" x="930" y="254">ranking, reminders, streak, goal-risk</text></g>
+      <g class="node n-ui"><rect x="918" y="278" width="284" height="44"/><text x="930" y="297">App widget</text><text class="t2" x="930" y="312">RemoteViews, outside the process UI</text></g>
+      <g class="node n-act"><rect x="918" y="336" width="284" height="56"/><text x="930" y="357">14 WorkManager workers</text><text class="t2" x="930" y="372">the only writers of placement + derived</text><text class="t2" x="930" y="384">columns (periodic + one-time)</text></g>
+      <g class="node n-act"><rect x="918" y="406" width="284" height="44"/><text x="930" y="425">CloudBackupManager</text><text class="t2" x="930" y="440">back up, then prune to 3 (deletes)</text></g>
+
+      <!-- edges -->
+      <path class="edge" d="M246,126 H298" marker-end="url(#a)"/>
+      <path class="edge" d="M246,184 H298" marker-end="url(#a)"/>
+      <path class="edge" d="M246,242 H298" marker-end="url(#a)"/>
+      <path class="edge" d="M246,300 C 272,300 272,416 298,416" marker-end="url(#a)"/>
+      <path class="edge" d="M246,416 C 272,416 272,532 298,532" marker-end="url(#a)"/>
+      <path class="edge" d="M246,590 H600 V184 H622" marker-end="url(#a)"/>
+      <path class="edge" d="M570,126 H622" marker-end="url(#a)"/>
+      <path class="edge" d="M570,184 C 592,184 592,358 622,358" marker-end="url(#a)"/>
+      <path class="edge" d="M570,242 H622" marker-end="url(#a)"/>
+      <path class="edge" d="M570,416 H622" marker-end="url(#a)"/>
+      <path class="edge" d="M570,434 C 592,434 592,474 622,474" marker-end="url(#a)"/>
+      <path class="edge dead" d="M570,300 H600 V300" marker-end="url(#ad)"/>
+      <path class="edge" d="M866,126 H892" />
+      <path class="edge" d="M866,184 H892" />
+      <path class="edge" d="M866,242 H892" />
+      <path class="edge" d="M866,300 H892" />
+      <path class="edge" d="M866,358 H892" />
+      <path class="edge" d="M866,423 H892" />
+      <path class="edge" d="M866,488 H892" />
+      <line x1="892" y1="126" x2="892" y2="488" stroke="#64748b" stroke-width="1.2"/>
+      <path class="edge" d="M892,126 H918" marker-end="url(#a)"/>
+      <path class="edge" d="M1060,148 V162" marker-end="url(#a)"/>
+      <path class="edge" d="M1060,206 V220" marker-end="url(#a)"/>
+      <path class="edge" d="M1060,264 V278" marker-end="url(#a)"/>
+      <path class="edge wr" d="M1202,364 C 1224,364 1224,428 1202,428" marker-end="url(#aw)"/>
+
+      <!-- edge numbers -->
+      <g class="num"><circle cx="272" cy="118" r="8"/><text x="272" y="121" text-anchor="middle">1</text></g>
+      <g class="num"><circle cx="272" cy="176" r="8"/><text x="272" y="179" text-anchor="middle">2</text></g>
+      <g class="num"><circle cx="272" cy="234" r="8"/><text x="272" y="237" text-anchor="middle">3</text></g>
+      <g class="num"><circle cx="272" cy="292" r="8"/><text x="272" y="295" text-anchor="middle">4</text></g>
+      <g class="num"><circle cx="272" cy="408" r="8"/><text x="272" y="411" text-anchor="middle">5</text></g>
+      <g class="num"><circle cx="420" cy="582" r="8"/><text x="420" y="585" text-anchor="middle">6</text></g>
+      <g class="num"><circle cx="596" cy="126" r="8"/><text x="596" y="129" text-anchor="middle">7</text></g>
+      <g class="num"><circle cx="596" cy="358" r="8"/><text x="596" y="361" text-anchor="middle">8</text></g>
+      <g class="num"><circle cx="596" cy="242" r="8"/><text x="596" y="245" text-anchor="middle">9</text></g>
+      <g class="num"><circle cx="596" cy="416" r="8"/><text x="596" y="419" text-anchor="middle">10</text></g>
+      <g class="num"><circle cx="596" cy="488" r="8"/><text x="596" y="491" text-anchor="middle">11</text></g>
+      <g class="num"><circle cx="585" cy="300" r="8"/><text x="585" y="303" text-anchor="middle">12</text></g>
+      <g class="num"><circle cx="884" cy="90" r="8"/><text x="884" y="93" text-anchor="middle">13</text></g>
+      <g class="num"><circle cx="420" cy="62" r="8"/><text x="420" y="65" text-anchor="middle">14</text></g>
+      <g class="num"><circle cx="360" cy="74" r="8"/><text x="360" y="77" text-anchor="middle">15</text></g>
+      <g class="num"><circle cx="1180" cy="396" r="8"/><text x="1180" y="399" text-anchor="middle">16</text></g>
+
+      <text class="elbl" x="608" y="612">no per-event storage &#8594; engine reads live events each pass</text>
+      <text class="elbl" x="298" y="640">14: Room <tspan class="q">Flow</tspan> pushes table changes straight into ViewModels — no repository caching in between</text>
+    </svg>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th class="num-col">#</th><th>Move</th><th>What actually happens</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td class="num-col">1</td><td>User &#8594; <code>tasks</code></td><td><code>TaskRepository.insert</code> stamps <code>createdAt</code>/<code>updatedAt</code>; Room <code>onConflict = REPLACE</code> means an "insert" of an existing id silently overwrites it.</td><td><span class="q">data/repository/TaskRepository.kt</span>, <span class="q">data/local/dao/TaskDao.kt:11</span></td></tr>
+        <tr><td class="num-col">2</td><td>Stopwatch &#8594; <code>time_sessions</code></td><td>Start inserts a row with <code>endedAt = null</code>; that null <em>is</em> the state index. Close fills <code>endedAt</code> + <code>durationMinutes</code> and bumps the parent task's counters.</td><td><span class="q">presentation/focus/FocusSessionManager.kt:37,100</span></td></tr>
+        <tr><td class="num-col">3</td><td>Sleep record &#8594; <code>sleep_logs</code></td><td><code>SleepLogRepository</code> swaps reversed start/end, floors at 60s, and derives <code>durationMinutes</code> itself. The app also writes rows the user never entered (<code>source = "AUTO_DEFAULT"</code>).</td><td><span class="q">data/repository/SleepLogRepository.kt:31</span>, <span class="q">domain/repository/SleepPressureRepository.kt:169</span></td></tr>
+        <tr><td class="num-col">4</td><td>MEQ quiz &#8594; <code>user_preferences</code></td><td>19 answers score 16&#8230;86 and pick a chronotype band (&#8805;70 / &#8805;59 / &#8805;42 / &#8805;31 / else), which becomes a default circadian window (6&#8230;11h, 7&#8230;12h, 9&#8230;14h, 13&#8230;18h, 15&#8230;21h).</td><td><span class="q">domain/engine/MEQChronotypeDetector.kt</span></td></tr>
+        <tr><td class="num-col">5</td><td>Firebase uid &#8594; Firestore</td><td>Backup path is <code>users/{uid}/backups/{backupId}</code> plus <code>meta/info</code> and a denormalised user doc.</td><td><span class="q">data/sync/FirestoreBackupRepository.kt</span></td></tr>
+        <tr><td class="num-col">6</td><td>Usage stats &#8594; <code>DistractionEngine</code></td><td>30-day <code>UsageEvents</code> sweep, 3s minimum episode, 60min cap per app per package, system packages filtered. <strong>No raw events are ever persisted</strong> — only the resulting <code>distractionScore</code>.</td><td><span class="q">domain/engine/DistractionEngine.kt:125,126,132,138</span></td></tr>
+        <tr><td class="num-col">7</td><td><code>tasks</code> &#8594; <code>TaskScoringEngine</code></td><td>Reads ~30 columns per task plus a <code>ScoringContext</code> built from all active tasks (dependency unblocking, overlap checks).</td><td><span class="q">domain/engine/TaskScoringEngine.kt:98,438</span></td></tr>
+        <tr><td class="num-col">8</td><td><code>time_sessions</code> &#8594; <code>AnalyticsEngine</code></td><td>Completed tasks' <code>estimatedDurationMinutes</code> vs <code>actualDurationMinutes</code> produce MAPE/SMAPE, a per-category duration factor, and an enjoyment offset.</td><td><span class="q">domain/engine/AnalyticsEngine.kt:32,69,146</span></td></tr>
+        <tr><td class="num-col">9</td><td><code>sleep_logs</code> &#8594; pressure engines</td><td>Via <code>SleepPressureRepository</code>, which persists a total into <code>prefs.sleepPressurePoints</code>; the detector itself is pure arithmetic.</td><td><span class="q">domain/repository/SleepPressureRepository.kt:208</span></td></tr>
+        <tr><td class="num-col">10</td><td><code>user_preferences</code> &#8594; <code>AutoSchedulingEngine</code></td><td>Master switch, aggressiveness toggle, work hours, peak windows, manual-peak override, sleep pressure, moment sensitivities. The engine also writes telemetry and abstention counters back.</td><td><span class="q">domain/scheduler/AutoSchedulingEngine.kt:192,517</span></td></tr>
+        <tr><td class="num-col">11</td><td>prefs &#8594; <code>WoopEngine</code>/small engines</td><td>Minor policy engines read preferences and text fields only.</td><td><span class="q">domain/engine/WoopEngine.kt</span></td></tr>
+        <tr><td class="num-col">12</td><td><code>energy_predictions</code> &#8594; Analytics screen only</td><td><strong>Dead end for logic.</strong> Written on a read path when telemetry is on. One screen renders a 7-day abstention trend from it; the aggregation query that would let a backtest correct the model has no caller, so no engine ever learns from it.</td><td><span class="q">domain/repository/EnergyMetricsRepository.kt:67,151</span> <span class="q">presentation/analytics/AnalyticsViewModel.kt:101</span> <span class="conf hi">verified</span></td></tr>
+        <tr><td class="num-col">13</td><td>all engines &#8594; ViewModels</td><td>One fan-in: every score, energy number, calibration, and plan suggestion arrives at UI through a ViewModel that recomputes it per emission.</td><td><span class="q">presentation/*/*.kt</span></td></tr>
+        <tr><td class="num-col">14</td><td><code>tasks</code> &#8594; UI (observation)</td><td>Room <code>Flow</code> queries drive the lists directly. This is how a worker's write reaches the screen without any navigation.</td><td><span class="q">data/local/dao/TaskDao.kt:41</span></td></tr>
+        <tr><td class="num-col">15</td><td>workers &#8594; <code>tasks</code></td><td>Scheduler writes <code>scheduledDate/Time</code>, <code>plannedBlockMinutes</code>, <code>isAutoScheduled</code>, <code>lastAutoScheduledAt</code>; distraction worker writes <code>distractionScore</code>.</td><td><span class="q">presentation/launcher/work/ScheduleAutoTasksWorker.kt:337</span>, <span class="q">worker/DistractionSyncWorker.kt:45</span></td></tr>
+        <tr><td class="num-col">16</td><td>backup &#8594; Firestore</td><td>Read side is a fan-out over all tables (and N+1 WOOP reads); the preference snapshot carries only 31 of 104 keys, and <code>hyperFocusSessions</code> is written as an empty list.</td><td><span class="q">data/sync/CloudBackupManager.kt:56,179</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note"><strong>Confidence:</strong> <span class="conf hi">high</span> for all edges above — each is a direct call or query in one file. The
+    layer map deliberately omits engine&#8594;engine calls (section 6) and the ~40 machine-owned preference keys (section 7).</p>
+  </div>
+</section>
+
+<section id="lifecycle">
+  <h2>2. Task lifecycle <span class="tag">one row, from typed title to next occurrence</span></h2>
+  <p class="sub">The spine is the happy path. Grey boxes on the left are constraints that act on the spine;
+  boxes on the right are user actions that mutate the same row. Dotted connectors mean "affects", not "becomes".</p>
+
+  <div class="card scroll">
+    <svg viewBox="0 0 1240 960" role="img" aria-label="Task lifecycle flowchart">
+      <defs>
+        <marker id="b" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#64748b"/></marker>
+        <marker id="aw" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#ea580c"/></marker>
+        <marker id="ad" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#94a3b8"/></marker>
+      </defs>
+
+      <!-- spine -->
+      <g class="node n-src"><rect x="430" y="50" width="330" height="58"/><text x="444" y="70">1 &#183; CREATE</text><text class="t2" x="444" y="85">NewTaskFlowViewModel.buildTaskPayload &#8594; TaskRepository.insert</text><text class="t2" x="444" y="98">user types title, estimate, impact/value/effort, tags, deadline</text></g>
+      <g class="node n-pref"><rect x="430" y="132" width="330" height="44"/><text x="444" y="151">2 &#183; DECISION &#8594; hasManualScheduleData?</text><text class="t2" x="444" y="166">scheduledDate != null &amp;&amp; scheduledTime != null &amp;&amp; !isAutoScheduled</text></g>
+      <g class="node n-act"><rect x="430" y="200" width="330" height="58"/><text x="444" y="220">3 &#183; SCHEDULED</text><text class="t2" x="444" y="235">worker tick + AutoSchedulingEngine.pick slot</text><text class="t2" x="444" y="248">writes scheduledDate, scheduledTime, plannedBlockMinutes,</text></g>
+      <g class="node n-ui"><rect x="430" y="282" width="330" height="44"/><text x="444" y="301">4 &#183; ON SCREEN</text><text class="t2" x="444" y="316">Today, Upcoming, Matrix, Focus, widget all read the same row</text></g>
+      <g class="node n-src"><rect x="430" y="350" width="330" height="44"/><text x="444" y="369">5 &#183; START</text><text class="t2" x="444" y="384">FocusScreen tap, or auto-start when autoTrackerEnabled</text></g>
+      <g class="node n-store"><rect x="430" y="420" width="330" height="58"/><text x="444" y="440">6 &#183; TRACKING (in the zone)</text><text class="t2" x="444" y="455">time_sessions row with endedAt = null</text><text class="t2" x="444" y="468">while it exists the task is excluded from every replan list</text></g>
+      <g class="node n-store"><rect x="430" y="502" width="330" height="44"/><text x="444" y="521">7 &#183; INTERRUPTED</text><text class="t2" x="444" y="536">pauseResumeCount, appSwitchCount, interruptionBurstCount++</text></g>
+      <g class="node n-store"><rect x="430" y="570" width="330" height="58"/><text x="444" y="590">8 &#183; SESSION CLOSED</text><text class="t2" x="444" y="605">endedAt + durationMinutes filled in</text><text class="t2" x="444" y="618">task &#8592; totalTimeTrackedMinutes, sessionCount++, lastSessionDur</text></g>
+      <g class="node n-pref"><rect x="430" y="652" width="330" height="44"/><text x="444" y="671">9 &#183; DECISION &#8594; mark complete?</text><text class="t2" x="444" y="686">FocusCompletionManager, or MatrixViewModel manual minutes entry</text></g>
+      <g class="node n-eng"><rect x="430" y="720" width="330" height="72"/><text x="444" y="740">10 &#183; COMPLETION FAN-OUT</text><text class="t2" x="444" y="755">actualDurationMinutes = &#931; closed sessions</text><text class="t2" x="444" y="768">estimationErrorMape/Smape persisted &#183; focusModePoints = impact/10</text><text class="t2" x="444" y="781">status = COMPLETED, completedAt &#183; streak prefs &#183; HyperFocus</text></g>
+      <g class="node n-pref"><rect x="430" y="816" width="330" height="44"/><text x="444" y="835">11 &#183; DECISION &#8594; recurrence != NONE?</text><text class="t2" x="444" y="850">DAILY / WEEKLY / MONTHLY / CUSTOM(intervalDays)</text></g>
+      <g class="node n-ui"><rect x="430" y="888" width="330" height="44"/><text x="444" y="907">12 &#183; TERMINAL</text><text class="t2" x="444" y="922">one-off: stays COMPLETED/ARCHIVED &#183; habit: the new row is live</text></g>
+
+      <!-- left constraints -->
+      <g class="node n-dead"><rect x="60" y="200" width="300" height="72"/><text x="74" y="220">Score gate</text><text class="t2" x="74" y="235">TaskScoringEngine.score returns 0.0 when</text><text class="t2" x="74" y="248">status != ACTIVE &#183; waitingFor is non-blank</text><text class="t2" x="74" y="261">&#183; ScoringContext.isBlocked (dependency active)</text></g>
+      <g class="node n-dead"><rect x="60" y="420" width="300" height="72"/><text x="74" y="440">Orphan hazard</text><text class="t2" x="74" y="455">FocusViewModel.onCleared deliberately leaves</text><text class="t2" x="74" y="468">the row open. No startup, boot, or worker path</text><text class="t2" x="74" y="481">ever closes an abandoned session row.</text></g>
+      <g class="node n-dead"><rect x="60" y="720" width="300" height="72"/><text x="74" y="740">Mutable by the scheduler</text><text class="t2" x="74" y="755">isScheduleLocked or quadrant ELIMINATE</text><text class="t2" x="74" y="768">&#8594; never placed. A date without a time is still</text><text class="t2" x="74" y="781">placeable, on that day, on the user's schedule.</text></g>
+
+      <!-- right actions -->
+      <g class="node n-src"><rect x="790" y="132" width="400" height="58"/><text x="804" y="152">Postpone / move to tomorrow</text><text class="t2" x="804" y="167">postponeCount++ and isAutoScheduled = false, which also</text><text class="t2" x="804" y="180">unlocks the POSTPONE_PATTERN replan rule (&#8805;3 &#8594; forced)</text></g>
+      <g class="node n-src"><rect x="790" y="200" width="400" height="58"/><text x="804" y="220">Delete</text><text class="t2" x="804" y="235">refused while HyperFocus blocks deletion; then the id is scrubbed</text><text class="t2" x="804" y="248">from every dependsOnTaskIds with raw DAO updates (no FK cascade)</text></g>
+      <g class="node n-src"><rect x="790" y="282" width="400" height="58"/><text x="804" y="302">WOOP / if-then / enjoyment</text><text class="t2" x="804" y="317">woop_data upserts per taskId; ifThenPlan and enjoymentScore are</text><text class="t2" x="804" y="330">user text; affectiveForecastError + woopPromptShown are app-written</text></g>
+      <g class="node n-src"><rect x="790" y="570" width="400" height="58"/><text x="804" y="590">Split into sessions</text><text class="t2" x="804" y="605">splitTaskIntoSessions creates 15&#8230;120 min children and completes</text><text class="t2" x="804" y="618">the parent &#8594; each child then re-enters the spine at step 3</text></g>
+      <g class="node n-store"><rect x="790" y="816" width="400" height="58"/><text x="804" y="836">Next occurrence inserted as a new row</text><text class="t2" x="804" y="851">new UUID &#183; ACTIVE &#183; counters zeroed &#183; actual/Mape/Smape nulled</text><text class="t2" x="804" y="864">habitStreak+1 &#183; habitDate advanced &#183; deadline shifted by its offset</text></g>
+
+      <!-- spine arrows -->
+      <path class="edge" d="M595,108 V132" marker-end="url(#b)"/>
+      <path class="edge" d="M595,176 V200" marker-end="url(#b)"/>
+      <path class="edge" d="M595,258 V282" marker-end="url(#b)"/>
+      <path class="edge" d="M595,326 V350" marker-end="url(#b)"/>
+      <path class="edge" d="M595,394 V420" marker-end="url(#b)"/>
+      <path class="edge" d="M595,478 V502" marker-end="url(#b)"/>
+      <path class="edge" d="M595,546 V570" marker-end="url(#b)"/>
+      <path class="edge" d="M595,628 V652" marker-end="url(#b)"/>
+      <path class="edge" d="M595,696 V720" marker-end="url(#b)"/>
+      <path class="edge" d="M595,792 V816" marker-end="url(#b)"/>
+      <path class="edge" d="M595,860 V888" marker-end="url(#b)"/>
+
+      <!-- decision branches -->
+      <path class="edge" d="M760,154 H790" marker-end="url(#b)"/>
+      <path class="edge" d="M760,838 H790" marker-end="url(#b)"/>
+      <path class="edge" d="M990,874 C 990,912 820,910 762,910" marker-end="url(#b)"/>
+      <path class="edge wr" d="M760,910 H 776 V 240 H 762" marker-end="url(#aw)"/>
+
+      <!-- constraint connectors (dotted) -->
+      <path class="edge dead" d="M360,236 H430" marker-end="url(#ad)"/>
+      <path class="edge dead" d="M360,456 H430" marker-end="url(#ad)"/>
+      <path class="edge dead" d="M360,756 H430" marker-end="url(#ad)"/>
+      <path class="edge dead" d="M790,161 H764" marker-end="url(#ad)"/>
+      <path class="edge dead" d="M790,311 H764" marker-end="url(#ad)"/>
+
+      <text class="elbl" x="60" y="60">Orange dashed loop (right gutter): every worker tick re-enters at step 3</text>
+      <text class="elbl" x="60" y="76">until the task is locked, completed, or carries a manual timestamp.</text>
+      <text class="elbl mono" x="786" y="912">new row &#8594; same title, fresh identity</text>
+      <text class="elbl" x="700" y="560">replan</text>
+    </svg>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3 style="margin-top:0">The state columns, exactly as declared</h3>
+      <table>
+        <thead><tr><th>Column</th><th>Values</th><th>Who sets it</th></tr></thead>
+        <tbody>
+          <tr><td><code>status</code></td><td>ACTIVE, COMPLETED, ARCHIVED<br><span class="q">domain/model/Enums.kt:16</span></td><td>user (complete / archive) and the recurrence rollover</td></tr>
+          <tr><td><code>quadrant</code></td><td>DO_FIRST, SCHEDULE, DELEGATE, ELIMINATE<br><span class="q">Enums.kt:3</span></td><td>user, or <code>autoAssignQuadrant</code> writes it from the score breakdown (<span class="q">presentation/matrix/MatrixViewModel.kt:57</span>)</td></tr>
+          <tr><td><code>priority</code></td><td>HIGH, MEDIUM, LOW</td><td>user</td></tr>
+          <tr><td><code>recurrence</code></td><td>NONE, DAILY, WEEKLY, MONTHLY, CUSTOM + <code>recurrenceIntervalDays</code></td><td>user; drives <code>isHabitual</code> and <code>habitStreak</code></td></tr>
+          <tr><td>session open/closed</td><td><code>endedAt IS NULL</code> = live</td><td>5 writers close it; nothing reconciles an orphan</td></tr>
+          <tr><td><code>outcome</code> (contract)</td><td>null = active, WIN, LOSS</td><td><span class="q">worker/UlyssesEvaluatorWorker.kt:27</span> compares <code>task.completedAt</code> to <code>deadlineAt</code></td></tr>
+          <tr><td>HyperFocus tier/state</td><td>audit row per lock-down session</td><td>state machine in <code>HyperFocusManager</code></td></tr>
+        </tbody>
+      </table>
+      <p class="note">There is no <code>IN_PROGRESS</code> status. "Focusing now" is derived from the existence of an open
+      <code>time_sessions</code> row, which is why a stranded row changes the UI permanently.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Step 10 is where the app learns</h3>
+      <p>Completion is the only moment the app gets ground truth about a user's own estimates, so it is the only
+      place calibration data is written. <span class="q">presentation/focus/FocusCompletionManager.kt:32-63</span></p>
+      <table>
+        <thead><tr><th>Written</th><th>Formula</th><th>Consumed later by</th></tr></thead>
+        <tbody>
+          <tr><td><code>actualDurationMinutes</code></td><td>sum of that task's closed sessions</td><td><code>calculateRealisticDuration</code> in the planner — the estimate/actual mean becomes the next block length</td></tr>
+          <tr><td><code>estimationErrorMape</code></td><td><code>|actual &#8722; est| / est &#215; 100</code></td><td>planner inflates duration by <code>max(mape, smape)/100</code>; Analytics screens grade it</td></tr>
+          <tr><td><code>estimationErrorSmape</code></td><td>same with <code>(est+actual)/2</code> as denominator</td><td>as above, symmetrical so over-estimates are not free</td></tr>
+          <tr><td><code>focusModePoints</code></td><td><code>impactScore / 10</code></td><td>XP / streak gamification in prefs</td></tr>
+          <tr><td><code>habitStreak</code>, <code>isHabitual</code></td><td>+1 only when <code>recurrence != NONE</code></td><td>score bonus <code>min(streak&#215;12, 100)</code></td></tr>
+          <tr><td><code>affectiveForecastError</code></td><td>predicted enjoyment &#8722; actual rating</td><td><code>EnjoymentCalibration</code> &#8594; <code>prefs.enjoymentForecastBias</code> &#8594; corrected enjoyment input to the score</td></tr>
+          <tr><td><code>dailyStreak</code>, <code>longestStreak</code>, <code>xp</code></td><td>streak arithmetic in the same manager</td><td>prefs, then Analytics + notifications</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Each row above is a feedback loop: written at completion, read by a future scoring or placement
+      decision on the <em>next</em> occurrence, whose counters are then reset again. See <a href="#loops">section 6</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="scheduler">
+  <h2>3. The scheduler tick <span class="tag">how a task gets its time, and why it stops moving</span></h2>
+  <p class="sub">Orange = <code>ScheduleAutoTasksWorker</code> (does I/O, owns the Room write). Purple =
+  <code>AutoSchedulingEngine.planAutoSchedule</code> (pure planning, no storage of its own). Read top to bottom:
+  this is the order the code executes in.</p>
+
+  <div class="card scroll">
+    <svg viewBox="0 0 1240 1262" role="img" aria-label="Scheduler tick pipeline">
+      <defs>
+        <marker id="c" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#64748b"/></marker>
+        <marker id="cd" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#94a3b8"/></marker>
+        <marker id="ao" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#db2777"/></marker>
+      </defs>
+
+      <g class="node n-act"><rect x="340" y="60" width="560" height="52"/><text x="354" y="80">1 &#183; WAKE UP</text><text class="t2" x="354" y="94">periodic 15&#8230;240 min &#183; foreground tick every 2 or 5 min</text><text class="t2" x="354" y="106">one-time trigger from TaskRepository &#183; manual force-replan</text></g>
+      <g class="node n-act"><rect x="340" y="128" width="560" height="40"/><text x="354" y="145">2 &#183; single-instance guard</text><text class="t2" x="354" y="160">isWorkerRunning &#8594; return success, do nothing</text></g>
+      <g class="node n-act"><rect x="340" y="180" width="560" height="40"/><text x="354" y="197">3 &#183; master gate</text><text class="t2" x="354" y="212">!prefs.autoSchedulingEnabled &#8594; return success</text></g>
+      <g class="node n-act"><rect x="340" y="232" width="560" height="52"/><text x="354" y="252">4 &#183; load state (one read pass)</text><text class="t2" x="354" y="266">getAllTasks &#8594; keep status ACTIVE &#183; blockedTaskIds from</text><text class="t2" x="354" y="278">dependsOnTaskIds &#183; focusedTaskIds from open sessions</text></g>
+      <g class="node n-act"><rect x="340" y="300" width="560" height="52"/><text x="354" y="320">5 &#183; queue A &#8594; unscheduled</text><text class="t2" x="354" y="334">no scheduledDate/Time &#183; no manual schedule data</text><text class="t2" x="354" y="346">not blocked &#183; not focused</text></g>
+      <g class="node n-act"><rect x="340" y="368" width="560" height="52"/><text x="354" y="388">6 &#183; queue B &#8594; missed</text><text class="t2" x="354" y="402">block expired (grace 5 min if toggle on else 30) &#8594; needs</text><text class="t2" x="354" y="414">isAutoScheduled, so manual plans are never "missed"</text></g>
+      <g class="node n-act"><rect x="340" y="436" width="560" height="52"/><text x="354" y="456">7 &#183; queue C &#8594; replan</text><text class="t2" x="354" y="470">future block &#183; PlacementStability.verdict(task, now, prefs,</text><text class="t2" x="354" y="482">forceReplan).allowsReplan &#8594; see the ladder below</text></g>
+      <g class="node n-act"><rect x="340" y="504" width="560" height="40"/><text x="354" y="521">8 &#183; merge A + B + C &#8594; target list</text><text class="t2" x="354" y="536">date-only anchors keep their day; all others are cleared to null</text></g>
+      <g class="node n-eng"><rect x="340" y="560" width="560" height="40"/><text x="354" y="577">9 &#183; engine: contracts + prefs re-check</text><text class="t2" x="354" y="592">isMutableByAutoScheduler &#8743; !hasManualScheduleData &#8743; !blocked</text></g>
+      <g class="node n-eng"><rect x="340" y="616" width="560" height="52"/><text x="354" y="636">10 &#183; capacity horizon</text><text class="t2" x="354" y="650">hour slots over autoSchedulingHorizonDays, each with availableEnergy</text><text class="t2" x="354" y="662">from energyScoreFn &#183; +10 energy after EXERCISE / MINDFULNESS</text></g>
+      <g class="node n-eng"><rect x="340" y="684" width="560" height="52"/><text x="354" y="704">11 &#183; per-task inputs resolved once</text><text class="t2" x="354" y="718">ScoringContext.from(allActive) &#183; PlanningCalibration.from(all)</text><text class="t2" x="354" y="730">composite priority &#183; deadline pressure &#183; tag profiles &#183; durationFactor</text></g>
+      <g class="node n-eng"><rect x="340" y="752" width="560" height="40"/><text x="354" y="769">12 &#183; ordering</text><text class="t2" x="354" y="784">overdue or &#8804;24 h deadline tier first &#8594; earliest deadline &#8594; priority desc</text></g>
+      <g class="node n-eng"><rect x="340" y="808" width="560" height="52"/><text x="354" y="828">13 &#183; occupied intervals</text><text class="t2" x="354" y="842">busy intervals &#8746; protected slot intervals &#8746; 60-min busy starts</text><text class="t2" x="354" y="854">+ each fixed task block using TaskBlockPlan.plannedMinutes</text></g>
+      <g class="node n-eng"><rect x="340" y="876" width="560" height="40"/><text x="354" y="893">14 &#183; today-slack packing</text><text class="t2" x="354" y="908">&#8805;60 unused minutes on day 0 &#8594; isSlackFiller raises the caps</text></g>
+      <g class="node n-eng"><rect x="340" y="932" width="560" height="64"/><text x="354" y="952">15 &#183; task &#215; slot gates (the rejection funnel)</text><text class="t2" x="354" y="966">capacity &gt; 0 &#183; slot must start before the deadline &#183; utilisation &#8804; 0.50</text><text class="t2" x="354" y="978">CRITICAL / 0.85 slack / 0.70 &#183; energy hard gate &#183; then fit score</text><text class="t2" x="354" y="990">&#8594; urgent-deadline tasks bypass the utilisation and energy blocks</text></g>
+      <g class="node n-eng"><rect x="340" y="1012" width="560" height="40"/><text x="354" y="1029">16 &#183; relaxed fallback pass</text><text class="t2" x="354" y="1044">no candidates &#8594; retry with utilisation &lt; 0.90 and a &#8722;0.20 penalty</text></g>
+      <g class="node n-eng"><rect x="340" y="1068" width="560" height="40"/><text x="354" y="1085">17 &#183; start-candidate choice</text><text class="t2" x="354" y="1100">today &#8805;0.30 &#8594; within max&#8722;0.15 &#8594; earliest start; else earliest acceptable day</text></g>
+      <g class="node n-act"><rect x="340" y="1124" width="560" height="52"/><text x="354" y="1144">18 &#183; write gate (re-reads the row)</text><text class="t2" x="354" y="1158">fresh row &#183; still ACTIVE &#183; still mutable &#183; not focused now</text><text class="t2" x="354" y="1170">&#183; isMoveWorthApplying &#8743; blockLengthChanged escape</text></g>
+      <g class="node n-store"><rect x="340" y="1192" width="560" height="52"/><text x="354" y="1212">19 &#183; the only mutation</text><text class="t2" x="354" y="1226">scheduledDate, scheduledTime, isAutoScheduled = true,</text><text class="t2" x="354" y="1238">plannedBlockMinutes, lastAutoScheduledAt, updatedAt</text></g>
+
+      <path class="edge" d="M620,112 V128" marker-end="url(#c)"/>
+      <path class="edge" d="M620,168 V180" marker-end="url(#c)"/>
+      <path class="edge" d="M620,220 V232" marker-end="url(#c)"/>
+      <path class="edge" d="M620,284 V300" marker-end="url(#c)"/>
+      <path class="edge" d="M620,352 V368" marker-end="url(#c)"/>
+      <path class="edge" d="M620,420 V436" marker-end="url(#c)"/>
+      <path class="edge" d="M620,488 V504" marker-end="url(#c)"/>
+      <path class="edge" d="M620,544 V560" marker-end="url(#c)"/>
+      <path class="edge" d="M620,600 V616" marker-end="url(#c)"/>
+      <path class="edge" d="M620,668 V684" marker-end="url(#c)"/>
+      <path class="edge" d="M620,736 V752" marker-end="url(#c)"/>
+      <path class="edge" d="M620,792 V808" marker-end="url(#c)"/>
+      <path class="edge" d="M620,860 V876" marker-end="url(#c)"/>
+      <path class="edge" d="M620,916 V932" marker-end="url(#c)"/>
+      <path class="edge" d="M620,996 V1012" marker-end="url(#c)"/>
+      <path class="edge" d="M620,1052 V1068" marker-end="url(#c)"/>
+      <path class="edge" d="M620,1108 V1124" marker-end="url(#c)"/>
+      <path class="edge" d="M620,1176 V1192" marker-end="url(#c)"/>
+
+      <!-- side callouts -->
+      <g class="node n-store"><rect x="40" y="232" width="270" height="52"/><text x="54" y="252">Reads (Room)</text><text class="t2" x="54" y="266">tasks, time_sessions</text><text class="t2" x="54" y="278">both as a snapshot, not a Flow</text></g>
+      <g class="node n-pref"><rect x="40" y="436" width="270" height="52"/><text x="54" y="456">Reads (DataStore)</text><text class="t2" x="54" y="470">isAutoScheduleToggleOn, horizon days,</text><text class="t2" x="54" y="482">peak windows, sleepPressurePoints</text></g>
+      <g class="node n-eng"><rect x="40" y="616" width="270" height="52"/><text x="54" y="636">energyScoreFn is injected</text><text class="t2" x="54" y="650">the worker passes a lambda that blends</text><text class="t2" x="54" y="662">EnergyScoreRepository + staleness</text></g>
+      <g class="node n-eng"><rect x="40" y="932" width="270" height="64"/><text x="54" y="952">Fit weights (sum-normalised)</text><text class="t2" x="54" y="966">category .18 &#183; timeProximity .15</text><text class="t2" x="54" y="978">energy .13 &#183; priorityPressure .12</text><text class="t2" x="54" y="990">deadlineUrgency .10 &#183; &#8230; see table</text></g>
+      <g class="node n-dead"><rect x="930" y="180" width="270" height="52"/><text x="944" y="200">Exit: nothing runs</text><text class="t2" x="944" y="214">One switch disables placement,</text><text class="t2" x="944" y="226">the tick loop, and the widget path</text></g>
+      <g class="node n-dead"><rect x="930" y="436" width="270" height="64"/><text x="944" y="456">Exit: verdict says no</text><text class="t2" x="944" y="470">NEAR_TERM_FREEZE, COOLDOWN or KEEP</text><text class="t2" x="944" y="482">&#8594; the task keeps the start the user</text><text class="t2" x="944" y="494">already sees on screen</text></g>
+      <g class="node n-dead"><rect x="930" y="932" width="270" height="64"/><text x="944" y="952">Exit: rejection reason</text><text class="t2" x="944" y="966">LOCKED_TASK, MANUAL_SCHEDULE_PRESENT,</text><text class="t2" x="944" y="978">DEPENDENCY_BLOCKED, NO_CAPACITY_IN_HORIZON,</text><text class="t2" x="944" y="990">LOW_ENERGY_PROTECTION, PROTECTED_SLOT</text></g>
+      <g class="node n-dead"><rect x="930" y="1124" width="270" height="52"/><text x="944" y="1144">Exit: not worth it</text><text class="t2" x="944" y="1158">No write, so no new lastAutoScheduledAt.</text><text class="t2" x="944" y="1170">The cooldown clock does not restart.</text></g>
+      <g class="node n-ui"><rect x="930" y="1192" width="270" height="52"/><text x="944" y="1212">Then, without navigation</text><text class="t2" x="944" y="1226">Room Flow &#8594; ViewModel &#8594; Today,</text><text class="t2" x="944" y="1238">Upcoming, Matrix, Focus, widget</text></g>
+
+      <path class="edge dead" d="M310,258 H340" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M310,462 H340" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M310,642 H340" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M310,964 H340" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M900,200 H930" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M900,462 H930" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M900,964 H930" marker-end="url(#cd)"/>
+      <path class="edge dead" d="M900,1150 H930" marker-end="url(#cd)"/>
+      <path class="edge obs" d="M900,1218 H930" marker-end="url(#ao)"/>
+    </svg>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3 style="margin-top:0">The four things that wake the scheduler</h3>
+      <table>
+        <thead><tr><th>Source</th><th>Policy</th><th>InputData</th></tr></thead>
+        <tbody>
+          <tr><td><span class="q">NeuroFlowApplication.scheduleDailyWorkers</span></td><td>periodic, interval <code>coerceIn(15, 240)</code> min from prefs, unique name <code>schedule_auto_tasks_work</code></td><td>none &#8594; forceReplan false</td></tr>
+          <tr><td><span class="q">NeuroFlowApplication:183</span> foreground tick</td><td>periodic, <code>ExistingPeriodicWorkPolicy.KEEP</code>, unique name <code>&#8230;_foreground_tick</code>, 2 min if the auto-schedule toggle is on else 5 min</td><td>none</td></tr>
+          <tr><td><span class="q">presentation/schedule/ScheduleViewModel.kt:83</span></td><td>one-time on the <strong>same unique name</strong> as the tick loop, with <code>REPLACE</code></td><td><code>FORCE_REPLAN = true</code></td></tr>
+          <tr><td><span class="q">data/repository/TaskRepository.kt:260</span></td><td>one-time <code>&#8230;_work_trigger</code>, <code>REPLACE</code>, enqueued after create/edit/delete/complete (6 call sites)</td><td><strong>none</strong> &#8594; never a forced replan</td></tr>
+        </tbody>
+      </table>
+      <p class="note"><span class="conf med">finding</span> Because the manual "replan now" request is a one-time worker
+      on the tick loop's unique name, and because <code>doWork</code> early-returns whenever another instance is running
+      (<span class="q">ScheduleAutoTasksWorker.kt:89-98</span>), a forced replan can be dropped silently. Two different
+      policies (<code>KEEP</code> periodic vs <code>REPLACE</code> one-time) also share that name.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Step 7 in full: <code>PlacementStability.verdict</code></h3>
+      <table>
+        <thead><tr><th>Order</th><th>Condition</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>no <code>scheduledDate</code></td><td>KEEP (not a replan case at all)</td></tr>
+          <tr><td>1</td><td>block starts in &lt; 2 h — <em>checked before force</em></td><td><strong>NEAR_TERM_FREEZE</strong> &#8594; no</td></tr>
+          <tr><td>2</td><td><code>forceReplan</code></td><td>FORCED &#8594; yes</td></tr>
+          <tr><td>3</td><td>age since <code>lastAutoScheduledAt ?: updatedAt</code> &#8804; cooldown<br><span class="q">urgent deadline 1 h &#183; toggle on 4 h &#183; else 6 h</span></td><td><strong>COOLDOWN</strong> &#8594; no (gates every rule below)</td></tr>
+          <tr><td>4</td><td>deadline &lt; 6 h and &gt;50% of the remaining time already spent, or deadline &lt; 12 h and <code>Priority.LOW</code></td><td>DEADLINE_RESCUE &#8594; yes</td></tr>
+          <tr><td>5</td><td><code>postponeCount &#8805; 3</code></td><td>POSTPONE_PATTERN &#8594; yes</td></tr>
+          <tr><td>6</td><td>&gt; 24 h out and (<code>Priority.HIGH</code> or <code>impactScore &#8805; 80</code> or <code>isFrog</code>) and unlocked</td><td>FAR_FUTURE_PULL_IN &#8594; yes</td></tr>
+          <tr><td>7</td><td>toggle on &#8594; every pass; otherwise a stable hash bucket <code>(now/6h) % 5 == (id % 5)</code></td><td>PERIODIC_REFRESH &#8594; yes</td></tr>
+          <tr><td>8</td><td>nothing matched</td><td>KEEP &#8594; no</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Then step 18 asks a second, independent question
+      (<span class="q">domain/scheduler/PlacementStability.kt</span>): an identical start is never rewritten; a block
+      already in the past always takes the new slot; otherwise the shift must be &#8805; 30 min.
+      <code>plannedBlockMinutes != decision.estimatedDurationMinutes</code> is an escape hatch, so a skipped write can
+      never leave a stale reserved block length behind.</p>
+    </div>
+  </div>
+</section>
+
+<section id="energy">
+  <h2>4. The energy chain <span class="tag">from a sleep record to a slot being worth taking</span></h2>
+  <p class="sub">Three rows, top to bottom: <em>ground truth</em> &#8594; <em>circadian reservoir</em> &#8594;
+  <em>usable energy</em>. The last row forks — the app computes "energy" twice along two non-equivalent paths, and that
+  difference is the single most important thing to know before changing any scheduling behaviour.</p>
+
+  <div class="card scroll">
+    <svg viewBox="0 0 1240 720" role="img" aria-label="Energy chain from sleep logs to slot fit">
+      <defs>
+        <marker id="e" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#64748b"/></marker>
+        <marker id="ew" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#ea580c"/></marker>
+        <marker id="ed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#94a3b8"/></marker>
+      </defs>
+
+      <!-- row 1 -->
+      <g class="node n-store"><rect x="40" y="60" width="250" height="58"/><text x="54" y="80">sleep_logs rows</text><text class="t2" x="54" y="94">source = MANUAL (user typed)</text><text class="t2" x="54" y="106">or AUTO_DEFAULT (app invented)</text></g>
+      <g class="node n-store"><rect x="40" y="140" width="250" height="44"/><text x="54" y="159">SleepLogRepository</text><text class="t2" x="54" y="174">swaps reversed times, 60 s floor, derives duration</text></g>
+      <g class="node n-eng"><rect x="330" y="60" width="270" height="72"/><text x="344" y="80">SleepPressureRepository</text><text class="t2" x="344" y="94">refreshCurrentPressure() &#8594; Snapshot</text><text class="t2" x="344" y="106">reads every log, walks the awake minutes,</text><text class="t2" x="344" y="118">then persists the total (not a pure read)</text></g>
+      <g class="node n-pref"><rect x="640" y="60" width="250" height="58"/><text x="654" y="80">prefs.sleepPressurePoints</text><text class="t2" x="654" y="94">one Int, the whole fatigue model</text><text class="t2" x="654" y="106">written at :208-214</text></g>
+      <g class="node n-eng"><rect x="930" y="60" width="270" height="72"/><text x="944" y="80">SleepPressureDetector (pure)</text><text class="t2" x="944" y="94">1 point / awake minute, cap 14 400</text><text class="t2" x="944" y="106">90-min cycle: 279 full, 126 &#8804;60 min, 33 after</text><text class="t2" x="944" y="118">fatigueRatio = (p/3000)^0.82, clamp 0..1</text></g>
+
+      <!-- row 2 -->
+      <g class="node n-pref"><rect x="40" y="240" width="250" height="72"/><text x="54" y="260">chronotype inputs</text><text class="t2" x="54" y="274">quizChronotype / manualChronotype</text><text class="t2" x="54" y="286">wakeUpHour, sleepHour, quizPeakEnabled,</text><text class="t2" x="54" y="298">manualPeakProfileEnabled + 12 fields</text></g>
+      <g class="node n-eng"><rect x="330" y="240" width="270" height="88"/><text x="344" y="260">PeakEnergyRepository</text><text class="t2" x="344" y="274">builds SlotPerformanceAggregate from</text><text class="t2" x="344" y="286">time_sessions, then three write-backs:</text><text class="t2" x="344" y="298">&#183; abstention telemetry :482</text><text class="t2" x="344" y="310">&#183; adaptive freeze guard :627</text><text class="t2" x="344" y="322">&#183; morning weight auto-tune :883</text></g>
+      <g class="node n-eng"><rect x="640" y="240" width="250" height="72"/><text x="654" y="260">PeakEnergyEngine.detect</text><text class="t2" x="654" y="274">PEAK_VALUE = 4000 reservoir</text><text class="t2" x="654" y="286">phase shift = debt&#183;18 + pressure&#183;20</text><text class="t2" x="654" y="298">&#8722; oversleep&#183;10 + wakeVariance&#183;26</text><text class="t2" x="654" y="310">+ behaviour&#183;coldStart + drift</text></g>
+      <g class="node n-store"><rect x="930" y="240" width="270" height="72"/><text x="944" y="260">DetectionResult (in memory)</text><text class="t2" x="944" y="274">peakValue, peakMinuteOfDay, profile,</text><text class="t2" x="944" y="286">windows + per-window confidence</text><text class="t2" x="944" y="298">currentValueAt(t) = 4000</text><text class="t2" x="944" y="310">&#8722; minSincePeak &#215; (4000/960)</text></g>
+
+      <!-- row 3 -->
+      <g class="node n-eng"><rect x="40" y="400" width="300" height="88"/><text x="54" y="420">EnergyScoreEngine.calculateDetailed</text><text class="t2" x="54" y="434">reservoir = currentValueAt(now)/4000</text><text class="t2" x="54" y="446">circadian = 0.35 + 0.65 &#215; cosine window</text><text class="t2" x="54" y="458">peakScore = 100 &#215; reservoir &#215; circadian &#215; conf</text><text class="t2" x="54" y="470">raw = peakScore &#8722; 100 &#215; fatigueRatio</text><text class="t2" x="54" y="482">usable = (raw + 100) / 2   &#8594; 0..100</text></g>
+      <g class="node n-eng"><rect x="380" y="400" width="300" height="88"/><text x="394" y="420">MomentEnergyEngine.predict</text><text class="t2" x="394" y="434">interruptionLoad = (n&#215;.18 + switches&#215;.12</text><text class="t2" x="394" y="446">+ pauses&#215;.08)/8 &#215; sensitivity</text><text class="t2" x="394" y="458">support .45/.25/.15/.15 vs pressure .55/.20/.25</text><text class="t2" x="394" y="470">adjustment = (support &#8722; pressure) &#215; 24</text><text class="t2" x="394" y="482">&#8594; adjustedRawEnergy, confidence</text></g>
+
+      <g class="node n-ui"><rect x="40" y="530" width="380" height="78"/><text x="54" y="550">PATH A &#8594; what the UI calls "energy"</text><text class="t2" x="54" y="564">EnergyScoreRepository.observeEnergy() &#8594; availableEnergy,</text><text class="t2" x="54" y="576">momentConfidence, per-signal freshness ages.</text><text class="t2" x="54" y="588">Evaluated at <em>now</em>, with the moment signals attached.</text><text class="t2" x="54" y="600">Side effect on this read path: telemetry writes.</text></g>
+      <g class="node n-act"><rect x="460" y="530" width="380" height="78"/><text x="474" y="550">PATH B &#8594; what the scheduler actually uses</text><text class="t2" x="474" y="564">energyScoreFn(slotMillis) = baseline usableEnergy <em>projected</em></text><text class="t2" y="576" x="474">at the slot time, then blended with Path A's availableEnergy:</text><text class="t2" x="474" y="588">weight 0.35 &#8804;2 h, 0.20 &#8804;6 h, 0.10 &#8804;12 h, 0 beyond;</text><text class="t2" x="474" y="600">&#215;0.5 if &gt;5 min stale, &#215;0.25 if &gt;10 min stale.</text></g>
+
+      <g class="node n-dead"><rect x="880" y="400" width="320" height="102"/><text x="894" y="420">Telemetry branch (logic dead end)</text><text class="t2" x="894" y="434">prefs.energyTelemetryEnabled &#8594;</text><text class="t2" x="894" y="446">EnergyMetricsRepository inserts an</text><text class="t2" x="894" y="458">energy_predictions row (~1/min, 26 cols).</text><text class="t2" x="894" y="470">Retention: 30 d raw is implemented, the</text><text class="t2" x="894" y="482">90 d aggregate tier is not. One reader only &#8212;</text><text class="t2" x="894" y="494">the Analytics 7-day abstention trend. No engine.</text></g>
+
+      <g class="node n-eng"><rect x="40" y="640" width="800" height="58"/><text x="54" y="660">Consumer &#8594; AutoSchedulingEngine slot model</text><text class="t2" x="54" y="674">EnergyZone hysteresis: rising 83/63/43/23, falling 77/57/37/17 &#8594; hard energy gate (:313)</text><text class="t2" x="54" y="686">fit weight 0.13 &#183; daily cognitive budget 170/130/100/75 min by fatigue zone &#183; break policy</text></g>
+
+      <path class="edge" d="M290,89 H330" marker-end="url(#e)"/>
+      <path class="edge" d="M165,140 V118" marker-end="url(#e)"/>
+      <path class="edge" d="M600,96 H640" marker-end="url(#e)"/>
+      <path class="edge" d="M890,89 H930" marker-end="url(#e)"/>
+      <path class="edge wr" d="M765,118 V140 H300 V118" marker-end="url(#ew)"/>
+      <path class="edge" d="M600,276 H640" marker-end="url(#e)"/>
+      <path class="edge" d="M290,276 H330" marker-end="url(#e)"/>
+      <path class="edge" d="M890,276 H930" marker-end="url(#e)"/>
+      <path class="edge" d="M165,312 V400" marker-end="url(#e)"/>
+      <path class="edge" d="M1010,312 C 1010,360 700,380 340,430" marker-end="url(#e)"/>
+      <path class="edge" d="M765,132 C 765,360 600,400 540,430" marker-end="url(#e)"/>
+      <path class="edge" d="M340,444 H380" marker-end="url(#e)"/>
+      <path class="edge" d="M190,488 V530" marker-end="url(#e)"/>
+      <path class="edge" d="M530,488 V530" marker-end="url(#e)"/>
+      <path class="edge" d="M420,569 H460" marker-end="url(#e)"/>
+      <path class="edge" d="M230,608 V640" marker-end="url(#e)"/>
+      <path class="edge" d="M650,608 V660 H840" marker-end="url(#e)"/>
+      <path class="edge dead" d="M680,444 H880" marker-end="url(#ed)"/>
+      <text class="elbl" x="296" y="150" >read</text>
+      <text class="elbl" x="420" y="112">auto-default sleep rows are created here, then read back</text>
+    </svg>
+  </div>
+
+  <div class="card warn">
+    <h3>What this chain cannot currently do</h3>
+    <p style="margin-top:0">Recorded in project memory from the <strong>energy model audit (2026-10)</strong> and confirmed by the code above.
+    <span class="conf hi">high confidence</span> — see <code>ENERGY_PRODUCTIVITY_AUDIT.md</code>.</p>
+    <ul>
+      <li><strong>The reservoir decays over 960 minutes from a peak that is itself inferred.</strong> With
+      <code>circadianFactor</code> floored at 0.35 and <code>confidence</code> multiplying the peak term, the maximum
+      reachable <code>usableEnergy</code> for a typical detection is well under 100; combined with the fatigue subtraction,
+      the "deep work now" recommendation band is mathematically hard to enter.</li>
+      <li><strong>Sleep debt is invisible to the priority score.</strong> <code>TaskScoringEngine</code> never reads
+      <code>prefs.sleepPressurePoints</code>; only the planner and the energy model do. So a exhausted user still sees the
+      same "do this first" ordering, and only the placement of it changes.</li>
+      <li><strong>Two live-energy numbers exist and they disagree.</strong> Path A (UI) evaluates at <code>now</code>;
+      Path B (scheduler) evaluates at the slot time and then blends Path A back in with a weight that collapses to 0
+      beyond 12 hours. Anything that shows "energy" and anything that decides "when" are not reading the same quantity.</li>
+      <li><strong>Manual peak override short-circuits everything.</strong> <code>manualPeakProfileEnabled</code> supplies a
+      profile with <code>confidence = 1f</code>, bypassing the abstention, freeze guard, and auto-tune gates that would
+      otherwise police the inferred windows.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="distraction">
+  <h2>5. The distraction loop <span class="tag">phone usage becomes a priority score</span></h2>
+  <p class="sub">The only loop in the app where data from <em>outside</em> the app changes what the app tells you to do
+  first. It closes on itself: distraction raises priority, priority wins placement, placement produces a session,
+  and sessions are what the ranking correlates against.</p>
+
+  <div class="card scroll">
+    <svg viewBox="0 0 1240 540" role="img" aria-label="Distraction feedback loop">
+      <defs>
+        <marker id="f" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#64748b"/></marker>
+        <marker id="fw" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#ea580c"/></marker>
+        <marker id="ao" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#db2777"/></marker>
+      </defs>
+
+      <g class="node n-src"><rect x="40" y="60" width="290" height="88"/><text x="54" y="80">Android usage events</text><text class="t2" x="54" y="94">UsageStatsManager, 30-day lookback</text><text class="t2" x="54" y="106">episode &#8805; 3 s, 60 min cap per package,</text><text class="t2" x="54" y="118">system prefixes filtered out.</text><text class="t2" x="54" y="130">Needs PACKAGE_USAGE_STATS, never stored.</text></g>
+
+      <g class="node n-eng"><rect x="400" y="40" width="330" height="120"/><text x="414" y="60">DistractionEngine.rankByDistraction</text><text class="t2" x="414" y="74">per task: correlate foreground events inside</text><text class="t2" x="414" y="86">that task's sessions since createdAt.</text><text class="t2" x="414" y="98">frequency = ln(1+events) &#215; 15</text><text class="t2" x="414" y="110">depth = min(&#931; min(min&#215;weight&#215;10, 30), 40)</text><text class="t2" x="414" y="122">&#8722; circadianPenalty = peak/events &#215; 20</text><text class="t2" x="414" y="134">&#8722; recoveryPenalty = min(avgRecovery&#215;2, 15)</text><text class="t2" x="414" y="146">score = min(total, 100)</text></g>
+
+      <g class="node n-act"><rect x="800" y="60" width="300" height="88"/><text x="814" y="80">DistractionSyncWorker</text><text class="t2" x="814" y="94">periodic 1 DAY, KEEP, battery-not-low.</text><text class="t2" x="814" y="106">Writes only when the value changed.</text><text class="t2" x="814" y="118">Skips entirely without the permission.</text><text class="t2" x="814" y="130"><code>tasks.distractionScore</code> (sentinel &#8722;1)</text></g>
+
+      <g class="node n-eng"><rect x="780" y="240" width="320" height="88"/><text x="794" y="260">TaskScoringEngine.priorityBoost</text><text class="t2" x="794" y="274">&#8805;75 &#8594; +80 &#183; &#8805;50 &#8594; +45 &#183; &#8805;25 &#8594; +20</text><text class="t2" x="794" y="286">Applied only when distractionScore &gt; 0,</text><text class="t2" x="794" y="298">so the &#8722;1 sentinel and 0 both mean "no boost".</text><text class="t2" x="794" y="310">Up to 80 of the 1200-point ceiling.</text></g>
+
+      <g class="node n-act"><rect x="400" y="260" width="300" height="66"/><text x="414" y="280">Placement + surfaces</text><text class="t2" x="414" y="294">Higher score &#8594; earlier slot, frog bonus</text><text class="t2" x="414" y="306">interaction, notification ranking, widget.</text><text class="t2" x="414" y="320">Also read by PeakEnergyRepository signals.</text></g>
+
+      <g class="node n-store"><rect x="60" y="260" width="270" height="66"/><text x="74" y="280">A session gets recorded</text><text class="t2" x="74" y="294">time_sessions row with startedAt,</text><text class="t2" x="74" y="306">endedAt, taskId, interruption counters</text></g>
+
+      <g class="node n-ui"><rect x="400" y="380" width="330" height="88"/><text x="414" y="400">Second, uncoordinated channel</text><text class="t2" x="414" y="414">dailyScreenUsage(): pairs foreground events,</text><text class="t2" x="414" y="426">then nets flagged minutes that fall inside a</text><text class="t2" x="414" y="438">focus window back out of the total.</text><text class="t2" x="414" y="450">&#8594; Today-screen card, score =</text><text class="t2" x="414" y="462">distracted/(distracted+focus) &#215; 100</text></g>
+
+      <g class="node n-pref"><rect x="800" y="380" width="300" height="72"/><text x="814" y="400">rankAppsByDistraction</text><text class="t2" x="814" y="414">per-package scores cached in</text><text class="t2" x="814" y="426">launcher_prefs.distractionScores,</text><text class="t2" x="814" y="438">used to sort the launcher app grid.</text></g>
+
+      <path class="edge" d="M330,104 H400" marker-end="url(#f)"/>
+      <path class="edge" d="M730,104 H800" marker-end="url(#f)"/>
+      <path class="edge wr" d="M950,148 V240" marker-end="url(#fw)"/>
+      <path class="edge" d="M780,290 H700" marker-end="url(#f)"/>
+      <path class="edge" d="M400,296 H330" marker-end="url(#f)"/>
+      <path class="edge obs" d="M195,326 V360 C 195,392 300,400 400,404" marker-end="url(#ao)"/>
+      <path class="edge" d="M195,326 V360 C 195,392 300,424 400,428" marker-end="url(#f)"/>
+      <path class="edge wr" d="M250,260 C 250,180 330,150 400,130" marker-end="url(#fw)"/>
+      <path class="edge" d="M1100,104 C 1150,180 1150,340 1100,390" marker-end="url(#f)"/>
+
+      <text class="elbl" x="366" y="176">the loop closes here</text>
+      <text class="elbl" x="1104" y="200">same events,</text>
+      <text class="elbl" x="1104" y="214">second reader</text>
+    </svg>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Stage</th><th>Rule as coded</th><th>Why it matters when rebuilding</th></tr></thead>
+      <tbody>
+        <tr><td>Package &#8594; weight</td><td>Hard-coded table, ~90 entries: Instagram 1.0, YouTube 0.80, Slack 0.45, Gmail 0.35 &#8230; (<span class="q">DistractionEngine.kt:32-123</span>)</td><td>The default flagged list is every package with weight &#8805; 0.65, seeded into <code>prefs.distractingPackages</code> — the user list, not the table, drives scoring after the first run.</td></tr>
+        <tr><td>Unknown package</td><td>Falls back to <code>effectiveWeight</code> rather than 0</td><td>New apps are scored, not ignored; but the fallback is a constant, so an unknown app cannot outrank a known one.</td></tr>
+        <tr><td>Per-app episode cap</td><td>60 min per package within the window; 3 s minimum event</td><td>Prevents one long doomscroll from saturating the depth term.</td></tr>
+        <tr><td>"Not enough data"</td><td><code>MIN_TRACKED_MS_FOR_VERDICT</code> = 15 min of tracked usage</td><td>Below that, no verdict is written, so the old score persists.</td></tr>
+        <tr><td>Write-back</td><td><code>if (task.distractionScore != newScore) update(copy(...))</code> (<span class="q">worker/DistractionSyncWorker.kt:44</span>)</td><td>A change-detection guard, so the daily pass does not stamp <code>updatedAt</code> on every task.</td></tr>
+        <tr><td>Read into priority</td><td>Only when <code>distractionScore &gt; 0f</code> (<span class="q">TaskScoringEngine.kt:708</span>)</td><td>Zero (clean) and &#8722;1 (never computed) both produce no boost — the two are indistinguishable downstream, which is why other readers special-case <code>&lt; 0</code> as "assume mild".</td></tr>
+        <tr><td>Overlap semantics</td><td>Flagged minutes inside a focus window are netted out of "deep work" in the Today card</td><td><span class="conf low">unratified</span> My unilateral call during an earlier fix, recorded in project memory; it affects only that card, never the persisted score.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="loops">
+  <h2>6. The 11 feedback loops <span class="tag">why today's result changes tomorrow's plan</span></h2>
+  <p class="sub">The app is not a pure function of the task list. Eleven values are written by the system and then
+  read back as inputs, so the same task produces a different score and a different slot each day. Every one of them is
+  a persisted field, never a cached computation.</p>
+
+  <div class="card scroll">
+    <svg viewBox="0 0 1240 210" role="img" aria-label="Generic write-read feedback cycle">
+      <defs>
+        <marker id="g" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#64748b"/></marker>
+        <marker id="aw2" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#ea580c"/></marker>
+      </defs>
+      <g class="node n-store"><rect x="40" y="60" width="240" height="60"/><text x="54" y="84">1 &#183; value persisted</text><text class="t2" x="54" y="100">a column or a preference key</text></g>
+      <g class="node n-eng"><rect x="360" y="60" width="240" height="60"/><text x="374" y="84">2 &#183; engine reads it</text><text class="t2" x="374" y="100">as an input to a score or gate</text></g>
+      <g class="node n-ui"><rect x="680" y="60" width="240" height="60"/><text x="694" y="84">3 &#183; decision changes</text><text class="t2" x="694" y="100">rank, slot, block length, nudge</text></g>
+      <g class="node n-act"><rect x="1000" y="60" width="200" height="60"/><text x="1014" y="84">4 &#183; user lives it</text><text class="t2" x="1014" y="100">session, rating, outcome</text></g>
+      <path class="edge" d="M280,90 H360" marker-end="url(#g)"/>
+      <path class="edge" d="M600,90 H680" marker-end="url(#g)"/>
+      <path class="edge" d="M920,90 H1000" marker-end="url(#g)"/>
+      <path class="edge wr" d="M1100,120 C 1100,180 300,180 160,120" marker-end="url(#aw2)"/>
+      <text class="elbl" x="430" y="196">and writes a new value back &#8594; the loop is closed by a Room write or a preference write, never by a cache</text>
+    </svg>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>#</th><th>Persisted value</th><th>Written by</th><th>Read back by</th><th>Effect on the next decision</th><th>Reset</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>tasks.plannedBlockMinutes</code></td><td><span class="q">ScheduleAutoTasksWorker.kt:338</span> from the decision</td><td><code>TaskBlockPlan.plannedMinutes</code> when building occupied intervals (engine step 13)</td><td>A task that already has a block reserves that much capacity, so a longer estimate next pass finds less room</td><td>&#8594; 0 when <code>estimatedDurationMinutes</code> changes (<span class="q">TaskRepository.kt:99</span>)</td></tr>
+        <tr><td>2</td><td><code>actualDurationMinutes</code>, <code>estimationErrorMape</code>, <code>estimationErrorSmape</code></td><td>completion fan-out</td><td><code>calculateRealisticDuration</code> (<span class="q">AutoSchedulingEngine.kt:922</span>)</td><td>block = mean(est, actual) &#215; (1 + max(mape, smape)/100) &#215; energy adjustment (1.0/1.1/1.25/1.45/1.85), cap 360</td><td>nulled on the next recurrence row</td></tr>
+        <tr><td>3</td><td><code>prefs.enjoymentForecastBias</code></td><td><span class="q">FocusWoopManager.kt:52</span> from <code>affectiveForecastError</code></td><td><code>EnjoymentCalibration.forecast</code> inside <code>correctedEnjoymentScore</code></td><td>enjoyment input is shifted by up to &#177;15 points before the 40/20/20/15 bands</td><td>rewritten whenever |&#916;| &#8805; 0.5</td></tr>
+        <tr><td>4</td><td><code>tasks.distractionScore</code></td><td><span class="q">DistractionSyncWorker.kt:45</span></td><td><code>priorityBoost</code> (&#8804; +80) and peak behaviour signals</td><td>the task you keep getting interrupted on rises in the ranking, so it gets an earlier slot</td><td>daily overwrite when changed</td></tr>
+        <tr><td>5</td><td><code>tasks.habitStreak</code></td><td><span class="q">TaskRepository.kt:280,345</span></td><td>score bonus <code>min(streak &#215; 12, 100)</code></td><td>habits self-reinforce up to +100 of the 1200 ceiling</td><td>carried forward, +1 per occurrence</td></tr>
+        <tr><td>6</td><td><code>tasks.postponeCount</code></td><td><span class="q">TaskRepository.kt:137,159</span></td><td>score <code>min(n&#215;30,180)</code> <strong>and</strong> <code>POSTPONE_PATTERN</code> at n&#8805;3</td><td>two-way loop: it raises priority <em>and</em> unlocks a replan past the cooldown</td><td>0 on rollover</td></tr>
+        <tr><td>7</td><td><code>prefs.sleepPressurePoints</code></td><td><span class="q">SleepPressureRepository.kt:208</span></td><td>energy model, cognitive budget, break policy, moment pressure</td><td>tiredness shrinks the daily budget (170&#8594;75 min) and can hard-block slots</td><td>rewritten every refresh</td></tr>
+        <tr><td>8</td><td>the same refresh <em>creates</em> <code>sleep_logs</code> rows with <code>source = "AUTO_DEFAULT"</code></td><td><span class="q">SleepPressureRepository.kt:169</span></td><td>the next refresh, as ground truth</td><td><strong>self-feeding:</strong> with no user sleep data the model invents a sleep session that then justifies its own pressure number</td><td>deleted only via the manual path</td></tr>
+        <tr><td>9</td><td>peak meta-state: abstention counters, freeze flag, <code>morningTune*</code> weights</td><td>three DataStore write-backs inside <code>PeakEnergyRepository</code> (<span class="q">:482, :627, :883</span>)</td><td><code>PeakEnergyEngine.detect</code> and the confidence maths</td><td>a meta-loop: the detector can decide its own signal is unreliable and damp or freeze it</td><td>guarded by <code>peakConfidenceAbstentionEnabled</code></td></tr>
+        <tr><td>10</td><td><code>tasks.sessionCount</code></td><td><span class="q">FocusSessionManager.kt:121</span></td><td>progress bonus <code>min(n&#215;18, 72)</code> <em>and</em> it disables the staleness bonus (which requires <code>sessionCount == 0</code>)</td><td>starting a task is worth more than finishing it, and it also removes the "this is rotting" signal</td><td>0 on rollover</td></tr>
+        <tr><td>11</td><td><code>prefs.dailyStreak</code>, <code>longestStreak</code>, XP totals</td><td>completion fan-out, <span class="q">MatrixViewModel.kt:121</span></td><td><code>AnalyticsSummary</code>, streak notifications, widget</td><td>display only, but it drives the notification loop that brings the user back</td><td>broken by the daily check</td></tr>
+      </tbody>
+    </table>
+    <p class="note">A 12th is textual, not numeric: <code>ifThenPlan</code>. Writing a plan (user, or the WOOP nudge that
+    deep-links <code>mini_woop/{taskId}</code>) adds <code>(25 + effort/100 &#215; 55) &#215; weightPlanBoost</code> to the score
+    plus a cohesion bonus in the planner &#8594; the cheapest way to move a task up the list is to state when and where you
+    will do it. The nudge itself only fires while <code>sessionCount == 0</code>, so it stops once the loop closes.</p>
+  </div>
+</section>
+
+<section id="lineage">
+  <h2>7. Field-level lineage <span class="tag">who writes each machine-owned value</span></h2>
+  <p class="sub">User-typed fields are omitted: they are created once and changed only by an edit.
+  Everything below is written by logic. This is the table to keep in hand when rebuilding a screen &#8594; a field you
+  display but cannot name a writer for is a field you cannot explain.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0"><code>tasks</code> &#8594; the logic-written columns</h3>
+    <table>
+      <thead><tr><th>Column</th><th>Writer</th><th>Readers</th><th>Sentinel / reset</th></tr></thead>
+      <tbody>
+        <tr><td><code>plannedBlockMinutes</code></td><td><span class="q">ScheduleAutoTasksWorker.kt:338</span></td><td>planner occupancy, expiry check, "did this task get its time?" UI</td><td>0 when the estimate changes; cap 360</td></tr>
+        <tr><td><code>totalTimeTrackedMinutes</code></td><td><span class="q">FocusSessionManager.kt:120</span>, <span class="q">MatrixViewModel.kt:158,198,246</span>, <span class="q">TaskRepository.kt:129</span></td><td>progress screens</td><td>0 on recurrence rollover</td></tr>
+        <tr><td><code>sessionCount</code></td><td><span class="q">FocusSessionManager.kt:121</span></td><td>score progress + staleness terms</td><td>0 on rollover</td></tr>
+        <tr><td><code>lastSessionDurationMinutes</code></td><td><span class="q">FocusSessionManager.kt:122</span></td><td>Focus screen context</td><td>null on rollover</td></tr>
+        <tr><td><code>actualDurationMinutes</code></td><td><span class="q">FocusCompletionManager.kt:41</span>, manual entry</td><td>MAPE/SMAPE, realistic duration</td><td>null on rollover and on <code>resetEstimationErrors</code></td></tr>
+        <tr><td><code>estimationErrorMape</code> / <code>Smape</code></td><td><span class="q">FocusCompletionManager.kt:45</span></td><td>planner inflation term, Analytics grades</td><td>null as above</td></tr>
+        <tr><td><code>habitStreak</code> / <code>isHabitual</code></td><td><span class="q">TaskRepository.kt:279,345</span></td><td>score bonus, habit UI</td><td>streak carried; nothing decays it</td></tr>
+        <tr><td><code>focusModePoints</code></td><td><span class="q">FocusCompletionManager.kt:50</span> = <code>impactScore/10</code></td><td>XP</td><td>0 on rollover</td></tr>
+        <tr><td><code>postponeCount</code></td><td><span class="q">TaskRepository.kt:137,159</span></td><td>score penalty, POSTPONE_PATTERN</td><td>0 on rollover</td></tr>
+        <tr><td><code>completedAt</code> / <code>updatedAt</code></td><td>every repository write</td><td>Ulysses win/loss, staleness, replan age fallback</td><td>&#8212;</td></tr>
+        <tr><td><code>affectiveForecastError</code></td><td><span class="q">FocusWoopManager.kt:78</span></td><td>enjoyment calibration</td><td>&#8212;</td></tr>
+        <tr><td><code>woopPromptShown</code></td><td><span class="q">FocusWoopManager.kt:66,72</span></td><td>gates re-prompting</td><td>never cleared</td></tr>
+        <tr><td><code>distractionScore</code></td><td><span class="q">DistractionSyncWorker.kt:45</span></td><td>priority boost, peak signals, Today card</td><td><strong>&#8722;1</strong> = never computed</td></tr>
+        <tr><td><code>isAutoScheduled</code></td><td><span class="q">worker:337</span> true; cleared by <span class="q">TaskRepository.kt:162</span> and by a user edit</td><td>the ownership flag for the whole scheduler</td><td>&#8212;</td></tr>
+        <tr><td><code>lastAutoScheduledAt</code></td><td><span class="q">worker:339</span></td><td>the cooldown clock in <code>PlacementStability</code></td><td><strong>nulled</strong> when the user edits the task (<span class="q">NewTaskFlowViewModel.kt:282</span>)</td></tr>
+        <tr><td><code>habitDate</code></td><td><span class="q">TaskRepository.kt:331</span> via <code>nextRecurringAnchorAfter</code></td><td>the anchor for every recurring reminder and the <code>observeTasksForDate</code> query</td><td>&#8212;</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Time, session, and preference derivations</h3>
+    <table>
+      <thead><tr><th>Value</th><th>Derived where</th><th>Formula / rule</th><th>Consumers</th></tr></thead>
+      <tbody>
+        <tr><td><code>durationMinutes</code></td><td>the close paths only</td><td><code>end &#8722; start &#8722; totalPausedMs</code>; stays null on a live row</td><td><code>SUM(durationMinutes)</code> per day &#8594; a live row contributes <strong>0</strong></td></tr>
+        <tr><td><code>trackedMinutes()</code></td><td><span class="q">TimeSessionEntity.kt:29</span></td><td>same maths, but computes live rows and caps them at <strong>120 min</strong></td><td>Deep Work Today, Progress &#8594; a day's total differs from the SQL total whenever a session is open</td></tr>
+        <tr><td><code>totalTimeTrackedMinutes</code></td><td>accumulated at close</td><td>+= that session's minutes</td><td>a third, independent "how long have I spent" number</td></tr>
+        <tr><td><code>effectiveReminderTargetMillis()</code></td><td><span class="q">TaskTimeExtensions.kt:23</span></td><td>recurring &#8594; day start + (scheduled | deadline | <strong>09:00</strong>); else deadline &#8594; scheduled &#8594; habitDate</td><td>reminder worker delay</td></tr>
+        <tr><td><code>effectiveScheduleAnchorMillis()</code></td><td><span class="q">TaskTimeExtensions.kt:37</span></td><td>identical, except <strong>no 09:00 fallback</strong></td><td>timeline and "missed" logic &#8594; the two helpers disagree for a recurring task with no times</td></tr>
+        <tr><td><code>schedulingCategory</code></td><td><span class="q">TaskEntity.determineCategory()</span></td><td>explicit override &#8594; tag profile &#8594; keyword &#8594; <code>taskType</code></td><td>the heaviest fit weight (0.18) and per-category calibration</td></tr>
+        <tr><td><code>quadrant</code> when unset</td><td><span class="q">TaskScoringEngine.kt:1123</span></td><td>importance &#215; urgency thresholds</td><td>written to the row by <span class="q">MatrixViewModel.kt:57</span> &#8594; becomes a user-visible fact</td></tr>
+        <tr><td>~40 preference keys</td><td>machine-owned groups</td><td>adaptive tuning weights, abstention counters, freeze state, streak totals, <code>sleepPressurePoints</code>, <code>enjoymentForecastBias</code>, chronotype quiz output</td><td>engines; <strong>only 31 of 104 keys</strong> survive a cloud round-trip</td></tr>
+        <tr><td><code>launcher_prefs.distractionScores</code></td><td>launcher ranking pass</td><td>per-package 0..100</td><td>app-grid sort, Settings picker</td></tr>
+        <tr><td><code>hyperfocus_prefs</code></td><td>a single JSON string, 17 fields</td><td><code>serviceHeartbeat</code> is an in-memory <code>AtomicLong</code> overlaid on it</td><td>kiosk / lock-down state machine</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The 104-key mapping is written out three times in <span class="q">data/local/UserPreferencesDataStore.kt</span>
+    (read <code>preferencesFlow</code> :289, rebuild :477, write-back :601). Adding one value therefore costs three edits there,
+    plus the entity, the migration, and both Firestore codecs &#8594; <strong>five to six touch points for one new fact.</strong></p>
+  </div>
+</section>
+
+<section id="engines">
+  <h2>8. Engine inventory and the 1200-point budget <span class="tag">the pure logic, with its constants</span></h2>
+  <p class="sub">Sixteen domain components. Only <code>AutoSchedulingEngine</code> is injectable
+  (<code>@Singleton</code>, one dependency: the preference store); the rest are Kotlin <code>object</code>s called
+  statically with <code>nowMillis</code> defaulted. <strong>No engine is bound in a Hilt module</strong>
+  (<span class="q">di/AppModule.kt</span> provides only the database, 8 DAOs, 3 repositories, the preference store,
+  <code>LauncherApps</code>, and WorkManager).</p>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Engine</th><th>Kind</th><th>Reads</th><th>Produces</th><th>Persists?</th></tr></thead>
+      <tbody>
+        <tr><td><code>TaskScoringEngine</code> (1163 ln)</td><td>pure object</td><td>task fields, all active tasks, 11 weight multipliers, peak windows</td><td>raw score 0..1200, <code>displayScore</code> 0..999, urgency label/fraction, quadrant suggestion, breakdown</td><td>no &#8212; recomputed every call</td></tr>
+        <tr><td><code>AnalyticsEngine</code></td><td>pure object</td><td>completed tasks, sessions, prefs</td><td>MAPE/SMAPE, <code>PlanningCalibration</code>, <code>EnjoymentCalibration</code>, <code>AnalyticsSummary</code></td><td>no &#8212; callers persist its numbers</td></tr>
+        <tr><td><code>DistractionEngine</code> (656 ln)</td><td><em>impure</em>: takes <code>Context</code></td><td>usage events, sessions, task tags, flagged package list</td><td>0..100 per task, per app, daily screen usage</td><td>no &#8212; the worker writes it</td></tr>
+        <tr><td><code>SleepPressureDetector</code></td><td>pure object</td><td>awake minutes, sleep minutes</td><td>pressure points, fatigue %/ratio/zone</td><td>no</td></tr>
+        <tr><td><code>PeakEnergyEngine</code> (840 ln)</td><td>pure object</td><td>session aggregates, chronotype, sleep, personalisation signals</td><td><code>DetectionResult</code>: peak value, windows, confidences, profile</td><td>no</td></tr>
+        <tr><td><code>EnergyScoreEngine</code></td><td>pure object</td><td>DetectionResult + pressure + now</td><td>raw energy &#8722;100..100, usable 0..100, term breakdown</td><td>no</td></tr>
+        <tr><td><code>MomentEnergyEngine</code></td><td>pure object</td><td>live interruption/notification/task-pressure signals</td><td>&#177;24 adjustment to raw energy + confidence</td><td>no</td></tr>
+        <tr><td><code>MEQChronotypeDetector</code></td><td>pure object</td><td>19 quiz answers (16..86)</td><td>chronotype + baseline window</td><td>via the quiz ViewModel</td></tr>
+        <tr><td><code>AutoSchedulingEngine</code> (2438 ln)</td><td><code>@Singleton</code>, suspend</td><td>everything above + prefs + injected energy function</td><td><code>ScheduleDecision</code> list with telemetry snapshot</td><td>no &#8212; the worker applies it</td></tr>
+        <tr><td><code>PlacementStability</code></td><td>pure object</td><td>the placed task, now, prefs, force flag</td><td>replan verdict + "is this move material"</td><td>no</td></tr>
+        <tr><td><code>TaskBlockPlan</code></td><td>pure object</td><td>task + slot end + now</td><td>planned / expected / default minutes, block end, expiry</td><td>no</td></tr>
+        <tr><td><code>ProtectedSlotClock</code></td><td>pure object</td><td>protected slots JSON, now</td><td>due slots with phase LEAD_IN / RUNNING / WRAPPING + takeover order</td><td>no</td></tr>
+        <tr><td><code>AutoSchedulingContracts</code></td><td>pure object</td><td>the task</td><td>manual-data / mutability predicates + rejection enum</td><td>no</td></tr>
+        <tr><td><code>TaskTagSchedulingProfile</code></td><td>pure object + catalog</td><td>33 tag profiles, task text</td><td>energy fit, context fit, window tolerance, category inference</td><td>seeds the tag catalog</td></tr>
+        <tr><td><code>WoopEngine</code>, <code>FreshStartEngine</code></td><td>pure objects</td><td>WOOP text / the active list</td><td>plan suggestion; "emergency reset" keeps the top 2 of <code>isFrog || impact&#8805;70 || deadline&#8804;24h</code></td><td>no</td></tr>
+        <tr><td><code>AutonomyNudgeEngine</code></td><td><em>impure</em>: calls WorkManager</td><td>stale tasks, tags</td><td>a delayed nudge work request</td><td>indirectly (the queue)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3 style="margin-top:0">Priority score: additive terms</h3>
+      <p>All weights default to 1.0 and are user-tunable multipliers, never replaces. Ceiling
+      <code>THEORETICAL_MAX = 1200f</code>; UI shows <code>min((raw/1200)&#215;999, 999)</code>.</p>
+      <table>
+        <thead><tr><th>Term</th><th>Points</th></tr></thead>
+        <tbody>
+          <tr><td>Quadrant</td><td>300 / 180 / 80 / 20 (DO_FIRST&#8230;ELIMINATE)</td></tr>
+          <tr><td>Deadline urgency</td><td>ladder 500, 420, 340, 260, 200, 150, 110, 70, 40, 20, then <code>max(5, 15&#215;e^(&#8722;h/720))</code>, &#215; effort multiplier, &#215; weight</td></tr>
+          <tr><td>Scheduled proximity</td><td>5 / 40 / 130 / 170 / 110 / 65 / 35 / 8 by hours away</td></tr>
+          <tr><td>Priority level</td><td>150 / 75 / 20</td></tr>
+          <tr><td>Importance</td><td><code>impact&#215;0.55 + value&#215;0.45</code>, plus floor <code>((impact&#8722;65)/35)&#215;60</code> when impact &#8805; 65</td></tr>
+          <tr><td>Effort / focus mode</td><td>boost for very short or very long blocks</td></tr>
+          <tr><td>Duration</td><td><code>max(0, 40 &#8722; est&#215;0.3)</code> for 1..90 min</td></tr>
+          <tr><td>Energy match</td><td>70 / 20 / &#8722;35 &#215; peak tier scale (a 13..15 h slot scores separately)</td></tr>
+          <tr><td>Circadian</td><td>per <code>TaskType</code> &#215; weight</td></tr>
+          <tr><td>Frog</td><td><code>(120 | 90&#215;tier | 20 | 50) &#215; (0.5 + effort/100&#215;0.5)</code></td></tr>
+          <tr><td>Postpone</td><td><code>min(n&#215;30, 180)</code></td></tr>
+          <tr><td>Habit streak</td><td><code>min(n&#215;12, 100)</code></td></tr>
+          <tr><td>Unblocker</td><td><code>&radic;(dependents) &#215; 80</code></td></tr>
+          <tr><td>Anti-staleness</td><td><code>min(days&#215;2, 40)</code> only when &gt;7 days <em>and</em> <code>sessionCount == 0</code></td></tr>
+          <tr><td>Progress</td><td><code>min(sessions&#215;18, 72)</code></td></tr>
+          <tr><td>If-then plan</td><td><code>25 + effort/100&#215;55</code></td></tr>
+          <tr><td>Enjoyment</td><td>40 / 20 / 20 / 15 on the <em>calibrated</em> score</td></tr>
+          <tr><td>Commitment / lock / goal-risk / anxiety</td><td>+70 / 160&#183;80&#183;30 / 60&#183;130 / +40 (+20)</td></tr>
+          <tr><td>Distraction</td><td>+80 / +45 / +20 (see section 5)</td></tr>
+          <tr><td>Tag &amp; category suitability</td><td>multipliers &#215;1.4 energy, &#215;1.0 window, penalties down to &#8722;12 tolerance</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Hard zeroes first: <code>status != ACTIVE</code>, non-blank <code>waitingFor</code>, or blocked by an
+      incomplete dependency. <code>scoreBreakdown</code> (:832) re-implements this whole list for the explanation UI &#8594;
+      the two can drift (<a href="#gaps">gap 1</a>).</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Planner fit: the other weighting system</h3>
+      <p>Where scoring is additive points out of 1200, fit is a normalised 0..1 weighted sum. Rebuilding one does not
+      rebuild the other.</p>
+      <table>
+        <thead><tr><th>Fit component</th><th>Weight</th></tr></thead>
+        <tbody>
+          <tr><td>overdue</td><td>0.35 &#8722; dayIndex&#215;0.15</td></tr>
+          <tr><td>day front-load</td><td>0.20</td></tr>
+          <tr><td>category</td><td>0.18</td></tr>
+          <tr><td>time proximity</td><td>0.15</td></tr>
+          <tr><td>energy</td><td>0.13</td></tr>
+          <tr><td>priority pressure</td><td>0.12</td></tr>
+          <tr><td>deadline urgency</td><td>0.10</td></tr>
+          <tr><td>proximity / deadline placement</td><td>0.08 / 0.08</td></tr>
+          <tr><td>tag</td><td>0.04</td></tr>
+          <tr><td>confidence</td><td>0.02</td></tr>
+          <tr><td>flat bonuses</td><td>+0.04 if-then, +0.05 frog in PEAK, +0.05 day-0 09..11, +0.12 slack packing, &#8722;0.20 relaxed pass</td></tr>
+        </tbody>
+      </table>
+      <h3>Calibration maths (the two shrinkage estimators)</h3>
+      <table>
+        <thead><tr><th>Constant</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>samples needed</td><td>5 per scope</td></tr>
+          <tr><td>prior strength</td><td>4.0 &#8594; weight = n/(n+4)</td></tr>
+          <tr><td>ratio clamp</td><td>0.4 &#8230; 3.0 per task</td></tr>
+          <tr><td>factor clamp</td><td>0.8 &#8230; 1.6 overall</td></tr>
+          <tr><td>per-category mean</td><td>geometric: <code>exp(mean(ln r))</code></td></tr>
+          <tr><td>enjoyment</td><td>10 pts/rating, max offset 15</td></tr>
+          <tr><td>static duration priors</td><td>1.15 / 1.10 / 0.90 / 1.0 by category when no data</td></tr>
+        </tbody>
+      </table>
+      <h3>Duration &amp; capacity</h3>
+      <ul>
+        <li><code>realistic = cap(((est+actual)/2) &#215; (1+max(mape,smape)/100) &#215; energyAdj &#215; calibFactor, 360)</code>,
+        energyAdj 1.0/1.1/1.25/1.45/1.85</li>
+        <li>default block when unplanned: effort &#8805;70 &#8594; 60 min, &#8805;40 &#8594; 45, else 30 &#8212; but the planner's
+        inline fallback says 30 (<a href="#gaps">gap 8</a>)</li>
+        <li>cognitive budget per day: 170 / 130 / 100 / 75 min by fatigue zone</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="stores">
+  <h2>9. Stores, workers, and surfaces <span class="tag">the persistence and runtime inventory</span></h2>
+
+  <div class="card">
+    <h3 style="margin-top:0">Room v20 &#8594; 10 entities, 10 DAOs, 20 hand-written migrations</h3>
+    <table>
+      <thead><tr><th>Table</th><th>Purpose</th><th>Primary writer</th><th>Notable</th></tr></thead>
+      <tbody>
+        <tr><td><code>tasks</code></td><td>the work item</td><td><code>TaskRepository</code> + 2 workers</td><td>carries user input <em>and</em> the largest pile of machine-written feedback in the schema</td></tr>
+        <tr><td><code>time_sessions</code></td><td>one stopwatch run</td><td><code>FocusSessionManager</code> + 3 other close paths</td><td>the raw material for every energy and distraction signal</td></tr>
+        <tr><td><code>sleep_logs</code></td><td>a sleep interval</td><td><code>SleepLogRepository</code>, <code>SleepPressureRepository</code></td><td>only table with indices; rows can be created without the user</td></tr>
+        <tr><td><code>energy_predictions</code></td><td>telemetry audit</td><td><code>EnergyMetricsRepository</code> only</td><td>one read path exists &#8212; the Analytics 7-day abstention trend <span class="q">AnalyticsViewModel.kt:101 &#8594; AnalyticsScreen.kt:1431</span>; the backtest aggregation <span class="q">EnergyMetricsRepository.kt:151</span> has <strong>no caller</strong>, so no engine ever learns from it. ABORT-conflict insert, so restore wraps it in <code>runCatching</code></td></tr>
+        <tr><td><code>goals</code></td><td>a goal tasks point at</td><td><code>GoalRepository</code></td><td><code>completedTaskCount</code> has <strong>no writer anywhere</strong> yet still round-trips through the cloud <span class="conf hi">verified</span></td></tr>
+        <tr><td><code>notes</code></td><td>freeform note on the launcher</td><td><code>NoteRepository</code></td><td><code>updatedAt</code> stamped in the repository; rows are destroyed by the <span class="q">NeuroFlowDatabase.kt:250,271</span> 18&#8594;19 and 17&#8594;19 migrations</td></tr>
+        <tr><td><code>woop_data</code></td><td>WOOP script</td><td><code>WoopRepository</code> upsert</td><td>PK <em>is</em> the taskId &#8212; 1:1 by convention, no FK</td></tr>
+        <tr><td><code>ulysses_contracts</code></td><td>deadline with consequence</td><td>user + evaluator worker</td><td><code>outcome</code> null = active; the only DB state column decided by a background job</td></tr>
+        <tr><td><code>unlock_codes</code></td><td>AES-encrypted 6-char codes</td><td><code>UnlockCodeRepositoryImpl</code></td><td>declared in <strong>presentation</strong>, not data</td></tr>
+        <tr><td><code>hyperfocus_sessions</code></td><td>lock-down audit &#8212; <em>intended</em></td><td><strong>none in practice</strong></td><td>The DAO is provided and injected, but <code>HyperFocusManagerImpl</code> persists to <code>hyperfocus_prefs</code> JSON instead. <code>getById</code> has no caller, the only writer is the backup-restore loop <span class="q">CloudBackupManager.kt:191,192</span>, and the matching backup always sends <code>hyperFocusSessions = emptyList()</code> <span class="q">:85</span> &#8212; so the table stays empty in both directions <span class="conf hi">verified</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note">Two of ten entities live under <code>presentation/launcher/hyperfocus/data/</code>, so
+    <code>data.local</code> imports <code>presentation.launcher</code> &#8594; the layering runs both ways.
+    No <code>@ForeignKey</code> exists anywhere, only <code>SleepLogEntity</code> declares indices, and
+    <code>Converters.toTaskType</code> silently coerces any unknown stored value to <code>ANALYTICAL</code> while every
+    other converter throws.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">14 workers &#8594; what each one mutates</h3>
+    <table>
+      <thead><tr><th>Worker</th><th>Trigger</th><th>Writes / does</th><th>Reaches UI via</th></tr></thead>
+      <tbody>
+        <tr><td><code>ScheduleAutoTasksWorker</code></td><td>4 sources (section 3)</td><td>placement columns</td><td>Room Flow</td></tr>
+        <tr><td><code>DistractionSyncWorker</code></td><td>daily, KEEP</td><td><code>distractionScore</code></td><td>Room Flow</td></tr>
+        <tr><td><code>NotificationWorker</code> &#8594; 4 classes: DailyPlan, StreakCheck, DeadlineEscalation, TaskReminder</td><td>1 DAY / 1 DAY / 4 H / one-time per task</td><td>only <code>StreakCheckWorker:199</code> writes (<code>dailyStreak = 0</code> when broken); the other three post notifications and mutate nothing</td><td>the notification shade</td></tr>
+        <tr><td><code>AutonomyNudgeWorker</code></td><td>delayed 2 h, only when <code>sessionCount == 0</code></td><td>none</td><td>deep link <code>mini_woop/{taskId}</code></td></tr>
+        <tr><td><code>UlyssesEvaluatorWorker</code></td><td>one-time, <strong>non-unique</strong> enqueue</td><td>contract <code>outcome</code> WIN/LOSS</td><td>Room Flow</td></tr>
+        <tr><td><code>FocusWidgetUpdateWorker</code></td><td>on session changes</td><td>none</td><td>RemoteViews, outside the app</td></tr>
+        <tr><td><code>EnergyTelemetryCleanupWorker</code></td><td>periodic</td><td>deletes <code>energy_predictions</code> older than 30 d</td><td>nothing</td></tr>
+        <tr><td><code>SleepPressureRefreshWorker</code></td><td>daily &#8212; <strong>hard-codes 19:00</strong>, ignores its prefs argument</td><td><code>sleepPressurePoints</code>, auto sleep rows</td><td>prefs Flow</td></tr>
+        <tr><td><code>AccessibilityWatchdogWorker</code></td><td>periodic</td><td>service state</td><td>&#8212;</td></tr>
+        <tr><td><code>KioskPolicyWorker</code></td><td>periodic; the only non-<code>@HiltWorker</code></td><td>device-owner policy</td><td>&#8212;</td></tr>
+        <tr><td><code>CloudSyncWorker</code></td><td>daily, network-connected, manual only</td><td>Firestore backup, then <strong>prunes to 3</strong></td><td>AccountSync screen</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Startup order &#8594; because it decides what data exists when</h3>
+    <p class="q" style="font-size:12.5px">crash handler &#8594; Firebase &#8594; StrictMode &#8594; <strong>enforceRestoreVersionPolicy
+    (may wipe the whole database before anything reads it)</strong> &#8594; notification channels &#8594; scheduleDailyWorkers
+    (registers/cancels the periodic scheduler <em>from inside a prefs <code>collect</code></em>, so every preference write
+    re-drives it) &#8594; app list load &#8594; kiosk &#8594; HyperFocus re-sync &#8594; tag catalog seeding.</p>
+    <p class="note">The last item matters for lineage: <code>TaskTagSchedulingProfile.starterTags</code> is re-injected into
+    the persisted catalog on every start, so deleting a seeded tag does not delete it.</p>
+  </div>
+</section>
+
+<section id="rebuild">
+  <h2>10. Rebuild checklist <span class="tag">the invariants, if you were to write this again</span></h2>
+  <p class="sub">Not a proposal to change anything &#8594; this is the load-bearing behaviour the current design depends on,
+  stated so it survives a rewrite. Each item names the file that proves it exists today.</p>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>#</th><th>Invariant</th><th>Why the app breaks without it</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>Ownership flag on every placement.</strong> A block is either the user's or the machine's, recorded explicitly (<code>isAutoScheduled</code>), and a user edit must clear it plus the cooldown timestamp.</td><td>Otherwise the scheduler overwrites manual plans, and after a manual edit the plan still "belongs" to automation, so it moves back. <span class="q">AutoSchedulingContracts.kt:14</span>, <span class="q">NewTaskFlowViewModel.kt:282</span></td></tr>
+        <tr><td>2</td><td><strong>Stability before optimisation.</strong> Ask "is this move worth disturbing the user for?" <em>before</em> asking "where is best". Freeze anything starting within 2 h, gate every rule with a cooldown, require a &#8805;30 min delta, and never write an identical placement.</td><td>A pass every few minutes that only maximises fit rewrites the same afternoon forever. <span class="q">PlacementStability.kt</span></td></tr>
+        <tr><td>3</td><td><strong>Live work is never re-planned.</strong> Derive "in the zone" from an open <code>time_sessions</code> row and exclude those task ids from every candidate list <em>and</em> re-check them immediately before the write.</td><td>Planning a task you are inside is the bug that motivated rule 2. <span class="q">ScheduleAutoTasksWorker.kt:116, 290</span></td></tr>
+        <tr><td>4</td><td><strong>Re-read the row inside the write path.</strong> Never trust the in-memory copy the plan was built from.</td><td>The pass takes seconds; completions and edits land during it. <span class="q">ScheduleAutoTasksWorker.kt:293</span></td></tr>
+        <tr><td>5</td><td><strong>Reserve the block length you actually planned.</strong> Persist <code>plannedBlockMinutes</code> and let anything asking "did this task get its time?" read it instead of re-deriving it.</td><td>Re-deriving gives a different answer in the planner than in the UI, and free-capacity accounting double-books the same hour. <span class="q">TaskEntity.kt:98-101</span>, <span class="q">domain/scheduler/TaskBlockPlan.kt:17</span></td></tr>
+        <tr><td>6</td><td><strong>Every machine-written value needs a reset path.</strong> Recurrence rollover must zero counters and null the estimation history.</td><td>Otherwise a habit inherits its past streak of interruptions and forever sizes its own block from one ancient session. <span class="q">TaskRepository.kt:331-350</span></td></tr>
+        <tr><td>7</td><td><strong>One helper per time derivation.</strong> Reminder anchor, schedule anchor, day bucket, and the date/time split should live in exactly one place.</td><td>Today there are two non-equivalent anchor helpers and the worker re-implements the split inline with its own DST comments. <span class="q">TaskTimeExtensions.kt:23,37,85</span> vs <span class="q">ScheduleAutoTasksWorker.kt:353</span></td></tr>
+        <tr><td>8</td><td><strong>Telemetry must be read, or not written.</strong> An audit table needs at least one consumer (a backtest, a recommendation, a screen) or it is only cost.</td><td><code>energy_predictions</code> grows ~1 row/min and its only consumer is one screen chart; the aggregation query built for a backtest is never called <span class="q">EnergyMetricsRepository.kt:151</span>, and <code>hyperfocus_sessions</code> is a table whose only writer is a restore loop fed by an always-empty backup payload <span class="q">CloudBackupManager.kt:85,191</span>.</td></tr>
+        <tr><td>9</td><td><strong>Score is a function, not a column.</strong> Keep it computed, and keep the explanation UI reading the <em>same</em> code path as the ranking.</td><td>Otherwise the "why this rank" list and the rank itself disagree. <span class="q">TaskScoringEngine.kt:438</span> vs <span class="q">:832</span></td></tr>
+        <tr><td>10</td><td><strong>Preference growth needs a generator.</strong> 104 keys with three hand-written mappings is the failure mode; a single schema table (or serialization) removes five touch points per fact.</td><td>Every new signal is currently 5&#8230;6 coordinated edits, which is why some never get a backup entry. <span class="q">UserPreferencesDataStore.kt:289,477,601</span></td></tr>
+        <tr><td>11</td><td><strong>Backup must be symmetric with the schema.</strong> A restore cannot delete, and a partial preference snapshot silently loses adaptive state.</td><td><code>toBackupMap</code> carries 31 of 104 keys; <code>applyPayload</code> is additive REPLACE-on-PK. <span class="q">CloudBackupManager.kt:56,179</span></td></tr>
+        <tr><td>12</td><td><strong>No destructive migration for a table that holds user data.</strong></td><td>Both 17&#8594;18&#8594;19 and 17&#8594;19 run <code>DROP TABLE notes</code> on schema-identical recreations. <span class="q">NeuroFlowDatabase.kt:246-286</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Suggested reading order for the code itself</h3>
+    <ol style="margin:0 0 0 18px;padding:0;font-size:13.5px">
+      <li><code>domain/model/Enums.kt</code> &#8594; 30 seconds, and it removes half the ambiguity in everything else.</li>
+      <li><code>data/local/entity/TaskEntity.kt</code> + <code>TaskTimeExtensions.kt</code> &#8594; the shape of the domain.</li>
+      <li><code>domain/scheduler/AutoSchedulingContracts.kt</code> &#8594; then <code>PlacementStability.kt</code> &#8594; then <code>TaskBlockPlan.kt</code>. These three are the rules; the 2438-line engine is the implementation of the rules.</li>
+      <li><code>ScheduleAutoTasksWorker.kt</code> &#8594; where the rules meet I/O. Read <code>doWork</code> then <code>applyDecisionsTransactionally</code>.</li>
+      <li><code>TaskScoringEngine.kt:438-720</code> &#8594; the additive model, top to bottom.</li>
+      <li><code>FocusSessionManager.kt</code> + <code>FocusCompletionManager.kt</code> &#8594; the only place the app learns anything.</li>
+      <li><code>EnergyScoreRepository.kt</code> &#8594; the energy fork (Path A), then the worker's <code>energyScoreFn</code> (Path B).</li>
+    </ol>
+  </div>
+</section>
+
+<section id="gaps">
+  <h2>11. Gaps, divergences, and hazards <span class="tag">what the map could not confirm</span></h2>
+  <p class="sub">Findings, not opinions about style. Each is a place where two parts of the system answer the same
+  question differently, or where data moves but nothing consumes it. Full citation list in
+  <code>data-flow-evidence.md</code>; remediation ordering in <code>data-flow-risks-and-gaps.md</code>.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">Behavioural hazards <span class="conf hi">high confidence, verified in code</span></h3>
+    <table>
+      <thead><tr><th>Hazard</th><th>Mechanism</th><th>What the user experiences</th></tr></thead>
+      <tbody>
+        <tr><td>Stranded focus session</td><td><code>FocusViewModel.onCleared</code> deliberately leaves the row open; 5 close paths exist, none of them a reconciliation. Since the session pin was added, an open row also <strong>permanently freezes that task's placement</strong>.</td><td>"Focusing now" stuck on a card all day; today's deep-work total short by however long the run was; the block never moves again.</td></tr>
+        <tr><td>Notes destroyed on upgrade</td><td><code>MIGRATION_18_19</code> and <code>MIGRATION_17_19</code> each run <code>DROP TABLE notes</code> then recreate the identical schema &#8212; no copy-out, no copy-in. <span class="q">NeuroFlowDatabase.kt:246-284</span></td><td>Every note written while the database was at v17 or v18 is gone after the update that reaches v19.</td></tr>
+        <tr><td>Forced replan dropped</td><td>One-time <code>FORCE_REPLAN</code> request shares a unique worker name with a <code>KEEP</code> periodic tick, and <code>doWork</code> returns early if an instance is already running.</td><td>"Replan now" appears to do nothing.</td></tr>
+        <tr><td>Adaptive state does not survive a restore</td><td>Backup snapshot carries 31 of 104 preference keys; restore is additive and cannot delete local rows; <code>energy_predictions</code> restores hit an ABORT-conflict insert swallowed by <code>runCatching</code>.</td><td>A restored install behaves like a new install for peak detection, sleep pressure, tuning, and streaks.</td></tr>
+        <tr><td>Backup deletes history</td><td>Success path ends with <code>pruneOldBackups(keep = 3)</code>.</td><td>Backing up is also a remote delete.</td></tr>
+        <tr><td>Sleep pressure is self-supplied</td><td>The refresh creates <code>AUTO_DEFAULT</code> sleep rows, then reads them as ground truth.</td><td>Fatigue model can be built on data the user never entered.</td></tr>
+        <tr><td>Two inert fields with visible consumers</td><td><code>goals.completedTaskCount</code> has no writer; <code>tasks.goalRiskLevel</code> is only set by hand in the editor, so nothing "escalates" despite the loss-aversion score term and the &#9888;/&#128680; badges.</td><td>Features that read as live are permanently 0 / permanently whatever the user typed.</td></tr>
+        <tr><td>Lock-down history goes neither way</td><td><code>hyperfocus_sessions</code> is written only by the restore loop <span class="q">CloudBackupManager.kt:191</span>, while the backup builds its payload with <code>hyperFocusSessions = emptyList()</code> <span class="q">:85</span>; <code>HyperFocusManagerImpl</code> keeps state in <code>hyperfocus_prefs</code> JSON and the DAO&#8217;s one query method has no caller.</td><td>A Hyper-Focus lock-down is invisible to backup, restore, analytics, and every screen that assumes the table matters.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Divergent derivations <span class="conf med">14 ways the same question is answered twice</span></h3>
+    <table>
+      <thead><tr><th>Question</th><th>Answer 1</th><th>Answer 2</th></tr></thead>
+      <tbody>
+        <tr><td>What is this task's score?</td><td><code>score()</code> :438</td><td><code>scoreBreakdown()</code> :832, a second full implementation of the same terms</td></tr>
+        <tr><td>How good is this slot for this category?</td><td>scoring: raw points (&#215;14 energy, +8 context, &#215;10 window)</td><td>planner: normalised 0..1 weight 0.18</td></tr>
+        <tr><td>How valuable is a frog?</td><td>scoring: <code>(120|90&#215;tier|20|50) &#215; (0.5 + effort/100&#215;0.5)</code></td><td>planner: flat +0.05 when placed in PEAK</td></tr>
+        <tr><td>How important is this task?</td><td>scoring: <code>impact&#215;0.55 + value&#215;0.45</code></td><td>planner: <code>((imp+val)/200)&#215;0.7 + level&#215;0.3</code></td></tr>
+        <tr><td>Is now inside a peak window?</td><td>exclusive end</td><td>inclusive end, and a third <code>endExclusive</code> variant</td></tr>
+        <tr><td>How much did I focus in peak hours?</td><td>per-session bucketing</td><td>per-minute overlap, at two granularities</td></tr>
+        <tr><td>How loaded is today?</td><td>seeded from <em>estimated</em> durations</td><td>accumulated from <em>planned</em> durations</td></tr>
+        <tr><td>Default block length</td><td><code>TaskBlockPlan.defaultMinutes</code> 60/45/30 by effort</td><td>planner inline fallback: 30</td></tr>
+        <tr><td><strong>What is my energy?</strong></td><td>Path A: at <code>now</code>, with moment signals</td><td>Path B: projected at the slot time, blended back with a weight that hits 0 past 12 h</td></tr>
+        <tr><td>Confidence in a manual peak profile</td><td><code>1f</code>, bypassing abstention, freeze, and auto-tune</td><td>everything else is a 4-term weighted estimate</td></tr>
+        <tr><td>Minutes spent on a task</td><td><code>SUM(durationMinutes)</code> (live rows = 0)</td><td><code>trackedMinutes()</code> (live rows, capped 120) and <code>totalTimeTrackedMinutes</code></td></tr>
+        <tr><td>Distraction, as a number</td><td>per-task <code>distractionScore</code> column</td><td>per-day <code>dailyDistractionScore</code>, computed live with focus-overlap netting</td></tr>
+        <tr><td>When is a recurring task due?</td><td>reminder: 09:00 fallback</td><td>schedule: raw <code>habitDate</code>, no fallback</td></tr>
+        <tr><td>Protected slot width</td><td><code>ProtectedSlotClock.takeoverOf</code> excludes <code>recoveryBufferMinutes</code></td><td>the planner's blocked intervals include it &#8594; up to 120 min of disagreement</td></tr>
+      </tbody>
+    </table>
+    <p class="note">None of these are crashes. They are the reason the app can say two different things about the same
+    task in two different screens &#8594; and the reason a change to one formula must be mirrored, which is what the
+    <a href="#rebuild">rebuild checklist</a> is meant to make unnecessary.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Unknowns worth validating before trusting this map further</h3>
+    <ul>
+      <li><strong>Runtime behaviour.</strong> Everything here is static reading of source; no traces, no device, no
+      emulator. Whether the tick loop actually survives Doze, and how often the single-instance guard fires, is unmeasured.
+      <span class="conf low">low</span></li>
+      <li><strong>Orphan navigation.</strong> Routes <code>matrix</code>, <code>history</code>, <code>analytics</code>,
+      <code>weekly_schedule</code> have no in-app entry point, and <code>com.procus.ACTION_OPEN_ANALYTICS</code> is emitted
+      by two callers but not handled in <code>MainActivity.handleIntent</code>. Either an external shortcut exists or these
+      screens are unreachable. <span class="conf med">medium</span></li>
+      <li><strong>Field counts.</strong> "104 preference keys" and "31 backed up" are read off the DataStore and codec
+      sources; a rebuild should recount rather than reuse the number.</li>
+      <li><strong>Which divergences are intentional.</strong> Several double-implementations may be deliberate (a
+      presentation-grade formula kept simple on purpose). Nothing in the repo documents intent &#8594; there is no ADR or
+      <code>docs/</code> precedent, so intent is unknown, not absent.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+<footer>
+  <p>Sources of truth for this document: <code>docs/architecture/data-flow/*.dot</code> (Graphviz), 
+  <code>data-flow-evidence.md</code> (citation index), <code>data-flow-risks-and-gaps.md</code> (findings).
+  Generated 2026-10-11 from <code>app/src/main/java/com/neuroflow/app/</code>, Room schema version 20.</p>
+</footer>
+</body>
+</html>

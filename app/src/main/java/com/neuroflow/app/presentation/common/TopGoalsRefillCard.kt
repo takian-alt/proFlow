@@ -52,7 +52,7 @@ fun TopGoalsRefillCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "These will be pinned in your drawer as a daily reminder.",
+                text = "These will be pinned in your Plan hub as a daily reminder.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

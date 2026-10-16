@@ -26,6 +26,11 @@ object SleepPressureDetector {
     const val PHASE_TWO_BONUS = 33
     const val FULL_CYCLE_RECOVERY = 279
     const val SOFT_MAX_REFERENCE = 3000
+    const val SLEEP_INERTIA_DURATION_MINUTES = 30
+    const val DEFAULT_MAX_SLEEP_INERTIA_PENALTY = 0.35f
+    const val CHRONIC_RESTRICTION_THRESHOLD_HOURS = 6.0f
+    const val CHRONIC_RESTRICTION_THRESHOLD_MINUTES = 360
+    const val OPTIMAL_DAILY_SLEEP_MINUTES = 480
     private const val FATIGUE_CURVE_GAMMA = 0.82f
     // Phase 1 overflow guard: max pressure = ~10 days of continuous wake (14,400 minutes)
     // This prevents unbounded accumulation and integer overflow in downstream calculations
@@ -165,6 +170,115 @@ object SleepPressureDetector {
             FatigueZone.MODERATE -> "Moderate"
             FatigueZone.HIGH -> "High"
             FatigueZone.CRITICAL -> "Critical"
+        }
+    }
+
+    /**
+     * Calculates transient sleep inertia penalty.
+     *
+     * In the first 30 minutes following waking, cognitive performance experiences a transient
+     * grogginess/penalty that decays linearly to 0.
+     * (Tassi & Muzet 2000; Wertz et al. 2006).
+     */
+    fun calculateSleepInertiaPenalty(
+        minutesSinceWake: Int,
+        maxPenalty: Float = DEFAULT_MAX_SLEEP_INERTIA_PENALTY
+    ): Float {
+        if (minutesSinceWake < 0 || minutesSinceWake >= SLEEP_INERTIA_DURATION_MINUTES) {
+            return 0f
+        }
+        val safeMax = maxPenalty.coerceIn(0f, 1f)
+        val decayFraction = 1f - (minutesSinceWake.toFloat() / SLEEP_INERTIA_DURATION_MINUTES.toFloat())
+        return (safeMax * decayFraction).coerceIn(0f, 1f)
+    }
+
+    /**
+     * Returns true if user is within the 30-minute post-wake sleep inertia window.
+     */
+    fun isSleepInertiaActive(minutesSinceWake: Int?): Boolean {
+        if (minutesSinceWake == null) return false
+        return minutesSinceWake in 0 until SLEEP_INERTIA_DURATION_MINUTES
+    }
+
+    /**
+     * Computes chronic sleep restriction multiplier based on rolling average sleep duration.
+     *
+     * Dose-response chronic sleep restriction (Van Dongen et al. 2003):
+     * Sustained sleep < 6 hours/night accumulates neurobehavioral fatigue debt.
+     * When rolling average < 6 hours (360m), returns a multiplier in [1.0, 1.6].
+     */
+    fun calculateChronicRestrictionMultiplier(rollingAverageDailySleepMinutes: Float): Float {
+        if (rollingAverageDailySleepMinutes <= 0f) {
+            return 1.6f
+        }
+        val averageHours = rollingAverageDailySleepMinutes / 60f
+        if (averageHours >= CHRONIC_RESTRICTION_THRESHOLD_HOURS) {
+            return 1.0f
+        }
+        val deficitHours = (CHRONIC_RESTRICTION_THRESHOLD_HOURS - averageHours).coerceAtLeast(0f)
+        val penalty = (deficitHours / CHRONIC_RESTRICTION_THRESHOLD_HOURS) * 0.6f
+        return (1.0f + penalty).coerceIn(1.0f, 1.6f)
+    }
+
+    fun calculateChronicRestrictionMultiplierFromDays(dailySleepMinutes: List<Int>): Float {
+        if (dailySleepMinutes.isEmpty()) return 1.0f
+        val validDays = dailySleepMinutes.filter { it >= 0 }
+        if (validDays.isEmpty()) return 1.0f
+        val avg = validDays.average().toFloat()
+        return calculateChronicRestrictionMultiplier(avg)
+    }
+
+    /**
+     * Calculates calibrated fatigue ratio accounting for baseline pressure,
+     * chronic sleep debt modifier, and acute sleep inertia.
+     */
+    fun adjustedFatigueRatio(
+        pressurePoints: Int,
+        minutesSinceWake: Int? = null,
+        rollingAverageSleepMinutes: Float? = null,
+        softMaxReference: Int = SOFT_MAX_REFERENCE
+    ): Float {
+        val baseRatio = fatigueRatio(pressurePoints, softMaxReference)
+        val chronicMultiplier = rollingAverageSleepMinutes?.let {
+            calculateChronicRestrictionMultiplier(it)
+        } ?: 1.0f
+        val inertiaPenalty = minutesSinceWake?.let {
+            calculateSleepInertiaPenalty(it)
+        } ?: 0f
+
+        val compounded = baseRatio * chronicMultiplier + inertiaPenalty
+        return compounded.coerceIn(0f, 1f)
+    }
+
+    /**
+     * Calculates calibrated fatigue percent in [0..100] incorporating chronic debt and inertia.
+     */
+    fun adjustedFatiguePercent(
+        pressurePoints: Int,
+        minutesSinceWake: Int? = null,
+        rollingAverageSleepMinutes: Float? = null,
+        softMaxReference: Int = SOFT_MAX_REFERENCE
+    ): Int {
+        return (adjustedFatigueRatio(pressurePoints, minutesSinceWake, rollingAverageSleepMinutes, softMaxReference) * 100f)
+            .roundToInt()
+            .coerceIn(0, 100)
+    }
+
+    /**
+     * Converts calibrated fatigue percentage into user-facing fatigue zones.
+     */
+    fun adjustedFatigueZone(
+        pressurePoints: Int,
+        minutesSinceWake: Int? = null,
+        rollingAverageSleepMinutes: Float? = null,
+        softMaxReference: Int = SOFT_MAX_REFERENCE
+    ): FatigueZone {
+        val percent = adjustedFatiguePercent(pressurePoints, minutesSinceWake, rollingAverageSleepMinutes, softMaxReference)
+        return when {
+            percent <= 24 -> FatigueZone.RESTED
+            percent <= 49 -> FatigueZone.MODERATE
+            percent <= 74 -> FatigueZone.HIGH
+            else -> FatigueZone.CRITICAL
         }
     }
 

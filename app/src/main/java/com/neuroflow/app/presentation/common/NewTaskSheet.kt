@@ -1338,7 +1338,7 @@ private fun ReviewStep(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             tonalElevation = 2.dp,
-            color = if (autoSchedulePreview.willAutoSchedule) Color(0xFFDFF6E7) else Color(0xFFFFF0E2)
+            color = if (autoSchedulePreview.willAutoSchedule) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
         ) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(

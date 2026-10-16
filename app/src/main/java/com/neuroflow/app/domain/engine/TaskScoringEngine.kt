@@ -87,6 +87,14 @@ object TaskScoringEngine {
         return if (normalized < 0) normalized + (24 * 60) else normalized
     }
 
+    data class LiveEnergyContext(
+        val usableEnergy: Float,      // 0f .. 100f
+        val reservoirFactor: Float = 1f,   // 0f .. 1f
+        val circadianFactor: Float = 1f,   // 0f .. 1f
+        val sleepPressureRatio: Float = 0f,// 0f .. 1f
+        val confidence: Float = 1f         // 0f .. 1f (statistical weight, does not zero magnitude)
+    )
+
     /**
      * Cross-task indices for one scoring pass, built once from the active task list.
      *
@@ -99,7 +107,8 @@ object TaskScoringEngine {
         private val activeTaskIds: Set<String>,
         private val unblockCountByTaskId: Map<String, Int>,
         private val profilesByTaskId: Map<String, List<TagSchedulingProfile>>,
-        private val categoryByTaskId: Map<String, TaskCategory>
+        private val categoryByTaskId: Map<String, TaskCategory>,
+        val liveEnergy: LiveEnergyContext? = null
     ) {
         /** How many still-active tasks [task] is waiting on. */
         fun blockedByCount(task: TaskEntity): Int =
@@ -116,11 +125,11 @@ object TaskScoringEngine {
             categoryByTaskId[task.id] ?: task.determineCategory()
 
         companion object {
-            val EMPTY = ScoringContext(emptySet(), emptyMap(), emptyMap(), emptyMap())
+            val EMPTY = ScoringContext(emptySet(), emptyMap(), emptyMap(), emptyMap(), null)
 
-            fun from(tasks: List<TaskEntity>): ScoringContext {
+            fun from(tasks: List<TaskEntity>, liveEnergy: LiveEnergyContext? = null): ScoringContext {
                 val pool = tasks.filter { it.status == TaskStatus.ACTIVE }
-                if (pool.isEmpty()) return EMPTY
+                if (pool.isEmpty()) return if (liveEnergy != null) ScoringContext(emptySet(), emptyMap(), emptyMap(), emptyMap(), liveEnergy) else EMPTY
 
                 val activeIds = HashSet<String>(pool.size)
                 pool.forEach { activeIds.add(it.id) }
@@ -142,7 +151,7 @@ object TaskScoringEngine {
                         }
                 }
 
-                return ScoringContext(activeIds, unblockCounts, profiles, categories)
+                return ScoringContext(activeIds, unblockCounts, profiles, categories, liveEnergy)
             }
         }
     }
@@ -439,6 +448,7 @@ object TaskScoringEngine {
         task: TaskEntity,
         prefs: UserPreferences,
         context: ScoringContext = ScoringContext.EMPTY,
+        liveEnergy: LiveEnergyContext? = null,
         nowMillis: Long = System.currentTimeMillis()
     ): Float {
         if (task.status != TaskStatus.ACTIVE) return 0f
@@ -559,25 +569,47 @@ object TaskScoringEngine {
         }
 
         // ── 8. ENERGY MATCHING (Cognitive Load Theory) ───────────────────────
-        val energyBonus = when {
-            isPeakHour -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  70f * peakTierScale
-                EnergyLevel.MEDIUM ->  20f * peakTierScale
-                EnergyLevel.LOW    -> -35f * peakTierScale
+        val effectiveLiveEnergy = liveEnergy ?: context.liveEnergy
+        val energyBonus = if (effectiveLiveEnergy != null) {
+            val usable = effectiveLiveEnergy.usableEnergy
+            when {
+                usable >= 70f -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  70f
+                    EnergyLevel.MEDIUM ->  20f
+                    EnergyLevel.LOW    -> -35f
+                }
+                usable >= 40f -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  10f
+                    EnergyLevel.MEDIUM ->  30f
+                    EnergyLevel.LOW    ->  15f
+                }
+                else -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   -> -35f
+                    EnergyLevel.MEDIUM ->  10f
+                    EnergyLevel.LOW    ->  70f
+                }
             }
-            isLowEnergySlot -> when (task.energyLevel) {
-                EnergyLevel.LOW    ->  70f
-                EnergyLevel.MEDIUM ->  15f
-                EnergyLevel.HIGH   -> -35f
-            }
-            isMorning -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  30f
-                EnergyLevel.MEDIUM ->  10f
-                EnergyLevel.LOW    ->   0f
-            }
-            else -> when (task.energyLevel) {
-                EnergyLevel.MEDIUM ->  10f
-                else               ->   0f
+        } else {
+            when {
+                isPeakHour -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  70f * peakTierScale
+                    EnergyLevel.MEDIUM ->  20f * peakTierScale
+                    EnergyLevel.LOW    -> -35f * peakTierScale
+                }
+                isLowEnergySlot -> when (task.energyLevel) {
+                    EnergyLevel.LOW    ->  70f
+                    EnergyLevel.MEDIUM ->  15f
+                    EnergyLevel.HIGH   -> -35f
+                }
+                isMorning -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  30f
+                    EnergyLevel.MEDIUM ->  10f
+                    EnergyLevel.LOW    ->   0f
+                }
+                else -> when (task.energyLevel) {
+                    EnergyLevel.MEDIUM ->  10f
+                    else               ->   0f
+                }
             }
         }
         s += energyBonus
@@ -585,6 +617,11 @@ object TaskScoringEngine {
         // ── 9. CIRCADIAN TASK-TYPE MATCHING ──────────────────────────────────
         val circadianBonus = when (task.taskType) {
             TaskType.ANALYTICAL -> when {
+                effectiveLiveEnergy != null -> when {
+                    effectiveLiveEnergy.usableEnergy >= 70f -> 60f
+                    effectiveLiveEnergy.usableEnergy < 40f  -> -25f
+                    else                                   -> 15f
+                }
                 isPeakHour      ->  60f * peakTierScale
                 isMorning       ->  30f
                 isLowEnergySlot -> -25f
@@ -598,6 +635,10 @@ object TaskScoringEngine {
                 else            ->   0f
             }
             TaskType.ADMIN -> when {
+                effectiveLiveEnergy != null -> when {
+                    effectiveLiveEnergy.usableEnergy < 40f -> 50f
+                    else -> 10f
+                }
                 isLowEnergySlot ->  50f
                 isPeakHour      -> -15f * peakTierScale
                 else            ->  10f
@@ -649,7 +690,9 @@ object TaskScoringEngine {
         s += tagSuitabilityScore(task, hour, isLowEnergySlot, context.profilesFor(task))
 
         // ── 15.5 CATEGORY SUITABILITY (scheduler-aligned additive fit) ───────
-        s += categorySuitabilityScore(hour, prefs, context.categoryFor(task))
+        if (effectiveLiveEnergy == null) {
+            s += categorySuitabilityScore(hour, prefs, context.categoryFor(task))
+        }
 
         // ── 16. RECENCY BIAS CORRECTION ──────────────────────────────────────
         val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f
@@ -726,9 +769,24 @@ object TaskScoringEngine {
     fun score(
         task: TaskEntity,
         prefs: UserPreferences,
+        context: ScoringContext,
+        nowMillis: Long
+    ): Float = score(task, prefs, context, null, nowMillis)
+
+    fun score(
+        task: TaskEntity,
+        prefs: UserPreferences,
         allActiveTasks: List<TaskEntity>,
         nowMillis: Long = System.currentTimeMillis()
-    ): Float = score(task, prefs, ScoringContext.from(allActiveTasks), nowMillis)
+    ): Float = score(task, prefs, ScoringContext.from(allActiveTasks), null, nowMillis)
+
+    fun score(
+        task: TaskEntity,
+        prefs: UserPreferences,
+        allActiveTasks: List<TaskEntity>,
+        liveEnergy: LiveEnergyContext?,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Float = score(task, prefs, ScoringContext.from(allActiveTasks, liveEnergy), liveEnergy, nowMillis)
 
     /** Normalized 0–999 display score for UI */
     /**
@@ -742,28 +800,51 @@ object TaskScoringEngine {
         task: TaskEntity,
         prefs: UserPreferences,
         context: ScoringContext = ScoringContext.EMPTY,
+        liveEnergy: LiveEnergyContext? = null,
         nowMillis: Long = System.currentTimeMillis()
     ): Int {
-        val raw = score(task, prefs, context, nowMillis)
+        val raw = score(task, prefs, context, liveEnergy, nowMillis)
         return min(((raw / THEORETICAL_MAX) * 999f).toInt(), 999)
     }
 
     fun displayScore(
         task: TaskEntity,
         prefs: UserPreferences,
+        context: ScoringContext,
+        nowMillis: Long
+    ): Int = displayScore(task, prefs, context, null, nowMillis)
+
+    fun displayScore(
+        task: TaskEntity,
+        prefs: UserPreferences,
         allActiveTasks: List<TaskEntity>,
         nowMillis: Long = System.currentTimeMillis()
-    ): Int = displayScore(task, prefs, ScoringContext.from(allActiveTasks), nowMillis)
+    ): Int = displayScore(task, prefs, ScoringContext.from(allActiveTasks), null, nowMillis)
+
+    fun displayScore(
+        task: TaskEntity,
+        prefs: UserPreferences,
+        allActiveTasks: List<TaskEntity>,
+        liveEnergy: LiveEnergyContext?,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Int = displayScore(task, prefs, ScoringContext.from(allActiveTasks, liveEnergy), liveEnergy, nowMillis)
 
     fun sortedByScore(
         tasks: List<TaskEntity>,
         prefs: UserPreferences,
+        liveEnergy: LiveEnergyContext? = null,
         nowMillis: Long = System.currentTimeMillis()
     ): List<TaskEntity> {
         val active = tasks.filter { it.status == TaskStatus.ACTIVE }
-        val context = ScoringContext.from(active)
-        return active.sortedByDescending { score(it, prefs, context, nowMillis) }
+        val context = ScoringContext.from(active, liveEnergy)
+        return active.sortedByDescending { score(it, prefs, context, liveEnergy, nowMillis) }
     }
+
+    fun sortedByScore(
+        tasks: List<TaskEntity>,
+        prefs: UserPreferences,
+        nowMillis: Long
+    ): List<TaskEntity> = sortedByScore(tasks, prefs, null, nowMillis)
 
     fun urgencyLabel(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): String {
         if (!task.isRecurringWithAnchor() && task.deadlineDate != null) {
@@ -832,12 +913,20 @@ object TaskScoringEngine {
     fun scoreBreakdown(
         task: TaskEntity,
         prefs: UserPreferences,
+        allActiveTasks: List<TaskEntity>,
+        nowMillis: Long
+    ): List<Pair<String, Float>> = scoreBreakdown(task, prefs, allActiveTasks, null, nowMillis)
+
+    fun scoreBreakdown(
+        task: TaskEntity,
+        prefs: UserPreferences,
         allActiveTasks: List<TaskEntity> = emptyList(),
+        liveEnergy: LiveEnergyContext? = null,
         nowMillis: Long = System.currentTimeMillis()
     ): List<Pair<String, Float>> {
         if (task.status != TaskStatus.ACTIVE) return emptyList()
 
-        val context = ScoringContext.from(allActiveTasks)
+        val context = ScoringContext.from(allActiveTasks, liveEnergy)
 
         // Blocked tasks score 0 — show a single explanatory entry instead of a full breakdown
         if (task.waitingFor.isNotBlank()) {
@@ -944,25 +1033,47 @@ object TaskScoringEngine {
             }
         }
 
-        val energyBonus = when {
-            isPeakHour -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  70f * peakTierScale
-                EnergyLevel.MEDIUM ->  20f * peakTierScale
-                EnergyLevel.LOW    -> -35f * peakTierScale
+        val effectiveLiveEnergy = liveEnergy ?: context.liveEnergy
+        val energyBonus = if (effectiveLiveEnergy != null) {
+            val usable = effectiveLiveEnergy.usableEnergy
+            when {
+                usable >= 70f -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  70f
+                    EnergyLevel.MEDIUM ->  20f
+                    EnergyLevel.LOW    -> -35f
+                }
+                usable >= 40f -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  10f
+                    EnergyLevel.MEDIUM ->  30f
+                    EnergyLevel.LOW    ->  15f
+                }
+                else -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   -> -35f
+                    EnergyLevel.MEDIUM ->  10f
+                    EnergyLevel.LOW    ->  70f
+                }
             }
-            isLowEnergySlot -> when (task.energyLevel) {
-                EnergyLevel.LOW    ->  70f
-                EnergyLevel.MEDIUM ->  15f
-                EnergyLevel.HIGH   -> -35f
-            }
-            isMorning -> when (task.energyLevel) {
-                EnergyLevel.HIGH   ->  30f
-                EnergyLevel.MEDIUM ->  10f
-                EnergyLevel.LOW    ->   0f
-            }
-            else -> when (task.energyLevel) {
-                EnergyLevel.MEDIUM ->  10f
-                else               ->   0f
+        } else {
+            when {
+                isPeakHour -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  70f * peakTierScale
+                    EnergyLevel.MEDIUM ->  20f * peakTierScale
+                    EnergyLevel.LOW    -> -35f * peakTierScale
+                }
+                isLowEnergySlot -> when (task.energyLevel) {
+                    EnergyLevel.LOW    ->  70f
+                    EnergyLevel.MEDIUM ->  15f
+                    EnergyLevel.HIGH   -> -35f
+                }
+                isMorning -> when (task.energyLevel) {
+                    EnergyLevel.HIGH   ->  30f
+                    EnergyLevel.MEDIUM ->  10f
+                    EnergyLevel.LOW    ->   0f
+                }
+                else -> when (task.energyLevel) {
+                    EnergyLevel.MEDIUM ->  10f
+                    else               ->   0f
+                }
             }
         }
         if (energyBonus != 0f) {
@@ -971,6 +1082,11 @@ object TaskScoringEngine {
 
         val circadianBonus = when (task.taskType) {
             TaskType.ANALYTICAL -> when {
+                effectiveLiveEnergy != null -> when {
+                    effectiveLiveEnergy.usableEnergy >= 70f -> 60f
+                    effectiveLiveEnergy.usableEnergy < 40f  -> -25f
+                    else                                   -> 15f
+                }
                 isPeakHour      ->  60f * peakTierScale
                 isMorning       ->  30f
                 isLowEnergySlot -> -25f
@@ -984,6 +1100,7 @@ object TaskScoringEngine {
                 else            ->   0f
             }
             TaskType.ADMIN -> when {
+                effectiveLiveEnergy != null && effectiveLiveEnergy.usableEnergy < 40f -> 50f
                 isLowEnergySlot ->  50f
                 isPeakHour      -> -15f * peakTierScale
                 else            ->  10f
@@ -1041,9 +1158,11 @@ object TaskScoringEngine {
             result += "🏷 Tag fit" to tagFit
         }
 
-        val categoryFit = categorySuitabilityScore(hour, prefs, context.categoryFor(task))
-        if (categoryFit != 0f) {
-            result += "🏷 Category suitability" to categoryFit
+        if (effectiveLiveEnergy == null) {
+            val categoryFit = categorySuitabilityScore(hour, prefs, context.categoryFor(task))
+            if (categoryFit != 0f) {
+                result += "🏷 Category suitability" to categoryFit
+            }
         }
 
         val daysSinceCreated = (nowMillis - task.createdAt) / 86_400_000f

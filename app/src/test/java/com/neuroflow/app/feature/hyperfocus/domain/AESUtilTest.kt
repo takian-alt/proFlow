@@ -19,8 +19,6 @@ import org.robolectric.annotation.Config
  * - Two encryptions of the same plaintext produce different ciphertext (IV randomness)
  * - Malformed input throws EncryptionException
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [Build.VERSION_CODES.TIRAMISU])
 class AESUtilTest : StringSpec({
 
     "round-trip: decrypt(encrypt(plaintext)) should equal plaintext for ABC123" {

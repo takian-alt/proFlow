@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.focus
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neuroflow.app.data.local.isAdvancedFeaturesUnlocked
+import com.neuroflow.app.data.local.daysUntilAdvancedUnlock
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
 import com.neuroflow.app.data.local.entity.isRecurringWithAnchor
@@ -49,6 +52,7 @@ fun FocusScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val task = uiState.task
     var showSplitDialog by remember { mutableStateOf(false) }
+    var woopCollapsed by remember { mutableStateOf(false) }
 
     // Intercept system back button while tracking
     BackHandler(enabled = uiState.isTracking) {
@@ -183,10 +187,10 @@ fun FocusScreen(
             )
         }
     ) { innerPadding ->
-        val focusBg = NeuroFlowColors.FocusBg
-        val deadlineCardColor = NeuroFlowColors.DeadlineCard
-        val scheduledCardColor = NeuroFlowColors.ScheduledCard
-        val pomodoroCardColor = NeuroFlowColors.PomodoroCard
+        val focusBg = MaterialTheme.colorScheme.background
+        val deadlineCardColor = MaterialTheme.colorScheme.errorContainer
+        val scheduledCardColor = MaterialTheme.colorScheme.surfaceVariant
+        val pomodoroCardColor = MaterialTheme.colorScheme.secondaryContainer
 
         if (task == null) {
             Box(
@@ -314,7 +318,7 @@ fun FocusScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
+                            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                                     contentDescription = if (expanded) "Collapse" else "Expand",
@@ -361,13 +365,13 @@ fun FocusScreen(
                 }
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFFFFCDD2)
+                    color = MaterialTheme.colorScheme.errorContainer
                 ) {
                     Text(
                         text = "+${task.impactScore / 10} pts on done",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        color = NeuroFlowColors.DoFirstText
+                        color = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
             }
@@ -401,29 +405,72 @@ fun FocusScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            // WOOP reminder card — shows obstacle + plan when WOOP data exists
+            // WOOP reminder card — shows obstacle + plan when WOOP data exists (collapsible)
             val woop = uiState.woopData
             if (woop != null && woop.obstacle.isNotBlank() && woop.plan.isNotBlank()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("🧠 WOOP REMINDER", fontWeight = FontWeight.Bold, color = Color(0xFF1565C0), fontSize = 11.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Obstacle: ${woop.obstacle}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF0D47A1))
-                        Text("Plan: ${woop.plan}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF0D47A1))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🧠 WOOP REMINDER", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                            IconButton(
+                                onClick = { woopCollapsed = !woopCollapsed },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (woopCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                    contentDescription = if (woopCollapsed) "Expand WOOP plan" else "Collapse WOOP plan",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        AnimatedVisibility(visible = !woopCollapsed) {
+                            Column {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Obstacle: ${woop.obstacle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Plan: ${woop.plan}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             } else if (woop == null && !uiState.showWoopPrompt && uiState.preferences.woopEnabled) {
-                OutlinedButton(
-                    onClick = { viewModel.reopenWoop() },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("🎯 Add WOOP plan", style = MaterialTheme.typography.bodySmall)
+                val isUnlocked = uiState.preferences.isAdvancedFeaturesUnlocked()
+                if (isUnlocked) {
+                    OutlinedButton(
+                        onClick = { viewModel.reopenWoop() },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("🎯 Add WOOP plan", style = MaterialTheme.typography.bodySmall)
+                    }
+                } else {
+                    val daysLeft = uiState.preferences.daysUntilAdvancedUnlock()
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🔒", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "WOOP & Ulysses unlock after 1 week of usage ($daysLeft days remaining)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -432,13 +479,13 @@ fun FocusScreen(
             if (uiState.dreadedTaskInsight != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("💡 INSIGHT", fontWeight = FontWeight.Bold, color = Color(0xFFF57F17), fontSize = 11.sp)
+                        Text("💡 INSIGHT", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary, fontSize = 11.sp)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(uiState.dreadedTaskInsight!!, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100))
+                        Text(uiState.dreadedTaskInsight!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -454,13 +501,13 @@ fun FocusScreen(
                 }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF3E5F5)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("📊 PAST EXPERIENCE", fontWeight = FontWeight.Bold, color = Color(0xFF6A1B9A), fontSize = 11.sp)
+                        Text("📊 PAST EXPERIENCE", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, fontSize = 11.sp)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(label, style = MaterialTheme.typography.bodySmall, color = Color(0xFF4A148C))
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -474,21 +521,21 @@ fun FocusScreen(
                 val completedCount = planSteps.count { it.completed }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             "🪜 STEP-BY-STEP PLAN",
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF2E7D32),
+                            color = MaterialTheme.colorScheme.primary,
                             fontSize = 11.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             "$completedCount/${planSteps.size} steps completed",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF2E7D32),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -497,8 +544,8 @@ fun FocusScreen(
                                 if (planSteps.isEmpty()) 0f else completedCount.toFloat() / planSteps.size.toFloat()
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            color = Color(0xFF2E7D32),
-                            trackColor = Color(0xFF2E7D32).copy(alpha = 0.2f)
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         planSteps.forEachIndexed { index, step ->
@@ -515,7 +562,7 @@ fun FocusScreen(
                                 Text(
                                     step.text,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFF1B5E20),
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     textDecoration = if (step.completed) {
                                         TextDecoration.LineThrough
                                     } else {
@@ -534,7 +581,7 @@ fun FocusScreen(
             if (task.waitingFor.isNotBlank()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
@@ -542,14 +589,15 @@ fun FocusScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("⏳ WAITING FOR", fontWeight = FontWeight.Bold, color = Color(0xFFE65100), fontSize = 11.sp)
+                            Text("⏳ WAITING FOR", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary, fontSize = 11.sp)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(task.waitingFor, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBF360C))
+                            Text(task.waitingFor, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         OutlinedButton(
                             onClick = { viewModel.resolveWaitingFor() },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2E7D32))
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Text("Resolved", fontSize = 12.sp)
                         }
@@ -569,14 +617,14 @@ fun FocusScreen(
             if (blockedByTitles.isNotEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("🚫 BLOCKED BY", fontWeight = FontWeight.Bold, color = NeuroFlowColors.DoFirstText, fontSize = 11.sp)
+                        Text("🚫 BLOCKED BY", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 11.sp)
                         Spacer(modifier = Modifier.height(4.dp))
                         blockedByTitles.forEach { title ->
-                            Text("• $title", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB71C1C))
+                            Text("• $title", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
                 }
@@ -943,8 +991,8 @@ fun FocusScreen(
                 Button(
                     onClick = { viewModel.completeTask() },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Black,
-                        contentColor = Color.White
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     shape = RoundedCornerShape(24.dp),
                     contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)

@@ -27,8 +27,6 @@ import org.robolectric.annotation.Config
  * - validateAndClaim returns null for unknown codes
  * - markUsed delegates correctly to the DAO
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [Build.VERSION_CODES.TIRAMISU])
 class UnlockCodeRepositoryTest : StringSpec({
 
     beforeTest {

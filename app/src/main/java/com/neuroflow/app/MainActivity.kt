@@ -165,19 +165,26 @@ class MainActivity : ComponentActivity() {
                                         identityLabel      = data.identityLabel,
                                         topGoal            = data.topGoal,
                                         wakeUpHour         = data.wakeUpHour,
+                                        sleepHour          = data.sleepHour,
                                         peakEnergyStart    = peakStart,
                                         peakEnergyEnd      = peakEnd,
                                         manualChronotype   = data.manualChronotype,
-                                        onboardingCompleted = true
+                                        onboardingCompleted = true,
+                                        firstAppOpenMillis = if (it.firstAppOpenMillis == 0L) System.currentTimeMillis() else it.firstAppOpenMillis
                                     )}
-                                    // Insert the "first task" as a DO_FIRST task if provided
+                                    // Insert the "first task" as a DO_FIRST task if provided, using inference
                                     if (data.firstTask.isNotBlank()) {
+                                        val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(data.firstTask)
                                         taskRepository.insert(
                                             TaskEntity(
-                                                title       = data.firstTask,
-                                                quadrant    = Quadrant.DO_FIRST,
-                                                impactScore = 70,
-                                                isFrog      = true
+                                                title                   = inferred.sanitizedTitle.ifBlank { data.firstTask.trim() },
+                                                estimatedDurationMinutes = inferred.durationMinutes,
+                                                energyLevel             = inferred.energyDemand,
+                                                taskType                = inferred.taskType,
+                                                tags                    = inferred.contextTags.joinToString(","),
+                                                quadrant                = Quadrant.DO_FIRST,
+                                                impactScore             = 70,
+                                                isFrog                  = true
                                             )
                                         )
                                     }
@@ -231,7 +238,18 @@ class MainActivity : ComponentActivity() {
                                 freshStartHandled = true
                                 scope.launch {
                                     preferencesDataStore.updatePreferences { p ->
-                                        p.copy(lastAppOpenMillis = System.currentTimeMillis())
+                                        p.copy(
+                                            lastAppOpenMillis = System.currentTimeMillis(),
+                                            firstAppOpenMillis = if (p.firstAppOpenMillis == 0L) {
+                                                if (p.onboardingCompleted) {
+                                                    System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000L
+                                                } else {
+                                                    System.currentTimeMillis()
+                                                }
+                                            } else {
+                                                p.firstAppOpenMillis
+                                            }
+                                        )
                                     }
                                 }
                             }

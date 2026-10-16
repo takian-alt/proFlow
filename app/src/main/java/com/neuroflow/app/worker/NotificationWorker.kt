@@ -139,22 +139,26 @@ class DailyPlanWorker @AssistedInject constructor(
     private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
         val prefs = preferencesDataStore.preferencesFlow.first()
-        if (!prefs.dailyPlanNotificationsEnabled) return Result.success()
-        val tasks = taskRepository.getActiveTasks()
-        val topTasks = TaskScoringEngine.sortedByScore(tasks, prefs).take(3)
+        if (!prefs.dailyPlanNotificationsEnabled) Result.success()
+        else {
+            val tasks = taskRepository.getActiveTasks()
+            val topTasks = TaskScoringEngine.sortedByScore(tasks, prefs).take(3)
 
-        if (topTasks.isNotEmpty()) {
-            val taskNames = topTasks.joinToString(", ") { it.title }
-            showNotification(
-                "Your top tasks today",
-                "Your top 3 tasks: $taskNames. Tap to confirm.",
-                CHANNEL_DAILY
-            )
+            if (topTasks.isNotEmpty()) {
+                val taskNames = topTasks.joinToString(", ") { it.title }
+                showNotification(
+                    "Your top tasks today",
+                    "Your top 3 tasks: $taskNames. Tap to confirm.",
+                    CHANNEL_DAILY
+                )
+            }
+            Result.success()
         }
-
-        return Result.success()
+    } catch (e: Exception) {
+        android.util.Log.e("NotificationWorker", "DailyPlanWorker failed", e)
+        Result.failure()
     }
 
     private fun showNotification(title: String, message: String, channelId: String) {
@@ -184,34 +188,39 @@ class StreakCheckWorker @AssistedInject constructor(
     private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
         var prefs = preferencesDataStore.preferencesFlow.first()
-        if (!prefs.streakNotificationsEnabled) return Result.success()
-        val today = startOfLocalDay(System.currentTimeMillis())
-        val yesterday = startOfPreviousLocalDay(today)
+        if (!prefs.streakNotificationsEnabled) Result.success()
+        else {
+            val today = startOfLocalDay(System.currentTimeMillis())
+            val yesterday = startOfPreviousLocalDay(today)
 
-        val completedToday = taskRepository.getCompletedTasks().any { task ->
-            task.completedAt != null && task.completedAt >= today
+            val completedToday = taskRepository.getCompletedTasks().any { task ->
+                task.completedAt != null && task.completedAt >= today
+            }
+
+            // If nothing was completed today AND last active was before yesterday → streak is broken
+            if (!completedToday && prefs.lastActiveDate < yesterday && prefs.dailyStreak > 0) {
+                preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
+                prefs = prefs.copy(dailyStreak = 0)
+            }
+
+            // Notify if streak is at risk (active streak, nothing done today yet, evening check)
+            // Only when there is actually something to complete — "complete 1 task" with an empty
+            // board sends the user to a screen with nothing to do.
+            if (!completedToday && prefs.dailyStreak > 0 && taskRepository.getActiveTasks().isNotEmpty()) {
+                showNotification(
+                    "Streak at risk! 🔥",
+                    "Your ${prefs.dailyStreak}-day streak ends tonight. Complete 1 task!",
+                    CHANNEL_FOCUS
+                )
+            }
+
+            Result.success()
         }
-
-        // If nothing was completed today AND last active was before yesterday → streak is broken
-        if (!completedToday && prefs.lastActiveDate < yesterday && prefs.dailyStreak > 0) {
-            preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
-            prefs = prefs.copy(dailyStreak = 0)
-        }
-
-        // Notify if streak is at risk (active streak, nothing done today yet, evening check)
-        // Only when there is actually something to complete — "complete 1 task" with an empty
-        // board sends the user to a screen with nothing to do.
-        if (!completedToday && prefs.dailyStreak > 0 && taskRepository.getActiveTasks().isNotEmpty()) {
-            showNotification(
-                "Streak at risk! 🔥",
-                "Your ${prefs.dailyStreak}-day streak ends tonight. Complete 1 task!",
-                CHANNEL_FOCUS
-            )
-        }
-
-        return Result.success()
+    } catch (e: Exception) {
+        android.util.Log.e("NotificationWorker", "StreakCheckWorker failed", e)
+        Result.failure()
     }
 
     private fun showNotification(title: String, message: String, channelId: String) {
@@ -241,31 +250,35 @@ class DeadlineEscalationWorker @AssistedInject constructor(
     private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
         val prefs = preferencesDataStore.preferencesFlow.first()
-        if (!prefs.deadlineEscalationNotificationsEnabled) return Result.success()
+        if (!prefs.deadlineEscalationNotificationsEnabled) Result.success()
+        else {
+            val now = System.currentTimeMillis()
+            val threshold = 48 * 3_600_000L  // 48 hours in ms
 
-        val now = System.currentTimeMillis()
-        val threshold = 48 * 3_600_000L  // 48 hours in ms
+            val urgentTasks = taskRepository.getActiveTasks().filter { task ->
+                task.quadrant != com.neuroflow.app.domain.model.Quadrant.DO_FIRST &&
+                task.recurrence == com.neuroflow.app.domain.model.Recurrence.NONE &&
+                task.deadlineDate != null &&
+                (task.deadlineDate + (task.deadlineTime ?: 0L) - now) in 0L..threshold
+            }
 
-        val urgentTasks = taskRepository.getActiveTasks().filter { task ->
-            task.quadrant != com.neuroflow.app.domain.model.Quadrant.DO_FIRST &&
-            task.recurrence == com.neuroflow.app.domain.model.Recurrence.NONE &&
-            task.deadlineDate != null &&
-            (task.deadlineDate + (task.deadlineTime ?: 0L) - now) in 0L..threshold
+            if (urgentTasks.isNotEmpty()) {
+                val names = urgentTasks.take(3).joinToString(", ") { it.title }
+                val more = if (urgentTasks.size > 3) " +${urgentTasks.size - 3} more" else ""
+                showNotification(
+                    "⚠️ ${urgentTasks.size} task${if (urgentTasks.size > 1) "s" else ""} due soon",
+                    "$names$more — deadline within 48 hours.",
+                    CHANNEL_TASKS
+                )
+            }
+
+            Result.success()
         }
-
-        if (urgentTasks.isNotEmpty()) {
-            val names = urgentTasks.take(3).joinToString(", ") { it.title }
-            val more = if (urgentTasks.size > 3) " +${urgentTasks.size - 3} more" else ""
-            showNotification(
-                "⚠️ ${urgentTasks.size} task${if (urgentTasks.size > 1) "s" else ""} due soon",
-                "$names$more — deadline within 48 hours.",
-                CHANNEL_TASKS
-            )
-        }
-
-        return Result.success()
+    } catch (e: Exception) {
+        android.util.Log.e("NotificationWorker", "DeadlineEscalationWorker failed", e)
+        Result.failure()
     }
 
     private fun showNotification(title: String, message: String, channelId: String) {
@@ -296,42 +309,47 @@ class TaskReminderWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val prefs = preferencesDataStore.preferencesFlow.first()
-        if (!prefs.deadlineReminderNotificationsEnabled) return Result.success()
+        return try {
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            if (!prefs.deadlineReminderNotificationsEnabled) return Result.success()
 
-        val taskId = inputData.getString("taskId") ?: return Result.failure()
-        val task = taskRepository.getById(taskId) ?: return Result.success()
-        if (task.status != TaskStatus.ACTIVE) return Result.success()
-        val taskTitle = inputData.getString("taskTitle") ?: task.title
-        val minutesBefore = inputData.getLong("minutesBefore", 0L)
-        val expectedTargetMs = inputData.getLong("targetMs", -1L)
+            val taskId = inputData.getString("taskId") ?: return Result.failure()
+            val task = taskRepository.getById(taskId) ?: return Result.success()
+            if (task.status != TaskStatus.ACTIVE) return Result.success()
+            val taskTitle = inputData.getString("taskTitle") ?: task.title
+            val minutesBefore = inputData.getLong("minutesBefore", 0L)
+            val expectedTargetMs = inputData.getLong("targetMs", -1L)
 
-        val actualTargetMs = task.effectiveReminderTargetMillis() ?: return Result.success()
+            val actualTargetMs = task.effectiveReminderTargetMillis() ?: return Result.success()
 
-        // Skip stale reminder work if target moved significantly after scheduling.
-        if (expectedTargetMs > 0 && kotlin.math.abs(actualTargetMs - expectedTargetMs) > 5 * 60_000L) {
-            return Result.success()
+            // Skip stale reminder work if target moved significantly after scheduling.
+            if (expectedTargetMs > 0 && kotlin.math.abs(actualTargetMs - expectedTargetMs) > 5 * 60_000L) {
+                return Result.success()
+            }
+
+            val now = System.currentTimeMillis()
+            // Do not emit reminder notifications once the task is already overdue for too long.
+            if (actualTargetMs < now - 10 * 60_000L) return Result.success()
+
+            val timeLabel = when (minutesBefore) {
+                15L   -> "15 minutes"
+                30L   -> "30 minutes"
+                60L   -> "1 hour"
+                1440L -> "1 day"
+                else  -> "$minutesBefore minutes"
+            }
+
+            showNotification(
+                "⏰ Task due in $timeLabel",
+                taskTitle,
+                CHANNEL_TASKS
+            )
+
+            Result.success()
+        } catch (e: Exception) {
+            android.util.Log.e("NotificationWorker", "TaskReminderWorker failed", e)
+            Result.failure()
         }
-
-        val now = System.currentTimeMillis()
-        // Do not emit reminder notifications once the task is already overdue for too long.
-        if (actualTargetMs < now - 10 * 60_000L) return Result.success()
-
-        val timeLabel = when (minutesBefore) {
-            15L   -> "15 minutes"
-            30L   -> "30 minutes"
-            60L   -> "1 hour"
-            1440L -> "1 day"
-            else  -> "$minutesBefore minutes"
-        }
-
-        showNotification(
-            "⏰ Task due in $timeLabel",
-            taskTitle,
-            CHANNEL_TASKS
-        )
-
-        return Result.success()
     }
 
     private fun showNotification(title: String, message: String, channelId: String) {

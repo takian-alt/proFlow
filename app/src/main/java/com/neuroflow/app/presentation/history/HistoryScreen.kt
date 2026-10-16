@@ -290,8 +290,8 @@ private fun HistoryTaskRow(task: TaskEntity, onClick: () -> Unit, onDelete: () -
                     }
                 }
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp).align(Alignment.CenterVertically)) {
-                Icon(Icons.Filled.Delete, "Delete", tint = NeuroFlowColors.MapeBad, modifier = Modifier.size(20.dp))
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp).align(Alignment.CenterVertically)) {
+                Icon(Icons.Filled.Delete, "Delete", tint = NeuroFlowColors.MapeBad, modifier = Modifier.size(22.dp))
             }
         }
     }

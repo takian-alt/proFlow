@@ -74,7 +74,7 @@ fun scheduleSleepPressureRefreshWorker(context: Context, prefs: UserPreferences)
 
     workManager.enqueueUniquePeriodicWork(
         SleepPressureRefreshWorker.WORK_NAME,
-        ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
+        ExistingPeriodicWorkPolicy.KEEP,
         sleepRefreshRequest
     )
 }

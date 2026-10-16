@@ -1,0 +1,71 @@
+// NeuroFlow — task lifecycle as a state flow, with the replan loop and the write gate.
+// Render: dot -Tsvg flow-task-lifecycle.dot -o flow-task-lifecycle.svg
+// Base path for all sourceRefs: app/src/main/java/com/neuroflow/app/
+// Confidence: every node and edge below is direct source evidence; nothing here is target state.
+digraph task_lifecycle {
+  rankdir=TB;
+  graph [fontname="Helvetica", labelloc=t, label="One task row: created -> scored -> placed -> focused -> completed -> recur",
+         ranksep=0.75, nodesep=0.4];
+  node  [fontname="Helvetica", fontsize=11, style="rounded,filled", fillcolor="#f8fafc", color="#94a3b8"];
+  edge  [fontname="Helvetica", fontsize=9, arrowsize=0.8];
+
+  created   [label="CREATE\nNewTaskFlowViewModel.buildTaskPayload :256-310\nTaskRepository.insert (Room REPLACE on PK)", fillcolor="#dcfce7", color="#16a34a", shape=box];
+
+  manual    [label="manual schedule?\nhasManualScheduleData\nscheduledDate && scheduledTime && !isAutoScheduled", fillcolor="#fef9c3", color="#ca8a04", shape=diamond];
+
+  immutable [label="Owned by the user\nscheduler skips it\nunless the manual data is cleared", fillcolor="#f1f5f9", color="#94a3b8"];
+  lockedOut [label="Never placed\nisScheduleLocked || quadrant == ELIMINATE\nrejection: LOCKED_TASK", fillcolor="#f1f5f9", color="#94a3b8"];
+  blocked   [label="Blocked or waiting\ndependsOnTaskIds unresolved || waitingFor != \"\"\nscore() == 0f", fillcolor="#fee2e2", color="#dc2626"];
+
+  queues    [label="Queued by the worker\nA = unscheduled  B = expired block  C = replan verdict\nminus blockedTaskIds, minus focusedTaskIds", fillcolor="#ffedd5", color="#ea580c", shape=box];
+
+  verdict   [label="PlacementStability.verdict\nno schedule => KEEP   <2h => NEAR_TERM_FREEZE   force => FORCED\ntaskAge <= cooldown => COOLDOWN\nelse DEADLINE_RESCUE / POSTPONE_PATTERN / FAR_FUTURE_PULL_IN / PERIODIC_REFRESH / KEEP", fillcolor="#fef9c3", color="#ca8a04", shape=diamond];
+
+  planned   [label="AutoSchedulingEngine.planAutoSchedule\n19-step funnel -> ScheduleDecision\n(+ telemetry rejection reason)", fillcolor="#f3e8ff", color="#7c3aed", shape=box];
+
+  writegate [label="Write gate\nre-read the row: ACTIVE && mutable && not focused\nisMoveWorthApplying(>=30min) || blockLengthChanged", fillcolor="#ffedd5", color="#ea580c", shape=box];
+
+  placed    [label="PLACED\ntasks.scheduledDate / scheduledTime\nisAutoScheduled = true, plannedBlockMinutes\nlastAutoScheduledAt = now", fillcolor="#dbeafe", color="#2563eb", shape=box];
+
+  visible   [label="VISIBLE\nToday, Upcoming, Matrix, Focus card,\nnotification ranking, app widget\n(all via Room Flow — no navigation)", fillcolor="#fce7f3", color="#db2777", shape=box];
+
+  started   [label="FOCUSING\nsession row with endedAt = null\n=> task is pinned from every replan list\n=> card says \"Focusing now\"", fillcolor="#dcfce7", color="#16a34a", shape=box];
+
+  tracked   [label="Interruptions recorded\npauseResumeCount, appSwitchCount,\ninterruptionBurstCount, totalPausedMs", fillcolor="#f8fafc", color="#94a3b8"];
+
+  closed    [label="SESSION CLOSED (5 writers)\nendedAt + durationMinutes\ntask: totalTimeTrackedMinutes, sessionCount,\nlastSessionDurationMinutes", fillcolor="#dbeafe", color="#2563eb", shape=box];
+
+  orphan    [label="ORPHANED row\nFocusViewModel.onCleared leaves it open\nnothing ever closes it\n=> pinned placement + 120 min cap", fillcolor="#fee2e2", color="#dc2626", style="rounded,filled,dashed"];
+
+  complete  [label="COMPLETION FAN-OUT\nactual = sum(closed)\nmape/smape persisted\nfocusModePoints = impact/10\nstatus = COMPLETED, completedAt\nstreak prefs, HyperFocus.onTaskCompleted\nenqueueAutoSchedulingRecheck()", fillcolor="#f3e8ff", color="#7c3aed", shape=box];
+
+  recur     [label="recurrence != NONE ?", fillcolor="#fef9c3", color="#ca8a04", shape=diamond];
+  terminal  [label="TERMINAL\nCOMPLETED / ARCHIVED row stays\n(no archival job: the user archives)", fillcolor="#f1f5f9", color="#94a3b8"];
+  nextRow   [label="NEXT OCCURRENCE (new UUID, ACTIVE)\ncounters zeroed, actual/mape/smape nulled\nhabitStreak + 1, habitDate advanced\ndeadline shifted by its original offset", fillcolor="#dbeafe", color="#2563eb", shape=box];
+
+  created   -> manual;
+  manual    -> queues    [label="no", color="#16a34a", fontcolor="#16a34a"];
+  manual    -> immutable [label="yes", color="#94a3b8"];
+  created   -> lockedOut [label="locked / ELIMINATE", color="#94a3b8", style=dashed];
+  created   -> blocked   [label="dependency or waiting", color="#dc2626", style=dashed];
+  immutable -> visible   [label="keeps its own slot"];
+  queues    -> verdict;
+  verdict   -> planned   [label="allowsReplan", color="#16a34a", fontcolor="#16a34a"];
+  verdict   -> placed    [label="KEEP / FREEZE / COOLDOWN\nkeep the start the user already sees", color="#94a3b8", style=dashed];
+  planned   -> writegate;
+  writegate -> placed    [label="write", color="#16a34a", fontcolor="#16a34a"];
+  writegate -> placed    [label="skip: no write,\nno new cooldown stamp", color="#94a3b8", style=dashed];
+  placed    -> visible;
+  visible   -> started   [label="tap Start, or autoTrackerEnabled"];
+  started   -> tracked;
+  tracked   -> closed;
+  closed    -> visible   [label="not finished:\nthe same row is still ACTIVE", color="#94a3b8"];
+  started   -> orphan    [label="process killed", color="#dc2626", style=dashed];
+  orphan    -> started   [label="never reconciled", color="#dc2626", style=dashed];
+  closed    -> complete  [label="mark complete"];
+  complete  -> recur;
+  recur     -> nextRow   [label="yes", color="#16a34a", fontcolor="#16a34a"];
+  recur     -> terminal  [label="no"];
+  nextRow   -> queues    [label="re-enters as a fresh ACTIVE row", color="#ea580c", fontcolor="#ea580c", style=dashed, constraint=true];
+  placed    -> queues    [label="every tick, until completed/locked/manual", color="#ea580c", fontcolor="#ea580c", style=dashed];
+}

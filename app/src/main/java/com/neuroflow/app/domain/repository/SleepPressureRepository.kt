@@ -36,7 +36,13 @@ class SleepPressureRepository @Inject constructor(
         val pressurePoints: Int,
         val fatiguePercent: Int,
         val fatigueZone: SleepPressureDetector.FatigueZone,
-        val refreshedAtMillis: Long
+        val refreshedAtMillis: Long,
+        val minutesSinceWake: Int? = null,
+        val isSleepInertiaActive: Boolean = false,
+        val sleepInertiaPenalty: Float = 0f,
+        val chronicRestrictionMultiplier: Float = 1.0f,
+        val adjustedFatiguePercent: Int = fatiguePercent,
+        val adjustedFatigueZone: SleepPressureDetector.FatigueZone = fatigueZone
     )
 
     private data class SleepInterval(
@@ -131,12 +137,19 @@ class SleepPressureRepository @Inject constructor(
 
         val fatiguePercent = SleepPressureDetector.fatiguePercent(pressure)
         val zone = SleepPressureDetector.fatigueZone(pressure)
+        val wakeMins = minutesBetween(trackingStart, nowMillis)
 
         return Snapshot(
             pressurePoints = pressure,
             fatiguePercent = fatiguePercent,
             fatigueZone = zone,
-            refreshedAtMillis = nowMillis
+            refreshedAtMillis = nowMillis,
+            minutesSinceWake = wakeMins,
+            isSleepInertiaActive = SleepPressureDetector.isSleepInertiaActive(wakeMins),
+            sleepInertiaPenalty = SleepPressureDetector.calculateSleepInertiaPenalty(wakeMins),
+            chronicRestrictionMultiplier = 1.0f,
+            adjustedFatiguePercent = fatiguePercent,
+            adjustedFatigueZone = zone
         )
     }
 
@@ -213,14 +226,46 @@ class SleepPressureRepository @Inject constructor(
             )
         }
 
+        val lastIntervalEnd = sleepIntervals.map { it.endAt }.filter { it <= nowMillis }.maxOrNull()
+        val wakeAnchor = lastIntervalEnd ?: trackingStart
+        val minutesSinceWake = minutesBetween(wakeAnchor, nowMillis)
+
+        val sevenDaysAgo = nowMillis - 7 * 24 * 60 * 60_000L
+        val rollingLogs = sleepLogRepository.getOverlapping(sevenDaysAgo, nowMillis)
+        val totalRollingSleepMinutes = rollingLogs.sumOf { log ->
+            val s = maxOf(sevenDaysAgo, log.startAt)
+            val e = minOf(nowMillis, log.endAt)
+            if (e > s) ((e - s) / 60_000L).toInt() else 0
+        }
+        val rollingAvgDailyMinutes = (totalRollingSleepMinutes.toFloat() / 7f)
+        val chronicMultiplier = SleepPressureDetector.calculateChronicRestrictionMultiplier(rollingAvgDailyMinutes)
+        val inertiaPenalty = SleepPressureDetector.calculateSleepInertiaPenalty(minutesSinceWake)
+        val inertiaActive = SleepPressureDetector.isSleepInertiaActive(minutesSinceWake)
+
         val fatiguePercent = SleepPressureDetector.fatiguePercent(pressure)
         val zone = SleepPressureDetector.fatigueZone(pressure)
+        val adjFatiguePercent = SleepPressureDetector.adjustedFatiguePercent(
+            pressurePoints = pressure,
+            minutesSinceWake = minutesSinceWake,
+            rollingAverageSleepMinutes = rollingAvgDailyMinutes
+        )
+        val adjZone = SleepPressureDetector.adjustedFatigueZone(
+            pressurePoints = pressure,
+            minutesSinceWake = minutesSinceWake,
+            rollingAverageSleepMinutes = rollingAvgDailyMinutes
+        )
 
         return Snapshot(
             pressurePoints = pressure,
             fatiguePercent = fatiguePercent,
             fatigueZone = zone,
-            refreshedAtMillis = nowMillis
+            refreshedAtMillis = nowMillis,
+            minutesSinceWake = minutesSinceWake,
+            isSleepInertiaActive = inertiaActive,
+            sleepInertiaPenalty = inertiaPenalty,
+            chronicRestrictionMultiplier = chronicMultiplier,
+            adjustedFatiguePercent = adjFatiguePercent,
+            adjustedFatigueZone = adjZone
         )
     }
 

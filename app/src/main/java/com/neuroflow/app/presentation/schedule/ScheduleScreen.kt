@@ -279,6 +279,18 @@ fun ScheduleScreen(
                             workDayEnd = uiState.workDayEnd
                         )
 
+                        if (uiState.conflictsForDay.isNotEmpty()) {
+                            ConflictGuidanceCard(
+                                conflicts = uiState.conflictsForDay,
+                                onResolveConflict = { taskId, suggestedMin ->
+                                    viewModel.resolveConflictByMoving(taskId, suggestedMin)
+                                },
+                                onTriggerAutoSchedule = {
+                                    viewModel.triggerAutoScheduleNow()
+                                }
+                            )
+                        }
+
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             thickness = 1.dp
@@ -734,6 +746,91 @@ private fun SummaryChip(
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium
             )
+        }
+    }
+}
+
+@Composable
+private fun ConflictGuidanceCard(
+    conflicts: List<com.neuroflow.app.domain.scheduler.ScheduleConflict>,
+    onResolveConflict: (taskId: String, suggestedMin: Int) -> Unit,
+    onTriggerAutoSchedule: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "SCHEDULE CONFLICTS (${conflicts.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+
+                TextButton(
+                    onClick = onTriggerAutoSchedule,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Auto-Resolve", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            conflicts.take(3).forEach { conflict ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "${conflict.taskTitle}: ${conflict.conflictDescription}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "💡 ${conflict.actionableSuggestion}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (conflict.suggestedNewStartMinute != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FilledTonalButton(
+                                onClick = { onResolveConflict(conflict.taskId, conflict.suggestedNewStartMinute) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Text("Shift to suggested time", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

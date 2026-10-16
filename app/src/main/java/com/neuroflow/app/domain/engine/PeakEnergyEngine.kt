@@ -142,6 +142,18 @@ object PeakEnergyEngine {
          */
         fun currentValueAt(nowMillis: Long = System.currentTimeMillis()): Int {
             val nowMinuteOfDay = minuteOfDay(nowMillis)
+            val wakeMinuteOfDay = ((wakeUpHour * 60) % MINUTES_PER_DAY + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            val minutesWakeToPeak = (peakMinuteOfDay - wakeMinuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            val minutesSinceWake = (nowMinuteOfDay - wakeMinuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
+
+            if (minutesWakeToPeak in 1..(12 * 60) && minutesSinceWake < minutesWakeToPeak) {
+                // Pre-peak morning ramp: smoothly increase from 80% baseline to peakValue
+                val rampFraction = minutesSinceWake.toFloat() / minutesWakeToPeak.toFloat()
+                val baseline = 0.80f * peakValue.toFloat()
+                val current = baseline + (peakValue.toFloat() - baseline) * rampFraction
+                return current.roundToInt().coerceIn(0, peakValue)
+            }
+
             val minutesSincePeak = minutesSincePeak(nowMinuteOfDay)
             val decay = (minutesSincePeak * (peakValue.toFloat() / 960f)).roundToInt()
             return (peakValue - decay).coerceAtLeast(0)

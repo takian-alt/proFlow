@@ -31,7 +31,7 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("proFlow User Guide") },
+                title = { Text("neuroFlow User Guide") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -238,7 +238,7 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                 title = "Science & Cognitive Frameworks",
                 color = MaterialTheme.colorScheme.surface,
                 textColor = MaterialTheme.colorScheme.onSurface,
-                summary = "The scientific principles powering proFlow.",
+                summary = "The scientific principles powering neuroFlow.",
                 steps = listOf(
                     "Temporal Motivation Theory (Steel): Hyperbolic discounting where urgency escalates exponentially near deadlines.",
                     "Eat the Frog (Tracy): Morning-weighted willpower boosts for high-effort, dreaded tasks.",

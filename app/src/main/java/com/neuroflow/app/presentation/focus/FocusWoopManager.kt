@@ -8,6 +8,7 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.WoopEngine
+import com.neuroflow.app.data.local.isAdvancedFeaturesUnlocked
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,7 +32,7 @@ class FocusWoopManager @Inject constructor(
         val woopData = woopRepository.getByTaskId(taskId)
         val task = taskRepository.getById(taskId)
         val prefs = preferencesDataStore.preferencesFlow.first()
-        val showWoopPrompt = prefs.woopEnabled && WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
+        val showWoopPrompt = prefs.woopEnabled && prefs.isAdvancedFeaturesUnlocked() && WoopEngine.shouldShowPrompt(woopData, task?.woopPromptShown ?: false)
         val completedTasks = taskRepository.getCompletedTasks()
         val dreadedTaskInsight = WoopEngine.dreadedTaskInsight(completedTasks)
         syncEnjoymentForecastBias(completedTasks, prefs)

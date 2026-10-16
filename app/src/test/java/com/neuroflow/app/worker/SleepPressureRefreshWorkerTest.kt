@@ -2,6 +2,8 @@ package com.neuroflow.app.worker
 
 import android.content.Context
 import androidx.work.ListenableWorker
+import androidx.work.WorkerFactory
+import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import io.kotest.matchers.shouldBe
@@ -21,32 +23,58 @@ import org.robolectric.RuntimeEnvironment
 class SleepPressureRefreshWorkerTest {
 
     @Test
-    fun `worker calls refreshCurrentPressure and returns success`() = runTest {
-        val context = RuntimeEnvironment.getApplication()
-        val sleepPressureRepository = mockk<SleepPressureRepository>()
+    fun `worker calls refreshCurrentPressure and returns success`() {
+        runTest {
+            val context = RuntimeEnvironment.getApplication()
+            val sleepPressureRepository = mockk<SleepPressureRepository>()
 
-        coEvery { sleepPressureRepository.refreshCurrentPressure(any()) } returns mockk()
+            coEvery { sleepPressureRepository.refreshCurrentPressure(any()) } returns mockk()
 
-        val worker = TestListenableWorkerBuilder<SleepPressureRefreshWorker>(context)
-            .build()
+            val workerFactory = object : WorkerFactory() {
+                override fun createWorker(
+                    appContext: Context,
+                    workerClassName: String,
+                    workerParameters: WorkerParameters
+                ): ListenableWorker {
+                    return SleepPressureRefreshWorker(appContext, workerParameters, sleepPressureRepository)
+                }
+            }
 
-        // Note: In a real test, you would need to inject the mock repository
-        // This is a simplified structure to document expected behavior
+            val worker = TestListenableWorkerBuilder<SleepPressureRefreshWorker>(context)
+                .setWorkerFactory(workerFactory)
+                .build()
 
-        // Verify the worker would call refresh
-        coVerify(exactly = 0) { sleepPressureRepository.refreshCurrentPressure(any()) }
+            val result = worker.doWork()
+            result shouldBe ListenableWorker.Result.success()
+            coVerify(exactly = 1) { sleepPressureRepository.refreshCurrentPressure(any()) }
+        }
     }
 
     @Test
-    fun `worker retries on failure up to 3 times`() = runTest {
-        // Test documents retry behavior
-        // In practice, the worker will:
-        // 1. Attempt to refresh sleep pressure
-        // 2. If exception occurs, retry up to 3 times
-        // 3. After 3 failures, return Result.failure()
+    fun `worker retries on failure up to 3 times`() {
+        runTest {
+            val context = RuntimeEnvironment.getApplication()
+            val sleepPressureRepository = mockk<SleepPressureRepository>()
+            coEvery { sleepPressureRepository.refreshCurrentPressure(any()) } throws RuntimeException("DB error")
 
-        // This ensures transient failures (network issues, database locks)
-        // don't permanently block automatic sleep log creation
+            val workerFactory = object : WorkerFactory() {
+                override fun createWorker(
+                    appContext: Context,
+                    workerClassName: String,
+                    workerParameters: WorkerParameters
+                ): ListenableWorker {
+                    return SleepPressureRefreshWorker(appContext, workerParameters, sleepPressureRepository)
+                }
+            }
+
+            val worker = TestListenableWorkerBuilder<SleepPressureRefreshWorker>(context)
+                .setWorkerFactory(workerFactory)
+                .setRunAttemptCount(1)
+                .build()
+
+            val result = worker.doWork()
+            result shouldBe ListenableWorker.Result.retry()
+        }
     }
 
     @Test

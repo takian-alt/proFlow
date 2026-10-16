@@ -89,7 +89,10 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             )
         }
 
-        enforceRestoreVersionPolicy()
+        applicationScope.launch(Dispatchers.IO) {
+            val firstLaunchAfterInstall = markFirstLaunchAfterInstall()
+            databaseCleaner.enforceRestoreVersionPolicy(firstLaunchAfterInstall)
+        }
 
         createNotificationChannels(this)
         scheduleDailyWorkers()
@@ -119,13 +122,6 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
             userPreferencesDataStore.mergeTagCatalog(allTags)
-        }
-    }
-
-    private fun enforceRestoreVersionPolicy() {
-        val firstLaunchAfterInstall = markFirstLaunchAfterInstall()
-        runBlocking {
-            databaseCleaner.enforceRestoreVersionPolicy(firstLaunchAfterInstall)
         }
     }
 

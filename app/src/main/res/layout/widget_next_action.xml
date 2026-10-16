@@ -19,7 +19,7 @@
         android:id="@+id/widget_next_task_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="No tasks — add one in proFlow"
+        android:text="No tasks — add one in neuroFlow"
         android:textColor="#FFFFFF"
         android:textSize="15sp"
         android:textStyle="bold"

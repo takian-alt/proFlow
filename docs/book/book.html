@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Learning Android by Dissecting NeuroFlow</title>
+<link rel="stylesheet" href="book.css"></head><body><main>
+<section id="README">
+<h1>Learning Android by Dissecting NeuroFlow</h1>
+<p>Front matter for <em>Learning Android by Dissecting NeuroFlow</em>. This file is the book&#x27;s table of contents, its reading-order contract, and its loop budget. It is also the first entry in the binder&#x27;s manifest, so what you are reading is bound into <code>book.html</code> along with the chapters.</p>
+<h2>The promise</h2>
+<p>Most codebase-teaching books fail the same way: they tour the code, the reader follows along, and the reader cannot do it alone afterwards. This book inverts the order. <strong>The reader&#x27;s own code fails in a way they can feel, they invent the fix, and only then do they meet the production version of the idea.</strong> Reading NeuroFlow&#x27;s source is the review step, never the introduction.</p>
+<h2>The contract</h2>
+<p>You are assumed to be able to program in another language, and to have never written Kotlin, never opened Android Studio, never shipped a feature. Nothing else is assumed, and no chapter is a prerequisite gate. In exchange, four rules hold for all 22 chapters:</p>
+<ol>
+<li><strong>Write your prediction down before you scroll.</strong> Every chapter opens with real code, one</li>
+</ol>
+<p>question, and one line for your answer. The explanation is withheld until the answer is written. If you skip the prediction you get a book you read, not a skill you have. Chapter 0 makes you create the file your predictions live in.</p>
+<ol>
+<li><strong>Type the code; do not copy-paste it.</strong> Chapters mark the lines you are allowed to touch and the</li>
+</ol>
+<p>files you are not.</p>
+<ol>
+<li><strong>Chapters are read in order, because each one is caused by the last.</strong> Section 2 of every chapter</li>
+</ol>
+<p>is <em>The Gap</em>: the previous chapter&#x27;s code failing in a specific, demonstrable way. Skipping ahead means reading an answer to a question you have not met.</p>
+<ol>
+<li><strong>Kata answers stay in their own tree.</strong> <code>solutions/</code> holds them; a chapter never contains its own</li>
+</ol>
+<p>answer key. Reading ahead is a decision you make deliberately, not an accident of scrolling.</p>
+<p>Your code lives in <code>app/src/main/java/com/neuroflow/app/lab/</code> — a fenced package that grows from empty, compiles as part of <code>:app</code>, uses its own <code>lab_</code> table prefix and its own <code>LabDatabase</code>, is never registered into <code>NeuroFlowDatabase</code>, and is imported by nothing in the app. Its full rules are in <code>app/src/main/java/com/neuroflow/app/lab/README.md</code> <em>(not yet written — Task 3)</em>.</p>
+<p>Every chapter ends with a <code>verified against</code> footer: the date and the <code>git rev-parse --short HEAD</code> at the moment its last claim was checked against this working tree. When a footer is older than your checkout, re-run the commands that produced the numbers before you trust them.</p>
+<h2>Table of contents</h2>
+<p>Chapters 0 to 6 are this part of the book; their filenames are fixed. Chapters 7 to 21 belong to Plans 2 to 5, so their filenames are deliberately not guessed here. A row whose File column says <em>(not yet written)</em> means exactly that.</p>
+<table><thead><tr><th>Ch</th><th>Title</th><th>File</th><th>Verified against</th></tr></thead><tbody><tr><td><strong>Part 0 — Getting a loop running (Ch 0-2)</strong></td><td></td><td></td><td></td></tr><tr><td>0</td><td>How to read this book.</td><td><code>00-how-to-read-this-book.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td>1</td><td>Make it run.</td><td><code>01-make-it-run.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td>2</td><td>Kotlin for people who already code.</td><td><code>02-kotlin-for-people-who-already-code.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td><strong>Part 1 — One complete vertical slice (Ch 3-6)</strong></td><td></td><td></td><td></td></tr><tr><td>3</td><td>A screen that exists.</td><td><code>03-a-screen-that-exists.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td>4</td><td>Where data lives.</td><td><code>04-where-data-lives.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td>5</td><td>Reactive data.</td><td><code>05-reactive-data.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td>6</td><td>Wiring.</td><td><code>06-wiring-it-together.md</code> <em>(not yet written)</em></td><td>—</td></tr><tr><td><strong>Part 2 — The app&#x27;s actual subject: tasks (Ch 7-11, Plan 2)</strong></td><td></td><td></td><td></td></tr><tr><td>7</td><td>A table with 53 columns.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>8</td><td>Reading a big class without drowning.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>9</td><td>Priority is not a number.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>10</td><td>The Eisenhower Matrix, as a refactoring target.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>11</td><td>The scheduler (technical peak).</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td><strong>Part 3 — Time, energy, measurement (Ch 12-15, Plan 3)</strong></td><td></td><td></td><td></td></tr><tr><td>12</td><td>The energy model.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>13</td><td>Getting truth off the device.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>14</td><td>Background work and main-thread safety.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>15</td><td>Clocks lie.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td><strong>Part 4 — Trust: how do you know it works (Ch 16-18, Plan 4)</strong></td><td></td><td></td><td></td></tr><tr><td>16</td><td>Tests that actually run.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>17</td><td>Testing the database nobody tests.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>18</td><td>Schema evolution, and the time the app ate user notes.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td><strong>Part 5 — Mastery: judgment (Ch 19-21, Plan 5)</strong></td><td></td><td></td><td></td></tr><tr><td>19</td><td>Cold code.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>20</td><td>What architecture is actually for.</td><td><em>(not yet written)</em></td><td>—</td></tr><tr><td>21 (capstone)</td><td>Ship a feature you designed.</td><td><em>(not yet written)</em></td><td>—</td></tr></tbody></table>
+<p>Alongside the chapters: <code>toolchain.md</code> (the measured environment facts Chapters 0 and 1 quote), <code>appendix-glossary.md</code>, <code>appendix-doc-errata.md</code>, <code>exercises/kata-NN-*.md</code> (prompts only) and <code>solutions/kata-NN-*.md</code> (answers, and why the wrong turns are wrong). The first seven chapters and Part 1&#x27;s vertical slice end at Chapter 6; Plans 2 to 5 do not start until that milestone has been produced and read.</p>
+<p>Each chapter has the same eight stages, in this order: Predict first · The Gap · Build it in <code>lab/</code> · Meet the grown-up version · Perturb to verify · Kata (Recall / Modify / Diagnose) · Interleaved review (five questions from chapters −2, −5, −10) · Exit ticket.</p>
+<h2>The loop budget</h2>
+<p>A beginner on a laptop should not wait four minutes to learn what a <code>data class</code> is, so the medium of every verification in this book is chosen by what it costs. Four loops cover all of it.</p>
+<table><thead><tr><th>Loop</th><th>What it proves</th><th>How you run it</th><th>Cost per cycle</th><th>Where the book uses it</th></tr></thead><tbody><tr><td>JVM kotest</td><td>Pure logic: Kotlin syntax, <code>data class</code>, coroutines and <code>Flow</code> transforms, ViewModel behaviour</td><td><code>./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.lab.*&quot;</code></td><td>measured in Task 2</td><td>Ch 2, Ch 5, Ch 6, and most katas</td></tr><tr><td>Compose Preview</td><td>Layout, theming, and the fact that composables are re-run rather than called</td><td><code>@Preview</code> pane in Android Studio, Preview interactive mode; no device needed</td><td>measured in Task 2</td><td>Ch 3, Ch 10</td></tr><tr><td>Emulator (AVD)</td><td>Anything needing a real process: first install and launch, runtime permission grants, WorkManager deferral, real process death</td><td><code>~/Android/Sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk</code></td><td>measured in Task 2 (boot, install, run separately)</td><td>Ch 1, Ch 13, Ch 14, Ch 19</td></tr><tr><td>Database Inspector</td><td>That rows actually landed in a Room table, and what SQL the DAO emitted</td><td>Android Studio → App Inspection → Database Inspector, attached to a running process</td><td>measured in Task 2 (it inherits the emulator&#x27;s cost)</td><td>Ch 4</td></tr></tbody></table>
+<p><strong>Correction to the loop budget as the design spec states it.</strong> Spec §4 says most verification runs on the JVM with no emulator. That holds for logic and for UI, but not for Room: a test that needs a real Android <code>Context</code> cannot run on the JVM here, so <strong>Ch 4&#x27;s real-DAO test is instrumented</strong> — it lives in <code>app/src/androidTest/java/com/neuroflow/app/lab/</code>, not in <code>app/src/test/</code>. The mechanism is verifiable in this repo: <code>app/build.gradle.kts:72</code> selects <code>it.useJUnitPlatform()</code>, and with <code>junit-vintage-engine</code> absent the JUnit Platform never consults the <code>@RunWith</code> annotation that five of this project&#x27;s test files carry, so their Robolectric shadows never load:</p>
+<pre><code>
+grep -rl &quot;@RunWith(RobolectricTestRunner::class)&quot; app/src | wc -l   # 5
+grep -c &quot;junit-vintage&quot; app/build.gradle.kts                        # 0
+</code></pre>
+<p>The same build file is why instrumented tests use <code>runBlocking</code> rather than <code>runTest</code>: <code>kotlinx-coroutines-test:1.9.0</code> appears only as <code>testImplementation</code> (<code>app/build.gradle.kts:143</code>), and adding a dependency is outside this book&#x27;s authority.</p>
+<p><strong>Placeholder — timings.</strong> Every &quot;Cost per cycle&quot; cell above is unmeasured as of this commit. Task 2 measures this machine — cold build, incremental build, one test class, emulator boot, APK install — and writes the numbers into <code>toolchain.md</code>, which Chapters 0 and 1 then quote. No number in this book is invented, and no chapter may state a timing that is not in <code>toolchain.md</code>.</p>
+<h2>Warning: the repo&#x27;s five guides are claims, not evidence</h2>
+<p><code>START_HERE.md</code>, <code>LEARNING_GUIDE.md</code>, <code>30_DAY_LEARNING_PLAN.md</code>, <code>QUICK_REFERENCE.md</code> and <code>ARCHITECTURE_GUIDE.md</code> (plus the project <code>README.md</code>) describe this codebase accurately enough to be useful and inaccurately enough to be dangerous to a beginner. Nothing in this book cites them as a source of truth; every path is confirmed with <code>find</code>, every line number and count with <code>grep</code> or <code>wc</code>, every quote pasted from the file.</p>
+<p>One measured example, typical of the rest: four of those guides send a learner to study <code>TaskScheduler.kt</code> (<code>START_HERE.md:219</code>, <code>LEARNING_GUIDE.md:284</code>, <code>QUICK_REFERENCE.md:36</code>, <code>ARCHITECTURE_GUIDE.md:200</code> and <code>:513</code>), while this command returns nothing:</p>
+<pre><code>
+find app/src -name &quot;TaskScheduler.kt&quot; | wc -l
+</code></pre>
+<p>The file does not exist; the class doing that work is elsewhere. <code>appendix-doc-errata.md</code> <em>(not yet written — Task 11)</em> collects the phantom files, the wrong numbers and the actively harmful advice, each with the command that proves it. Learning to distrust documentation you have not verified is not a side note of this book — it is Chapter 20&#x27;s subject, and it is why Chapter 0&#x27;s first kata is about exactly this file.</p>
+<h2>How the book is bound</h2>
+<pre><code>
+bash docs/book/build-book.sh            # bind what exists; WARN about the rest, exit 0
+bash docs/book/build-book.sh --strict    # fail (exit 1) if any chapter in CHAPTERS is missing
+</code></pre>
+<p><code>build-book.sh</code> concatenates the manifest in order — front matter, then <code>CHAPTERS</code>, then back matter — into one HTML document with a print stylesheet (<code>book.css</code>), opening every bound file in its own <code>&lt;section&gt;</code> so a browser&#x27;s Print → Save as PDF produces a paginated book. The renderer is the script&#x27;s own: <code>bash</code> and <code>python3</code> only, no pandoc (absent on this machine, deliberately not installed), no new project dependencies. It renders headings, fenced code, paragraphs, pipe tables, bullet and numbered lists, <code>**strong**</code> and <code>*emphasis*</code>, and inline code spans — and nothing else, so chapters keep their markup plain. Three rules for anyone writing a chapter: a <code>|</code> that must appear inside a <em>table cell</em> is written <code>\|</code> — a DAO query like <code>LIKE &#x27;%&#x27; || :query || &#x27;%&#x27;</code> splits fine in a sentence but would break a row; a fence left unclosed is reported on stderr and closed for you; and emphasis only counts when a non-word character sits outside it, so <code>2 * 3 * 4</code> and a glob like <code>kata-NN-*.md</code> stay literal while <code>*(not yet written)*</code> becomes italics — put a <code>*</code> that means itself inside backticks regardless. Manifest entries whose file does not exist yet print <code>WARN: missing &lt;path&gt;</code> on stderr and are skipped, so the binder is runnable from today and every later task only has to add its filename to <code>CHAPTERS</code>. <code>--strict</code> is the gate that fails (exit 1) when a chapter named in <code>CHAPTERS</code> is absent; <code>--strict</code> gates chapters only, not the appendices.</p>
+<p>The plan text this paragraph describes was amended on 2026-10-11, after Task 1&#x27;s review: the plan&#x27;s own binder script does not parse (a swapped <code>&gt;</code> in an f-string, plus an <code>AttributeError</code> on the first table row), and its Step 5 demanded a failing binder while its Interfaces line demanded a binder later tasks could append to. <code>--strict</code> satisfies both readings, and Task 12 now runs <code>--strict</code> and counts 11 <code>&lt;section&gt;</code> elements (front matter + 7 chapters + 3 back matter) instead of 7.</p>
+<p>verified against: 2026-10-11 <code>823a2fa</code></p>
+</section>
+<section id="00-how-to-read-this-book">
+<h1>Chapter 0 — How to read this book</h1>
+<p>This chapter has no code to write and no feature to ship. It installs the one thing every later chapter depends on: a contract between you and the page, in which <strong>documentation is a claim and code is the evidence</strong>. The contract has eight stages, one per section below, and later chapters copy these section names verbatim — <em>Predict / The Gap / Build / Compare / Perturb / Kata / Review / Exit ticket</em> — so the words are load-bearing. Two files come out of reading it: <code>predictions.md</code>, where your guesses go, and <code>notes.md</code>, where your unresolved disagreements with the book go. Skip those two files and you have read a book about Android rather than gained a skill in this codebase.</p>
+<p>Everything below was run on 2026-10-12 in this repository&#x27;s working tree, whose committed tip was then <code>31edcc0</code>. Re-verified at <code>83c7f25</code>; the commits between touch only <code>docs/book/</code>. Where a figure has two true values — one in that working tree, one in the commit — both are printed, each with the command that produces it, because that is the first skill being taught. For the machine these numbers came off, read <code>docs/book/toolchain.md</code>.</p>
+<h2>Predict</h2>
+<p>Here is real code from this repository, pasted unedited.</p>
+<p><code>app/src/test/java/com/neuroflow/app/data/repository/NoteRepositoryTest.kt:29-34</code></p>
+<pre><code>
+    &quot;searchNotes calls observeAll when query is blank&quot; {
+        every { noteDao.observeAll() } returns flowOf(listOf(sampleNote))
+
+        val result = repository.searchNotes(&quot;&quot;).first()
+        result shouldBe listOf(sampleNote)
+    }
+</code></pre>
+<p>Context so you can read it without Kotlin: the class is a kotest <code>StringSpec</code> (line 14), <code>noteDao</code> is a MockK fake made on line 16 (<code>mockk&lt;NoteDao&gt;(relaxed = true)</code>), and <code>sampleNote</code> is a <code>NoteEntity</code> value (<code>data class</code>, <code>NoteEntity.kt:8</code>) built on lines 19-27. Inside the block: one line tells the fake what to answer, one calls the code under test, one compares the answer to <code>sampleNote</code>.</p>
+<p><strong>The question: delete line 30 — the whole <code>every { ... }</code> line — and change nothing else. When you next run</strong></p>
+<pre><code>
+./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.data.repository.NoteRepositoryTest&quot; --console=plain
+</code></pre>
+<p><strong>what does the build print, and what does the comparison on line 33 compare against?</strong></p>
+<p>Gradle is Android&#x27;s build tool: in that command <code>:app:</code> names the module, <code>testDebugUnitTest</code> the task inside it, <code>--console=plain</code> asks for text instead of an animating bar.</p>
+<p><strong>Do not type the deletion today.</strong> The edit is Chapter 1&#x27;s, on the <code>book/progress</code> branch Build makes, and its undo is the contract&#x27;s cheap one — delete the line you added — because <code>git restore</code> is conditional in a tree this dirty (Build, item 5).</p>
+<p>Write one sentence answering that before you read another word of this book — on disk, not in your head. Make the two files now:</p>
+<pre><code>
+touch predictions.md notes.md
+</code></pre>
+<p>A prediction has four fields, and this is the format every later chapter will use:</p>
+<pre><code>
+### Ch0 · 2026-10-12
+Prediction: &lt;one falsifiable sentence naming the exact command and the exact line of output you expect&gt;
+Falsifier:  &lt;the observation that would prove this sentence wrong&gt;
+Tree:       &lt;git rev-parse --short HEAD&gt; + working tree | clone (&lt;git status --porcelain | wc -l&gt; dirty paths)
+Result:     &lt;blank until you run it — then the line you actually got&gt;
+</code></pre>
+<p><code>Tree:</code> is the field readers skip, and the one that decides whether the other three were ever right; in the tree these pages were measured in it reads <code>31edcc0 + working tree (118 dirty paths, 70 staged)</code>. The <code>###</code> heading is why an entry never reads as a stage name. Your done condition, before you read another section:</p>
+<pre><code>
+grep -c &#x27;^Prediction:&#x27; predictions.md
+1
+</code></pre>
+<p>If that prints <code>0</code>, you have read an introduction instead of making a claim.</p>
+<p>&quot;Falsifiable&quot; is doing the work. <em>&quot;It will probably still pass, something about mocks&quot;</em> is not a prediction; <em>&quot;the run prints <code>BUILD FAILED</code> and the failure names <code>searchNotes calls observeAll when query is blank</code>&quot;</em> is — checkable for the price of one JVM test-class run, <code>11.83 s</code> in the main tree (<code>docs/book/toolchain.md</code>).</p>
+<p>This chapter deliberately does <strong>not</strong> tell you whether you were right: Chapter 1&#x27;s loop runs the experiment above against the sentence you wrote today. That is a promise about the book&#x27;s order, not a measured fact — hold it to the same standard.</p>
+<p>Why the rule exists: reading a codebase feels like learning and mostly is not. Nodding at an explanation produces nothing you can be wrong about; a prediction produces one thing you can, and being wrong on paper is the cheapest way to find out what you do not understand.</p>
+<h2>The Gap</h2>
+<p>The Gap&#x27;s contract is the previous chapter&#x27;s artifact, run until it fails. With no previous chapter here, the thing that fails is a document — same operation, different artifact.</p>
+<p>The repo you cloned ships five learning guides — <code>START_HERE.md</code>, <code>LEARNING_GUIDE.md</code>, <code>QUICK_REFERENCE.md</code>, <code>ARCHITECTURE_GUIDE.md</code> and <code>30_DAY_LEARNING_PLAN.md</code> (<code>ls *.md</code> prints eight root files). The guides are well-meaning, mostly accurate, and capable of costing a beginner an afternoon. This is the concrete failure, verbatim:</p>
+<p><code>LEARNING_GUIDE.md:284</code></p>
+<pre><code>
+- `TaskScheduler.kt`: Main scheduling logic
+</code></pre>
+<p><code>START_HERE.md:219</code></p>
+<pre><code>
+12. `TaskScheduler.kt` - Algorithms
+</code></pre>
+<p><code>START_HERE.md:219</code> is the &quot;Priority 3: Advanced&quot; item; <code>LEARNING_GUIDE.md:284</code> calls it &quot;Main scheduling logic&quot; under a heading claiming <code>domain/scheduler/</code>. The code:</p>
+<pre><code>
+find app/src -name &quot;TaskScheduler.kt&quot; | wc -l
+0
+</code></pre>
+<p>Zero. The file does not exist. Nothing in the source tree even mentions the name:</p>
+<pre><code>
+grep -rn &quot;TaskScheduler&quot; app/src --include=&#x27;*.kt&#x27; | wc -l
+0
+</code></pre>
+<p>while the guides mention it five times:</p>
+<pre><code>
+grep -rn &quot;TaskScheduler&quot; *.md
+ARCHITECTURE_GUIDE.md:200:| **Schedulers** | Algorithms | `TaskScheduler.kt` |
+ARCHITECTURE_GUIDE.md:513:│   │   ├── TaskScheduler.kt
+LEARNING_GUIDE.md:284:- `TaskScheduler.kt`: Main scheduling logic
+QUICK_REFERENCE.md:36:│   │   └── TaskScheduler.kt      # Auto-scheduling logic
+START_HERE.md:219:12. `TaskScheduler.kt` - Algorithms
+</code></pre>
+<p>A beginner who follows that advice finds nothing and blames themselves. The documentation is a claim, and this claim is false. So this book never cites those five files as a source of truth; where it needs a fact it prints the command that gets it:</p>
+<pre><code>
+find app/src/main/java -path &quot;*domain/scheduler*&quot; -name &quot;*.kt&quot; | wc -l
+6
+</code></pre>
+<p>Six <code>.kt</code> files here; the same command at the <code>31edcc0</code> tip counts 3, which is what a clone gets first. Their names are the kata&#x27;s to find, not this chapter&#x27;s to print. Put <code>| sort</code> on any list you paste: raw <code>find</code> prints filesystem traversal order, and unpiped the command above emits <code>TaskTagSchedulingProfile.kt</code> first, not alphabetically.</p>
+<p><strong>There is a second gap, inside this book.</strong> Look at the headline numbers this chapter prints and count them again yourself. You will not always get the same answer, and neither reading is wrong:</p>
+<pre><code>
+find app/src/main/java -name &quot;*.kt&quot; | wc -l                                              # 208
+find app/src/main/java -name &quot;*.kt&quot; -exec wc -l {} + | tail -1                           # 57450 total
+grep -c &quot;composable(&quot; app/src/main/java/com/neuroflow/app/presentation/common/NeuroFlowApp.kt   # 24
+grep -n &quot;version = 20&quot; app/src/main/java/com/neuroflow/app/data/local/NeuroFlowDatabase.kt        # 296
+</code></pre>
+<p>That is the <strong>working tree</strong> — files as they sit on disk, including 70 changes the developer has staged but not committed. Now the same four claims at the <strong>committed tip</strong>, the code <code>git clone</code> hands you:</p>
+<pre><code>
+git ls-tree -r --name-only 31edcc0 -- app/src/main/java | grep -c &#x27;\.kt$&#x27;                       # 189
+git ls-tree -r --name-only 31edcc0 -- app/src/main/java | grep &#x27;\.kt$&#x27; \
+  | while read f; do git show &quot;31edcc0:$f&quot;; done | wc -l                                        # 50891
+git show 31edcc0:app/src/main/java/com/neuroflow/app/presentation/common/NeuroFlowApp.kt \
+  | grep -c &quot;composable(&quot;                                                                       # 20
+git show 31edcc0:app/src/main/java/com/neuroflow/app/data/local/NeuroFlowDatabase.kt \
+  | grep -n &quot;version = &quot; | head -1                                                               # 290:    version = 19,
+</code></pre>
+<p>208 or 189 files. 57,450 or 50,891 lines. 24 or 20 composables in <code>NeuroFlowApp.kt</code>. <code>version = 20</code> at <code>NeuroFlowDatabase.kt:296</code>, or <code>version = 19</code> at <code>:290</code>. Both columns are true, and they differ because the tree you measure differs. Each <code>#</code> above is that command&#x27;s own output — first block from this working tree, second from the commit, whose sha is printed inside every command that produced it.</p>
+<p>Where do the 19 come from? A status column, not a mystery: <code>git status --porcelain</code> sorts them — 7 untracked (<code>??</code>), 7 staged as new (<code>A </code>), 5 staged as new then edited again (<code>AM</code>). Only the first seven vanish from a <code>git clone</code>; the other twelve sit in the index, waiting. (<code>git ls-files --others --exclude-standard -- app/src/main/java | grep -c &#x27;\.kt$&#x27;</code> prints the 7.)</p>
+<p>That is the whole method of this book, and it is why the rule is not &quot;trust the code&quot; but &quot;**run the command, in the tree you are standing in, and say which one it was**&quot;. A reader who clones this branch and counts 189 where these pages printed 208 has not found a mistake in the codebase; they have found a book that failed to name its tree. If this chapter does that to you, do what it teaches: count, compare, write the disagreement down in <code>notes.md</code>, and treat the claim as unsigned.</p>
+<h2>Build</h2>
+<p>Five things, in order; type, do not paste. Each ran in this working tree on 2026-10-12, and the output under each is that run&#x27;s.</p>
+<p><strong>1. Your branch.</strong></p>
+<pre><code>
+git switch -c book/progress
+Switched to a new branch &#x27;book/progress&#x27;
+</code></pre>
+<p>The branch is the fence: everything you type for this book lives on it and is never merged — the lab contract&#x27;s fifth rule. One honest label: the line above is git&#x27;s wording from a throwaway repository, because creating a branch in the tree these pages were measured in would move your workspace. Run it twice and git says the branch exists; stay on it.</p>
+<p><strong>2. <code>notes.md</code>, at the repository root</strong> — and <code>predictions.md</code>, which Predict already made. Neither goes inside <code>lab/</code>, and the contract says so in these lines:</p>
+<p><code>app/src/main/java/com/neuroflow/app/lab/README.md:7-9</code></p>
+<pre><code>
+author never commits a production change. One absolute boundary, about dependency not editing: no
+production file may ever import or register a lab symbol. Nothing non-code (`predictions.md`,
+`notes.md`) goes in `lab/`; Chapter 0 says where.
+</code></pre>
+<p>This is Chapter 0, and here is where: both files sit next to <code>build.gradle.kts</code>, because they are yours — not the project&#x27;s, not the book&#x27;s. Two commands seed the notebook; the <code>git status</code> output is that run&#x27;s:</p>
+<pre><code>
+cat &gt;&gt; notes.md &lt;&lt;&#x27;EOF&#x27;
+# notes.md — claims I have not verified
+Ch0 · the eight stage names · verified by grep on the chapter, see Compare
+EOF
+git status --porcelain -- predictions.md notes.md
+?? notes.md
+?? predictions.md
+</code></pre>
+<p><strong>What <code>lab/</code> is</strong>, since the paste above and item 4 both lean on it: your fenced package at <code>app/src/main/java/com/neuroflow/app/lab/</code>, whose contract reserves test twins under <code>app/src/test/java/</code> and <code>app/src/androidTest/java/</code> in the same package — three trees, additive from empty, compiled as part of <code>:app</code>, imported by nothing in the app. Its rules are <code>app/src/main/java/com/neuroflow/app/lab/README.md</code>; read that now, two minutes, because item 4 is its fourth rule in action and this chapter will not restate them.</p>
+<p><strong>3. Keep them out of <code>git status</code>.</strong> Your notebook must never be swept into a stranger&#x27;s <code>git add .</code>, so it needs an ignore that is itself unshared: <code>.git/info/exclude</code> is a per-clone ignore file that is not itself tracked.</p>
+<pre><code>
+printf &#x27;predictions.md\nnotes.md\n&#x27; &gt;&gt; .git/info/exclude
+git status --porcelain | grep -c &#x27;^??&#x27;
+0
+</code></pre>
+<p>That <code>0</code> is the after-state of a two-file demo in a throwaway repository, where the same command printed <code>2</code> before the <code>printf</code>. In this repository the count will not be <code>0</code> — item 5 prints what is already untracked here — so check the names, not the number: <code>git status --porcelain</code> no longer lists either file.</p>
+<p><strong>4. The quarantine command.</strong> One grep fences the lab package; the canonical form is the <strong>filename</strong> form:</p>
+<pre><code>
+grep -rln &quot;com.neuroflow.app.lab&quot; app/src --include=&#x27;*.kt&#x27; | grep -v &quot;/lab/&quot; || echo &quot;CLEAN: no production references&quot;
+CLEAN: no production references
+</code></pre>
+<p><code>-l</code> matters: <code>grep -v</code> filters line by line, so on line output it can delete a production file&#x27;s reference when the matched line itself also names a <code>/lab/</code> path; on filename output the filter sees only paths, and a production path never contains <code>/lab/</code>. The single quotes around <code>*.kt</code> are load-bearing, not style:</p>
+<pre><code>
+zsh -c &#x27;grep -rn &quot;com.neuroflow.app.lab&quot; app/src --include=*.kt | grep -vc &quot;/lab/&quot;&#x27;
+zsh:1: no matches found: --include=*.kt
+0
+</code></pre>
+<p>Unquoted, zsh tries to expand <code>--include=*.kt</code> before grep ever sees it, aborts, and the pipeline prints <code>0</code> — which reads exactly like a passing quarantine check. <strong>A silent-false command is the worst kind of documentation bug, because it validates the thing it never tested.</strong> Every form of this grep in this book quotes the glob. The trap is shell-shaped, not person-shaped: <code>bash</code> leaves an unmatched glob literal, so the same unquoted command reaches grep as a real flag there and prints an honest <code>0</code>. The <code>zsh -c</code> wrapper above is how the book ran it; the failure is measured, not hypothetical.</p>
+<p><strong>5. What <code>git status</code> is actually telling you, and when <code>git restore</code> is safe.</strong> This tree is not clean and it is not yours to clean:</p>
+<pre><code>
+git status --porcelain | wc -l
+118
+git status --porcelain | awk &#x27;substr($0,1,1)!=&quot; &quot; &amp;&amp; substr($0,1,1)!=&quot;?&quot;&#x27; | wc -l
+70
+git status --porcelain | cut -c1-2 | sort | uniq -c
+     24 ??
+     20 A 
+      8 AM
+     24  M
+     20 M 
+     22 MM
+</code></pre>
+<p>Two columns: the first is the <strong>index</strong> (staged), the second the <strong>worktree</strong> (typed but not staged). An untracked path — <code>??</code> — puts no letter in column one, so adding a file here moves the <code>118</code> and can never move the <code>70</code>. Watching which number moves is how the columns become a skill.</p>
+<p>Seventy of these carry a letter in column one — every row above except <code>??</code> and <code> M</code>: <code>A </code> new, <code>M </code> changed, <code>AM</code> and <code>MM</code> staged and then edited again. That is somebody else&#x27;s unbuilt work sitting in your working tree, so the contract&#x27;s default is not a git command at all:</p>
+<p><code>app/src/main/java/com/neuroflow/app/lab/README.md:34-37</code></p>
+<pre><code>
+Undo what you typed: delete the lines you added. `git restore &lt;file&gt;` is safe only on a file you started
+clean, so check it with `git status --porcelain &lt;file&gt;`; its two status columns mean ` M` worktree only,
+`M ` staged by someone else, `MM` both. Today, 2026-10-12, 121 paths here are dirty, 70 with a
+letter in column one, so a bare `git restore` usually discards a stranger&#x27;s unbuilt work.
+</code></pre>
+<p>Read that pair together and the lesson is free: the line you just pasted says 121 dirty paths, this run prints 118, and each was true of its own minute. Numbers decay; commands don&#x27;t. <code>git restore &lt;file&gt;</code> is therefore <em>conditional</em> — run it only after <code>git status --porcelain &lt;file&gt;</code> prints <code> M</code> for that file, i.e. worktree-only. On <code>M </code>, <code>MM</code>, <code>A </code> or <code>AM</code> you would discard staged work that is not yours. Deleting the lines you typed is always safe, which is why it is the default.</p>
+<p><strong>What the loops cost, and what they do not.</strong> No table here: a third copy of five numbers is how one of them goes stale. <code>docs/book/toolchain.md</code> holds every timing in this book, each row labelled with the tree it was measured in, and <code>app/src/main/java/com/neuroflow/app/lab/README.md</code> repeats the rows a chapter may quote; copy no timing from anywhere else.</p>
+<p>Two of the four loops the front matter names have budgets there — the JVM kotest loop and the emulator, plus the plain build underneath both. The rest are <strong>unbudgeted</strong>, and <code>toolchain.md</code> says so in a block titled &quot;What is not measured on this machine&quot;: <strong>Compose Preview</strong> and <strong>Database Inspector</strong> live in Android Studio&#x27;s UI, which no shell here can drive, and <strong>instrumented <code>androidTest</code> runs</strong> were never run at all. You will still use all three — Chapter 3 for previews, Chapter 4 for Room on a device — you will just not be told how long they take, because nobody timed them. Only one test class has ever been timed here, so the wildcard form from Chapter 2 on, <code>--tests &quot;com.neuroflow.app.lab.*&quot;</code>, has no measured cost either. A placeholder that reads like a promise is how an invented number gets in.</p>
+<p>Code-block seconds are <em>this run&#x27;s</em> output, not budgets.</p>
+<p><strong>One warning about the <code>./gradlew</code> commands above.</strong> They work in this working tree; on a fresh clone of the branch tip they do not, because the committed <code>gradlew</code> joins the task name and its flags into one argument. The fix is staged here and uncommitted, Chapter 1 has you repair it, and Perturb opens with the preflight that says which side of that line you are on.</p>
+<h2>Compare</h2>
+<p>The anatomy, one line per stage and the reason each exists. Later chapters reuse these headings verbatim — not formatting, but the interface.</p>
+<table><thead><tr><th>Stage</th><th>What you do in it</th><th>Why it exists</th></tr></thead><tbody><tr><td><strong>Predict</strong></td><td>Write a falsifiable sentence about a command&#x27;s output before running it.</td><td>Turns reading into a claim you can be wrong about; without it recall and recognition are indistinguishable.</td></tr><tr><td><strong>The Gap</strong></td><td>Run the previous chapter&#x27;s artifact until it fails in a specific way.</td><td>Confusion is the material. A chapter that never surprises you has never changed your model.</td></tr><tr><td><strong>Build</strong></td><td>Type the commands and code, in <code>lab/</code> or in your habit files.</td><td>Skill lives in your hands, not your highlights; typing beats pasting because typos teach grammar.</td></tr><tr><td><strong>Compare</strong></td><td>Put your version next to the production version and name the differences.</td><td>Production code is the review step, never the introduction — comparison is where idioms land.</td></tr><tr><td><strong>Perturb</strong></td><td>Change one input or delete one line, then run it again.</td><td>Behavior you have not disturbed is behavior you have not confirmed; a passing test proves nothing until you make it fail.</td></tr><tr><td><strong>Kata</strong></td><td>Three timed drills after the chapter: Recall, Modify, Diagnose.</td><td>Retrieval and re-diagnosis are the only honest retention tests.</td></tr><tr><td><strong>Review</strong></td><td>Answer five questions from chapters −2, −5 and −10.</td><td>Stops the back half of the book from quietly invalidating the front half.</td></tr><tr><td><strong>Exit ticket</strong></td><td>Write one sentence you must be able to produce from memory.</td><td>Gives each chapter a gate you can check, and a line to grep later.</td></tr></tbody></table>
+<p>Now check this chapter against its own contract — your first time treating the book as evidence rather than as a claim:</p>
+<pre><code>
+grep -nE &quot;^## &quot; docs/book/00-how-to-read-this-book.md
+16:## Predict
+94:## The Gap
+196:## Build
+347:## Compare
+393:## Perturb
+530:## Kata
+546:## Review
+562:## Exit ticket
+</code></pre>
+<p>Eight lines, in the order of the table — this file&#x27;s own self-check, and the drift <code>grep</code> catches and prose does not: those numbers will have moved by the time you read this. A different order means a chapter&#x27;s stages got skipped. The deliberate difference from the table: with no production version of your code yet, Chapter 0 compares the chapter against its own contract — same operation, different artifact.</p>
+<p>In a tour the author explains and you follow; here every stage demands an <strong>artifact</strong> — a thing you produced that a stranger could check: a sentence in <code>predictions.md</code>, a run, a broken line, a solved kata, an exit sentence.</p>
+<p>Log your first <code>notes.md</code> disagreement while you are here: <code>docs/book/README.md:84-86</code> names these eight stages in prose (&quot;Meet the grown-up version&quot;, &quot;Interleaved review&quot;, and six others) while the table above fixes the short forms every chapter heading must carry verbatim. Write the mismatch down as a claim to check, and settle it against the headings.</p>
+<h2>Perturb</h2>
+<p>Perturb breaks an assumption — here, one about the loops themselves. Two perturbations, both on commands you have already typed; predict in <code>predictions.md</code> before each, and for the second predict before the <em>repeat</em> run, not the first.</p>
+<p><strong>Preflight, read-only:</strong></p>
+<pre><code>
+java -version        # want 21
+sed -n &#x27;103p&#x27; gradlew
+</code></pre>
+<p>Both pass in this tree: Temurin 21, and line 103 is a comment — <code># Gradle-generated wrapper.  Quoting &quot;$@&quot; here as one string turns every task</code>. If either answer differs on your machine — no JDK 21, or <code>sed</code> printing an <code>eval set --</code> line — <strong>stop here.</strong> This section is then a claim about a machine, not about tests, and what you lack is a prerequisite on the environment, not a defect in your setup: Chapter 1&#x27;s first deliverable is the wrapper repair. Come back, run it for real, and fill in the <code>Result:</code> field of the prediction above. No mechanism for line 103 is offered here; this chapter defers exactly one mechanism, and it is Chapter 16&#x27;s. The first perturbation:</p>
+<pre><code>
+./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.presentation.common.TimeUtilsTest&quot; --console=plain
+</code></pre>
+<p>What this run printed, in this tree, on 2026-10-12, exiting with code 1 (the <code>* Try:</code> block abbreviated):</p>
+<pre><code>
+&gt; Task :app:testDebugUnitTest FAILED
+
+* What went wrong:
+Execution failed for task &#x27;:app:testDebugUnitTest&#x27;.
+&gt; No tests found for given includes: [com.neuroflow.app.presentation.common.TimeUtilsTest](--tests filter)
+
+* Try:
+&gt; Run with --stacktrace option to get the stack trace.
+[... three more suggestion lines ...]
+
+BUILD FAILED in 6s
+34 actionable tasks: 1 executed, 33 up-to-date
+</code></pre>
+<p>Order note: the <code>FAILED</code> run wipes every result XML in <code>app/build/test-results/testDebugUnitTest/</code>, so each result-file line below describes a file the next command recreates — captured after it, in printed order.</p>
+<p><code>No tests found</code> for a class that is plainly there. Here it is:</p>
+<p><code>app/src/test/java/com/neuroflow/app/presentation/common/TimeUtilsTest.kt:1-9</code></p>
+<pre><code>
+package com.neuroflow.app.presentation.common
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import java.util.*
+
+class TimeUtilsTest {
+
+    @Test
+</code></pre>
+<p>and it carries four of them:</p>
+<pre><code>
+grep -c &quot;@Test&quot; app/src/test/java/com/neuroflow/app/presentation/common/TimeUtilsTest.kt
+4
+</code></pre>
+<p>The file exists, compiles — that run reported <code>:app:compileDebugKotlin</code> and its unit-test twin <code>UP-TO-DATE</code>, not failures — carries four <code>@Test</code> methods, and <strong>executes nothing</strong>. This chapter neither proves that nor explains it away. The mechanism — why a JUnit-4-annotated class is invisible to this build — is Chapter 16&#x27;s exhibit A. <strong>This is the book&#x27;s one deliberate forward reference.</strong> Log it in <code>notes.md</code> as an unresolved disagreement, exactly like this:</p>
+<pre><code>
+Ch0 · TimeUtilsTest has 4 @Test methods and executes 0 · mechanism deferred to Ch 16 · I accepted it on trust
+</code></pre>
+<p>A forward reference is not a failure of this book&#x27;s method; an <em>unlabelled</em> one is. This is the book&#x27;s only deferral of <em>proof</em>: every other pointer to a chapter promises an activity, not a mechanism, and brings the command that shows it.</p>
+<p><strong>The second surprise, no deferral needed.</strong> Run the Predict stage&#x27;s command exactly as it stands — line 30 still in the file, the deletion still Chapter 1&#x27;s experiment — then run it again without changing a character:</p>
+<pre><code>
+./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.data.repository.NoteRepositoryTest&quot; --console=plain
+</code></pre>
+<pre><code>
+&gt; Task :app:testDebugUnitTest FROM-CACHE
+BUILD SUCCESSFUL in 1s
+34 actionable tasks: 1 from cache, 33 up-to-date
+</code></pre>
+<pre><code>
+&gt; Task :app:testDebugUnitTest UP-TO-DATE
+BUILD SUCCESSFUL in 1s
+34 actionable tasks: 34 up-to-date
+</code></pre>
+<p>Both <code>BUILD SUCCESSFUL</code>; neither ran your tests. One label: whether <em>your</em> first run executes anything depends on this tree&#x27;s cache, not the command — a class you have never run really does run the first time (<code>11.83 s</code>, six tests) and only goes quiet after. This tree&#x27;s entry was already cached. The proof is on disk, in the timestamps, so run these four yourself first; what follows is this chapter&#x27;s run, in this tree:</p>
+<pre><code>
+ls -l --time-style=+%H:%M:%S app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.data.repository.NoteRepositoryTest.xml
+-rw-r--r--. 1 takian takian 1717 16:33:40 app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.data.repository.NoteRepositoryTest.xml
+date +%H:%M:%S
+16:33:58
+grep -o &#x27;timestamp=&quot;[^&quot;]*&quot;&#x27; app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.data.repository.NoteRepositoryTest.xml
+timestamp=&quot;2026-10-11T19:11:53.039Z&quot;
+grep -o &#x27;tests=&quot;[0-9]*&quot; skipped=&quot;[0-9]*&quot; failures=&quot;[0-9]*&quot;&#x27; app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.data.repository.NoteRepositoryTest.xml
+tests=&quot;6&quot; skipped=&quot;0&quot; failures=&quot;0&quot;
+</code></pre>
+<p>The file&#x27;s mtime, <code>16:33:40</code>, is the moment the <code>FROM-CACHE</code> run unpacked it; the <code>UP-TO-DATE</code> run finished at <code>16:33:42</code> and left it untouched. Inside, the recorded execution timestamp is <code>2026-10-11T19:11:53.039Z</code> — <code>01:11:53</code> on this machine&#x27;s <code>+06</code> clock, squarely inside the 01:02-01:21 window <code>docs/book/toolchain.md</code> says it timed this class. An earlier execution wrote the content; those two green runs executed nothing — somebody else&#x27;s test execution is what a <code>BUILD SUCCESSFUL</code> reported.</p>
+<p><strong>Your done condition, a subtraction you do rather than read:</strong> the XML timestamp is UTC, so compare it against <code>date -u +%H:%M:%S</code>, not the local clock above. If your two times differ by more than a few minutes, your green build unpacked somebody else&#x27;s run — that pair, not <code>BUILD SUCCESSFUL</code>, goes under <code>Result:</code> in <code>predictions.md</code>. Mine: <code>16:33:40 − 01:11:53 = 15 h 21 min 47 s</code>. Meanwhile the <em>failing</em> TimeUtils run did execute a task (<code>1 executed</code>) — Gradle does not cache failures. <code>toolchain.md</code>&#x27;s row for the same situation reads <code>UP-TO-DATE</code> in 1.63 s (main tree); my first run read <code>FROM-CACHE</code>. The reason string depends on cache state; the invariant does not. <strong><code>BUILD SUCCESSFUL</code> is not evidence that anything ran. Evidence is a result file whose timestamp moved.</strong> You did not break the code here — you broke your assumption about what a green build means.</p>
+<h2>Kata</h2>
+<p>Do all three items in <code>docs/book/exercises/kata-00.md</code>, now, before Chapter 1. Twenty minutes. The three shapes never change across the whole book: <strong>Recall</strong> (produce something from memory, no grep), <strong>Modify</strong> (change an artifact so it records something new), <strong>Diagnose</strong> (a claim in this repository is false; establish what is true and how you know). Rules:</p>
+<ul>
+<li>Type the commands. The Diagnose item is exactly The Gap, performed by you instead of narrated to you.</li>
+<li>The answer key is <code>docs/book/solutions/kata-00.md</code> and it stays there: reading ahead is a decision you</li>
+</ul>
+<p>make deliberately, not an accident of scrolling (front matter, contract rule 4).</p>
+<ul>
+<li>Recall is not that the eight names are hard; it asks whether you can produce a contract you just</li>
+</ul>
+<p>signed. If you cannot list them, re-read the Compare table, not the stages you found easy.</p>
+<p>Expect to be wrong on at least one. Write what you got wrong in <code>notes.md</code>; that line is the raw material Chapter 2&#x27;s review stage feeds on.</p>
+<h2>Review</h2>
+<p>Not applicable, and worth stating rather than skipping: interleaved review asks five questions from chapters −2, −5 and −10, and at Chapter 0 none of those exist. This stage is empty by construction, and an honest chapter says so.</p>
+<p>What happens next is fixed. <strong>Chapter 2 asks five questions back at Chapter 0</strong>, and they will come from the three artifacts this chapter produced: the eight stage names in order, the quarantine command in its filename form with the quoted glob, and your own <code>predictions.md</code> line about line 30 of <code>NoteRepositoryTest.kt</code> — which by then you will have run for real. Review is what makes a skipped prediction visible two chapters later, so leave the artifacts where a future you can find them: at the repository root, on <code>book/progress</code>.</p>
+<p>Review is never a summary and never a quiz you pass by re-reading: if you have to re-read to answer, the answer is the stage name you skipped.</p>
+<h2>Exit ticket</h2>
+<p>Write this sentence once, by hand, into <code>notes.md</code>, under today&#x27;s date:</p>
+<pre><code>
+I will write my prediction down before I read the explanation, and if I skip it I have read a book
+instead of gained a skill.
+</code></pre>
+<p>Then, below it, three lines to produce without looking:</p>
+<ol>
+<li>the eight stage names, in order;</li>
+<li>the quarantine command in its filename form, with <code>--include=&#x27;*.kt&#x27;</code> quoted, and the reason the</li>
+</ol>
+<p>quotes are not cosmetic;</p>
+<ol>
+<li>one figure this chapter printed twice — 208 or 189, 57,450 or 50,891, 24 or 20, <code>:296</code> or <code>:290</code> —</li>
+</ol>
+<p>with the tree each belongs to, named the way your <code>Tree:</code> field names it.</p>
+<p>If line 3 comes out as &quot;the book says 208 files&quot;, the ticket has failed; if it comes out as &quot;208 in the tree these pages were written in, 189 at the committed tip, and here is the command for each&quot;, you have the skill the other 21 chapters are built out of. Chapter 1 makes the app run on your machine, and breaks the wrapper on the way.</p>
+<p>verified 2026-10-12 in this working tree; <code>git log --name-only 83c7f25..HEAD -- app/src</code> prints nothing, so no book commit moves these figures — re-run anything you act on.</p>
+</section>
+<section id="toolchain">
+<h1>Toolchain: what this machine actually does</h1>
+<p>Every number in Chapters 0 and 1 comes from this file, and every number here was produced by the command printed next to it on the machine described in the first table. Nothing in this file is estimated. Where something could not be measured, it says <em>not measured on this machine</em>, and no chapter may quote a cost for it.</p>
+<p>Measured on <strong>2026-10-12</strong>, between 01:02 and 01:21 (<code>+06</code>), at commit <code>b781cbb</code> on branch <code>book/part1-neuroflow</code>.</p>
+<p><strong>Two trees, because the committed one does not build.</strong> The working tree at the time of measurement carried the user&#x27;s uncommitted changes (70 staged paths, 119 dirty paths in total). Trap 2 below proves that the committed tree at <code>b781cbb</code> does not compile, so the cold-build numbers could not be taken from a clean checkout of <code>b781cbb</code>. Each row in the timing table names its tree:</p>
+<ul>
+<li><strong>main tree</strong> — <code>/home/takian/Project/PROCUS</code>, the working tree with the user&#x27;s uncommitted edits.</li>
+<li><strong>scratch copy</strong> — a disposable copy of that same working state at <code>/tmp/p1clean</code>, created with</li>
+</ul>
+<p><code>git worktree add --detach /tmp/p1clean book/part1-neuroflow</code> plus <code>rsync</code> of the dirty files, and deleted again after measuring (<code>git worktree remove /tmp/p1clean --force</code>). No file in the main tree was modified to produce any number in this file.</p>
+<p>One number did not come from <code>./gradlew</code>: the clean-checkout build in trap 2 ran <code>/home/takian/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/bin/gradle :app:assembleDebug --console=plain</code>, the same Gradle 8.13 the wrapper points at, invoked directly — because at <code>b781cbb</code> the wrapper script itself mangles the command line (trap 1), so <code>./gradlew</code> there cannot be given two arguments. Every other build, test and install number was produced by the command printed in its row.</p>
+<h2>What this machine has</h2>
+<table><thead><tr><th>Thing</th><th>Measured value</th><th>Command that produced it</th></tr></thead><tbody><tr><td>JDK</td><td><code>openjdk version &quot;21.0.4&quot; 2024-07-16 LTS</code> (Temurin-21.0.4+7)</td><td><code>java -version</code></td></tr><tr><td>SDK location</td><td><code>sdk.dir=/home/takian/Android/Sdk</code></td><td><code>grep -m1 sdk.dir local.properties</code></td></tr><tr><td><code>ANDROID_HOME</code> in a fresh shell</td><td>empty — not exported by the profile</td><td><code>echo &quot;ANDROID_HOME=[$ANDROID_HOME]&quot;</code></td></tr><tr><td>adb</td><td><code>Android Debug Bridge version 1.0.41</code>, <code>Version 37.0.1-15733141</code>, at <code>~/Android/Sdk/platform-tools/adb</code></td><td><code>~/Android/Sdk/platform-tools/adb version</code></td></tr><tr><td>Emulator</td><td><code>Android emulator version 37.1.11.0 (build_id 15917651)</code></td><td><code>~/Android/Sdk/emulator/emulator -version</code></td></tr><tr><td>Gradle</td><td><code>Gradle 8.13</code>, build time <code>2025-02-25 09:22:14 UTC</code>, Launcher JVM <code>21.0.4</code></td><td><code>./gradlew --version</code></td></tr><tr><td>Wrapper distribution</td><td><code>gradle-8.13-bin.zip</code>, already unpacked at <code>~/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/</code></td><td><code>grep distributionUrl gradle/wrapper/gradle-wrapper.properties</code></td></tr><tr><td>Android Gradle Plugin</td><td><code>8.13.2</code></td><td><code>grep -m1 &quot;com.android.application&quot; build.gradle.kts</code></td></tr><tr><td>Kotlin / Compose plugin</td><td><code>2.0.21</code></td><td><code>grep -m1 &quot;kotlin.android&quot; build.gradle.kts</code></td></tr><tr><td>KSP</td><td><code>2.0.21-1.0.28</code></td><td><code>grep -m1 &quot;devtools.ksp&quot; build.gradle.kts</code></td></tr><tr><td>Hilt</td><td><code>2.51.1</code></td><td><code>grep -m1 &quot;dagger.hilt.android&quot; build.gradle.kts</code></td></tr><tr><td>google-services plugin</td><td><code>4.5.0</code> (applied at <code>app/build.gradle.kts:8</code>)</td><td><code>grep -m1 &quot;gms.google-services&quot; build.gradle.kts</code></td></tr><tr><td>compileSdk</td><td><code>35</code></td><td><code>grep -n compileSdk app/build.gradle.kts</code></td></tr><tr><td>minSdk / targetSdk</td><td><code>26</code> / <code>35</code></td><td><code>grep -n minSdk app/build.gradle.kts</code>; <code>grep -n targetSdk app/build.gradle.kts</code></td></tr><tr><td>versionCode / versionName</td><td><code>11</code> / <code>&quot;10.5&quot;</code> <strong>in the working tree only</strong> — <code>git show b781cbb:app/build.gradle.kts | sed -n &#x27;27,28p&#x27;</code> prints <code>versionCode = 10</code> / <code>versionName = &quot;10&quot;</code>, and <code>git status --porcelain -- app/build.gradle.kts</code> prints <code> M</code> (modified, not even staged)</td><td><code>grep -n versionCode app/build.gradle.kts</code>; <code>grep -n versionName app/build.gradle.kts</code>; then the two commands above, with the commit sha pinned rather than <code>HEAD</code>, which moves</td></tr><tr><td>JVM target</td><td><code>17</code></td><td><code>grep -n jvmTarget app/build.gradle.kts</code></td></tr><tr><td>AVD</td><td><code>neuroflow_book</code></td><td><code>$ANDROID_HOME/emulator/emulator -list-avds</code> (after <code>export ANDROID_HOME=/home/takian/Android/Sdk</code>)</td></tr><tr><td>AVD system image</td><td><code>image.sysdir.1=system-images/android-36/default/x86_64/</code> — API 36, Extension Level 17, ABI x86_64, tag <code>default</code>, <code>Pkg.Revision=2</code></td><td><code>cat ~/.android/avd/neuroflow_book.avd/config.ini</code>; <code>cat ~/Android/Sdk/system-images/android-36/default/x86_64/source.properties</code></td></tr><tr><td>AVD hardware</td><td><code>hw.cpu.ncore=4</code>, <code>hw.ramSize=2048</code>, <code>hw.gpu.mode=swiftshader_indirect</code>, <code>fastboot.forceColdBoot=yes</code>, <code>PlayStore.enabled=false</code>, 1080x2400 @ 420dpi</td><td><code>grep hw.ramSize ~/.android/avd/neuroflow_book.avd/config.ini</code> (the other values are in the same <code>cat</code> output)</td></tr><tr><td><code>cmdline-tools</code></td><td><strong>absent</strong> — <code>avdmanager</code> and <code>sdkmanager</code> do not exist on this machine</td><td><code>ls -d ~/Android/Sdk/cmdline-tools</code></td></tr><tr><td>CPU</td><td><code>13th Gen Intel(R) Core(TM) i5-13420H</code>, <code>nproc</code> = 12</td><td><code>grep -m1 &quot;model name&quot; /proc/cpuinfo</code>; <code>nproc</code></td></tr><tr><td>RAM</td><td><code>7.4Gi</code> total; <code>4.0Gi</code> available with the Gradle and Kotlin daemons stopped, <code>1.2Gi</code> available with them running</td><td><code>free -h</code></td></tr><tr><td>KVM</td><td><code>/dev/kvm</code> present, <code>crw-rw-rw-</code>, group <code>kvm</code></td><td><code>ls -la /dev/kvm</code></td></tr><tr><td>GPU visible to the emulator</td><td><code>Intel(R) Graphics (RPL-P)</code>, Vulkan <code>apiVersion: 1.4.354</code></td><td>logged by the emulator at boot in <code>/tmp/avd.log</code></td></tr><tr><td><code>/tmp</code></td><td>tmpfs, 3.8G — RAM-backed, so anything built there costs RAM</td><td><code>df -h /tmp</code></td></tr><tr><td>Gradle daemon settings</td><td><code>org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m ...</code>, <code>kotlin.daemon.jvmargs=-Xmx2048m ...</code>, daemon/parallel/caching all <code>true</code></td><td><code>cat gradle.properties</code></td></tr></tbody></table>
+<p>The commands that need shell alternation or a pipe cannot be printed inside a table row, so they are here with the output measured on 2026-10-12:</p>
+<pre><code>
+grep -nE &quot;compileSdk|minSdk|targetSdk|versionCode|versionName&quot; app/build.gradle.kts | head -6
+21:    compileSdk = 35
+25:        minSdk = 26
+26:        targetSdk = 35
+27:        versionCode = 11
+28:        versionName = &quot;10.5&quot;
+
+lsmod | grep -i kvm
+kvm_intel             557056  0
+kvm                  1568768  1 kvm_intel
+irqbypass              16384  1 kvm
+
+grep -cE &quot;vmx|svm&quot; /proc/cpuinfo
+24
+
+find app/src/test -name &quot;NoteRepositoryTest*&quot;
+app/src/test/java/com/neuroflow/app/data/repository/NoteRepositoryTest.kt
+
+find app/src -name &quot;TimeUtilsTest*&quot;
+app/src/test/java/com/neuroflow/app/presentation/common/TimeUtilsTest.kt
+</code></pre>
+<p>The spec&#x27;s numbers and this machine agree on every version row above <strong>read from the working tree</strong>: <code>compileSdk = 35</code>, <code>minSdk = 26</code>, <code>targetSdk = 35</code>, <code>versionCode = 11</code>, <code>versionName = &quot;10.5&quot;</code>, JDK 21.0.4, <code>sdk.dir=/home/takian/Android/Sdk</code>, and <code>platform-tools/adb</code> present (not on <code>PATH</code> — <code>command -v adb</code> prints nothing, so every adb command in this file is written with its full path). Two of those do not survive a commit boundary: at <code>b781cbb</code> the file says <code>versionCode = 10</code> and <code>versionName = &quot;10&quot;</code>, and <code>app/build.gradle.kts</code> is <code> M</code>, so 11 / <code>&quot;10.5&quot;</code> exist nowhere in git. <strong>Task 12: quote the committed pair as the branch fact and label 11 / &quot;10.5&quot; as this machine&#x27;s uncommitted delta.</strong> The errata entry that <code>README.md:15</code> says <code>v5.0.0 (latest)</code> is wrong stands under either reading, but &quot;which version number is right&quot; now needs a tree attached to it — which is Chapter 0&#x27;s thesis arriving two chapters early.</p>
+<h2>How long the loops cost</h2>
+<p>All rows are wall-clock seconds from the shell&#x27;s <code>time</code> builtin, plus Gradle&#x27;s own <code>BUILD ... in Ns</code> line where one exists. <code>time</code> measures the whole invocation: daemon handshake, configuration, execution and reporting.</p>
+<table><thead><tr><th>Loop</th><th>Seconds</th><th>Tree</th><th>Exact condition and command</th></tr></thead><tbody><tr><td><strong>Cold build, nothing cached</strong></td><td><strong>67.86 s</strong> (<code>BUILD SUCCESSFUL in 1m 7s</code>, <code>44 actionable tasks: 44 executed</code>)</td><td>scratch copy</td><td>Fresh project directory — <code>app/build</code>, <code>build/</code> and <code>.gradle/</code> deleted — warm Gradle daemon, <code>--no-build-cache</code>: <code>./gradlew :app:assembleDebug --console=plain --no-build-cache</code></td></tr><tr><td><strong>Cold build, build cache warm</strong></td><td><strong>9.43 s</strong> (<code>BUILD SUCCESSFUL in 9s</code>, <code>44 actionable tasks: 18 executed, 26 from cache</code>)</td><td>scratch copy</td><td>Same fresh project directory, default settings, so <code>~/.gradle/caches/build-cache-1</code> serves 26 of 44 tasks: <code>./gradlew :app:assembleDebug --console=plain</code></td></tr><tr><td><strong>First build of a session, up-to-date tree</strong></td><td><strong>21.49 s</strong> (<code>BUILD SUCCESSFUL in 21s</code>, <code>44 actionable tasks: 1 executed, 43 up-to-date</code>)</td><td>main tree</td><td>No Gradle daemon existed when the command started (<code>ps</code> showed 0 Java processes), so this pays daemon startup and configuration: <code>./gradlew :app:assembleDebug --console=plain</code></td></tr><tr><td><strong>Incremental: one line changed</strong></td><td><strong>8.12 s</strong> (<code>BUILD SUCCESSFUL in 8s</code>, <code>44 actionable tasks: 6 executed, 38 up-to-date</code>; the executed tasks were <code>kspDebugKotlin</code>, <code>compileDebugKotlin</code>, <code>transformDebugClassesWithAsm</code>, <code>dexBuilderDebug</code>, <code>mergeProjectDexDebug</code>, <code>packageDebug</code>)</td><td>scratch copy</td><td>One comment line appended to <code>app/src/main/java/com/neuroflow/app/presentation/common/TimeUtils.kt</code>, then: <code>./gradlew :app:assembleDebug --console=plain</code></td></tr><tr><td><strong>Re-run with no change</strong></td><td><strong>1.36 s</strong> (<code>BUILD SUCCESSFUL in 1s</code>, <code>44 actionable tasks: 44 up-to-date</code>)</td><td>scratch copy</td><td><code>./gradlew :app:assembleDebug --console=plain</code> again, nothing edited</td></tr><tr><td><strong>One JVM test class, first run</strong></td><td><strong>11.83 s</strong> (<code>BUILD SUCCESSFUL in 11s</code>, <code>34 actionable tasks: 6 executed, 28 up-to-date</code>)</td><td>main tree</td><td><code>./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.data.repository.NoteRepositoryTest&quot; --console=plain</code>. 6 tests ran: <code>grep -o &#x27;tests=&quot;[0-9]*&quot;&#x27; app/build/test-results/testDebugUnitTest/TEST-com.neuroflow.app.data.repository.NoteRepositoryTest.xml</code></td></tr><tr><td><strong>One JVM test class, edit then re-run</strong></td><td><strong>7.55 s</strong> (<code>BUILD SUCCESSFUL in 7s</code>, <code>34 actionable tasks: 4 executed, 30 up-to-date</code>; <code>compileDebugUnitTestKotlin</code> and <code>testDebugUnitTest</code> both executed; still <code>tests=&quot;6&quot;</code>)</td><td>scratch copy</td><td>Same command as the row above after appending one comment line to <code>NoteRepositoryTest.kt</code></td></tr><tr><td><strong>One JVM test class, nothing changed</strong></td><td><strong>1.63 s</strong> — but the tests <strong>did not re-run</strong> (<code>&gt; Task :app:testDebugUnitTest UP-TO-DATE</code>)</td><td>main tree</td><td>Repeating the first-run command verbatim</td></tr><tr><td><strong>Emulator boot (cold)</strong></td><td><strong>30 s</strong> by polling; the emulator&#x27;s own log says <code>INFO | Boot completed in 28125 ms</code></td><td>device side</td><td><code>nohup $ANDROID_HOME/emulator/emulator -avd neuroflow_book -no-snapshot-save &gt;/tmp/avd.log 2&gt;&amp;1 &amp;</code>, then polling <code>~/Android/Sdk/platform-tools/adb -e shell getprop sys.boot_completed</code> every 3 s (so 30 s is the poll resolution, 28.125 s is the emulator&#x27;s clock)</td></tr><tr><td><strong>APK install over adb</strong></td><td><strong>0.28 s</strong> first, <strong>0.38 s</strong> re-run; output <code>Performing Streamed Install</code> then <code>Success</code></td><td>main tree APK onto device</td><td><code>~/Android/Sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk</code></td></tr><tr><td><strong>Cold app start</strong></td><td><strong>1.13 s</strong> (<code>TotalTime: 1133</code>, <code>WaitTime: 1136</code>, <code>LaunchState: COLD</code>, <code>Status: ok</code>)</td><td>device side</td><td><code>~/Android/Sdk/platform-tools/adb shell am force-stop com.neuroflow.app</code> then <code>~/Android/Sdk/platform-tools/adb shell am start -W -n com.neuroflow.app/.MainActivity</code></td></tr><tr><td><strong>Emulator shutdown</strong></td><td><strong>not measured on this machine</strong> — the kill command in the last column returned <code>OK: killing emulator, bye bye</code> then <code>OK</code>, but no <code>time</code> was taken, so this file states no duration. The emulator&#x27;s own log says it allows <strong>20 s</strong> for a graceful shutdown before it kills the process (<code>/tmp/avd.log</code>: <code>Wait for emulator (pid 21377) 20 seconds to shutdown gracefully before kill</code>), and <code>ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL</code> changes it. Budget 20 s, not less.</td><td>device side</td><td><code>~/Android/Sdk/platform-tools/adb emu kill</code></td></tr></tbody></table>
+<p><strong>Read the <code>Tree</code> column before quoting any of these.</strong> Five of the twelve rows were measured inside <code>/tmp/p1clean</code>, and <code>/tmp</code> on this machine is tmpfs — RAM-backed — so the project directory (sources, <code>app/build</code>, every intermediate output) never touched a disk. That is a project-I/O speedup, not a diskless build: the Gradle and Kotlin daemons, the wrapper distribution and the build cache at <code>~/.gradle/caches/build-cache-1</code> all live on the NVMe partition (<code>df -h ~/.gradle</code> → <code>/dev/nvme0n1p3</code>), which is why the 9.43 s row can serve 26 of 44 tasks from cache and still be fast. The other seven rows split into four measured in the <code>main tree</code> on the real disk and three labelled <code>device side</code>, where the host&#x27;s disk is not the cost at all — an <code>adb install</code> of 0.38 s is USB/VM traffic, not disk. A disk-backed project directory should pay at least the tmpfs numbers and probably more; a chapter that says &quot;your loop costs 8 s&quot; must say &quot;8 s incremental on a RAM-backed copy, 21 s for a first build of a session on disk&quot; — and must not pair those two as if they measured the same thing, because one is a one-line edit and the other is a cold daemon.</p>
+<p>The APK that was installed is <code>app/build/outputs/apk/debug/app-debug.apk</code>, 30,927,261 bytes, built from this working tree (<code>:app:packageDebug</code> reported <code>UP-TO-DATE</code> for the <code>main tree</code> build above, so the file on disk matches the sources that produced it).</p>
+<p><strong>What is not measured on this machine, and must not be quoted as a cost:</strong></p>
+<ul>
+<li>Compose Preview cycle time — Android Studio&#x27;s preview pane cannot be driven from a shell here.</li>
+<li>Database Inspector — same reason; it attaches to a running process, so its cost is the emulator&#x27;s.</li>
+<li>Instrumented (<code>app/src/androidTest</code>) test runs — no <code>connectedAndroidTest</code> was run. 3 Kotlin files</li>
+</ul>
+<p>exist there (<code>find app/src/androidTest -name &quot;*.kt&quot; | wc -l</code>). Chapter 4 must present Room verification as <em>instrumented, on a device, and unbudgeted</em>, not as a number.</p>
+<ul>
+<li>The full unit-test suite — only one class was ever run with <code>--tests</code>.</li>
+<li><code>sdkmanager</code>-based setup — <code>cmdline-tools</code> is absent (trap 3), so no SDK package was installed or</li>
+</ul>
+<p>listed by this task.</p>
+<p><strong>Task 12 must edit <code>docs/book/README.md</code> with this file.</strong> Its loop budget (<code>docs/book/README.md:93-98</code>) prints <code>measured in Task 2</code> in all four <code>Cost per cycle</code> cells. Two of them can now be filled from this file — <code>Emulator (AVD)</code> is boot 30 s / install 0.38 s / cold start 1.13 s, and <code>JVM kotest</code> is 7-12 s <strong>for one class</strong>: README&#x27;s own command cell prints the wildcard <code>--tests &quot;com.neuroflow.app.lab.*&quot;</code>, and no wildcard or full-suite run was ever measured here, so that cell says <code>7-12 s for one class</code> and leaves the wildcard unclaimed. Two cells never can be filled: <strong><code>Compose Preview</code></strong> and <strong><code>Database Inspector</code></strong> both live in Android Studio&#x27;s UI, which cannot be driven from a shell here, so their cells become <code>not measured on this machine</code>. The book&#x27;s own rule is that no chapter states a timing that is not in this file; a placeholder that reads like a promise is how an invented number gets in.</p>
+<h2>Which loop is for what</h2>
+<table><thead><tr><th>Loop</th><th>Command you actually type</th><th>Measured cost</th><th>Use it for</th></tr></thead><tbody><tr><td>JVM kotest</td><td><code>./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.lab.&lt;YourTest&gt;&quot; --console=plain</code> (needs trap 1&#x27;s wrapper fix; at <code>b781cbb</code> a task name plus a flag is one argument, not two)</td><td>7-12 s (see the three test rows above)</td><td>Pure logic: Kotlin syntax, <code>data class</code>, coroutines and <code>Flow</code> transforms, ViewModel behaviour with mocked DAOs. Everything in Chapters 2, 5, 6 and most katas.</td></tr><tr><td>Build</td><td><code>./gradlew :app:assembleDebug --console=plain</code> (needs trap 1&#x27;s wrapper fix; at <code>b781cbb</code> this exact shape fails)</td><td>8 s incremental, 68 s from scratch — both on a RAM-backed copy; 21 s for a first build of a session on disk</td><td>Proof that your code compiles and that a change did not break the app. Not a test loop: it re-runs no test.</td></tr><tr><td>Compose Preview</td><td><code>@Preview</code> pane in Android Studio; no device needed</td><td>not measured on this machine</td><td>Layout, theming, recomposition — anything you can see without a process. Chapters 3 and 10.</td></tr><tr><td>Emulator</td><td><code>~/Android/Sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk</code></td><td>boot 30 s, install 0.38 s, start 1.13 s</td><td>Anything needing a real process: first launch, runtime permission grants, WorkManager deferral, real process death. Chapters 1, 13, 14, 19.</td></tr><tr><td>Instrumented androidTest</td><td>device required; not run by this task</td><td>not measured on this machine</td><td>Room and anything needing a real Android <code>Context</code> — Chapter 4&#x27;s real-DAO test lives in <code>app/src/androidTest/java/com/neuroflow/app/lab/</code>, because, as the traps below show, a <code>@RunWith</code> Robolectric test never executes on this build.</td></tr></tbody></table>
+<p>The practical shape of the loop budget: <strong>7-12 seconds</strong> is what a reader pays to see a logic answer, <strong>8 seconds</strong> to see a compile answer, and <strong>30 + 0.38 + 1.13 seconds</strong> the first time they need a device in a session (after that, install-and-start is about 1.5 s per cycle while the emulator stays up).</p>
+<h2>Known traps, each with the command that proves it</h2>
+<p><strong>1. At <code>b781cbb</code> the wrapper script merges your task name and your flags into one argument.</strong></p>
+<pre><code>
+cd /tmp/p1clean    # a clean checkout of b781cbb
+./gradlew help --console=plain
+</code></pre>
+<pre><code>
+* What went wrong:
+Task &#x27;help --console=plain&#x27; not found in root project &#x27;NeuroFlow&#x27; and its subprojects.
+</code></pre>
+<p>The cause is line 103 of the committed <code>gradlew</code>: <code>eval set -- &quot;...GradleWrapperMain \&quot;$@\&quot;&quot;</code> — <code>&quot;$@&quot;</code> is not escaped, so after <code>eval</code> every task and option collapses into a single word. A one-argument invocation (<code>./gradlew help</code>, <code>./gradlew :app:help</code>) works, which is why this survives casual testing. The user&#x27;s <strong>staged, uncommitted</strong> change to <code>gradlew</code> replaces that tail with <code>\&quot;\$@\&quot;</code> and the same command then succeeds (<code>BUILD SUCCESSFUL in 584ms</code> in the main tree). Until that change is committed, any chapter that shows <code>./gradlew &lt;task&gt; --tests &quot;...&quot;</code> is showing a command that fails on a fresh clone. Verify with:</p>
+<pre><code>
+git status --porcelain -- gradlew     # M  gradlew
+grep -n &#x27;GradleWrapperMain&#x27; gradlew   # committed line 103 vs working-tree line 105
+</code></pre>
+<p><strong>2. The committed tree does not compile; only the working tree does.</strong></p>
+<p>A clean checkout of <code>b781cbb</code> (no local modifications) fails at <code>:app:compileDebugKotlin</code> in 27 s:</p>
+<pre><code>
+e: file:///tmp/p1clean/app/src/main/java/com/neuroflow/app/presentation/launcher/LauncherActivity.kt:191:28 No parameter with name &#x27;darkTheme&#x27; found.
+e: file:///tmp/p1clean/app/src/main/java/com/neuroflow/app/presentation/matrix/MatrixScreen.kt:49:52 Unresolved reference &#x27;LocalIsDarkTheme&#x27;.
+e: file:///tmp/p1clean/app/src/main/java/com/neuroflow/app/presentation/notes/NotesScreen.kt:33:52 Unresolved reference &#x27;LocalIsDarkTheme&#x27;.
+</code></pre>
+<p>There are 12 errors in total (<code>grep -c &quot;^e: &quot;</code> on the build log): 3 in <code>LauncherActivity.kt</code>, 5 in <code>MatrixScreen.kt</code>, 2 in <code>NoteEditorScreen.kt</code>, 2 in <code>NotesScreen.kt</code>. Those symbols exist only in the uncommitted edits to <code>presentation/common/theme/Theme.kt</code> and <code>presentation/common/theme/Color.kt</code>, which the diff against the commit shows directly:</p>
+<pre><code>
+grep -c &quot;darkTheme: Boolean&quot; app/src/main/java/com/neuroflow/app/presentation/common/theme/Theme.kt   # 1
+git show HEAD:app/src/main/java/com/neuroflow/app/presentation/common/theme/Theme.kt | grep -c &quot;darkTheme: Boolean&quot;   # 0
+grep -c LocalIsDarkTheme app/src/main/java/com/neuroflow/app/presentation/common/theme/Theme.kt       # 2
+git show HEAD:app/src/main/java/com/neuroflow/app/presentation/common/theme/Theme.kt | grep -c LocalIsDarkTheme       # 0
+grep -c DoFirstTextDark app/src/main/java/com/neuroflow/app/presentation/common/theme/Color.kt        # 1
+git show HEAD:app/src/main/java/com/neuroflow/app/presentation/common/theme/Color.kt | grep -c DoFirstTextDark        # 0
+</code></pre>
+<p>Consequence for this file: <strong>the cold-build and incremental numbers are for the working tree as it stands on 2026-10-12, not for <code>git clone</code> of the branch tip.</strong> A reader who clones <code>book/part1-neuroflow</code> today and types Chapter 1&#x27;s command gets a compile error, not an APK.</p>
+<p><strong>3. <code>cmdline-tools</code> is absent, so there is no <code>avdmanager</code> and no <code>sdkmanager</code>.</strong></p>
+<pre><code>
+ls -d ~/Android/Sdk/cmdline-tools
+# ls: cannot access &#x27;/home/takian/Android/Sdk/cmdline-tools&#x27;: No such file or directory
+ls ~/Android/Sdk
+# build-tools  emulator  licenses  platforms  platform-tools  skins  sources  system-images
+</code></pre>
+<p><code>~/Android/Sdk/system-images</code> holds <code>android-36/default/x86_64</code> and <code>android-37.1/google_apis_playstore_ps16k</code>. The AVD <code>neuroflow_book</code> already exists and points at the API 36 image — verified by <code>$ANDROID_HOME/emulator/emulator -list-avds</code> (prints <code>neuroflow_book</code>) and by reading <code>~/.android/avd/neuroflow_book.avd/config.ini</code> (<code>image.sysdir.1=system-images/android-36/default/x86_64/</code>, mtime 2026-10-11 23:31). Since <code>avdmanager</code> is absent, it cannot have been created by <code>avdmanager</code> on this machine, and this task created no AVD and downloaded nothing. If Chapter 1 tells a reader to run <code>sdkmanager</code> or <code>avdmanager</code>, that instruction is wrong for this machine; the AVD-exists branch is the only branch that ships, and Chapter 1&#x27;s hardware-device alternative is the fallback for a reader with no <code>neuroflow_book</code>.</p>
+<p><strong>4. 4 GB of Gradle heap plus an emulator does not fit in 7.4 GB of RAM.</strong></p>
+<p><code>gradle.properties</code> sets <code>org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m</code> and <code>kotlin.daemon.jvmargs=-Xmx2048m</code>. With both daemons running <code>free -h</code> reported <code>1.2Gi</code> available of <code>7.4Gi</code>; after <code>./gradlew --stop</code> it reported <code>4.0Gi</code>, and the AVD was booted in that second state (the emulator also raised its own allocation, <code>Increasing RAM size to 2560MB</code>). A boot attempted while the Gradle and Kotlin daemons were live was <strong>not</strong> tried, so its cost is not measured on this machine — but with 1.2Gi free and a 2.5Gi VM, the risk is obvious. So: <strong>stop the daemons before you boot the emulator.</strong> Gradle daemons are respawned on the next invocation, so <code>./gradlew --stop</code> costs nothing but the next build&#x27;s startup (row &quot;First build of a session&quot; above is that startup: 21 s).</p>
+<p><strong>5. Firebase configuration is required at build time, and the failure is mid-build.</strong></p>
+<p><code>app/build.gradle.kts:8</code> applies <code>com.google.gms.google-services</code>, and <code>app/google-services.json</code> (1,311 bytes, tracked in git, contents never read or quoted by this task) is what the plugin consumes. Moving that file aside in the scratch copy and building:</p>
+<pre><code>
+* What went wrong:
+Execution failed for task &#x27;:app:processDebugGoogleServices&#x27;.
+&gt; File google-services.json is missing.
+  The Google Services Plugin cannot function without it.
+</code></pre>
+<p><code>BUILD FAILED in 9s</code>. A reader who strips the JSON from a fork learns this 9 seconds in, not at configuration time.</p>
+<p><strong>6. Without <code>local.properties</code> the build fails at dependency calculation, not at the SDK.</strong></p>
+<pre><code>
+* What went wrong:
+Could not determine the dependencies of task &#x27;:app:compileDebugJavaWithJavac&#x27;.
+&gt; SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable or by setting the sdk.dir path in your project&#x27;s local properties file at &#x27;/tmp/p1clean/local.properties&#x27;.
+</code></pre>
+<p><code>BUILD FAILED in 719ms</code>. <code>local.properties</code> is gitignored (<code>.gitignore:10</code>), so every fresh clone must create it — and <code>ANDROID_HOME</code> is empty in a fresh shell on this machine, which is why the <code>emulator</code> commands in this file are prefixed with <code>export ANDROID_HOME=/home/takian/Android/Sdk</code>. <code>adb</code> is a different case: it is not on <code>PATH</code> here (<code>command -v adb</code> prints nothing, and no <code>~/.bashrc</code>, <code>~/.zshrc</code>, <code>~/.zprofile</code>, <code>~/.zshenv</code> or <code>~/.profile</code> mentions <code>platform-tools</code>), and exporting <code>ANDROID_HOME</code> does not put it there. Every <code>adb</code> command in this file therefore carries its full path, <code>~/Android/Sdk/platform-tools/adb</code>.</p>
+<p><strong>7. Repeating a test command does not repeat the tests.</strong></p>
+<p>Row &quot;One JVM test class, nothing changed&quot; above: Gradle reports <code>UP-TO-DATE</code> and returns in 1.63 s without executing a single test. A reader who edits a prediction, re-runs the same command and sees <code>BUILD SUCCESSFUL</code> in 1 s has learned nothing. Either change a test input or add <code>--rerun-tasks</code> — which is valid Gradle but <strong>not measured on this machine</strong>, so this file gives it no cost.</p>
+<p><strong>8. JUnit-4 <code>@Test</code> classes do not run at all — and the build says so loudly.</strong></p>
+<p><code>app/build.gradle.kts:72</code> selects <code>it.useJUnitPlatform()</code> for every test task, and <code>junit-vintage</code> appears 0 times in <code>app/build.gradle.kts</code> (<code>grep -c &quot;junit-vintage&quot; app/build.gradle.kts</code>), so the JUnit Platform never consults <code>@RunWith</code> and never discovers <code>org.junit.Test</code>. Measured, main tree:</p>
+<pre><code>
+./gradlew :app:testDebugUnitTest --tests &quot;com.neuroflow.app.presentation.common.TimeUtilsTest&quot; --console=plain
+</code></pre>
+<pre><code>
+&gt; Task :app:testDebugUnitTest FAILED
+
+* What went wrong:
+Execution failed for task &#x27;:app:testDebugUnitTest&#x27;.
+&gt; No tests found for given includes: [com.neuroflow.app.presentation.common.TimeUtilsTest](--tests filter)
+
+BUILD FAILED in 3s
+</code></pre>
+<p>exit code 1. <code>TimeUtilsTest</code> is real, compiles, and uses <code>org.junit.Test</code> and <code>org.junit.Assert</code> (<code>head -4 app/src/test/java/com/neuroflow/app/presentation/common/TimeUtilsTest.kt</code>); it simply never executes. Counts on this machine, all from <code>app/src/test</code>, <code>--include=&#x27;*.kt&#x27;</code> quoted so zsh does not expand them:</p>
+<pre><code>
+grep -rl &quot;org.junit.Test&quot; app/src/test --include=&#x27;*.kt&#x27; | wc -l          # 6   dead as tests
+grep -rlE &#x27;io\.kotest\.core\.spec\.style&#x27; app/src/test --include=&#x27;*.kt&#x27; | wc -l  # 56  run on the platform
+grep -rl &quot;@RunWith(RobolectricTestRunner::class)&quot; app/src | wc -l        # 5   never load their shadows
+</code></pre>
+<p>The 5 Robolectric files are <code>ShortcutPopupTest.kt</code>, <code>LauncherSearchEngineTest.kt</code>, <code>AESUtilTest.kt</code>, <code>UnlockCodeRepositoryTest.kt</code>, <code>SleepPressureRefreshWorkerTest.kt</code>. Chapter 16&#x27;s exhibit A is this <code>No tests found</code> block, and the instrumented <code>app/src/androidTest</code> tree is where Room and <code>Context</code> tests have to live — consistent with <code>docs/book/README.md</code>.</p>
+<p><strong>9. The emulator ignores two settings in the AVD&#x27;s <code>config.ini</code>.</strong></p>
+<p>From <code>/tmp/avd.log</code> while booting <code>neuroflow_book</code>:</p>
+<pre><code>
+ERROR        | gpuChoiceBasedOnGpuOptions: Selected GPU option &#x27;swiftshader_indirect&#x27; is not valid, switching to &#x27;auto&#x27; mode.
+INFO         | Increasing RAM size to 2560MB
+</code></pre>
+<p><code>hw.gpu.mode</code> is <code>swiftshader_indirect</code> and <code>hw.ramSize</code> is <code>2048</code> in <code>~/.android/avd/neuroflow_book.avd/config.ini</code>; the emulator overrode both (the machine has a real <code>Intel(R) Graphics (RPL-P)</code> and KVM). The single boot measured here started from a stopped emulator with <code>-no-snapshot-save</code>, and <code>fastboot.forceColdBoot=yes</code> is set in the same config, so the 30 s figure is a cold boot — one boot, not an average.</p>
+<p><strong>10. Two warnings fire on every build and mean nothing.</strong></p>
+<pre><code>
+WARNING: The option setting &#x27;android.lint.useK2Uast=false&#x27; is experimental.
+This version of the Baseline Profile Gradle Plugin was tested at most with the Android
+Gradle Plugin version 8.3.0 and it may not work as intended.
+Current version is Android Gradle Plugin version 8.13.2.
+</code></pre>
+<p>Printed at configuration time by <code>./gradlew :app:assembleDebug --console=plain</code>; the build succeeds anyway. Chapter 1 should tell the reader not to chase them.</p>
+<p>verified against: 2026-10-12 <code>b781cbb</code> (the commit this file was measured against; <code>toolchain.md</code>&#x27;s own commit is its child)</p>
+</section>
+</main></body></html>

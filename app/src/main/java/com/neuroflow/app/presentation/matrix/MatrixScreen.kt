@@ -47,7 +47,6 @@ import java.util.Calendar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MatrixScreen(
-    onOpenDrawer: (() -> Unit)? = null,
     onNavigateToQuadrant: (String) -> Unit,
     onNavigateToFocus: (String) -> Unit,
     onNavigateToSettings: () -> Unit = {},
@@ -80,13 +79,6 @@ fun MatrixScreen(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
-                    },
-                    navigationIcon = {
-                        if (onOpenDrawer != null) {
-                            IconButton(onClick = onOpenDrawer) {
-                                Icon(Icons.Filled.Menu, "Menu")
-                            }
-                        }
                     },
                 actions = {
                     IconButton(

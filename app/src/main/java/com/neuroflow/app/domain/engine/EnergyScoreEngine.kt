@@ -32,7 +32,9 @@ object EnergyScoreEngine {
         val peakEnergy: PeakEnergyEngine.DetectionResult? = null,
         val sleepPressurePoints: Int = 0,
         val nowMillis: Long = System.currentTimeMillis(),
-        val softMaxReference: Int = SleepPressureDetector.SOFT_MAX_REFERENCE
+        val softMaxReference: Int = SleepPressureDetector.SOFT_MAX_REFERENCE,
+        val minutesSinceWake: Int? = null,
+        val rollingAverageSleepMinutes: Float? = null
     )
 
     /**
@@ -53,26 +55,55 @@ object EnergyScoreEngine {
             0f
         }
 
+        val minutesSincePeak = if (peak != null) {
+            peak.minutesSincePeak(snapshot.nowMillis)
+        } else {
+            0
+        }
+
         val rawCircadian = if (peak != null) {
-            val minutesSincePeak = peak.minutesSincePeak(snapshot.nowMillis)
             circadianFactor(minutesSincePeak, peak.circadianProfile)
         } else {
             0f
         }
         // Baseline floor: 0.35f baseline so usable energy doesn't collapse to <= 50% outside peak windows
         val circadianFactor = if (peak != null) {
-            (0.35f + 0.65f * rawCircadian).coerceIn(0f, 1f)
+            val wakeMinuteOfDay = ((peak.wakeUpHour * 60) % MINUTES_PER_DAY + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            val minutesWakeToPeak = (peak.peakMinuteOfDay - wakeMinuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            val nowMinute = minuteOfDay(snapshot.nowMillis)
+            val minutesSinceWake = (nowMinute - wakeMinuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY
+
+            val blendedCircadian = (0.35f + 0.65f * rawCircadian).coerceIn(0f, 1f)
+
+            if (minutesWakeToPeak in 1..(12 * 60) && minutesSinceWake < minutesWakeToPeak) {
+                // Pre-peak morning ramp: circadian rhythm rises continuously from morning wake baseline (0.75f) to 1.0f
+                val ramp = minutesSinceWake.toFloat() / minutesWakeToPeak.toFloat()
+                (0.75f + 0.25f * ramp).coerceIn(0f, 1f)
+            } else {
+                // Continuous transition from morning ramp into the circadian peak window:
+                // Maintain continuous baseline support so alertness connects seamlessly from the morning
+                // wake ramp and stays elevated (>= 0.85f) during the peak window hours before the cosine apex
+                val postPeakBaseline = if (minutesSincePeak < 105) {
+                    val progress = minutesSincePeak.toFloat() / 105f
+                    maxOf(0.85f, 1.0f - 0.15f * progress)
+                } else {
+                    0.35f
+                }
+                maxOf(blendedCircadian, postPeakBaseline).coerceIn(0f, 1f)
+            }
         } else {
             0f
         }
 
         val confidenceFactor = peak?.confidence?.coerceIn(0f, 1f) ?: 0f
-        val sleepPressureRatio = SleepPressureDetector.fatigueRatio(
+        val sleepPressureRatio = SleepPressureDetector.adjustedFatigueRatio(
             pressurePoints = pressurePoints,
+            minutesSinceWake = snapshot.minutesSinceWake,
+            rollingAverageSleepMinutes = snapshot.rollingAverageSleepMinutes,
             softMaxReference = safeSoftMax
         )
 
-        val peakScore = (PERCENT_SCALE * reservoirFactor * circadianFactor * confidenceFactor)
+        val peakScore = (PERCENT_SCALE * reservoirFactor * circadianFactor)
             .coerceIn(0f, PERCENT_SCALE)
         val fatiguePenalty = (PERCENT_SCALE * sleepPressureRatio).coerceIn(0f, PERCENT_SCALE)
         val rawEnergy = (peakScore - fatiguePenalty).coerceIn(-PERCENT_SCALE, PERCENT_SCALE)
@@ -118,10 +149,11 @@ object EnergyScoreEngine {
         amplitude: Float
     ): Float {
         if (durationMinutes <= 0) return 0f
-        val endMinute = startMinute + durationMinutes
-        if (minute < startMinute || minute >= endMinute) return 0f
+        val normalizedStart = wrapMinutes(startMinute)
+        val elapsed = (minute - normalizedStart + MINUTES_PER_DAY) % MINUTES_PER_DAY
+        if (elapsed >= durationMinutes) return 0f
 
-        val phase = (minute - startMinute).toFloat() / durationMinutes.toFloat()
+        val phase = elapsed.toFloat() / durationMinutes.toFloat()
         val raw = 0.5f * (1f - cos((2.0 * PI * phase).toFloat()))
         return (amplitude * raw).coerceAtLeast(0f)
     }
@@ -129,5 +161,10 @@ object EnergyScoreEngine {
     private fun wrapMinutes(minutes: Int): Int {
         val wrapped = minutes % MINUTES_PER_DAY
         return if (wrapped < 0) wrapped + MINUTES_PER_DAY else wrapped
+    }
+
+    private fun minuteOfDay(nowMillis: Long): Int {
+        val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+        return calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 + calendar.get(java.util.Calendar.MINUTE)
     }
 }

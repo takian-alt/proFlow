@@ -242,8 +242,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         } catch (e: Exception) {
             // Log exception (in production, send to telemetry service)
             e.printStackTrace()
-            // Retry on transient failures
-            Result.retry()
+            // Retry on transient failures (bounded to prevent infinite background churn)
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         } finally {
             // FIX #2: Release worker lock
             synchronized(workerLock) {

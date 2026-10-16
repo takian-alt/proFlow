@@ -178,7 +178,7 @@ fun WeeklyScheduleScreen(
                     ) {
                         IconButton(
                             onClick = { viewModel.previousWeek() },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous Week")
                         }
@@ -192,7 +192,7 @@ fun WeeklyScheduleScreen(
 
                         IconButton(
                             onClick = { viewModel.nextWeek() },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(Icons.Filled.ChevronRight, contentDescription = "Next Week")
                         }

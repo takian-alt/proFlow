@@ -12,6 +12,8 @@ import com.neuroflow.app.domain.engine.PeakEnergyEngine
 import com.neuroflow.app.domain.engine.SleepPressureDetector
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.data.badge.NotificationBadgeManager
+import java.time.Instant
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
@@ -101,6 +103,7 @@ class EnergyScoreRepository @Inject constructor(
         val sessions: List<TimeSessionEntity>,
         val tasks: List<TaskEntity>,
         val badgeCounts: Map<String, Int>,
+        val sleepLogs: List<com.neuroflow.app.data.local.entity.SleepLogEntity>,
         val latestSleepLogEndAt: Long?  // null = no sleep logs recorded yet
     )
 
@@ -153,6 +156,7 @@ class EnergyScoreRepository @Inject constructor(
                 sessions = sessions,
                 tasks = tasks,
                 badgeCounts = badgeCounts,
+                sleepLogs = sleepLogs,
                 latestSleepLogEndAt = sleepLogs.maxByOrNull { it.endAt }?.endAt
             )
         }
@@ -164,11 +168,33 @@ class EnergyScoreRepository @Inject constructor(
             ticker
         ) { peakDetection, prefs, momentSignals, nowMillis ->
             val sleepPressurePoints = prefs.sleepPressurePoints.coerceAtLeast(0)
+
+            // Compute minutesSinceWake and 7-day rolling average sleep duration
+            val lastSleepLogEnd = momentSignals.latestSleepLogEndAt?.takeIf { it <= nowMillis }
+            val defaultWakeAnchor = defaultTrackingStartMillis(nowMillis, prefs.wakeUpHour)
+            val wakeAnchor = lastSleepLogEnd ?: (if (prefs.sleepPressureTrackingStartedAtMillis > 0L && prefs.sleepPressureTrackingStartedAtMillis <= nowMillis) prefs.sleepPressureTrackingStartedAtMillis else defaultWakeAnchor)
+            val minutesSinceWake = ((nowMillis - wakeAnchor).coerceAtLeast(0L) / 60_000L).toInt()
+
+            val sevenDaysAgo = nowMillis - 7 * 24 * 60 * 60_000L
+            val rollingLogs = momentSignals.sleepLogs.filter { it.endAt > sevenDaysAgo && it.startAt < nowMillis }
+            val rollingAvgDailyMinutes = if (rollingLogs.isNotEmpty()) {
+                val totalRollingSleep = rollingLogs.sumOf { log ->
+                    val s = maxOf(sevenDaysAgo, log.startAt)
+                    val e = minOf(nowMillis, log.endAt)
+                    if (e > s) ((e - s) / 60_000L).toInt() else 0
+                }
+                totalRollingSleep.toFloat() / 7f
+            } else {
+                null
+            }
+
             val baselineScore = EnergyScoreEngine.calculateDetailed(
                 EnergyScoreEngine.EnergySnapshot(
                     peakEnergy = peakDetection,
                     sleepPressurePoints = sleepPressurePoints,
-                    nowMillis = nowMillis
+                    nowMillis = nowMillis,
+                    minutesSinceWake = minutesSinceWake,
+                    rollingAverageSleepMinutes = rollingAvgDailyMinutes
                 )
             )
 
@@ -269,8 +295,16 @@ class EnergyScoreRepository @Inject constructor(
             // Data is considered "recent" if all sources are less than 5 minutes old
             val freshnessThresholdMillis = 5 * 60_000L
             val hasRecentData = overallFreshnessAgeMillis < freshnessThresholdMillis
-            val fatiguePercent = SleepPressureDetector.fatiguePercent(sleepPressurePoints)
-            val fatigueZone = SleepPressureDetector.fatigueZone(sleepPressurePoints)
+            val fatiguePercent = SleepPressureDetector.adjustedFatiguePercent(
+                pressurePoints = sleepPressurePoints,
+                minutesSinceWake = minutesSinceWake,
+                rollingAverageSleepMinutes = rollingAvgDailyMinutes
+            )
+            val fatigueZone = SleepPressureDetector.adjustedFatigueZone(
+                pressurePoints = sleepPressurePoints,
+                minutesSinceWake = minutesSinceWake,
+                rollingAverageSleepMinutes = rollingAvgDailyMinutes
+            )
 
             val energyUiModel = EnergyUiModel(
                 availableEnergy = momentResult.usableEnergy.toInt().coerceIn(0, 100),
@@ -382,5 +416,19 @@ class EnergyScoreRepository @Inject constructor(
             overdueTaskCount = overdueTaskCount,
             dueSoonTaskCount = dueSoonTaskCount
         )
+    }
+
+    private fun defaultTrackingStartMillis(nowMillis: Long, wakeUpHour: Int): Long {
+        val zoneId = ZoneId.systemDefault()
+        val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+        var anchor = now.toLocalDate()
+            .atTime(wakeUpHour.coerceIn(0, 23), 0)
+            .atZone(zoneId)
+
+        if (anchor.toInstant().toEpochMilli() > nowMillis) {
+            anchor = anchor.minusDays(1)
+        }
+
+        return anchor.toInstant().toEpochMilli()
     }
 }

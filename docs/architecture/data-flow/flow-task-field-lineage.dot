@@ -1,0 +1,106 @@
+// NeuroFlow — machine-written field lineage for the `tasks` table.
+// Render: dot -Tsvg flow-task-field-lineage.dot -o flow-task-field-lineage.svg
+// Base path for all sourceRefs: app/src/main/java/com/neuroflow/app/
+// Generated 2026-10-11 from Room schema v20. Current state only — no proposed nodes.
+digraph task_field_lineage {
+  rankdir=TB;
+  graph [fontname="Helvetica", labelloc=t, label="tasks — who writes each machine-owned column, and who reads it back",
+         splines=ortho, nodesep=0.35, ranksep=0.7];
+  node  [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#94a3b8"];
+  edge  [fontname="Helvetica", fontsize=9, color="#64748b", arrowsize=0.8];
+
+  // ---------------------------------------------------------------- writers
+  subgraph cluster_writers {
+    label="writers (logic)"; fontsize=11; color="#cbd5e1"; style="rounded,dashed";
+    FocusSessionManager   [label="FocusSessionManager\npresentation/focus/FocusSessionManager.kt:120-122", fillcolor="#ffedd5", color="#ea580c"];
+    FocusCompletionMgr    [label="FocusCompletionManager\npresentation/focus/FocusCompletionManager.kt:41-63", fillcolor="#ffedd5", color="#ea580c"];
+    FocusWoopManager      [label="FocusWoopManager\npresentation/focus/FocusWoopManager.kt:52-78", fillcolor="#ffedd5", color="#ea580c"];
+    TaskRepository        [label="TaskRepository\ndata/repository/TaskRepository.kt:99-162,274-352", fillcolor="#ffedd5", color="#ea580c"];
+    SchedWorker           [label="ScheduleAutoTasksWorker\npresentation/launcher/work/ScheduleAutoTasksWorker.kt:337-339", fillcolor="#ffedd5", color="#ea580c"];
+    DistractSync          [label="DistractionSyncWorker\nworker/DistractionSyncWorker.kt:44-45", fillcolor="#ffedd5", color="#ea580c"];
+    MatrixViewModel       [label="MatrixViewModel\npresentation/matrix/MatrixViewModel.kt:57,121-203", fillcolor="#ffedd5", color="#ea580c"];
+    NewTaskFlowVM         [label="NewTaskFlowViewModel\npresentation/common/NewTaskFlowViewModel.kt:282-307", fillcolor="#ffedd5", color="#ea580c"];
+  }
+
+  // ---------------------------------------------------------------- columns
+  subgraph cluster_columns {
+    label="columns on tasks"; fontsize=11; color="#bfdbfe"; style="rounded";
+    plannedBlock   [label="plannedBlockMinutes\nsentinel 0, cap 360", fillcolor="#dbeafe", color="#2563eb"];
+    trackedTotal   [label="totalTimeTrackedMinutes", fillcolor="#dbeafe", color="#2563eb"];
+    sessionCount   [label="sessionCount", fillcolor="#dbeafe", color="#2563eb"];
+    lastSession    [label="lastSessionDurationMinutes", fillcolor="#dbeafe", color="#2563eb"];
+    actualDur      [label="actualDurationMinutes", fillcolor="#dbeafe", color="#2563eb"];
+    mapeSmape      [label="estimationErrorMape / Smape", fillcolor="#dbeafe", color="#2563eb"];
+    habitStreak    [label="habitStreak / isHabitual", fillcolor="#dbeafe", color="#2563eb"];
+    focusPoints    [label="focusModePoints = impact/10", fillcolor="#dbeafe", color="#2563eb"];
+    postponeCount  [label="postponeCount", fillcolor="#dbeafe", color="#2563eb"];
+    affectErr      [label="affectiveForecastError\nwoopPromptShown", fillcolor="#dbeafe", color="#2563eb"];
+    distractScore  [label="distractionScore\nsentinel -1", fillcolor="#dbeafe", color="#2563eb"];
+    autoFlags      [label="isAutoScheduled\nlastAutoScheduledAt", fillcolor="#dbeafe", color="#2563eb"];
+    placement      [label="scheduledDate\nscheduledTime", fillcolor="#dbeafe", color="#2563eb"];
+    habitDate      [label="habitDate", fillcolor="#dbeafe", color="#2563eb"];
+    quadrant       [label="quadrant (auto-assigned)", fillcolor="#dbeafe", color="#2563eb"];
+  }
+
+  // ---------------------------------------------------------------- readers
+  subgraph cluster_readers {
+    label="readers (decisions and surfaces)"; fontsize=11; color="#e9d5ff"; style="rounded";
+    Scoring   [label="TaskScoringEngine.score\ndomain/engine/TaskScoringEngine.kt:438-720", fillcolor="#f3e8ff", color="#7c3aed"];
+    Planner   [label="AutoSchedulingEngine.planAutoSchedule\ndomain/scheduler/AutoSchedulingEngine.kt:164-579", fillcolor="#f3e8ff", color="#7c3aed"];
+    Stability [label="PlacementStability.verdict\ndomain/scheduler/PlacementStability.kt", fillcolor="#f3e8ff", color="#7c3aed"];
+    BlockPlan [label="TaskBlockPlan\n.plannedMinutes / .blockHasExpired", fillcolor="#f3e8ff", color="#7c3aed"];
+    Analytics [label="AnalyticsEngine\n.buildSummary / PlanningCalibration", fillcolor="#f3e8ff", color="#7c3aed"];
+    PeakRepo  [label="PeakEnergyRepository\nbehaviour signals :683", fillcolor="#f3e8ff", color="#7c3aed"];
+    UI        [label="ViewModels / screens\nTaskRow, FocusScreen, Today,\nProgress, History, widget", fillcolor="#fce7f3", color="#db2777"];
+  }
+
+  // ---------------------------------------------------------------- write edges
+  SchedWorker         -> plannedBlock   [label="decision.estimatedDurationMinutes"];
+  SchedWorker         -> autoFlags      [label="true / nowMillis"];
+  SchedWorker         -> placement      [label="splitMillisToDateAndTime"];
+  FocusSessionManager -> trackedTotal;
+  FocusSessionManager -> sessionCount;
+  FocusSessionManager -> lastSession;
+  FocusCompletionMgr  -> actualDur;
+  FocusCompletionMgr  -> mapeSmape [label="AnalyticsEngine.computeMape"];
+  FocusCompletionMgr  -> focusPoints;
+  TaskRepository      -> postponeCount [label="postponeTask :137\nrescheduleToTomorrow :159"];
+  TaskRepository      -> habitStreak   [label="completeAndRecur :280,345"];
+  TaskRepository      -> habitDate     [label="nextRecurringAnchorAfter :331"];
+  TaskRepository      -> plannedBlock  [label="reset to 0 when the\nestimate changes :99", style=dashed, color="#dc2626"];
+  TaskRepository      -> autoFlags     [label="cleared by reschedule :162", style=dashed, color="#dc2626"];
+  NewTaskFlowVM       -> autoFlags     [label="nulls lastAutoScheduledAt\non user edit :282", style=dashed, color="#dc2626"];
+  DistractSync        -> distractScore  [label="only when changed"];
+  FocusWoopManager    -> affectErr      [label="rating - forecast"];
+  MatrixViewModel     -> quadrant       [label="autoAssignQuadrant :57"];
+  MatrixViewModel     -> trackedTotal   [label="logTimeOnly :246"];
+
+  // ---------------------------------------------------------------- read edges
+  Scoring      -> sessionCount   [label="progress min(n*18,72)\n+ staleness gate ==0"];
+  Scoring      -> postponeCount  [label="min(n*30,180)"];
+  Scoring      -> habitStreak    [label="min(n*12,100)"];
+  Scoring      -> distractScore  [label="priorityBoost when >0"];
+  Scoring      -> affectErr      [label="via EnjoymentCalibration"];
+  Scoring      -> quadrant;
+  Planner      -> plannedBlock   [label="occupied capacity"];
+  Planner      -> mapeSmape      [label="calculateRealisticDuration :922"];
+  Planner      -> actualDur      [label="mean(est, actual)"];
+  BlockPlan    -> plannedBlock;
+  BlockPlan    -> placement      [label="start + planned length"];
+  Stability    -> autoFlags      [label="cooldown clock"];
+  Stability    -> placement      [label="hours until start"];
+  Stability    -> postponeCount  [label="POSTPONE_PATTERN >= 3"];
+  PeakRepo     -> distractScore;
+  Analytics    -> actualDur;
+  Analytics    -> mapeSmape;
+  UI           -> trackedTotal;
+  UI           -> lastSession;
+  UI           -> placement      [label="Room Flow, no navigation"];
+  UI           -> distractScore;
+  UI           -> affectErr;
+
+  // ---------------------------------------------------------------- notes
+  note [shape=note, label="No @ForeignKey anywhere: dependency cleanup on delete is done with raw DAO updates\nin TaskRepository.delete:167-187. Only sleep_logs declares indices.\nScores themselves are never persisted — see docs/architecture/data-flow/data-flow.html section 8.",
+        fillcolor="#fef9c3", color="#ca8a04", fontsize=10];
+  note -> Scoring [style=invis];
+}
