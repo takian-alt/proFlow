@@ -1,5 +1,6 @@
 package com.neuroflow.app.presentation.v2.focus
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +17,7 @@ import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
 import com.neuroflow.app.presentation.focus.StepByStepPlanStep
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -46,7 +48,9 @@ data class FocusUiStateV2(
     val nextTaskId: String? = null,
     val nextTaskTitle: String? = null,
     val preferences: UserPreferences = UserPreferences(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val showAffordanceRating: Boolean = false,
+    val affordanceRatingSubmitted: Boolean = false
 )
 
 @HiltViewModel
@@ -55,7 +59,8 @@ class FocusViewModelV2 @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val woopRepository: WoopRepository,
-    private val preferencesDataStore: UserPreferencesDataStore
+    private val preferencesDataStore: UserPreferencesDataStore,
+    @ApplicationContext private val context: Context? = null
 ) : ViewModel() {
 
     val taskId: String = checkNotNull(savedStateHandle["taskId"])
@@ -134,6 +139,7 @@ class FocusViewModelV2 @Inject constructor(
         }
 
         _uiState.update { it.copy(isRunning = true, isPaused = false) }
+        enableDndIfPermitted()
 
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
@@ -166,6 +172,7 @@ class FocusViewModelV2 @Inject constructor(
         pauseCount++
         timerJob?.cancel()
         timerJob = null
+        disableDnd()
         _uiState.update { it.copy(isPaused = true, isRunning = false) }
         updateSessionRecord(isOpen = true)
     }
@@ -176,6 +183,7 @@ class FocusViewModelV2 @Inject constructor(
 
     fun completeTask() {
         timerJob?.cancel()
+        disableDnd()
         val now = System.currentTimeMillis()
         updateSessionRecord(isOpen = false)
 
@@ -189,10 +197,63 @@ class FocusViewModelV2 @Inject constructor(
                     isRunning = false,
                     isPaused = false,
                     isCompleted = true,
+                    showAffordanceRating = true,
                     pointsEarned = points
                 )
             }
         }
+    }
+
+    fun submitAffordanceRating(rating: Float) {
+        val task = _uiState.value.task ?: return
+        viewModelScope.launch {
+            taskRepository.update(
+                task.copy(
+                    affectiveForecastError = rating,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            _uiState.update { it.copy(showAffordanceRating = false, affordanceRatingSubmitted = true) }
+        }
+    }
+
+    fun dismissAffordanceRating() {
+        _uiState.update { it.copy(showAffordanceRating = false) }
+    }
+
+    fun autoBreakDownTask() {
+        val task = _uiState.value.task ?: return
+        val cleanTitle = task.title.trim().take(30)
+        val microSteps = listOf(
+            StepByStepPlanStep("Open workspace & gather materials for $cleanTitle", false),
+            StepByStepPlanStep("Spend 5 uninterrupted minutes on the first sub-action", false),
+            StepByStepPlanStep("Review progress & polish final result", false)
+        )
+        val serialized = StepByStepPlanCodec.serialize(microSteps)
+        _uiState.update { it.copy(microSteps = microSteps) }
+        viewModelScope.launch {
+            taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    private fun enableDndIfPermitted() {
+        try {
+            if (!_uiState.value.preferences.dndEnabled || context == null) return
+            val nm = context.getSystemService(android.app.NotificationManager::class.java)
+            if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun disableDnd() {
+        try {
+            if (context == null) return
+            val nm = context.getSystemService(android.app.NotificationManager::class.java)
+            if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun updateSessionRecord(isOpen: Boolean) {
@@ -261,6 +322,7 @@ class FocusViewModelV2 @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         timerJob?.cancel()
+        disableDnd()
         if (_uiState.value.isRunning && !_uiState.value.isCompleted) {
             updateSessionRecord(isOpen = false)
         }

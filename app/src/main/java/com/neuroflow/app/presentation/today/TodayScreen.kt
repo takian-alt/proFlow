@@ -278,10 +278,10 @@ fun TodayScreen(
                 }
             }
 
-            // Overdue Tasks Section
+            // Overdue Tasks Section (ADHD-supportive low-anxiety presentation)
             if (uiState.overdueTasks.isNotEmpty()) {
                 item {
-                    SectionHeader("Overdue", badge = "${uiState.overdueTasks.size}", badgeColor = NeuroFlowColors.DoFirstText)
+                    SectionHeader("Ready When You Are", badge = "${uiState.overdueTasks.size} ready", badgeColor = NeuroFlowColors.MapeBad)
                 }
                 items(uiState.overdueTasks, key = { it.id }) { task ->
                     SwipeableTaskCard(

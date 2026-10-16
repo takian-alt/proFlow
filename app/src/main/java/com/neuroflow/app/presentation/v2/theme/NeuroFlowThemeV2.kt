@@ -7,9 +7,9 @@ import androidx.compose.ui.graphics.Color
 object NeuroFlowThemeV2Colors {
     // Deep Obsidian & Slate background palette
     val Obsidian = Color(0xFF0A0B0E)
-    val SlateSurface = Color(0xFF14171F)
-    val SlateSurfaceAlt = Color(0xFF1C202B)
-    val SlateBorder = Color(0xFF282D3D)
+    val SlateSurface = Color(0xFF13151B)
+    val SlateSurfaceAlt = Color(0xFF1C1F28)
+    val SlateBorder = Color(0xFF2A2E3B)
     val SlateDivider = Color(0xFF222736)
 
     // Bioluminescent Accents
@@ -24,7 +24,8 @@ object NeuroFlowThemeV2Colors {
     val WarmAmber = Color(0xFFF59E0B)
     val WarmAmberContainer = Color(0xFF78350F)
 
-    val RoseCoral = Color(0xFFF43F5E)
+    val MutedCoral = Color(0xFFF43F5E)
+    val RoseCoral = MutedCoral
     val RoseCoralContainer = Color(0xFF881337)
 
     // Neutral Typography
@@ -49,7 +50,7 @@ val NeuroFlowV2DarkColorScheme = darkColorScheme(
     tertiaryContainer = NeuroFlowThemeV2Colors.WarmAmberContainer,
     onTertiaryContainer = Color(0xFFFDE68A),
 
-    error = NeuroFlowThemeV2Colors.RoseCoral,
+    error = NeuroFlowThemeV2Colors.MutedCoral,
     onError = Color.White,
     errorContainer = NeuroFlowThemeV2Colors.RoseCoralContainer,
     onErrorContainer = Color(0xFFFECDD3),
@@ -67,9 +68,23 @@ val NeuroFlowV2DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun NeuroFlowThemeV2(content: @Composable () -> Unit) {
+fun NeuroFlowThemeV2(
+    amoledDark: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val baseScheme = NeuroFlowV2DarkColorScheme
+    val colorScheme = if (amoledDark) {
+        baseScheme.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceVariant = Color(0xFF0F1116)
+        )
+    } else {
+        baseScheme
+    }
+
     MaterialTheme(
-        colorScheme = NeuroFlowV2DarkColorScheme,
+        colorScheme = colorScheme,
         typography = Typography(),
         content = content
     )

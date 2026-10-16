@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -14,7 +15,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.neuroflow.app.presentation.settings.MEQQuizScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
+import com.neuroflow.app.presentation.settings.SleepLogsScreen
 import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
 import com.neuroflow.app.presentation.v2.focus.FocusScreenV2
 import com.neuroflow.app.presentation.v2.insights.InsightsScreenV2
@@ -25,7 +28,8 @@ import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 @Composable
 fun NeuroFlowAppV2(
     initialTaskId: String? = null,
-    onInitialTaskConsumed: () -> Unit = {}
+    onInitialTaskConsumed: () -> Unit = {},
+    amoledDark: Boolean = false
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -38,12 +42,13 @@ fun NeuroFlowAppV2(
         }
     }
 
-    NeuroFlowThemeV2 {
+    val isAmoled = amoledDark || MaterialTheme.colorScheme.background == Color.Black
+    NeuroFlowThemeV2(amoledDark = isAmoled) {
         Scaffold(
-            containerColor = NeuroFlowThemeV2Colors.Obsidian,
+            containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 NavigationBar(
-                    containerColor = NeuroFlowThemeV2Colors.SlateSurface,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = NeuroFlowThemeV2Colors.TextPrimary
                 ) {
                     NavHubsV2.items.forEach { hub ->
@@ -81,7 +86,9 @@ fun NeuroFlowAppV2(
                 composable(NavHubsV2.Flow.route) {
                     FlowScreenV2(
                         onNavigateToSettings = { navController.navigate("settings") },
-                        onStartFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
+                        onStartFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
+                        onNavigateToMEQ = { navController.navigate("meq_quiz") },
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") }
                     )
                 }
 
@@ -92,13 +99,30 @@ fun NeuroFlowAppV2(
                 }
 
                 composable(NavHubsV2.Insights.route) {
-                    InsightsScreenV2()
+                    InsightsScreenV2(
+                        onNavigateToMEQ = { navController.navigate("meq_quiz") },
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") }
+                    )
                 }
 
                 composable("settings") {
                     SettingsScreen(
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToPriorityWeights = { }
+                        onNavigateToPriorityWeights = { },
+                        onNavigateToMEQQuiz = { navController.navigate("meq_quiz") },
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") }
+                    )
+                }
+
+                composable("meq_quiz") {
+                    MEQQuizScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("sleep_logs") {
+                    SleepLogsScreen(
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
 

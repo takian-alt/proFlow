@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Pause
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.neuroflow.app.presentation.focus.AffordanceRatingSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,6 +47,7 @@ fun FocusScreenV2(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showParkThoughtSheet by remember { mutableStateOf(false) }
+    var showSighSheet by remember { mutableStateOf(false) }
     var newThoughtText by remember { mutableStateOf("") }
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
@@ -74,6 +77,19 @@ fun FocusScreenV2(
                             contentDescription = "Back",
                             tint = NeuroFlowThemeV2Colors.TextPrimary
                         )
+                    }
+                },
+                actions = {
+                    FilledTonalButton(
+                        onClick = { showSighSheet = true },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            contentColor = NeuroFlowThemeV2Colors.SageGreen
+                        ),
+                        modifier = Modifier.padding(end = 8.dp).heightIn(min = 40.dp)
+                    ) {
+                        Text("🫁 60s Reset", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = NeuroFlowThemeV2Colors.Obsidian)
@@ -242,6 +258,16 @@ fun FocusScreenV2(
                             color = NeuroFlowThemeV2Colors.SageGreen,
                             trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
                         )
+                    } else {
+                        OutlinedButton(
+                            onClick = { viewModel.autoBreakDownTask() },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Break It Down (Auto-Scaffold 3 Steps) 🪄", fontSize = 12.sp)
+                        }
                     }
 
                     state.microSteps.forEachIndexed { index, step ->
@@ -383,6 +409,17 @@ fun FocusScreenV2(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    if (showSighSheet) {
+        PhysiologicalSighGuideSheet(onDismiss = { showSighSheet = false })
+    }
+
+    if (state.showAffordanceRating && !state.affordanceRatingSubmitted) {
+        AffordanceRatingSheet(
+            onSubmit = { rating -> viewModel.submitAffordanceRating(rating) },
+            onSkip = { viewModel.dismissAffordanceRating() }
+        )
     }
 }
 

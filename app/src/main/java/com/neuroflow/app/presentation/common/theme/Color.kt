@@ -15,9 +15,9 @@ object NeuroFlowColors {
     val LightBorder     = Color(0xFFE3E7EF)
 
     // Quadrant colors
-    val DoFirstBg       = Color(0xFFFDE2E2)
-    val DoFirstText     = Color(0xFFC62828)
-    val DoFirstTextDark = Color(0xFFEF5350)
+    val DoFirstBg       = Color(0xFF1C1F28)
+    val DoFirstText     = Color(0xFFF43F5E)
+    val DoFirstTextDark = Color(0xFFF43F5E)
     val ScheduleBg      = Color(0xFFDFF4E6)
     val ScheduleText    = Color(0xFF2E7D32)
     val ScheduleTextDark = Color(0xFF81C784)
@@ -36,13 +36,13 @@ object NeuroFlowColors {
     val PomodoroCard    = Color(0xFFF3E5F5)
 
     // Tracking badges
-    val TrackingRed     = Color(0xFFD32F2F)
+    val TrackingRed     = Color(0xFFF43F5E)
     val LockedGray      = Color(0xFF424242)
 
     // MAPE color grades
     val MapeGood        = Color(0xFF2E7D32)
     val MapeMedium      = Color(0xFF1565C0)
-    val MapeBad         = Color(0xFFBF360C)
+    val MapeBad         = Color(0xFFF59E0B)
 
     // Dark theme colors
     val DarkBackground  = Color(0xFF121212)

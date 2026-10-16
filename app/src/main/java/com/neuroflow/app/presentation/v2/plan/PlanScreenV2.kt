@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
@@ -31,6 +32,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -44,6 +46,8 @@ fun PlanScreenV2(
     viewModel: PlanViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val recentNotes by viewModel.recentNotes.collectAsState(initial = emptyList())
+    var showNotesSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = NeuroFlowThemeV2Colors.Obsidian
@@ -75,28 +79,41 @@ fun PlanScreenV2(
                     )
                 }
 
-                // AI Auto-Schedule quick trigger
-                FilledTonalButton(
-                    onClick = { viewModel.triggerAutoScheduleNow() },
-                    enabled = !state.isAutoScheduling,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                        contentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) {
-                    if (state.isAutoScheduling) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconButton(
+                        onClick = { showNotesSheet = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Notes,
+                            contentDescription = "Quick Notes",
+                            tint = NeuroFlowThemeV2Colors.TextSecondary
                         )
-                    } else {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Auto-Plan", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                    // AI Auto-Schedule quick trigger
+                    FilledTonalButton(
+                        onClick = { viewModel.triggerAutoScheduleNow() },
+                        enabled = !state.isAutoScheduling,
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            contentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        if (state.isAutoScheduling) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Auto-Plan", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
 
@@ -130,6 +147,36 @@ fun PlanScreenV2(
                 onSelectDate = { viewModel.selectDate(it) }
             )
 
+            // Tag Filter Strip
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(state.availableTags) { tag ->
+                    val isSelected = if (tag == "All") {
+                        state.selectedTag == null || state.selectedTag == "All"
+                    } else {
+                        state.selectedTag == tag
+                    }
+
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { viewModel.selectTag(if (tag == "All") null else tag) },
+                        label = { Text(tag, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                            selectedLabelColor = Color.White,
+                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.heightIn(min = 40.dp)
+                    )
+                }
+            }
+
             // Conflict Warning Banner if any
             if (state.conflicts.isNotEmpty()) {
                 Surface(
@@ -160,13 +207,15 @@ fun PlanScreenV2(
                 PlanViewModeV2.TIMELINE -> TimelineScheduleView(
                     state = state,
                     onStartFocus = onNavigateToFocus,
-                    onCompleteTask = { viewModel.completeTask(it) }
+                    onCompleteTask = { viewModel.completeTask(it) },
+                    onBreakDownTask = { viewModel.breakDownTask(it) }
                 )
                 PlanViewModeV2.MATRIX -> MatrixPlanView(
                     state = state,
                     onStartFocus = onNavigateToFocus,
                     onMoveQuadrant = { task, q -> viewModel.moveTaskToQuadrant(task, q) },
-                    onCompleteTask = { viewModel.completeTask(it) }
+                    onCompleteTask = { viewModel.completeTask(it) },
+                    onBreakDownTask = { viewModel.breakDownTask(it) }
                 )
                 PlanViewModeV2.AUTOPILOT -> AutopilotConfigView(
                     state = state,
@@ -176,6 +225,14 @@ fun PlanScreenV2(
                 )
             }
         }
+    }
+
+    if (showNotesSheet) {
+        QuickNotesBottomSheet(
+            notes = recentNotes,
+            onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
+            onDismiss = { showNotesSheet = false }
+        )
     }
 }
 
@@ -263,7 +320,8 @@ private fun isSameDay(t1: Long, t2: Long): Boolean {
 fun TimelineScheduleView(
     state: PlanUiStateV2,
     onStartFocus: (String) -> Unit,
-    onCompleteTask: (TaskEntity) -> Unit
+    onCompleteTask: (TaskEntity) -> Unit,
+    onBreakDownTask: (TaskEntity) -> Unit = {}
 ) {
     val peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9
     val peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
@@ -395,6 +453,14 @@ fun TimelineScheduleView(
                             )
                         }
 
+                        // Break It Down wand (touch target >= 48dp)
+                        IconButton(
+                            onClick = { onBreakDownTask(task) },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = "Break down", tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(18.dp))
+                        }
+
                         // Focus Button (>=48dp)
                         IconButton(
                             onClick = { onStartFocus(task.id) },
@@ -458,7 +524,8 @@ fun MatrixPlanView(
     state: PlanUiStateV2,
     onStartFocus: (String) -> Unit,
     onMoveQuadrant: (TaskEntity, Quadrant) -> Unit,
-    onCompleteTask: (TaskEntity) -> Unit
+    onCompleteTask: (TaskEntity) -> Unit,
+    onBreakDownTask: (TaskEntity) -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -468,7 +535,7 @@ fun MatrixPlanView(
         contentPadding = PaddingValues(bottom = 80.dp)
     ) {
         val quadrants = listOf(
-            Quadrant.DO_FIRST to ("🔴 Do First (Urgent & High Impact / Frog)" to NeuroFlowThemeV2Colors.RoseCoral),
+            Quadrant.DO_FIRST to ("🎯 Do First (High Impact & Frog)" to NeuroFlowThemeV2Colors.MutedCoral),
             Quadrant.SCHEDULE to ("🔵 Schedule (High Impact, Deep Focus)" to NeuroFlowThemeV2Colors.ElectricIndigoGlow),
             Quadrant.DELEGATE to ("🟢 Quick Wins / Low Energy" to NeuroFlowThemeV2Colors.SageGreen),
             Quadrant.ELIMINATE to ("⚪ Backlog / Low Priority" to NeuroFlowThemeV2Colors.TextTertiary)
@@ -540,6 +607,14 @@ fun MatrixPlanView(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
+                                    }
+
+                                    // Break down wand
+                                    IconButton(
+                                        onClick = { onBreakDownTask(task) },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = "Break down", tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(18.dp))
                                     }
 
                                     // Move to next quadrant shortcut (touch target >= 48dp)

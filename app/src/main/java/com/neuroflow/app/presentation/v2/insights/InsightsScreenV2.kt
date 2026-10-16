@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalFireDepartment
@@ -18,18 +19,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.work.WorkManager
 import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.presentation.common.UlyssesContractSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 @Composable
 fun InsightsScreenV2(
+    onNavigateToMEQ: () -> Unit = {},
+    onNavigateToSleepLogs: () -> Unit = {},
     viewModel: InsightsViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    var showUlyssesSheet by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val workManager = remember(context) { viewModel.workManager ?: WorkManager.getInstance(context) }
 
     Scaffold(
         containerColor = NeuroFlowThemeV2Colors.Obsidian
@@ -86,7 +95,11 @@ fun InsightsScreenV2(
             Spacer(modifier = Modifier.height(4.dp))
 
             // Two-Process Model Deep Dive Card
-            BorbelyTwoProcessDeepDiveCard(state = state)
+            BorbelyTwoProcessDeepDiveCard(
+                state = state,
+                onNavigateToMEQ = onNavigateToMEQ,
+                onNavigateToSleepLogs = onNavigateToSleepLogs
+            )
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -214,6 +227,61 @@ fun InsightsScreenV2(
                 }
             }
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Ulysses Pre-Commitments Card
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("⚔️", fontSize = 16.sp)
+                            Text(
+                                text = "Ulysses Pre-Commitment Contracts",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.TextPrimary
+                            )
+                        }
+                        Text(
+                            text = "${state.activeContractsCount} Active",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+
+                    Text(
+                        text = "Lock in decisions ahead of time. Pre-commit stakes on high-friction tasks so future impulses cannot derail execution.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowThemeV2Colors.TextSecondary
+                    )
+
+                    Button(
+                        onClick = { showUlyssesSheet = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Create Ulysses Contract", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             // Actionable Neuroscience Interventions
             if (state.neuroscienceInterventions.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(14.dp))
@@ -252,10 +320,23 @@ fun InsightsScreenV2(
             Spacer(modifier = Modifier.height(80.dp))
         }
     }
+
+    if (showUlyssesSheet) {
+        UlyssesContractSheet(
+            taskRepository = viewModel.taskRepository,
+            contractRepository = viewModel.contractRepository,
+            workManager = workManager,
+            onDismiss = { showUlyssesSheet = false }
+        )
+    }
 }
 
 @Composable
-fun BorbelyTwoProcessDeepDiveCard(state: InsightsUiStateV2) {
+fun BorbelyTwoProcessDeepDiveCard(
+    state: InsightsUiStateV2,
+    onNavigateToMEQ: () -> Unit = {},
+    onNavigateToSleepLogs: () -> Unit = {}
+) {
     val pressure = state.energyUi?.sleepPressurePoints ?: 450
     val zone = state.energyUi?.fatigueZone ?: SleepPressureDetector.FatigueZone.RESTED
     val circadianFactor = state.energyUi?.circadianFactor ?: 0.85f
@@ -334,6 +415,24 @@ fun BorbelyTwoProcessDeepDiveCard(state: InsightsUiStateV2) {
                 style = MaterialTheme.typography.labelSmall,
                 color = NeuroFlowThemeV2Colors.TextSecondary
             )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onNavigateToMEQ,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.heightIn(min = 40.dp)
+                ) {
+                    Text("🧬 Chronotype Quiz", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                OutlinedButton(
+                    onClick = onNavigateToSleepLogs,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.heightIn(min = 40.dp)
+                ) {
+                    Text("🌙 Sleep Logs", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

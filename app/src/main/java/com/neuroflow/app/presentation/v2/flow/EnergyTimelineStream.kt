@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreTime
 import androidx.compose.material.icons.filled.PlayArrow
@@ -20,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 @Composable
@@ -28,6 +30,7 @@ fun EnergyTimelineStream(
     onTaskClick: (TaskEntity) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
     onDeferTask: (TaskEntity) -> Unit = {},
+    onBreakDownTask: (TaskEntity) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -79,7 +82,8 @@ fun EnergyTimelineStream(
                     task = task,
                     onTaskClick = { onTaskClick(task) },
                     onComplete = { onCompleteTask(task) },
-                    onDefer = { onDeferTask(task) }
+                    onDefer = { onDeferTask(task) },
+                    onBreakDown = { onBreakDownTask(task) }
                 )
             }
         }
@@ -91,13 +95,17 @@ fun TimelineTaskCard(
     task: TaskEntity,
     onTaskClick: () -> Unit,
     onComplete: () -> Unit,
-    onDefer: () -> Unit
+    onDefer: () -> Unit,
+    onBreakDown: () -> Unit = {}
 ) {
     val energyBadgeColor = when (task.energyLevel) {
         EnergyLevel.HIGH -> NeuroFlowThemeV2Colors.WarmAmber
         EnergyLevel.MEDIUM -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
         EnergyLevel.LOW -> NeuroFlowThemeV2Colors.SageGreen
     }
+
+    val microSteps = StepByStepPlanCodec.parse(task.ifThenPlan)
+    val hasMicroSteps = microSteps.isNotEmpty()
 
     Surface(
         modifier = Modifier
@@ -168,6 +176,15 @@ fun TimelineTaskCard(
                         )
                     }
 
+                    if (hasMicroSteps) {
+                        Text(
+                            text = "🪜 ${microSteps.size} steps",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
                     if (task.impactScore >= 70) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Star, contentDescription = null, tint = NeuroFlowThemeV2Colors.WarmAmber, modifier = Modifier.size(12.dp))
@@ -175,6 +192,19 @@ fun TimelineTaskCard(
                         }
                     }
                 }
+            }
+
+            // "Break It Down" Magic Wand button (touch target >= 48dp)
+            IconButton(
+                onClick = onBreakDown,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = "Break it down into micro-steps",
+                    tint = if (hasMicroSteps) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             // Defer 2h button (touch target >= 48dp)

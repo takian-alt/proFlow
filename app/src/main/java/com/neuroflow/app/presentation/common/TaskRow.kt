@@ -145,14 +145,14 @@ fun TaskRow(
                     add("🔁 ${task.recurrence.name.lowercase().replaceFirstChar { it.uppercase() }}")
                 }
                 if (task.habitStreak > 0) add("🔥 ${task.habitStreak}")
-                if (task.energyLevel == com.neuroflow.app.domain.model.EnergyLevel.HIGH) add("🔴 High energy")
+                if (task.energyLevel == com.neuroflow.app.domain.model.EnergyLevel.HIGH) add("⚡ High energy")
                 if (task.energyLevel == com.neuroflow.app.domain.model.EnergyLevel.LOW) add("🟢 Low energy")
                 if (task.contextTag.isNotBlank()) add(task.contextTag)
                 if (task.isAnxietyTask) add("😰 Anxiety")
                 if (task.isPublicCommitment) add("📢 Committed")
                 if (task.waitingFor.isNotBlank()) add("⏳ Blocked")
                 if (task.goalRiskLevel == 1) add("⚠ At Risk")
-                if (task.goalRiskLevel == 2) add("🚨 Critical")
+                if (task.goalRiskLevel == 2) add("⏳ High Priority")
             }
             if (badges.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))
@@ -197,8 +197,12 @@ private fun PriorityDot(priority: Priority) {
 @Composable
 fun TagChip(tag: String) {
     val chipColors = listOf(
-        NeuroFlowColors.LightSurfaceAlt, NeuroFlowColors.PomodoroCard, NeuroFlowColors.ScheduleBg,
-        NeuroFlowColors.DelegateBg, NeuroFlowColors.DoFirstBg, Color(0xFFE0F1F2)
+        Color(0xFF1C1F28),
+        Color(0xFF222736),
+        Color(0xFF2A2E3B),
+        Color(0xFF1F232E),
+        Color(0xFF252936),
+        Color(0xFF181B22)
     )
     val colorIndex = tag.hashCode().let { kotlin.math.abs(it) } % chipColors.size
     Surface(

@@ -49,6 +49,8 @@ fun CircadianHeroBarometer(
     circadianFactor: Float = 0.85f,
     recommendedTask: TaskEntity? = null,
     onStartRecommendedTask: (String) -> Unit = {},
+    onNavigateToMEQ: () -> Unit = {},
+    onNavigateToSleepLogs: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showExplainer by remember { mutableStateOf(false) }
@@ -149,6 +151,26 @@ fun CircadianHeroBarometer(
                             color = NeuroFlowThemeV2Colors.TextSecondary,
                             lineHeight = 18.sp
                         )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = onNavigateToMEQ,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 40.dp)
+                            ) {
+                                Text("🧬 MEQ Chronotype Quiz", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            OutlinedButton(
+                                onClick = onNavigateToSleepLogs,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 40.dp)
+                            ) {
+                                Text("🌙 Sleep Logs", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }

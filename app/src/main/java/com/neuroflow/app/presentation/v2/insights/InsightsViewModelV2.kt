@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.*
 import java.util.Calendar
 import javax.inject.Inject
 
+import androidx.work.WorkManager
+
 data class InsightsUiStateV2(
     val energyUi: EnergyScoreRepository.EnergyUiModel? = null,
     val preferences: UserPreferences = UserPreferences(),
@@ -37,11 +39,12 @@ data class InsightsUiStateV2(
 
 @HiltViewModel
 class InsightsViewModelV2 @Inject constructor(
-    private val taskRepository: TaskRepository,
+    val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
     private val energyScoreRepository: EnergyScoreRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val contractRepository: UlyssesContractRepository
+    val contractRepository: UlyssesContractRepository,
+    val workManager: WorkManager? = null
 ) : ViewModel() {
 
     val uiState: StateFlow<InsightsUiStateV2> = combine(

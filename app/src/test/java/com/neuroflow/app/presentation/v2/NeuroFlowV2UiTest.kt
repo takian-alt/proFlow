@@ -15,7 +15,9 @@ import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.domain.engine.SleepPressureDetector
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 import com.neuroflow.app.presentation.v2.focus.FocusTimerModeV2
 import com.neuroflow.app.presentation.v2.focus.FocusViewModelV2
@@ -25,6 +27,7 @@ import com.neuroflow.app.presentation.v2.plan.PlanViewModeV2
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -64,7 +67,9 @@ class NeuroFlowV2UiTest : StringSpec({
         quadrant: Quadrant = Quadrant.DO_FIRST,
         scheduledDate: Long? = null,
         scheduledTime: Long? = null,
-        ifThenPlan: String = ""
+        ifThenPlan: String = "",
+        postponeCount: Int = 0,
+        tags: String = ""
     ) = TaskEntity(
         id = id,
         title = title,
@@ -74,7 +79,9 @@ class NeuroFlowV2UiTest : StringSpec({
         quadrant = quadrant,
         scheduledDate = scheduledDate,
         scheduledTime = scheduledTime,
-        ifThenPlan = ifThenPlan
+        ifThenPlan = ifThenPlan,
+        postponeCount = postponeCount,
+        tags = tags
     )
 
     "FlowViewModelV2 recommends the highest leverage task matching biological battery" {
@@ -277,6 +284,208 @@ class NeuroFlowV2UiTest : StringSpec({
             state.interruptionAppSwitchCount shouldBe 3
             state.circadianAlignmentRate shouldBe 100
             state.neuroscienceInterventions.isNotEmpty() shouldBe true
+        }
+    }
+
+    "FlowViewModelV2 triggers Zero-Guilt Fresh Start rollover moving overdue tasks to Icebox" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val overdue1 = makeTask(id = "od-1", title = "Procrastinated 1", postponeCount = 4, quadrant = Quadrant.DO_FIRST)
+            val overdue2 = makeTask(id = "od-2", title = "Procrastinated 2", scheduledTime = now - 4 * 3600_000L, quadrant = Quadrant.SCHEDULE)
+            val freshTask = makeTask(id = "fresh-1", title = "New Task", postponeCount = 0, scheduledTime = now + 3600_000L)
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(overdue1, overdue2, freshTask))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            state.overdueTasksCount shouldBe 2
+
+            viewModel.freshStartRollover()
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { it.id == "od-1" && it.quadrant == Quadrant.ELIMINATE && it.postponeCount == 0 })
+            }
+            coVerify {
+                taskRepo.update(match { it.id == "od-2" && it.quadrant == Quadrant.ELIMINATE && it.postponeCount == 0 })
+            }
+            viewModel.uiState.value.lastActionMessage shouldContain "Fresh start active!"
+        }
+    }
+
+    "FlowViewModelV2 supports 4-second non-destructive undo for task completion" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val task = makeTask(id = "task-complete-undo", title = "Deep Focus Coding")
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            viewModel.uiState.filter { !it.isLoading }.first()
+
+            viewModel.completeTask(task)
+            advanceUntilIdle()
+
+            val completeMsg = viewModel.uiState.filter { it.lastActionMessage != null }.first().lastActionMessage
+            completeMsg shouldBe "Completed: Deep Focus Coding"
+            coVerify { taskRepo.completeAndRecur(match { it.id == "task-complete-undo" }, any()) }
+
+            viewModel.undoCompleteTask()
+            advanceUntilIdle()
+
+            coVerify { taskRepo.update(match { it.id == "task-complete-undo" && it.status == TaskStatus.ACTIVE && it.completedAt == null }) }
+            val restoreMsg = viewModel.uiState.filter { it.lastActionMessage?.startsWith("Restored") == true }.first().lastActionMessage
+            restoreMsg shouldBe "Restored: Deep Focus Coding"
+        }
+    }
+
+    "FlowViewModelV2 supports 4-second non-destructive undo for task deferral" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val task = makeTask(id = "defer-undo", title = "Call Accountant", scheduledTime = 20_000_000L, postponeCount = 1)
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            viewModel.uiState.filter { !it.isLoading }.first()
+
+            viewModel.deferTask(task, hours = 3)
+            advanceUntilIdle()
+
+            coVerify { taskRepo.update(match { it.id == "defer-undo" && it.scheduledTime == 20_000_000L + 3 * 3600_000L && it.postponeCount == 2 }) }
+            val deferMsg = viewModel.uiState.filter { it.lastActionMessage != null }.first().lastActionMessage
+            deferMsg shouldBe "Deferred by 3h: Call Accountant"
+
+            viewModel.undoDeferTask()
+            advanceUntilIdle()
+
+            coVerify { taskRepo.update(match { it.id == "defer-undo" && it.scheduledTime == 20_000_000L && it.postponeCount == 0 }) }
+            val undoMsg = viewModel.uiState.filter { it.lastActionMessage?.startsWith("Undid") == true }.first().lastActionMessage
+            undoMsg shouldBe "Undid deferral for: Call Accountant"
+        }
+    }
+
+    "FlowViewModelV2 breaks down daunting task into 3 micro-steps with Magic Wand" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val dauntingTask = makeTask(id = "daunting-1", title = "Write Doctoral Dissertation", ifThenPlan = "")
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(dauntingTask))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            viewModel.uiState.filter { !it.isLoading }.first()
+
+            viewModel.breakDownTask(dauntingTask)
+            advanceUntilIdle()
+
+            val updatedSlot = slot<TaskEntity>()
+            coVerify { taskRepo.update(capture(updatedSlot)) }
+            val parsedSteps = StepByStepPlanCodec.parse(updatedSlot.captured.ifThenPlan)
+            parsedSteps shouldHaveSize 3
+            parsedSteps[0].text shouldContain "Open workspace & gather materials"
+            parsedSteps[1].text shouldContain "Spend 5 uninterrupted minutes"
+            parsedSteps[2].text shouldContain "Review progress & polish"
+            val wandMsg = viewModel.uiState.filter { it.lastActionMessage != null }.first().lastActionMessage
+            wandMsg shouldContain "Decomposed 'Write Doctoral Dissertation' into 3 micro-steps"
+        }
+    }
+
+    "FocusViewModelV2 autoBreakDownTask scaffolds 3 steps and submits post-session affordance rating" {
+        runTest(testDispatcher) {
+            val task = makeTask(
+                id = "focus-scaffold",
+                title = "Refactor Database Schema",
+                ifThenPlan = ""
+            )
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "focus-scaffold"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            coEvery { taskRepo.getById("focus-scaffold") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.uiState.value.microSteps shouldHaveSize 0
+
+            // Scaffold 3 steps
+            viewModel.autoBreakDownTask()
+            advanceUntilIdle()
+
+            viewModel.uiState.value.microSteps shouldHaveSize 3
+            coVerify { taskRepo.update(match { it.id == "focus-scaffold" && it.ifThenPlan.contains("Open workspace") }) }
+
+            // Complete task and verify affordance rating prompt
+            viewModel.completeTask()
+            advanceUntilIdle()
+
+            viewModel.uiState.value.isCompleted shouldBe true
+            viewModel.uiState.value.showAffordanceRating shouldBe true
+
+            // Submit affordance rating
+            viewModel.submitAffordanceRating(4.0f)
+            advanceUntilIdle()
+
+            viewModel.uiState.value.showAffordanceRating shouldBe false
+            viewModel.uiState.value.affordanceRatingSubmitted shouldBe true
+            coVerify { taskRepo.update(match { it.id == "focus-scaffold" && it.affectiveForecastError == 4.0f }) }
+        }
+    }
+
+    "PlanViewModelV2 filters tasks by selected tag strip" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val workManager = mockk<WorkManager>(relaxed = true)
+
+            val tasks = listOf(
+                makeTask(id = "tag-1", title = "Write Core Algorithm", tags = "#deepwork"),
+                makeTask(id = "tag-2", title = "Answer Emails", tags = "#admin"),
+                makeTask(id = "tag-3", title = "Read Paper", tags = "#offline")
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(tasks)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+
+            val viewModel = PlanViewModelV2(taskRepo, prefsDataStore, energyRepo, workManager)
+            val stateAll = viewModel.uiState.filter { !it.isLoading }.first()
+            stateAll.unscheduledTasks shouldHaveSize 3
+
+            viewModel.selectTag("#deepwork")
+            advanceUntilIdle()
+
+            val filteredState = viewModel.uiState.value
+            filteredState.selectedTag shouldBe "#deepwork"
+            filteredState.unscheduledTasks shouldHaveSize 1
+            filteredState.unscheduledTasks[0].id shouldBe "tag-1"
         }
     }
 })
