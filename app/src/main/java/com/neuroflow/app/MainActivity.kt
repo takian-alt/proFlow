@@ -298,18 +298,26 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onSkip = { weeklyGoalHandled = true }
                                 )
-                                else -> NeuroFlowApp(
-                                    initialTaskId = initialFocusTaskId,
-                                    initialWoopTaskId = initialWoopTaskId,
-                                    initialGuideOpen = initialGuideOpen,
-                                    initialNewTaskOpen = initialNewTaskOpen,
-                                    initialScheduleOpen = initialScheduleOpen,
-                                    onInitialTaskConsumed = { initialFocusTaskId = null },
-                                    onInitialWoopTaskConsumed = { initialWoopTaskId = null },
-                                    onInitialGuideConsumed = { initialGuideOpen = false },
-                                    onInitialNewTaskConsumed = { initialNewTaskOpen = false },
-                                    onInitialScheduleConsumed = { initialScheduleOpen = false }
-                                )
+                                else -> {
+                                    if (prefs.useV2Ui) {
+                                        com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2(
+                                            onInitialTaskConsumed = { initialFocusTaskId = null }
+                                        )
+                                    } else {
+                                        NeuroFlowApp(
+                                            initialTaskId = initialFocusTaskId,
+                                            initialWoopTaskId = initialWoopTaskId,
+                                            initialGuideOpen = initialGuideOpen,
+                                            initialNewTaskOpen = initialNewTaskOpen,
+                                            initialScheduleOpen = initialScheduleOpen,
+                                            onInitialTaskConsumed = { initialFocusTaskId = null },
+                                            onInitialWoopTaskConsumed = { initialWoopTaskId = null },
+                                            onInitialGuideConsumed = { initialGuideOpen = false },
+                                            onInitialNewTaskConsumed = { initialNewTaskOpen = false },
+                                            onInitialScheduleConsumed = { initialScheduleOpen = false }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

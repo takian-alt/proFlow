@@ -161,7 +161,8 @@ data class UserPreferences(
     val protectedTimeSlots: List<ProtectedTimeSlot> = emptyList(),
     val dynamicColorEnabled: Boolean = true,
     val amoledDarkEnabled: Boolean = false,
-    val dndEnabled: Boolean = true
+    val dndEnabled: Boolean = true,
+    val useV2Ui: Boolean = false
 )
 
 @Singleton
@@ -287,6 +288,7 @@ class UserPreferencesDataStore @Inject constructor(
         val DYNAMIC_COLOR_ENABLED = booleanPreferencesKey("dynamic_color_enabled")
         val AMOLED_DARK_ENABLED = booleanPreferencesKey("amoled_dark_enabled")
         val DND_ENABLED = booleanPreferencesKey("dnd_enabled")
+        val USE_V2_UI = booleanPreferencesKey("use_v2_ui")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -410,7 +412,8 @@ class UserPreferencesDataStore @Inject constructor(
             protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS]),
             dynamicColorEnabled = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true,
             amoledDarkEnabled = prefs[Keys.AMOLED_DARK_ENABLED] ?: false,
-            dndEnabled = prefs[Keys.DND_ENABLED] ?: true
+            dndEnabled = prefs[Keys.DND_ENABLED] ?: true,
+            useV2Ui = prefs[Keys.USE_V2_UI] ?: false
         )
     }
 
@@ -729,6 +732,13 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.DYNAMIC_COLOR_ENABLED] = updated.dynamicColorEnabled
             prefs[Keys.AMOLED_DARK_ENABLED] = updated.amoledDarkEnabled
             prefs[Keys.DND_ENABLED] = updated.dndEnabled
+            prefs[Keys.USE_V2_UI] = updated.useV2Ui
+        }
+    }
+
+    suspend fun setUseV2Ui(enabled: Boolean) {
+        updatePreferences { prefs ->
+            prefs.copy(useV2Ui = enabled)
         }
     }
 
