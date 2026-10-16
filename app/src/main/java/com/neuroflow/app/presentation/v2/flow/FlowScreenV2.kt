@@ -85,19 +85,24 @@ fun FlowScreenV2(
                 }
             }
 
-            // Hero Circadian Barometer
+            // Hero Circadian Barometer (Borbély Two-Process Model)
             val energyScore = state.energyUi?.rawEnergy ?: 50f
             val battery = state.energyUi?.availableEnergy ?: 72
             val currentEnergyLevel = when {
-                energyScore >= 60f -> EnergyLevel.HIGH
-                energyScore >= 35f -> EnergyLevel.MEDIUM
+                battery >= 65 -> EnergyLevel.HIGH
+                battery >= 35 -> EnergyLevel.MEDIUM
                 else -> EnergyLevel.LOW
             }
 
             CircadianHeroBarometer(
                 rawEnergyScore = energyScore,
                 batteryPercent = battery,
-                energyZone = currentEnergyLevel
+                energyZone = currentEnergyLevel,
+                sleepPressurePoints = state.energyUi?.sleepPressurePoints ?: 450,
+                fatigueZone = state.energyUi?.fatigueZone ?: com.neuroflow.app.domain.engine.SleepPressureDetector.FatigueZone.RESTED,
+                circadianFactor = state.energyUi?.circadianFactor ?: 0.85f,
+                recommendedTask = state.recommendedTask,
+                onStartRecommendedTask = { taskId -> onStartFocus(taskId) }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -107,7 +112,8 @@ fun FlowScreenV2(
             EnergyTimelineStream(
                 scheduledTasks = tasks,
                 onTaskClick = { task -> onStartFocus(task.id) },
-                onCompleteTask = { task -> viewModel.completeTask(task) }
+                onCompleteTask = { task -> viewModel.completeTask(task) },
+                onDeferTask = { task -> viewModel.deferTask(task) }
             )
 
             Spacer(modifier = Modifier.height(80.dp))

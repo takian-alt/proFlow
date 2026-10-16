@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.v2.navigation
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -13,21 +14,29 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.neuroflow.app.presentation.analytics.AnalyticsScreen
-import com.neuroflow.app.presentation.focus.FocusScreen
-import com.neuroflow.app.presentation.plan.PlanScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
 import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
+import com.neuroflow.app.presentation.v2.focus.FocusScreenV2
+import com.neuroflow.app.presentation.v2.insights.InsightsScreenV2
+import com.neuroflow.app.presentation.v2.plan.PlanScreenV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 @Composable
 fun NeuroFlowAppV2(
+    initialTaskId: String? = null,
     onInitialTaskConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+
+    LaunchedEffect(initialTaskId) {
+        if (!initialTaskId.isNullOrBlank()) {
+            navController.navigate("focus_v2/$initialTaskId")
+            onInitialTaskConsumed()
+        }
+    }
 
     NeuroFlowThemeV2 {
         Scaffold(
@@ -72,21 +81,18 @@ fun NeuroFlowAppV2(
                 composable(NavHubsV2.Flow.route) {
                     FlowScreenV2(
                         onNavigateToSettings = { navController.navigate("settings") },
-                        onStartFocus = { taskId -> navController.navigate("focus/$taskId") }
+                        onStartFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
                     )
                 }
 
                 composable(NavHubsV2.Plan.route) {
-                    PlanScreen(
-                        onOpenMoreMenu = { },
-                        onNavigateToFocus = { taskId -> navController.navigate("focus/$taskId") },
-                        onNavigateToQuadrant = { /* matrix quadrant view */ },
-                        onNavigateToSettings = { navController.navigate("settings") }
+                    PlanScreenV2(
+                        onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
                     )
                 }
 
                 composable(NavHubsV2.Insights.route) {
-                    AnalyticsScreen()
+                    InsightsScreenV2()
                 }
 
                 composable("settings") {
@@ -97,18 +103,34 @@ fun NeuroFlowAppV2(
                 }
 
                 composable(
+                    route = "focus_v2/{taskId}",
+                    arguments = listOf(
+                        navArgument("taskId") { type = NavType.StringType }
+                    )
+                ) {
+                    FocusScreenV2(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToNextTask = { nextTaskId ->
+                            navController.navigate("focus_v2/$nextTaskId") {
+                                popUpTo(NavHubsV2.Flow.route)
+                            }
+                        }
+                    )
+                }
+
+                // Backward-compatible fallback for legacy focus route
+                composable(
                     route = "focus/{taskId}?skipped={skipped}",
                     arguments = listOf(
                         navArgument("taskId") { type = NavType.StringType },
                         navArgument("skipped") { type = NavType.StringType; defaultValue = "" }
                     )
-                ) { backStackEntry ->
-                    val taskId = backStackEntry.arguments?.getString("taskId") ?: ""
-                    FocusScreen(
+                ) {
+                    FocusScreenV2(
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToNextTask = { nextTaskId, newSkipped ->
-                            navController.navigate("focus/$nextTaskId?skipped=$newSkipped") {
-                                popUpTo("focus/$taskId") { inclusive = true }
+                        onNavigateToNextTask = { nextTaskId ->
+                            navController.navigate("focus_v2/$nextTaskId") {
+                                popUpTo(NavHubsV2.Flow.route)
                             }
                         }
                     )
@@ -117,3 +139,4 @@ fun NeuroFlowAppV2(
         }
     }
 }
+

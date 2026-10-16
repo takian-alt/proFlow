@@ -7,13 +7,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.MoreTime
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,13 +21,13 @@ import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
-import java.util.Calendar
 
 @Composable
 fun EnergyTimelineStream(
     scheduledTasks: List<TaskEntity>,
     onTaskClick: (TaskEntity) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
+    onDeferTask: (TaskEntity) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -78,7 +78,8 @@ fun EnergyTimelineStream(
                 TimelineTaskCard(
                     task = task,
                     onTaskClick = { onTaskClick(task) },
-                    onComplete = { onCompleteTask(task) }
+                    onComplete = { onCompleteTask(task) },
+                    onDefer = { onDeferTask(task) }
                 )
             }
         }
@@ -89,7 +90,8 @@ fun EnergyTimelineStream(
 fun TimelineTaskCard(
     task: TaskEntity,
     onTaskClick: () -> Unit,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    onDefer: () -> Unit
 ) {
     val energyBadgeColor = when (task.energyLevel) {
         EnergyLevel.HIGH -> NeuroFlowThemeV2Colors.WarmAmber
@@ -108,9 +110,9 @@ fun TimelineTaskCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Checkmark button (touch target >= 48dp)
             IconButton(
@@ -175,7 +177,20 @@ fun TimelineTaskCard(
                 }
             }
 
-            // Quick Focus start button
+            // Defer 2h button (touch target >= 48dp)
+            IconButton(
+                onClick = onDefer,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreTime,
+                    contentDescription = "Defer 2 hours",
+                    tint = NeuroFlowThemeV2Colors.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Quick Focus start button (touch target >= 48dp)
             IconButton(
                 onClick = onTaskClick,
                 modifier = Modifier
@@ -192,3 +207,4 @@ fun TimelineTaskCard(
         }
     }
 }
+

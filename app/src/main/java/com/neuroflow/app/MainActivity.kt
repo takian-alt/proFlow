@@ -301,6 +301,7 @@ class MainActivity : ComponentActivity() {
                                 else -> {
                                     if (prefs.useV2Ui) {
                                         com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2(
+                                            initialTaskId = initialFocusTaskId,
                                             onInitialTaskConsumed = { initialFocusTaskId = null }
                                         )
                                     } else {
