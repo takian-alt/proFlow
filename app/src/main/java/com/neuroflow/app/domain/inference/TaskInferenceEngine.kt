@@ -18,6 +18,10 @@ data class InferredTaskMetadata(
     val isFrog: Boolean,
     val priority: Priority = Priority.MEDIUM,
     val scheduledDate: Long? = null,
+    val scheduledTime: Long? = null,
+    val deadlineDate: Long? = null,
+    val deadlineTime: Long? = null,
+    val isHighImpact: Boolean = false,
     val rawDurationMinutes: Int = durationMinutes,
     val calibrationFactorApplied: Float = 1.0f
 )
@@ -44,6 +48,12 @@ object TaskInferenceEngine {
     private val CREATIVE_KEYWORDS = Regex("""(?i)\b(design|write|draft|brainstorm|compose|sketch|draw|illustrate)\b""")
     private val ADMIN_KEYWORDS = Regex("""(?i)\b(call|meet|email|sync|discuss|errand|admin|organize|clean|invoice|schedule|order|buy|purchase)\b""")
     private val PHYSICAL_KEYWORDS = Regex("""(?i)\b(gym|run|walk|exercise|workout|stretch|yoga)\b""")
+
+    private val HIGH_IMPACT_REGEX = Regex("""(?i)(?:^|\s)(?:!impact\b|!star\b|#impact\b|\b(?:high\s+impact|critical|strategic)\b)""")
+    private val TODAY_REGEX = Regex("""(?i)\b(today)\b""")
+    private val TOMORROW_REGEX = Regex("""(?i)\b(tomorrow)\b""")
+    private val DUE_DATE_REGEX = Regex("""(?i)\b(?:due|by|deadline)\s*:\s*(today|tomorrow)\b""")
+    private val SCHEDULE_DATE_REGEX = Regex("""(?i)\b(?:scheduled?|on|at)\s*:\s*(today|tomorrow)\b""")
 
     fun calculateCalibrationFactorFromHistory(tasks: List<TaskEntity>): Float {
         val validPairs = tasks.filter { task ->
@@ -147,6 +157,41 @@ object TaskInferenceEngine {
             else -> TaskType.ANALYTICAL
         }
 
+        // High Impact detection
+        val isHighImpact = HIGH_IMPACT_REGEX.containsMatchIn(text)
+
+        // Date inference (Today / Tomorrow)
+        val todayStart = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        val tomorrowStart = todayStart + 86_400_000L
+
+        var inferredDeadlineDate: Long? = null
+        var inferredScheduledDate: Long? = null
+
+        val dueMatch = DUE_DATE_REGEX.find(text)
+        if (dueMatch != null) {
+            val target = dueMatch.groupValues[1].lowercase(Locale.ROOT)
+            inferredDeadlineDate = if (target == "today") todayStart else tomorrowStart
+        } else if (TODAY_REGEX.containsMatchIn(text) && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true))) {
+            inferredDeadlineDate = todayStart
+        } else if (TOMORROW_REGEX.containsMatchIn(text) && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true))) {
+            inferredDeadlineDate = tomorrowStart
+        }
+
+        val scheduleMatch = SCHEDULE_DATE_REGEX.find(text)
+        if (scheduleMatch != null) {
+            val target = scheduleMatch.groupValues[1].lowercase(Locale.ROOT)
+            inferredScheduledDate = if (target == "today") todayStart else tomorrowStart
+        } else if (inferredDeadlineDate == null) {
+            if (TODAY_REGEX.containsMatchIn(text)) inferredScheduledDate = todayStart
+            else if (TOMORROW_REGEX.containsMatchIn(text)) inferredScheduledDate = tomorrowStart
+        }
+
         // Title sanitization
         var cleanTitle = text
             .replace(FROG_REGEX, " ")
@@ -157,6 +202,11 @@ object TaskInferenceEngine {
             .replace(PRIORITY_P1_REGEX, " ")
             .replace(PRIORITY_P2_REGEX, " ")
             .replace(PRIORITY_P3_REGEX, " ")
+            .replace(HIGH_IMPACT_REGEX, " ")
+            .replace(DUE_DATE_REGEX, " ")
+            .replace(SCHEDULE_DATE_REGEX, " ")
+            .replace(TODAY_REGEX, " ")
+            .replace(TOMORROW_REGEX, " ")
             .replace(Regex("""[@#][a-zA-Z0-9_\-]+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
@@ -172,6 +222,9 @@ object TaskInferenceEngine {
             contextTags = tags,
             isFrog = isFrog,
             priority = priority,
+            scheduledDate = inferredScheduledDate,
+            deadlineDate = inferredDeadlineDate,
+            isHighImpact = isHighImpact,
             rawDurationMinutes = rawDurationMinutes.coerceAtLeast(5),
             calibrationFactorApplied = safeCalibration
         )
