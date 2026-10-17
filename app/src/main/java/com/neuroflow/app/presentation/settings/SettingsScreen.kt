@@ -33,7 +33,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.BuildConfig
-import com.neuroflow.app.domain.engine.DistractionEngine
+import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import kotlinx.coroutines.delay
@@ -52,7 +52,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
-    val peakDetection by viewModel.peakDetection.collectAsStateWithLifecycle()
+    val circadianSummary by viewModel.circadianSummary.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearTelemetryDialog by remember { mutableStateOf(false) }
     var showDistractingAppsDialog by remember { mutableStateOf(false) }
@@ -231,7 +231,7 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         viewModel.updatePreferences { p ->
-                            p.copy(distractingPackages = DistractionEngine.DEFAULT_DISTRACTING_PACKAGES)
+                            p.copy(distractingPackages = BehavioralSupportService.DEFAULT_DISTRACTING_PACKAGES)
                         }
                     }
                 ) {
@@ -339,61 +339,28 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                val effectiveProfile = peakDetection?.effectiveProfile
-                val detectedMinute = EnergyInsight.detectedPeakMinuteOfDayOrNull(prefs)
-                val effectiveMinute = effectiveProfile?.anchorMinuteOfDay ?: EnergyInsight.effectivePeakMinuteOfDay(prefs)
+                val peakStart = circadianSummary?.peakWindowStartHour ?: prefs.peakEnergyStart
+                val peakEnd = circadianSummary?.peakWindowEndHour ?: prefs.peakEnergyEnd
+                val dipStart = circadianSummary?.dipWindowStartHour ?: 14
+                val dipEnd = circadianSummary?.dipWindowEndHour ?: 16
+                val peakScore = circadianSummary?.peakEnergyScore ?: 80
+                val deepWorkMins = circadianSummary?.recommendedDeepWorkMinutes ?: 180
+
                 Text(
-                    text = "Effective peak point: ${EnergyInsight.minuteLabel(effectiveMinute)}",
+                    text = "Effective peak window: ${EnergyInsight.minuteLabel(peakStart * 60)} – ${EnergyInsight.minuteLabel(peakEnd * 60)} ($peakScore score)",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
                 )
-                if (detectedMinute != null) {
-                    Text(
-                        text = "Detected peak point: ${EnergyInsight.minuteLabel(detectedMinute)}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 Text(
-                    text = EnergyInsight.profileConfidenceLine(effectiveProfile),
+                    text = "Afternoon dip window: ${EnergyInsight.minuteLabel(dipStart * 60)} – ${EnergyInsight.minuteLabel(dipEnd * 60)}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = EnergyInsight.profileModeLabel(
-                        manualOverrideEnabled = prefs.manualPeakProfileEnabled,
-                        profile = effectiveProfile
-                    ),
+                    text = "Recommended deep work capacity: ${deepWorkMins}m",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.primary
                 )
-                val chronotype = prefs.quizChronotype ?: prefs.manualChronotype
-                val isMorningType = EnergyInsight.isMorningType(chronotype)
-                if (isMorningType) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = EnergyInsight.profileSummary(effectiveProfile),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = EnergyInsight.adaptiveHint(effectiveProfile),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = EnergyInsight.backtestSummary(effectiveProfile),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Adaptive morning diagnostics appear after selecting a morning chronotype and collecting session data.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 if (!prefs.quizPeakEnabled) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -987,14 +954,14 @@ private fun SettingsDeepWorkTargetRow(minutes: Int, onChange: (Int) -> Unit) {
 @Composable
 private fun DistractionPermissionRow() {
     val context = LocalContext.current
-    var granted by remember { mutableStateOf(DistractionEngine.hasUsagePermission(context)) }
+    var granted by remember { mutableStateOf(BehavioralSupportService.hasUsagePermission(context)) }
 
     // The grant happens in the system settings page, which never calls back into this
     // composition — poll until it flips, the same way the Hyper Focus permission screen does.
     LaunchedEffect(granted) {
         while (!granted) {
             delay(1000)
-            granted = DistractionEngine.hasUsagePermission(context)
+            granted = BehavioralSupportService.hasUsagePermission(context)
         }
     }
 
@@ -1020,7 +987,7 @@ private fun DistractionPermissionRow() {
             )
         } else {
             Button(
-                onClick = { DistractionEngine.openUsagePermissionSettings(context) },
+                onClick = { BehavioralSupportService.openUsagePermissionSettings(context) },
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Grant", fontSize = 12.sp)

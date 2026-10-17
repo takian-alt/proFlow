@@ -9,9 +9,14 @@ import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.EnergyLevel
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.FatigueZone
+import com.neuroflow.app.domain.model.buildEnergyUiModel
+import com.neuroflow.app.domain.model.computeEnergyUiState
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import java.util.Calendar
@@ -20,7 +25,7 @@ import javax.inject.Inject
 import androidx.work.WorkManager
 
 data class InsightsUiStateV2(
-    val energyUi: EnergyScoreRepository.EnergyUiModel? = null,
+    val energyUi: EnergyUiModel? = null,
     val preferences: UserPreferences = UserPreferences(),
     val circadianAlignmentRate: Int = 85,
     val interruptionPauseResumeCount: Int = 0,
@@ -41,19 +46,20 @@ data class InsightsUiStateV2(
 class InsightsViewModelV2 @Inject constructor(
     val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
-    private val energyScoreRepository: EnergyScoreRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     val contractRepository: UlyssesContractRepository,
-    val workManager: WorkManager? = null
+    val workManager: WorkManager? = null,
+    private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
 ) : ViewModel() {
 
     val uiState: StateFlow<InsightsUiStateV2> = combine(
         taskRepository.observeAll(),
         sessionRepository.observeAll(),
-        energyScoreRepository.observeEnergy(),
         preferencesDataStore.preferencesFlow,
-        contractRepository.observeActive()
-    ) { allTasks, allSessions, energyUi, prefs, activeContracts ->
+        contractRepository.observeActive(),
+        sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+    ) { allTasks, allSessions, prefs, activeContracts, sleepLogs ->
         val now = System.currentTimeMillis()
         val cal = Calendar.getInstance()
         cal.set(Calendar.HOUR_OF_DAY, 0)
@@ -96,19 +102,28 @@ class InsightsViewModelV2 @Inject constructor(
             (((totalMinutes - penaltyMinutes).coerceAtLeast(0.0) / totalMinutes) * 100).toInt().coerceIn(30, 99)
         } else 95
 
+        // Calculate continuous Borbély circadian snapshot & energyUi
+        val (_, energyUi) = computeEnergyUiState(
+            circadianEnergyService = circadianEnergyService,
+            sleepTelemetryRepository = sleepTelemetryRepository,
+            prefs = prefs,
+            sleepLogs = sleepLogs,
+            nowMillis = now
+        )
+
         // Behavioral interventions
         val interventions = mutableListOf<String>()
-        val pressure = energyUi?.sleepPressurePoints ?: 400
-        val zone = energyUi?.fatigueZone ?: SleepPressureDetector.FatigueZone.RESTED
+        val pressure = energyUi.sleepPressurePoints
+        val zone = energyUi.fatigueZone
 
         when (zone) {
-            SleepPressureDetector.FatigueZone.CRITICAL, SleepPressureDetector.FatigueZone.HIGH -> {
+            FatigueZone.CRITICAL, FatigueZone.HIGH -> {
                 interventions.add("⚠️ Process S Sleep Pressure is critical ($pressure pts). Adenosine accumulation is impairing working memory. Prioritize sleep or 20m Non-Sleep Deep Rest (NSDR).")
             }
-            SleepPressureDetector.FatigueZone.MODERATE -> {
+            FatigueZone.MODERATE -> {
                 interventions.add("☕ Moderate cognitive fatigue detected. Shift to structured low-effort tasks or take a 10m movement break.")
             }
-            SleepPressureDetector.FatigueZone.RESTED -> {
+            FatigueZone.RESTED -> {
                 interventions.add("⚡ High neurochemical capacity available. Excellent window for deep focus, creative breakthroughs, and Frogs.")
             }
         }

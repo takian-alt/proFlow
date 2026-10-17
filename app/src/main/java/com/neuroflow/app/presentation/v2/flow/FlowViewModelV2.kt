@@ -10,10 +10,13 @@ import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.EnergyUiModel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.model.buildEnergyUiModel
+import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
@@ -38,7 +41,7 @@ data class FlowUiStateV2(
     val activeTasks: List<TaskEntity> = emptyList(),
     val filteredTasks: List<TaskEntity> = emptyList(),
     val completedTasks: List<TaskEntity> = emptyList(),
-    val energyUi: EnergyScoreRepository.EnergyUiModel? = null,
+    val energyUi: EnergyUiModel? = null,
     val recommendedTask: TaskEntity? = null,
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = false,
@@ -56,11 +59,11 @@ data class FlowUiStateV2(
 @HiltViewModel
 class FlowViewModelV2 @Inject constructor(
     private val taskRepository: TaskRepository,
-    private val energyScoreRepository: EnergyScoreRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val noteRepository: NoteRepository? = null,
     private val sessionRepository: SessionRepository? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
 ) : ViewModel() {
@@ -78,10 +81,10 @@ class FlowViewModelV2 @Inject constructor(
         combine(
             taskRepository.observeActiveTasks(),
             taskRepository.observeCompletedTasks(),
-            energyScoreRepository.observeEnergy(),
-            preferencesDataStore.preferencesFlow
-        ) { active, completed, energy, prefs ->
-            Quad(active, completed, energy, prefs)
+            preferencesDataStore.preferencesFlow,
+            sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+        ) { active, completed, prefs, sleepLogs ->
+            Quad(active, completed, prefs, sleepLogs)
         },
         combine(
             _dismissedZeroGuilt,
@@ -97,8 +100,17 @@ class FlowViewModelV2 @Inject constructor(
         ) { lastDeferred, actionMsg ->
             Pair(lastDeferred, actionMsg)
         }
-    ) { (activeTasks, completedTasks, energyUi, prefs), (dismissedGuilt, tag, shutdownDismissed, lastCompleted), (lastDeferred, actionMsg) ->
-        val battery = energyUi?.availableEnergy ?: 50
+    ) { (activeTasks, completedTasks, prefs, sleepLogs), (dismissedGuilt, tag, shutdownDismissed, lastCompleted), (lastDeferred, actionMsg) ->
+        val now = System.currentTimeMillis()
+        val currentHour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
+        val (snapshot, energyUi) = computeEnergyUiState(
+            circadianEnergyService = circadianEnergyService,
+            sleepTelemetryRepository = sleepTelemetryRepository,
+            prefs = prefs,
+            sleepLogs = sleepLogs,
+            nowMillis = now
+        )
+        val battery = snapshot.usableEnergy
         val currentEnergyZone = when {
             battery >= 65 -> EnergyLevel.HIGH
             battery >= 35 -> EnergyLevel.MEDIUM
@@ -106,25 +118,12 @@ class FlowViewModelV2 @Inject constructor(
         }
 
         // Overdue check for ADHD Zero-Guilt Safety Net
-        val now = System.currentTimeMillis()
         val overdueTasks = activeTasks.filter { task ->
             task.postponeCount >= 3 ||
                     (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
                     (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
         }
         val showZeroGuilt = overdueTasks.size >= 3 && !dismissedGuilt
-
-        // Calculate continuous Borbély circadian snapshot
-        val wakeHour = prefs.wakeUpHour
-        val cal = Calendar.getInstance().apply { timeInMillis = now }
-        val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-        val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-        val wakeTimeMillis = now - (hoursAwake * 3600_000L)
-        val snapshot = circadianEnergyService.evaluateSnapshot(
-            timestampMillis = now,
-            wakeTimeMillis = wakeTimeMillis,
-            lastSleepDurationMinutes = 480
-        )
 
         // Recommend highest leverage task matching current biological zone
         val matchingTasks = activeTasks.filter { it.energyLevel == currentEnergyZone }

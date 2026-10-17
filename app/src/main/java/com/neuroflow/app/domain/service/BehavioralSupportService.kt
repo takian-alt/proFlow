@@ -1,5 +1,10 @@
 package com.neuroflow.app.domain.service
 
+import android.app.AppOpsManager
+import android.content.Context
+import android.content.Intent
+import android.os.Process
+import android.provider.Settings
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +23,81 @@ interface BehavioralSupportService {
     fun resetScheduleAnchors(tasks: List<SchedulableTask>): List<SchedulableTask>
     fun generateMicroSteps(taskTitle: String, estimatedMinutes: Int): List<MicroStepSuggestion>
     fun evaluateDistraction(interruptionCount: Int, durationMinutes: Int): DistractionFeedback
+
+    companion object {
+        val DEFAULT_DISTRACTING_PACKAGES: Set<String> = setOf(
+            "com.instagram.android",
+            "com.twitter.android",
+            "com.x.android",
+            "com.zhiliaoapp.musically",
+            "com.ss.android.ugc.trill",
+            "com.snapchat.android",
+            "com.facebook.katana",
+            "com.facebook.lite",
+            "com.reddit.frontpage",
+            "com.linkedin.android",
+            "com.pinterest",
+            "com.tumblr",
+            "com.vkontakte.android",
+            "com.bereal.app",
+            "com.threads.android",
+            "com.quora.android",
+            "com.whatsapp",
+            "com.whatsapp.w4b",
+            "org.telegram.messenger",
+            "org.telegram.plus",
+            "com.discord",
+            "com.facebook.orca",
+            "com.facebook.mlite",
+            "com.google.android.youtube",
+            "com.netflix.mediaclient",
+            "com.amazon.avod.thirdpartyclient",
+            "com.disney.disneyplus",
+            "com.hbo.hbonow",
+            "com.hulu.plus",
+            "com.twitch.android.app",
+            "tv.twitch.android.app",
+            "com.vanced.android.youtube",
+            "com.king.candycrushsaga",
+            "com.king.candycrushsodasaga",
+            "com.supercell.clashofclans",
+            "com.supercell.clashroyale",
+            "com.supercell.brawlstars",
+            "com.mojang.minecraftpe",
+            "com.roblox.client",
+            "com.pubg.imobile",
+            "com.tencent.ig",
+            "com.activision.callofduty.shooter",
+            "com.garena.free.fire",
+            "com.epicgames.fortnite",
+            "com.ea.game.pvzfh_row",
+            "com.halfbrick.fruitninjafree",
+            "com.imangi.templerun2",
+            "com.outfit7.talkingtomgoldrun2",
+            "com.miniclip.eightballpool",
+            "com.chess",
+            "com.buzzfeed.android"
+        )
+
+        fun hasUsagePermission(context: Context): Boolean {
+            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
+                ?: return false
+            @Suppress("DEPRECATION")
+            val mode = appOps.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                context.packageName
+            )
+            return mode == AppOpsManager.MODE_ALLOWED
+        }
+
+        fun openUsagePermissionSettings(context: Context) {
+            context.startActivity(
+                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
 }
 
 @Singleton

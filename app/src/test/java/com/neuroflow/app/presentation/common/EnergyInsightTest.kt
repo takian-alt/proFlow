@@ -1,6 +1,9 @@
 package com.neuroflow.app.presentation.common
 
-import com.neuroflow.app.domain.engine.PeakEnergyEngine
+import com.neuroflow.app.domain.model.ConfidenceComponents
+import com.neuroflow.app.domain.model.EffectivePeakProfile
+import com.neuroflow.app.domain.model.PeakWindow
+import com.neuroflow.app.domain.model.ProfileType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,13 +12,15 @@ class EnergyInsightTest {
 
     @Test
     fun `profile confidence line includes component breakdown`() {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                com.neuroflow.app.domain.engine.MEQChronotypeDetector.Chronotype.MODERATE_MORNING
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = listOf(
+                PeakWindow(startMinuteOffset = 0, durationMinutes = 210, amplitude = 1.0f),
+                PeakWindow(startMinuteOffset = 570, durationMinutes = 150, amplitude = 0.8f),
+                PeakWindow(startMinuteOffset = 810, durationMinutes = 60, amplitude = 0.6f)
+            ),
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.8f,
                 wakeConsistency = 0.7f,
                 behaviorPerformance = 0.6f,
@@ -35,13 +40,15 @@ class EnergyInsightTest {
 
     @Test
     fun `window confidence helpers prefer per-window value`() {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                com.neuroflow.app.domain.engine.MEQChronotypeDetector.Chronotype.INTERMEDIATE
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = listOf(
+                PeakWindow(startMinuteOffset = 0, durationMinutes = 210, amplitude = 1.0f),
+                PeakWindow(startMinuteOffset = 480, durationMinutes = 150, amplitude = 0.78f),
+                PeakWindow(startMinuteOffset = 720, durationMinutes = 60, amplitude = 0.58f)
+            ),
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.8f,
                 wakeConsistency = 0.8f,
                 behaviorPerformance = 0.8f,
@@ -57,13 +64,15 @@ class EnergyInsightTest {
 
     @Test
     fun `confidence improvement actions include peak 2 and 3 guidance when low`() {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                com.neuroflow.app.domain.engine.MEQChronotypeDetector.Chronotype.INTERMEDIATE
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = listOf(
+                PeakWindow(startMinuteOffset = 0, durationMinutes = 210, amplitude = 1.0f),
+                PeakWindow(startMinuteOffset = 480, durationMinutes = 150, amplitude = 0.78f),
+                PeakWindow(startMinuteOffset = 720, durationMinutes = 60, amplitude = 0.58f)
+            ),
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.55f,
                 wakeConsistency = 0.58f,
                 behaviorPerformance = 0.50f,

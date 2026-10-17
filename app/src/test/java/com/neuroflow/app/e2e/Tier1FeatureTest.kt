@@ -3,8 +3,6 @@ package com.neuroflow.app.e2e
 import com.neuroflow.app.data.local.Converters
 import com.neuroflow.app.data.local.entity.ContractOutcome
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.domain.engine.PeakEnergyEngine
-import com.neuroflow.app.domain.engine.EnergyScoreEngine
 import com.neuroflow.app.domain.model.*
 import com.neuroflow.app.e2e.harness.*
 import org.junit.Assert.*

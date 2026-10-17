@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.domain.engine.MEQChronotypeDetector
-import com.neuroflow.app.domain.engine.PeakEnergyEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -223,25 +222,23 @@ class MEQQuizViewModel @Inject constructor(
         val currentState = _quizState.value
         val answerScores = mapSelectedAnswersToMeqScores(currentState.questions)
         
-        // Calculate MEQ score and chronotype, then feed it to PeakEnergyEngine.
+        // Calculate MEQ score and chronotype directly
         val meqResult = MEQChronotypeDetector.detect(answerScores)
         val chronotype = meqResult.chronotype
         val meqScore = meqResult.totalScore
         val prefs = _preferences.value
         val wakeUpHour = prefs?.wakeUpHour ?: 7
-        val peakResult = PeakEnergyEngine.detect(
-            meqResult = meqResult,
-            wakeUpHour = wakeUpHour,
-            sleepHour = prefs?.sleepHour,
-            sleepPressurePoints = prefs?.sleepPressurePoints ?: 0
-        )
-        val primaryWindowDurationMinutes = peakResult.circadianProfile.windows
-            .firstOrNull()
-            ?.durationMinutes
-            ?.coerceAtLeast(30)
-            ?: 60
-        val peakWindowEndMinuteOfDay = (peakResult.peakMinuteOfDay + primaryWindowDurationMinutes) % (24 * 60)
-        val peakWindowEndHourOfDay = peakWindowEndMinuteOfDay / 60
+        val offsetHours = when (chronotype) {
+            MEQChronotypeDetector.Chronotype.DEFINITE_MORNING -> 0f
+            MEQChronotypeDetector.Chronotype.MODERATE_MORNING -> 2.5f
+            MEQChronotypeDetector.Chronotype.INTERMEDIATE -> 2.5f
+            MEQChronotypeDetector.Chronotype.MODERATE_EVENING -> 5.5f
+            MEQChronotypeDetector.Chronotype.DEFINITE_EVENING -> 5.5f
+        }
+        val peakMinuteOfDay = (((wakeUpHour * 60) + (offsetHours * 60f).toInt()) % (24 * 60))
+        val peakHourOfDay = peakMinuteOfDay / 60
+        val peakWindowEndHourOfDay = (peakHourOfDay + 3) % 24
+        val confidence = meqResult.confidence
         
         _quizState.value = currentState.copy(
             isComplete = true,
@@ -254,13 +251,13 @@ class MEQQuizViewModel @Inject constructor(
             preferencesDataStore.updatePreferences { prefs ->
                 prefs.copy(
                     quizChronotype = chronotype.name,
-                    detectedPeakStart = peakResult.peakHourOfDay,
+                    detectedPeakStart = peakHourOfDay,
                     detectedPeakEnd = peakWindowEndHourOfDay,
-                    detectedPeakMinuteOfDay = peakResult.peakMinuteOfDay,
-                    peakDetectionConfidence = peakResult.confidence,
-                    effectivePeakStart = peakResult.peakHourOfDay,
+                    detectedPeakMinuteOfDay = peakMinuteOfDay,
+                    peakDetectionConfidence = confidence,
+                    effectivePeakStart = peakHourOfDay,
                     effectivePeakEnd = peakWindowEndHourOfDay,
-                    effectivePeakMinuteOfDay = peakResult.peakMinuteOfDay,
+                    effectivePeakMinuteOfDay = peakMinuteOfDay,
                     quizProgress = "{}"  // Clear progress on completion
                 )
             }

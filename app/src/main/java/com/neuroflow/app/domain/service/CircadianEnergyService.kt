@@ -32,6 +32,19 @@ data class CircadianSnapshot(
     val circadianAlertnessC: Double,  // [0.0..1.0]
     val focusDepletionPenalty: Double,// [0.0..0.15]
     val phase: EnergyPhase
+) {
+    val circadianAlertness: Double get() = circadianAlertnessC
+    val homeostaticSleepPressure: Double get() = homeostaticPressureS
+}
+
+data class DailyCircadianSummary(
+    val currentSnapshot: CircadianSnapshot,
+    val peakWindowStartHour: Int,
+    val peakWindowEndHour: Int,
+    val peakEnergyScore: Int,
+    val dipWindowStartHour: Int,
+    val dipWindowEndHour: Int,
+    val recommendedDeepWorkMinutes: Int
 )
 
 interface CircadianEnergyService {
@@ -50,6 +63,14 @@ interface CircadianEnergyService {
         stepMinutes: Int = 30,
         zoneId: ZoneId = ZoneId.systemDefault()
     ): List<CircadianSnapshot>
+
+    fun computeDailySummary(
+        timestampMillis: Long = System.currentTimeMillis(),
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int = 480,
+        continuousActiveFocusMinutes: Int = 0,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): DailyCircadianSummary
 
     fun computeCategoryAffinity(
         category: TaskCategory,
@@ -145,6 +166,66 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
                 zoneId = zoneId
             )
         }
+    }
+
+    override fun computeDailySummary(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int,
+        zoneId: ZoneId
+    ): DailyCircadianSummary {
+        val currentSnapshot = evaluateSnapshot(
+            timestampMillis = timestampMillis,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = lastSleepDurationMinutes,
+            continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+            zoneId = zoneId
+        )
+
+        val zonedTimestamp = Instant.ofEpochMilli(timestampMillis).atZone(zoneId)
+        val dayStartMillis = zonedTimestamp.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val zonedWake = Instant.ofEpochMilli(wakeTimeMillis).atZone(zoneId)
+        val wakeHourOfDay = zonedWake.hour + (zonedWake.minute / 60.0)
+        val dayWakeMillis = dayStartMillis + (wakeHourOfDay * 3600_000).toLong()
+
+        val timeline = projectDayTimeline(
+            dayStartMillis = dayStartMillis,
+            wakeTimeMillis = dayWakeMillis,
+            lastSleepDurationMinutes = lastSleepDurationMinutes,
+            stepMinutes = 30,
+            zoneId = zoneId
+        )
+
+        // Peak Window: argmax E_usable(t)
+        val peakSnapshot = timeline.maxByOrNull { it.usableEnergy } ?: currentSnapshot
+        val peakHour = Instant.ofEpochMilli(peakSnapshot.timestampMillis).atZone(zoneId).hour
+        val peakEndHour = (peakHour + 3) % 24
+        val peakEnergyScore = peakSnapshot.usableEnergy
+
+        // Dip Window: argmin E_usable(t) in [wake + 4h, wake + 11h]
+        val dipStartSearchMillis = dayWakeMillis + 4 * 3600_000L
+        val dipEndSearchMillis = dayWakeMillis + 11 * 3600_000L
+        val dipCandidates = timeline.filter { it.timestampMillis in dipStartSearchMillis..dipEndSearchMillis }
+        val dipSnapshot = dipCandidates.minByOrNull { it.usableEnergy }
+            ?: timeline.minByOrNull { it.usableEnergy }
+            ?: currentSnapshot
+        val dipHour = Instant.ofEpochMilli(dipSnapshot.timestampMillis).atZone(zoneId).hour
+        val dipEndHour = (dipHour + 2) % 24
+
+        // Recommended deep work minutes based on high energy capacity
+        val highEnergySteps = timeline.count { it.usableEnergy >= 70 }
+        val recommendedDeepWorkMinutes = (highEnergySteps * 30).coerceIn(60, 240)
+
+        return DailyCircadianSummary(
+            currentSnapshot = currentSnapshot,
+            peakWindowStartHour = peakHour,
+            peakWindowEndHour = peakEndHour,
+            peakEnergyScore = peakEnergyScore,
+            dipWindowStartHour = dipHour,
+            dipWindowEndHour = dipEndHour,
+            recommendedDeepWorkMinutes = recommendedDeepWorkMinutes
+        )
     }
 
     override fun computeCategoryAffinity(

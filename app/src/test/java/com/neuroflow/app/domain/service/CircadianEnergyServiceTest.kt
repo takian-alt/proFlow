@@ -118,4 +118,78 @@ class CircadianEnergyServiceTest {
             assertTrue(it.homeostaticPressureS in 0.0..1.0)
         }
     }
+
+    @Test
+    fun testComputeDailySummaryStandardWake() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val noonTime = today.atTime(LocalTime.of(12, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val summary = service.computeDailySummary(
+            timestampMillis = noonTime,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        // Peak window should land in morning [7..12]
+        assertTrue("Peak start hour should be in [7..12], was ${summary.peakWindowStartHour}", summary.peakWindowStartHour in 7..12)
+        assertEquals((summary.peakWindowStartHour + 3) % 24, summary.peakWindowEndHour)
+        assertTrue("Peak energy score should be >= 70, was ${summary.peakEnergyScore}", summary.peakEnergyScore >= 70)
+
+        // Dip window should land in [wake + 4h .. wake + 11h] = [11..18]
+        assertTrue("Dip start hour should be in [11..18], was ${summary.dipWindowStartHour}", summary.dipWindowStartHour in 11..18)
+        assertEquals((summary.dipWindowStartHour + 2) % 24, summary.dipWindowEndHour)
+
+        // Recommended deep work minutes bounded in [60, 240]
+        assertTrue("Recommended deep work should be in [60, 240], was ${summary.recommendedDeepWorkMinutes}", summary.recommendedDeepWorkMinutes in 60..240)
+    }
+
+    @Test
+    fun testComputeDailySummaryAcrossMidnight() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeYesterday = today.minusDays(1).atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val lateNightTime = today.atTime(LocalTime.of(2, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val summary = service.computeDailySummary(
+            timestampMillis = lateNightTime,
+            wakeTimeMillis = wakeYesterday,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        // Summary must derive aligned day timeline without crashing on empty dip candidates
+        assertTrue("Peak start hour should be in [7..12], was ${summary.peakWindowStartHour}", summary.peakWindowStartHour in 7..12)
+        assertTrue("Dip start hour should be in [11..18], was ${summary.dipWindowStartHour}", summary.dipWindowStartHour in 11..18)
+    }
+
+    @Test
+    fun testComputeDailySummarySleepDeprivationReducesCapacity() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val noonTime = today.atTime(LocalTime.of(12, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val rested = service.computeDailySummary(
+            timestampMillis = noonTime,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        val sleepDeprived = service.computeDailySummary(
+            timestampMillis = noonTime,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 180, // 3 hours
+            zoneId = zoneId
+        )
+
+        assertTrue(
+            "Rested peak score (${rested.peakEnergyScore}) should exceed sleep-deprived score (${sleepDeprived.peakEnergyScore})",
+            rested.peakEnergyScore > sleepDeprived.peakEnergyScore
+        )
+        assertTrue(
+            "Rested deep work minutes (${rested.recommendedDeepWorkMinutes}) should >= sleep-deprived (${sleepDeprived.recommendedDeepWorkMinutes})",
+            rested.recommendedDeepWorkMinutes >= sleepDeprived.recommendedDeepWorkMinutes
+        )
+    }
 }

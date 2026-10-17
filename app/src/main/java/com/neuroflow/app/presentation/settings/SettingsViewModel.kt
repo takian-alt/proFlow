@@ -9,10 +9,13 @@ import com.neuroflow.app.data.local.DatabaseCleaner
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.SleepLogEntity
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.repository.EnergyMetricsRepository
-import com.neuroflow.app.domain.repository.PeakEnergyRepository
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DailyCircadianSummary
+import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.worker.scheduleNotificationWorkers
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,9 +25,16 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.util.Calendar
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -32,8 +42,9 @@ class SettingsViewModel @Inject constructor(
     private val preferencesDataStore: UserPreferencesDataStore,
     private val sleepPressureRepository: SleepPressureRepository,
     private val energyMetricsRepository: EnergyMetricsRepository,
-    private val peakEnergyRepository: PeakEnergyRepository,
-    private val databaseCleaner: DatabaseCleaner
+    private val databaseCleaner: DatabaseCleaner,
+    private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
 ) : ViewModel() {
 
     data class LaunchableApp(val packageName: String, val label: String)
@@ -84,8 +95,35 @@ class SettingsViewModel @Inject constructor(
     val sleepLogs: StateFlow<List<SleepLogEntity>> = sleepPressureRepository.observeSleepLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val peakDetection = peakEnergyRepository.peakEnergyFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val circadianSummary: StateFlow<DailyCircadianSummary?> = combine(
+        preferencesDataStore.preferencesFlow,
+        sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+    ) { prefs, sleepLogs ->
+        val now = System.currentTimeMillis()
+        val zoneId = ZoneId.systemDefault()
+        val zonedDateTime = Instant.ofEpochMilli(now).atZone(zoneId)
+        var anchor = zonedDateTime.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(zoneId)
+        if (anchor.toInstant().toEpochMilli() > now) {
+            anchor = anchor.minusDays(1)
+        }
+        val baseWakeMillis = anchor.toInstant().toEpochMilli()
+
+        val signal = sleepTelemetryRepository?.normalizeLogs(
+            logs = sleepLogs,
+            baseWakeMillis = baseWakeMillis,
+            baseSleepMinutes = 480.0
+        )
+        val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
+        val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
+
+        circadianEnergyService.computeDailySummary(
+            timestampMillis = now,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = sleepDurationMinutes,
+            zoneId = zoneId
+        )
+    }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _sleepLogInputError = MutableStateFlow<String?>(null)
     val sleepLogInputError: StateFlow<String?> = _sleepLogInputError.asStateFlow()

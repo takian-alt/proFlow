@@ -306,6 +306,12 @@ class TaskRepository @Inject constructor(
         )
     }
 
+    suspend fun markTaskCompleted(taskId: String, now: Long = System.currentTimeMillis()): Boolean {
+        val task = getById(taskId) ?: return false
+        completeAndRecur(task, now)
+        return true
+    }
+
     /**
      * Marks [task] as completed and, if it has recurrence, inserts the next occurrence.
      * Uses calendar-aware stepping (daily/weekly/monthly/custom days) and guarantees

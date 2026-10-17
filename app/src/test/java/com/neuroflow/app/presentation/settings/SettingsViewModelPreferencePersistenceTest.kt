@@ -5,10 +5,8 @@ import com.neuroflow.app.data.local.DatabaseCleaner
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.SleepLogEntity
-import com.neuroflow.app.domain.engine.PeakEnergyEngine
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.repository.EnergyMetricsRepository
-import com.neuroflow.app.domain.repository.PeakEnergyRepository
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -44,16 +42,12 @@ class SettingsViewModelPreferencePersistenceTest : StringSpec({
         preferencesDataStore: UserPreferencesDataStore,
         sleepPressureRepository: SleepPressureRepository = mockk<SleepPressureRepository>(relaxed = true).apply {
             every { observeSleepLogs() } returns emptyFlow<List<SleepLogEntity>>()
-        },
-        peakEnergyRepository: PeakEnergyRepository = mockk<PeakEnergyRepository>(relaxed = true).apply {
-            every { peakEnergyFlow } returns emptyFlow<PeakEnergyEngine.DetectionResult>()
         }
     ) = SettingsViewModel(
         context = mockk<Context>(relaxed = true),
         preferencesDataStore = preferencesDataStore,
         sleepPressureRepository = sleepPressureRepository,
         energyMetricsRepository = mockk<EnergyMetricsRepository>(relaxed = true),
-        peakEnergyRepository = peakEnergyRepository,
         databaseCleaner = mockk<DatabaseCleaner>(relaxed = true)
     )
 
@@ -102,12 +96,7 @@ class SettingsViewModelPreferencePersistenceTest : StringSpec({
             }
         }
 
-        val viewModel = viewModel(
-            preferencesDataStore,
-            peakEnergyRepository = mockk<PeakEnergyRepository>(relaxed = true).apply {
-                every { peakEnergyFlow } returns emptyFlow<PeakEnergyEngine.DetectionResult>()
-            }
-        )
+        val viewModel = viewModel(preferencesDataStore)
         // Subscribe with the stale snapshot, then write as if another screen had since
         // committed the auto-schedule toggle to the store.
         val collectorScope = CoroutineScope(testDispatcher + Job())

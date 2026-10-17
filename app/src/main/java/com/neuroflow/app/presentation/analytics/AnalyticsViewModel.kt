@@ -10,12 +10,18 @@ import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
+import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.buildEnergyUiModel
+import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.repository.EnergyMetricsRepository
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
+import java.util.Calendar
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -23,7 +29,7 @@ import javax.inject.Inject
 data class AnalyticsUiState(
     val summary: AnalyticsEngine.AnalyticsSummary? = null,
     val preferences: UserPreferences = UserPreferences(),
-    val energy: EnergyScoreRepository.EnergyUiModel? = null,
+    val energy: EnergyUiModel? = null,
     val isLoading: Boolean = true,
     val activeContracts: List<UlyssesContractEntity> = emptyList(),
     val archivedContracts: List<UlyssesContractEntity> = emptyList(),
@@ -41,8 +47,9 @@ class AnalyticsViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val contractRepository: UlyssesContractRepository,
-    private val energyScoreRepository: EnergyScoreRepository,
-    private val energyMetricsRepository: EnergyMetricsRepository
+    private val energyMetricsRepository: EnergyMetricsRepository,
+    private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AnalyticsUiState())
@@ -92,8 +99,19 @@ class AnalyticsViewModel @Inject constructor(
             _uiState.update { it.copy(archivedContracts = contracts) }
         }.launchIn(viewModelScope)
 
-        energyScoreRepository.observeEnergy().onEach { energy ->
-            _uiState.update { it.copy(energy = energy) }
+        combine(
+            preferencesDataStore.preferencesFlow,
+            sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+        ) { prefs, sleepLogs ->
+            val now = System.currentTimeMillis()
+            val (_, model) = computeEnergyUiState(
+                circadianEnergyService = circadianEnergyService,
+                sleepTelemetryRepository = sleepTelemetryRepository,
+                prefs = prefs,
+                sleepLogs = sleepLogs,
+                nowMillis = now
+            )
+            _uiState.update { it.copy(energy = model) }
         }.launchIn(viewModelScope)
 
         val sevenDaysMillis = 7L * 24L * 60L * 60L * 1000L

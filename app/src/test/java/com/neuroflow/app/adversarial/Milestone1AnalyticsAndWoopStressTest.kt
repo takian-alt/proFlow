@@ -12,7 +12,6 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.TaskStatus
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.scheduler.BehavioralInsightsEngine
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 import com.neuroflow.app.presentation.v2.focus.FocusViewModelV2
@@ -205,7 +204,6 @@ class Milestone1AnalyticsAndWoopStressTest {
     @Test
     fun testFlowViewModelV2_LogPastTime_ZeroMinutes() = runTest(testDispatcher) {
         val taskRepo = mockk<TaskRepository>(relaxed = true)
-        val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
         val sessionRepo = mockk<SessionRepository>(relaxed = true)
         val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
@@ -218,7 +216,6 @@ class Milestone1AnalyticsAndWoopStressTest {
 
         val viewModel = FlowViewModelV2(
             taskRepository = taskRepo,
-            energyScoreRepository = energyRepo,
             preferencesDataStore = prefsDataStore,
             sessionRepository = sessionRepo
         )
@@ -248,7 +245,6 @@ class Milestone1AnalyticsAndWoopStressTest {
     fun testFlowViewModelV2_LogPastTime_NegativeMinutes_EmpiricalObservation() = runTest(testDispatcher) {
         // Adversarial challenge: what happens when negative minutes are passed to logPastTime?
         val taskRepo = mockk<TaskRepository>(relaxed = true)
-        val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
         val sessionRepo = mockk<SessionRepository>(relaxed = true)
         val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
@@ -261,7 +257,6 @@ class Milestone1AnalyticsAndWoopStressTest {
 
         val viewModel = FlowViewModelV2(
             taskRepository = taskRepo,
-            energyScoreRepository = energyRepo,
             preferencesDataStore = prefsDataStore,
             sessionRepository = sessionRepo
         )
@@ -291,7 +286,6 @@ class Milestone1AnalyticsAndWoopStressTest {
     @Test
     fun testFlowViewModelV2_LogPastTime_FullDay1440Minutes() = runTest(testDispatcher) {
         val taskRepo = mockk<TaskRepository>(relaxed = true)
-        val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
         val sessionRepo = mockk<SessionRepository>(relaxed = true)
         val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
@@ -304,7 +298,6 @@ class Milestone1AnalyticsAndWoopStressTest {
 
         val viewModel = FlowViewModelV2(
             taskRepository = taskRepo,
-            energyScoreRepository = energyRepo,
             preferencesDataStore = prefsDataStore,
             sessionRepository = sessionRepo
         )
@@ -343,7 +336,6 @@ class Milestone1AnalyticsAndWoopStressTest {
     fun testPlanViewModelV2_LogPastTime_PersistenceAndIncrement() = runTest(testDispatcher) {
         val taskRepo = mockk<TaskRepository>(relaxed = true)
         val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
-        val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
         val workManager = mockk<WorkManager>(relaxed = true)
         val sessionRepo = mockk<SessionRepository>(relaxed = true)
 
@@ -357,7 +349,6 @@ class Milestone1AnalyticsAndWoopStressTest {
         val viewModel = PlanViewModelV2(
             taskRepository = taskRepo,
             preferencesDataStore = prefsDataStore,
-            energyScoreRepository = energyRepo,
             workManager = workManager,
             sessionRepository = sessionRepo
         )

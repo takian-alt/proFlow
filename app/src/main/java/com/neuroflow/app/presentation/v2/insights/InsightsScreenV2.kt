@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.WorkManager
 import com.neuroflow.app.domain.engine.AnalyticsEngine
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.domain.scheduler.BehavioralInsightsEngine
 import com.neuroflow.app.presentation.common.UlyssesContractSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
@@ -432,7 +432,7 @@ fun BorbelyTwoProcessDeepDiveCard(
     onNavigateToSleepLogs: () -> Unit = {}
 ) {
     val pressure = state.energyUi?.sleepPressurePoints ?: 450
-    val zone = state.energyUi?.fatigueZone ?: SleepPressureDetector.FatigueZone.RESTED
+    val zone = state.energyUi?.fatigueZone ?: FatigueZone.RESTED
     val circadianFactor = state.energyUi?.circadianFactor ?: 0.85f
     val battery = state.energyUi?.availableEnergy ?: 75
 
@@ -486,8 +486,8 @@ fun BorbelyTwoProcessDeepDiveCard(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Process S (Sleep Pressure): $pressure pts", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = NeuroFlowThemeV2Colors.WarmAmber)
                     Text("Zone: ${zone.name}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = when (zone) {
-                        SleepPressureDetector.FatigueZone.RESTED -> NeuroFlowThemeV2Colors.SageGreen
-                        SleepPressureDetector.FatigueZone.MODERATE -> NeuroFlowThemeV2Colors.WarmAmber
+                        FatigueZone.RESTED -> NeuroFlowThemeV2Colors.SageGreen
+                        FatigueZone.MODERATE -> NeuroFlowThemeV2Colors.WarmAmber
                         else -> NeuroFlowThemeV2Colors.RoseCoral
                     })
                 }
@@ -496,8 +496,8 @@ fun BorbelyTwoProcessDeepDiveCard(
                     progress = { pressureFraction },
                     modifier = Modifier.fillMaxWidth().height(8.dp),
                     color = when (zone) {
-                        SleepPressureDetector.FatigueZone.RESTED -> NeuroFlowThemeV2Colors.SageGreen
-                        SleepPressureDetector.FatigueZone.MODERATE -> NeuroFlowThemeV2Colors.WarmAmber
+                        FatigueZone.RESTED -> NeuroFlowThemeV2Colors.SageGreen
+                        FatigueZone.MODERATE -> NeuroFlowThemeV2Colors.WarmAmber
                         else -> NeuroFlowThemeV2Colors.RoseCoral
                     },
                     trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt

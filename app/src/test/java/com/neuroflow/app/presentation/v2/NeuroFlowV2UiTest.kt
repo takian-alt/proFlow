@@ -12,11 +12,15 @@ import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.repository.WoopRepository
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 import com.neuroflow.app.presentation.v2.focus.FocusTimerModeV2
@@ -87,7 +91,6 @@ class NeuroFlowV2UiTest : StringSpec({
     "FlowViewModelV2 recommends the highest leverage task matching biological battery" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val activeTasks = listOf(
@@ -96,15 +99,25 @@ class NeuroFlowV2UiTest : StringSpec({
                 makeTask(id = "frog-1", title = "Ship Engine V2", energyLevel = EnergyLevel.HIGH, isFrog = true, impactScore = 95)
             )
 
-            val energyUi = mockk<EnergyScoreRepository.EnergyUiModel>(relaxed = true)
-            every { energyUi.availableEnergy } returns 80 // High Energy Zone
+            val circadianService = mockk<CircadianEnergyService>(relaxed = true)
+            every { circadianService.evaluateSnapshot(any(), any(), any(), any(), any()) } returns CircadianSnapshot(
+                timestampMillis = System.currentTimeMillis(),
+                usableEnergy = 80,
+                homeostaticPressureS = 0.2,
+                circadianAlertnessC = 0.8,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.PEAK
+            )
 
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(activeTasks)
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(energyUi)
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
-            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                circadianEnergyService = circadianService
+            )
             val state = viewModel.uiState.filter { !it.isLoading }.first()
 
             state.activeTasks shouldHaveSize 3
@@ -112,19 +125,50 @@ class NeuroFlowV2UiTest : StringSpec({
         }
     }
 
+    "FlowViewModelV2 integrates SleepTelemetryRepository to evaluate energy state from sleep logs" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val circadianService = mockk<CircadianEnergyService>(relaxed = true)
+            val sleepTelemetryRepo = mockk<SleepTelemetryRepository>(relaxed = true)
+
+            every { circadianService.evaluateSnapshot(any(), any(), any(), any(), any()) } returns CircadianSnapshot(
+                timestampMillis = System.currentTimeMillis(),
+                usableEnergy = 85,
+                homeostaticPressureS = 0.15,
+                circadianAlertnessC = 0.9,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.PEAK
+            )
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(emptyList())
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+            every { sleepTelemetryRepo.observeAllSleepLogs() } returns MutableStateFlow(emptyList())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                circadianEnergyService = circadianService,
+                sleepTelemetryRepository = sleepTelemetryRepo
+            )
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+
+            state.energyUi?.availableEnergy shouldBe 85
+            state.energyUi?.fatigueZone shouldBe FatigueZone.RESTED
+        }
+    }
+
     "FlowViewModelV2 defers a task by 2 hours cleanly" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val task = makeTask(id = "defer-task", scheduledTime = 10_000_000L)
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
-            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val viewModel = FlowViewModelV2(taskRepo, prefsDataStore)
             viewModel.deferTask(task, hours = 2)
             advanceUntilIdle()
 
@@ -139,7 +183,6 @@ class NeuroFlowV2UiTest : StringSpec({
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val workManager = mockk<WorkManager>(relaxed = true)
 
             val tasks = listOf(
@@ -151,9 +194,8 @@ class NeuroFlowV2UiTest : StringSpec({
 
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(tasks)
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
 
-            val viewModel = PlanViewModelV2(taskRepo, prefsDataStore, energyRepo, workManager)
+            val viewModel = PlanViewModelV2(taskRepo, prefsDataStore, workManager)
             val state = viewModel.uiState.filter { !it.isLoading }.first()
 
             state.tasksByQuadrant[Quadrant.DO_FIRST]?.size shouldBe 1
@@ -234,15 +276,8 @@ class NeuroFlowV2UiTest : StringSpec({
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
             val sessionRepo = mockk<SessionRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
             val contractRepo = mockk<UlyssesContractRepository>(relaxed = true)
-
-            val energyUi = mockk<EnergyScoreRepository.EnergyUiModel>(relaxed = true)
-            every { energyUi.sleepPressurePoints } returns 820
-            every { energyUi.fatigueZone } returns SleepPressureDetector.FatigueZone.MODERATE
-            every { energyUi.circadianFactor } returns 0.90f
-            every { energyUi.availableEnergy } returns 70
 
             val now = System.currentTimeMillis()
             val sessions = listOf(
@@ -267,17 +302,21 @@ class NeuroFlowV2UiTest : StringSpec({
 
             every { taskRepo.observeAll() } returns MutableStateFlow(tasks)
             every { sessionRepo.observeAll() } returns MutableStateFlow(sessions)
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(energyUi)
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(
-                UserPreferences(peakEnergyStart = 9, peakEnergyEnd = 12, dailyStreak = 5)
+                UserPreferences(peakEnergyStart = 9, peakEnergyEnd = 12, dailyStreak = 5, sleepPressurePoints = 820)
             )
             every { contractRepo.observeActive() } returns MutableStateFlow(contracts)
 
-            val viewModel = InsightsViewModelV2(taskRepo, sessionRepo, energyRepo, prefsDataStore, contractRepo)
+            val viewModel = InsightsViewModelV2(
+                taskRepository = taskRepo,
+                sessionRepository = sessionRepo,
+                preferencesDataStore = prefsDataStore,
+                contractRepository = contractRepo
+            )
             val state = viewModel.uiState.filter { !it.isLoading }.first()
 
             state.energyUi?.sleepPressurePoints shouldBe 820
-            state.energyUi?.fatigueZone shouldBe SleepPressureDetector.FatigueZone.MODERATE
+            state.energyUi?.fatigueZone shouldBe FatigueZone.MODERATE
             state.dailyStreak shouldBe 5
             state.activeContractsCount shouldBe 1
             state.interruptionPauseResumeCount shouldBe 2
@@ -290,7 +329,6 @@ class NeuroFlowV2UiTest : StringSpec({
     "FlowViewModelV2 triggers Zero-Guilt Fresh Start rollover moving overdue tasks to Icebox" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val now = System.currentTimeMillis()
@@ -300,10 +338,9 @@ class NeuroFlowV2UiTest : StringSpec({
 
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(overdue1, overdue2, freshTask))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
-            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val viewModel = FlowViewModelV2(taskRepo, prefsDataStore)
             val state = viewModel.uiState.filter { !it.isLoading }.first()
             state.overdueTasksCount shouldBe 2
 
@@ -323,16 +360,14 @@ class NeuroFlowV2UiTest : StringSpec({
     "FlowViewModelV2 supports 4-second non-destructive undo for task completion" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val task = makeTask(id = "task-complete-undo", title = "Deep Focus Coding")
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
-            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val viewModel = FlowViewModelV2(taskRepo, prefsDataStore)
             viewModel.uiState.filter { !it.isLoading }.first()
 
             viewModel.completeTask(task)
@@ -354,16 +389,14 @@ class NeuroFlowV2UiTest : StringSpec({
     "FlowViewModelV2 supports 4-second non-destructive undo for task deferral" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val task = makeTask(id = "defer-undo", title = "Call Accountant", scheduledTime = 20_000_000L, postponeCount = 1)
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
-            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val viewModel = FlowViewModelV2(taskRepo, prefsDataStore)
             viewModel.uiState.filter { !it.isLoading }.first()
 
             viewModel.deferTask(task, hours = 3)
@@ -385,16 +418,14 @@ class NeuroFlowV2UiTest : StringSpec({
     "FlowViewModelV2 breaks down daunting task into 3 micro-steps with Magic Wand" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val dauntingTask = makeTask(id = "daunting-1", title = "Write Doctoral Dissertation", ifThenPlan = "")
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(dauntingTask))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
-            val viewModel = FlowViewModelV2(taskRepo, energyRepo, prefsDataStore)
+            val viewModel = FlowViewModelV2(taskRepo, prefsDataStore)
             viewModel.uiState.filter { !it.isLoading }.first()
 
             viewModel.breakDownTask(dauntingTask)
@@ -462,7 +493,6 @@ class NeuroFlowV2UiTest : StringSpec({
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val workManager = mockk<WorkManager>(relaxed = true)
 
             val tasks = listOf(
@@ -473,9 +503,8 @@ class NeuroFlowV2UiTest : StringSpec({
 
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(tasks)
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
 
-            val viewModel = PlanViewModelV2(taskRepo, prefsDataStore, energyRepo, workManager)
+            val viewModel = PlanViewModelV2(taskRepo, prefsDataStore, workManager)
             val stateAll = viewModel.uiState.filter { !it.isLoading }.first()
             stateAll.unscheduledTasks shouldHaveSize 3
 
@@ -493,7 +522,6 @@ class NeuroFlowV2UiTest : StringSpec({
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
             val sessionRepo = mockk<SessionRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
             val task = makeTask(id = "flow-log-1", title = "Deep Work Session").copy(
@@ -510,11 +538,9 @@ class NeuroFlowV2UiTest : StringSpec({
             }
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
 
             val viewModel = FlowViewModelV2(
                 taskRepository = taskRepo,
-                energyScoreRepository = energyRepo,
                 preferencesDataStore = prefsDataStore,
                 sessionRepository = sessionRepo
             )
@@ -549,7 +575,6 @@ class NeuroFlowV2UiTest : StringSpec({
             val taskRepo = mockk<TaskRepository>(relaxed = true)
             val sessionRepo = mockk<SessionRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val workManager = mockk<WorkManager>(relaxed = true)
 
             var savedPrefs = UserPreferences(totalFocusMinutes = 50)
@@ -568,7 +593,6 @@ class NeuroFlowV2UiTest : StringSpec({
             val viewModel = PlanViewModelV2(
                 taskRepository = taskRepo,
                 preferencesDataStore = prefsDataStore,
-                energyScoreRepository = energyRepo,
                 workManager = workManager,
                 sessionRepository = sessionRepo
             )

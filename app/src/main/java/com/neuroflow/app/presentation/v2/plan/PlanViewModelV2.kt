@@ -14,9 +14,12 @@ import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.model.EnergyUiModel
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
+import com.neuroflow.app.domain.model.buildEnergyUiModel
+import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
@@ -57,7 +60,7 @@ data class PlanUiStateV2(
     val availableTags: List<String> = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin"),
     val workDayStart: Int = 8,
     val workDayEnd: Int = 20,
-    val energyUi: EnergyScoreRepository.EnergyUiModel? = null,
+    val energyUi: EnergyUiModel? = null,
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = true
 )
@@ -75,12 +78,12 @@ private fun startOfTodayMillis(): Long {
 class PlanViewModelV2 @Inject constructor(
     private val taskRepository: TaskRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val energyScoreRepository: EnergyScoreRepository,
     private val workManager: WorkManager,
     private val noteRepository: NoteRepository? = null,
     private val sessionRepository: SessionRepository? = null,
     private val quickNoteDao: QuickNoteDao? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
     private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null
@@ -106,12 +109,21 @@ class PlanViewModelV2 @Inject constructor(
         },
         taskRepository.observeActiveTasks(),
         preferencesDataStore.preferencesFlow,
-        energyScoreRepository.observeEnergy()
-    ) { params, allTasks, prefs, energyUi ->
+        sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+    ) { params, allTasks, prefs, sleepLogs ->
         val dateMillis = params.dateMillis
         val mode = params.mode
         val autoScheduling = params.autoScheduling
         val tag = params.tag
+
+        val now = System.currentTimeMillis()
+        val (_, energyUi) = computeEnergyUiState(
+            circadianEnergyService = circadianEnergyService,
+            sleepTelemetryRepository = sleepTelemetryRepository,
+            prefs = prefs,
+            sleepLogs = sleepLogs,
+            nowMillis = now
+        )
 
         val tagFilteredAll = if (tag.isNullOrBlank() || tag.equals("All", ignoreCase = true)) {
             allTasks

@@ -12,7 +12,6 @@ import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.WoopRepository
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
@@ -79,13 +78,11 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
     "FlowViewModelV2 breakDownTask persists normalized micro-steps to task_micro_steps table" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
             val task = makeTask("flow-t1", "Prepare quarterly presentation")
 
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
             val circadianService = DefaultCircadianEnergyService()
@@ -94,7 +91,6 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
 
             val viewModel = FlowViewModelV2(
                 taskRepository = taskRepo,
-                energyScoreRepository = energyRepo,
                 preferencesDataStore = prefsDataStore,
                 circadianEnergyService = circadianService,
                 taskSchedulerService = schedulerService,
@@ -119,14 +115,12 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
     "PlanViewModelV2 breakDownTask persists normalized micro-steps and saveQuickNote writes to QuickNoteDao" {
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val workManager = mockk<WorkManager>(relaxed = true)
             val quickNoteDao = mockk<QuickNoteDao>(relaxed = true)
             val task = makeTask("plan-t1", "Write integration tests")
 
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
             every { taskRepo.observeTasksForDate(any()) } returns MutableStateFlow(listOf(task))
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
 
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
@@ -134,7 +128,6 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
             val viewModel = PlanViewModelV2(
                 taskRepository = taskRepo,
                 preferencesDataStore = prefsDataStore,
-                energyScoreRepository = energyRepo,
                 workManager = workManager,
                 quickNoteDao = quickNoteDao
             )
@@ -160,7 +153,6 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
         runTest(testDispatcher) {
             val taskRepo = mockk<TaskRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
-            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
             val workManager = mockk<WorkManager>(relaxed = true)
             val calendarRepo = mockk<CalendarSyncRepository>(relaxed = true)
 
@@ -182,7 +174,6 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
             coEvery { taskRepo.getById("plan-t3") } returns lockedTask
             every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(unlockedTask, lockedTask))
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
-            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(autoSchedulingEnabled = true, wakeUpHour = 7))
 
             coEvery { calendarRepo.getBusyWindows(any(), any()) } returns listOf(
@@ -195,7 +186,6 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
             val viewModel = PlanViewModelV2(
                 taskRepository = taskRepo,
                 preferencesDataStore = prefsDataStore,
-                energyScoreRepository = energyRepo,
                 workManager = workManager,
                 taskSchedulerService = schedulerService,
                 circadianEnergyService = circadianService,

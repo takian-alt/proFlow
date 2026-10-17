@@ -1,9 +1,9 @@
 package com.neuroflow.app.presentation.common
 
 import com.neuroflow.app.data.local.UserPreferences
-import com.neuroflow.app.domain.engine.SleepPressureDetector
-import com.neuroflow.app.domain.engine.PeakEnergyEngine
+import com.neuroflow.app.domain.model.EffectivePeakProfile
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.FatigueZone
 import java.util.Calendar
 import kotlin.math.abs
 
@@ -142,14 +142,14 @@ object EnergyInsight {
 
     fun whatToDoNow(
         availableEnergy: Int,
-        fatigueZone: SleepPressureDetector.FatigueZone,
+        fatigueZone: FatigueZone,
         hasRecentData: Boolean
     ): String {
         if (!hasRecentData) {
             return "Signals look stale. Refresh context and avoid major priority changes until data updates."
         }
         return when {
-            availableEnergy >= 75 && fatigueZone <= SleepPressureDetector.FatigueZone.MODERATE -> {
+            availableEnergy >= 75 && fatigueZone <= FatigueZone.MODERATE -> {
                 "Do deep work now while capacity is high."
             }
             availableEnergy >= 50 -> {
@@ -187,7 +187,7 @@ object EnergyInsight {
         }
     }
 
-    fun profileSummary(profile: PeakEnergyEngine.EffectivePeakProfile?): String {
+    fun profileSummary(profile: EffectivePeakProfile?): String {
         if (profile == null) return "Baseline profile"
         val windows = profile.windows.joinToString(separator = ", ") { w ->
             "${(w.durationMinutes / 60f)}h"
@@ -195,26 +195,26 @@ object EnergyInsight {
         return "${profile.profileType.name.lowercase().replaceFirstChar { it.uppercase() }} profile • windows $windows"
     }
 
-    fun profileConfidenceLine(profile: PeakEnergyEngine.EffectivePeakProfile?): String {
+    fun profileConfidenceLine(profile: EffectivePeakProfile?): String {
         if (profile == null) return "Confidence unavailable"
         val c = profile.confidence
         return "Confidence ${confidenceTier(c.overall)} (${(c.overall * 100).toInt()}%) • " +
             "sleep ${(c.sleepCoverage * 100).toInt()}% • wake ${(c.wakeConsistency * 100).toInt()}% • behavior ${(c.behaviorPerformance * 100).toInt()}%"
     }
 
-    fun windowConfidencePercent(profile: PeakEnergyEngine.EffectivePeakProfile?, windowIndex: Int): Int {
+    fun windowConfidencePercent(profile: EffectivePeakProfile?, windowIndex: Int): Int {
         val fallback = profile?.confidence?.overall ?: 0.5f
         val value = profile?.windowConfidences?.getOrNull(windowIndex)?.coerceIn(0f, 1f) ?: fallback
         return (value * 100f).toInt().coerceIn(0, 100)
     }
 
-    fun windowConfidenceTier(profile: PeakEnergyEngine.EffectivePeakProfile?, windowIndex: Int): String {
+    fun windowConfidenceTier(profile: EffectivePeakProfile?, windowIndex: Int): String {
         val fallback = profile?.confidence?.overall ?: 0.5f
         val value = profile?.windowConfidences?.getOrNull(windowIndex)?.coerceIn(0f, 1f) ?: fallback
         return confidenceTier(value)
     }
 
-    fun confidenceImprovementActions(profile: PeakEnergyEngine.EffectivePeakProfile?): List<String> {
+    fun confidenceImprovementActions(profile: EffectivePeakProfile?): List<String> {
         if (profile == null) {
             return listOf("Complete MEQ and log sleep for at least 5 nights to calibrate peak windows.")
         }
@@ -262,15 +262,15 @@ object EnergyInsight {
         return actions.take(4)
     }
 
-    fun adaptiveHint(profile: PeakEnergyEngine.EffectivePeakProfile?): String {
+    fun adaptiveHint(profile: EffectivePeakProfile?): String {
         return profile?.explanation ?: "Using baseline peak estimate."
     }
 
-    fun backtestSummary(profile: PeakEnergyEngine.EffectivePeakProfile?): String {
+    fun backtestSummary(profile: EffectivePeakProfile?): String {
         return backtestFitLabel(profile?.weeklyBacktestErrorMinutes)
     }
 
-    fun profileModeLabel(manualOverrideEnabled: Boolean, profile: PeakEnergyEngine.EffectivePeakProfile?): String {
+    fun profileModeLabel(manualOverrideEnabled: Boolean, profile: EffectivePeakProfile?): String {
         return when {
             manualOverrideEnabled -> "Profile mode: Manual override"
             profile?.confidenceGatedAbstention == true -> "Profile mode: Confidence-gated abstention (safe baseline)"

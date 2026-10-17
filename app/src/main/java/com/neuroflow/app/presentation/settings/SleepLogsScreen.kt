@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.SleepLogEntity
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.time.Instant
 import java.time.LocalDate
@@ -141,9 +141,9 @@ fun SleepLogsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SleepLogsSection("Sleep Pressure") {
-                val fatiguePercent = SleepPressureDetector.fatiguePercent(prefs.sleepPressurePoints)
-                val fatigueZone = SleepPressureDetector.fatigueZone(prefs.sleepPressurePoints)
-                val fatigueZoneLabel = SleepPressureDetector.fatigueZoneLabel(fatigueZone)
+                val fatiguePercent = FatigueZone.fatiguePercent(prefs.sleepPressurePoints)
+                val fatigueZone = FatigueZone.fromPressurePoints(prefs.sleepPressurePoints)
+                val fatigueZoneLabel = FatigueZone.label(fatigueZone)
                 val fatigueColor = fatigueZoneColor(fatigueZone)
 
                 Text(
@@ -321,7 +321,7 @@ private fun SleepLogRow(
     log: SleepLogEntity,
     onDelete: () -> Unit
 ) {
-    val recovery = SleepPressureDetector.recoveryForSleepMinutes(log.durationMinutes)
+    val recovery = FatigueZone.recoveryForSleepMinutes(log.durationMinutes)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -399,9 +399,9 @@ private fun todayUtcDateMillis(): Long {
         .toEpochMilli()
 }
 
-private fun fatigueZoneColor(zone: SleepPressureDetector.FatigueZone) = when (zone) {
-    SleepPressureDetector.FatigueZone.RESTED -> NeuroFlowColors.ScheduleText
-    SleepPressureDetector.FatigueZone.MODERATE -> NeuroFlowColors.DelegateText
-    SleepPressureDetector.FatigueZone.HIGH -> NeuroFlowColors.MapeBad
-    SleepPressureDetector.FatigueZone.CRITICAL -> NeuroFlowColors.TrackingRed
+private fun fatigueZoneColor(zone: FatigueZone) = when (zone) {
+    FatigueZone.RESTED -> NeuroFlowColors.ScheduleText
+    FatigueZone.MODERATE -> NeuroFlowColors.DelegateText
+    FatigueZone.HIGH -> NeuroFlowColors.MapeBad
+    FatigueZone.CRITICAL -> NeuroFlowColors.TrackingRed
 }

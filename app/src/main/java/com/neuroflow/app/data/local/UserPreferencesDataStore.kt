@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
-import com.neuroflow.app.domain.engine.DistractionEngine
+import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
@@ -117,7 +117,7 @@ data class UserPreferences(
     val dismissedSleepFallbacks: Set<String> = emptySet(),
     // Daily deep-work budget on the Today screen, and the apps that count as distraction
     val dailyDeepWorkTargetMinutes: Int = 240,
-    val distractingPackages: Set<String> = DistractionEngine.DEFAULT_DISTRACTING_PACKAGES,
+    val distractingPackages: Set<String> = BehavioralSupportService.DEFAULT_DISTRACTING_PACKAGES,
     // Moment model sensitivity controls
     val momentInterruptionSensitivity: Float = 1.0f,
     val momentNotificationSensitivity: Float = 1.0f,
@@ -372,7 +372,7 @@ class UserPreferencesDataStore @Inject constructor(
             autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
             dismissedSleepFallbacks = prefs[Keys.DISMISSED_SLEEP_FALLBACKS] ?: emptySet(),
             dailyDeepWorkTargetMinutes = (prefs[Keys.DAILY_DEEP_WORK_TARGET_MINUTES] ?: 240).coerceIn(30, 720),
-            distractingPackages = prefs[Keys.DISTRACTING_PACKAGES] ?: DistractionEngine.DEFAULT_DISTRACTING_PACKAGES,
+            distractingPackages = prefs[Keys.DISTRACTING_PACKAGES] ?: BehavioralSupportService.DEFAULT_DISTRACTING_PACKAGES,
             momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
             momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
             momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
@@ -563,7 +563,7 @@ class UserPreferencesDataStore @Inject constructor(
                 autoFallbackSleepInsertionEnabled = prefs[Keys.AUTO_FALLBACK_SLEEP_INSERTION_ENABLED] ?: true,
                 dismissedSleepFallbacks = prefs[Keys.DISMISSED_SLEEP_FALLBACKS] ?: emptySet(),
                 dailyDeepWorkTargetMinutes = (prefs[Keys.DAILY_DEEP_WORK_TARGET_MINUTES] ?: 240).coerceIn(30, 720),
-                distractingPackages = prefs[Keys.DISTRACTING_PACKAGES] ?: DistractionEngine.DEFAULT_DISTRACTING_PACKAGES,
+                distractingPackages = prefs[Keys.DISTRACTING_PACKAGES] ?: BehavioralSupportService.DEFAULT_DISTRACTING_PACKAGES,
                 momentInterruptionSensitivity = (prefs[Keys.MOMENT_INTERRUPTION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
                 momentNotificationSensitivity = (prefs[Keys.MOMENT_NOTIFICATION_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),
                 momentTaskPressureSensitivity = (prefs[Keys.MOMENT_TASK_PRESSURE_SENSITIVITY] ?: 1.0f).coerceIn(0.5f, 2.0f),

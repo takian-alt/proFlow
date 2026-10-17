@@ -26,7 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.util.Calendar
@@ -45,7 +45,7 @@ fun CircadianHeroBarometer(
     batteryPercent: Int,
     energyZone: EnergyLevel,
     sleepPressurePoints: Int = 450,
-    fatigueZone: SleepPressureDetector.FatigueZone = SleepPressureDetector.FatigueZone.RESTED,
+    fatigueZone: FatigueZone = FatigueZone.RESTED,
     circadianFactor: Float = 0.85f,
     recommendedTask: TaskEntity? = null,
     onStartRecommendedTask: (String) -> Unit = {},
@@ -307,9 +307,9 @@ fun CircadianHeroBarometer(
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = when (fatigueZone) {
-                        SleepPressureDetector.FatigueZone.RESTED -> NeuroFlowThemeV2Colors.SageGreen
-                        SleepPressureDetector.FatigueZone.MODERATE -> NeuroFlowThemeV2Colors.WarmAmber
-                        SleepPressureDetector.FatigueZone.HIGH, SleepPressureDetector.FatigueZone.CRITICAL -> NeuroFlowThemeV2Colors.RoseCoral
+                        FatigueZone.RESTED -> NeuroFlowThemeV2Colors.SageGreen
+                        FatigueZone.MODERATE -> NeuroFlowThemeV2Colors.WarmAmber
+                        FatigueZone.HIGH, FatigueZone.CRITICAL -> NeuroFlowThemeV2Colors.RoseCoral
                     }
                 )
             }

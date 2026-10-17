@@ -4,7 +4,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.repository.SleepLogRepository
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.domain.model.FatigueZone
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
@@ -35,14 +35,14 @@ class SleepPressureRepository @Inject constructor(
     data class Snapshot(
         val pressurePoints: Int,
         val fatiguePercent: Int,
-        val fatigueZone: SleepPressureDetector.FatigueZone,
+        val fatigueZone: FatigueZone,
         val refreshedAtMillis: Long,
         val minutesSinceWake: Int? = null,
         val isSleepInertiaActive: Boolean = false,
         val sleepInertiaPenalty: Float = 0f,
         val chronicRestrictionMultiplier: Float = 1.0f,
         val adjustedFatiguePercent: Int = fatiguePercent,
-        val adjustedFatigueZone: SleepPressureDetector.FatigueZone = fatigueZone
+        val adjustedFatigueZone: FatigueZone = fatigueZone
     )
 
     private data class SleepInterval(
@@ -135,8 +135,8 @@ class SleepPressureRepository @Inject constructor(
             )
         }
 
-        val fatiguePercent = SleepPressureDetector.fatiguePercent(pressure)
-        val zone = SleepPressureDetector.fatigueZone(pressure)
+        val fatiguePercent = FatigueZone.fatiguePercent(pressure)
+        val zone = FatigueZone.fatigueZone(pressure)
         val wakeMins = minutesBetween(trackingStart, nowMillis)
 
         return Snapshot(
@@ -145,8 +145,8 @@ class SleepPressureRepository @Inject constructor(
             fatigueZone = zone,
             refreshedAtMillis = nowMillis,
             minutesSinceWake = wakeMins,
-            isSleepInertiaActive = SleepPressureDetector.isSleepInertiaActive(wakeMins),
-            sleepInertiaPenalty = SleepPressureDetector.calculateSleepInertiaPenalty(wakeMins),
+            isSleepInertiaActive = FatigueZone.isSleepInertiaActive(wakeMins),
+            sleepInertiaPenalty = FatigueZone.calculateSleepInertiaPenalty(wakeMins),
             chronicRestrictionMultiplier = 1.0f,
             adjustedFatiguePercent = fatiguePercent,
             adjustedFatigueZone = zone
@@ -198,13 +198,13 @@ class SleepPressureRepository @Inject constructor(
 
             if (boundedStart > cursor) {
                 val awakeMinutes = minutesBetween(cursor, boundedStart)
-                pressure = SleepPressureDetector
+                pressure = FatigueZone
                     .applyAwakeMinutes(pressure, awakeMinutes)
                     .pressurePoints
             }
 
             val sleepMinutes = minutesBetween(boundedStart, boundedEnd)
-            pressure = SleepPressureDetector
+            pressure = FatigueZone
                 .applySleepSession(pressure, sleepMinutes)
                 .pressurePoints
 
@@ -213,7 +213,7 @@ class SleepPressureRepository @Inject constructor(
 
         if (cursor < nowMillis) {
             val awakeMinutes = minutesBetween(cursor, nowMillis)
-            pressure = SleepPressureDetector
+            pressure = FatigueZone
                 .applyAwakeMinutes(pressure, awakeMinutes)
                 .pressurePoints
         }
@@ -238,18 +238,18 @@ class SleepPressureRepository @Inject constructor(
             if (e > s) ((e - s) / 60_000L).toInt() else 0
         }
         val rollingAvgDailyMinutes = (totalRollingSleepMinutes.toFloat() / 7f)
-        val chronicMultiplier = SleepPressureDetector.calculateChronicRestrictionMultiplier(rollingAvgDailyMinutes)
-        val inertiaPenalty = SleepPressureDetector.calculateSleepInertiaPenalty(minutesSinceWake)
-        val inertiaActive = SleepPressureDetector.isSleepInertiaActive(minutesSinceWake)
+        val chronicMultiplier = FatigueZone.calculateChronicRestrictionMultiplier(rollingAvgDailyMinutes)
+        val inertiaPenalty = FatigueZone.calculateSleepInertiaPenalty(minutesSinceWake)
+        val inertiaActive = FatigueZone.isSleepInertiaActive(minutesSinceWake)
 
-        val fatiguePercent = SleepPressureDetector.fatiguePercent(pressure)
-        val zone = SleepPressureDetector.fatigueZone(pressure)
-        val adjFatiguePercent = SleepPressureDetector.adjustedFatiguePercent(
+        val fatiguePercent = FatigueZone.fatiguePercent(pressure)
+        val zone = FatigueZone.fatigueZone(pressure)
+        val adjFatiguePercent = FatigueZone.adjustedFatiguePercent(
             pressurePoints = pressure,
             minutesSinceWake = minutesSinceWake,
             rollingAverageSleepMinutes = rollingAvgDailyMinutes
         )
-        val adjZone = SleepPressureDetector.adjustedFatigueZone(
+        val adjZone = FatigueZone.adjustedFatigueZone(
             pressurePoints = pressure,
             minutesSinceWake = minutesSinceWake,
             rollingAverageSleepMinutes = rollingAvgDailyMinutes

@@ -1,21 +1,27 @@
 package com.neuroflow.app.presentation.common
 
-import com.neuroflow.app.domain.engine.MEQChronotypeDetector
-import com.neuroflow.app.domain.engine.PeakEnergyEngine
+import com.neuroflow.app.domain.model.ConfidenceComponents
+import com.neuroflow.app.domain.model.EffectivePeakProfile
+import com.neuroflow.app.domain.model.PeakWindow
+import com.neuroflow.app.domain.model.ProfileType
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 
 class EnergyInsightGuidanceTest : StringSpec({
 
+    val sampleWindows = listOf(
+        PeakWindow(startMinuteOffset = 0, durationMinutes = 210, amplitude = 1.0f),
+        PeakWindow(startMinuteOffset = 480, durationMinutes = 150, amplitude = 0.78f),
+        PeakWindow(startMinuteOffset = 720, durationMinutes = 60, amplitude = 0.58f)
+    )
+
     "window confidence helpers use per-window confidence when available" {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                MEQChronotypeDetector.Chronotype.INTERMEDIATE
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = sampleWindows,
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.8f,
                 wakeConsistency = 0.8f,
                 behaviorPerformance = 0.8f,
@@ -30,13 +36,11 @@ class EnergyInsightGuidanceTest : StringSpec({
     }
 
     "confidence improvement actions include peak 2 and 3 guidance when later windows are weak" {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                MEQChronotypeDetector.Chronotype.INTERMEDIATE
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = sampleWindows,
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.55f,
                 wakeConsistency = 0.58f,
                 behaviorPerformance = 0.50f,
@@ -53,13 +57,11 @@ class EnergyInsightGuidanceTest : StringSpec({
     }
 
     "profile mode label shows freeze safety fallback when adaptive freeze is active" {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                MEQChronotypeDetector.Chronotype.INTERMEDIATE
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = sampleWindows,
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.7f,
                 wakeConsistency = 0.7f,
                 behaviorPerformance = 0.7f,
@@ -76,13 +78,11 @@ class EnergyInsightGuidanceTest : StringSpec({
     }
 
     "abstention mode label and guidance are surfaced when prediction is withheld" {
-        val profile = PeakEnergyEngine.EffectivePeakProfile(
-            profileType = PeakEnergyEngine.ProfileType.WORKDAY,
+        val profile = EffectivePeakProfile(
+            profileType = ProfileType.WORKDAY,
             anchorMinuteOfDay = 360,
-            windows = PeakEnergyEngine.defaultCircadianProfile(
-                MEQChronotypeDetector.Chronotype.INTERMEDIATE
-            ).windows,
-            confidence = PeakEnergyEngine.ConfidenceComponents(
+            windows = sampleWindows,
+            confidence = ConfidenceComponents(
                 sleepCoverage = 0.3f,
                 wakeConsistency = 0.35f,
                 behaviorPerformance = 0.4f,

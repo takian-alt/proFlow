@@ -170,7 +170,7 @@ fun FlowScreenV2(
                 batteryPercent = battery,
                 energyZone = currentEnergyLevel,
                 sleepPressurePoints = state.energyUi?.sleepPressurePoints ?: 450,
-                fatigueZone = state.energyUi?.fatigueZone ?: com.neuroflow.app.domain.engine.SleepPressureDetector.FatigueZone.RESTED,
+                fatigueZone = state.energyUi?.fatigueZone ?: com.neuroflow.app.domain.model.FatigueZone.RESTED,
                 circadianFactor = state.energyUi?.circadianFactor ?: 0.85f,
                 recommendedTask = state.recommendedTask,
                 onStartRecommendedTask = { taskId -> onStartFocus(taskId) },

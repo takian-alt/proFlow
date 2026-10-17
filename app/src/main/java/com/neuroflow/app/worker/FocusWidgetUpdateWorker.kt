@@ -8,12 +8,18 @@ import android.content.Intent
 import android.widget.RemoteViews
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.FatigueZone
+import com.neuroflow.app.presentation.widget.CompleteTaskReceiver
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.service.CircadianEnergyService
@@ -123,11 +129,15 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
 
             // 2. Update NextActionWidgetProvider (widget_next_action)
             val nextActionViews = RemoteViews(appContext.packageName, R.layout.widget_next_action)
+            val energyText = "⚡ ${snapshot.usableEnergy}% · ${FatigueZone.fromUsableEnergy(snapshot.usableEnergy).label}"
+            nextActionViews.setTextViewText(R.id.widget_energy_pill, energyText)
+
             if (topTask != null) {
                 nextActionViews.setTextViewText(R.id.widget_next_task_title, topTask.title)
                 val durationText = if (topTask.estimatedDurationMinutes > 0) "${topTask.estimatedDurationMinutes}m" else "Quick"
                 val quadrantText = topTask.quadrant.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
                 nextActionViews.setTextViewText(R.id.widget_next_task_meta, "$quadrantText · $durationText")
+                nextActionViews.setViewVisibility(R.id.widget_button_row, android.view.View.VISIBLE)
 
                 val focusIntent = Intent(appContext, MainActivity::class.java).apply {
                     action = "com.procus.ACTION_OPEN_FOCUS"
@@ -140,18 +150,29 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                 )
                 nextActionViews.setOnClickPendingIntent(R.id.widget_next_start_button, focusPendingIntent)
 
-                val containerIntent = Intent(appContext, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                val completeIntent = Intent(appContext, CompleteTaskReceiver::class.java).apply {
+                    action = CompleteTaskReceiver.ACTION_COMPLETE_TASK
+                    putExtra(CompleteTaskReceiver.EXTRA_TASK_ID, topTask.id)
                 }
-                val containerPendingIntent = PendingIntent.getActivity(
-                    appContext, 2002, containerIntent,
+                val completePendingIntent = PendingIntent.getBroadcast(
+                    appContext, topTask.id.hashCode(), completeIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
-                nextActionViews.setOnClickPendingIntent(R.id.widget_next_action_container, containerPendingIntent)
+                nextActionViews.setOnClickPendingIntent(R.id.widget_complete_button, completePendingIntent)
             } else {
                 nextActionViews.setTextViewText(R.id.widget_next_task_title, "All clear! Plan what's next")
                 nextActionViews.setTextViewText(R.id.widget_next_task_meta, "No active tasks")
+                nextActionViews.setViewVisibility(R.id.widget_button_row, android.view.View.GONE)
             }
+
+            val containerIntent = Intent(appContext, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val containerPendingIntent = PendingIntent.getActivity(
+                appContext, 2002, containerIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            nextActionViews.setOnClickPendingIntent(R.id.widget_next_action_container, containerPendingIntent)
 
             val nextActionComponentName = ComponentName(
                 appContext,
@@ -164,5 +185,20 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
         }
 
         return Result.success()
+    }
+
+    companion object {
+        fun enqueueImmediateUpdate(context: Context) {
+            runCatching {
+                val request = OneTimeWorkRequestBuilder<FocusWidgetUpdateWorker>()
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    .build()
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    "FocusWidgetUpdateWorker_immediate",
+                    ExistingWorkPolicy.REPLACE,
+                    request
+                )
+            }
+        }
     }
 }

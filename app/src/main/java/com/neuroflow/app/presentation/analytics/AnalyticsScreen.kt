@@ -21,10 +21,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.ContractOutcome
 import com.neuroflow.app.domain.engine.AnalyticsEngine
-import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.domain.model.EffectivePeakProfile
+import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.util.Calendar
@@ -180,12 +181,12 @@ fun AnalyticsScreen(
 // ── Individual cards ──────────────────────────────────────────────────────────
 
 @Composable
-private fun EnergyPulseCard(energy: EnergyScoreRepository.EnergyUiModel) {
+private fun EnergyPulseCard(energy: EnergyUiModel) {
     val fatigueColor = when (energy.fatigueZone) {
-        SleepPressureDetector.FatigueZone.RESTED -> Color(0xFF43A047)
-        SleepPressureDetector.FatigueZone.MODERATE -> Color(0xFFF9A825)
-        SleepPressureDetector.FatigueZone.HIGH -> Color(0xFFF57C00)
-        SleepPressureDetector.FatigueZone.CRITICAL -> Color(0xFFE53935)
+        FatigueZone.RESTED -> Color(0xFF43A047)
+        FatigueZone.MODERATE -> Color(0xFFF9A825)
+        FatigueZone.HIGH -> Color(0xFFF57C00)
+        FatigueZone.CRITICAL -> Color(0xFFE53935)
     }
     val peakDecreasedPct = if (energy.peakValue > 0) {
         ((energy.peakDrop * 100f) / energy.peakValue.toFloat()).coerceIn(0f, 100f)
@@ -312,7 +313,7 @@ private fun EnergyPulseCard(energy: EnergyScoreRepository.EnergyUiModel) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                 Text("Fatigue", fontSize = 13.sp)
                 Text(
-                    "${energy.fatiguePercent}% (${SleepPressureDetector.fatigueZoneLabel(energy.fatigueZone)})",
+                    "${energy.fatiguePercent}% (${FatigueZone.fatigueZoneLabel(energy.fatigueZone)})",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = fatigueColor
@@ -1037,7 +1038,7 @@ private fun DynamicPeakCard(
     quizPeakEnabled: Boolean,
     confidence: Float,
     hasDetectedPeak: Boolean,
-    effectiveProfile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?
+    effectiveProfile: EffectivePeakProfile?
 ) {
     fun normalizeMinuteOfDay(minuteOfDay: Int): Int {
         val normalized = minuteOfDay % (24 * 60)
@@ -1352,7 +1353,7 @@ internal fun abstentionReasonMix(
 
 @Composable
 private fun MorningCalibrationCard(
-    profile: com.neuroflow.app.domain.engine.PeakEnergyEngine.EffectivePeakProfile?,
+    profile: EffectivePeakProfile?,
     manualOverrideEnabled: Boolean,
     tuneSleep: Float,
     tuneWake: Float,
