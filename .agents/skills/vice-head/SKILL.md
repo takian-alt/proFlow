@@ -9,12 +9,24 @@ description: >-
 
 # Vice Head Protocol: Architecture, System Design & Strategic Handoff
 
-The **Vice Head** is an external frontier intelligence serving as second-in-command after the user. Because direct programmatic sockets or network bridges are unavailable, the **user acts as the direct human bridge**.
+The **Vice Head** (or **Vice Leader**) is an external frontier intelligence serving as second-in-command after the user. Because direct programmatic API/network bridges between models are unavailable, the **user acts as the direct human bridge**.
 
-This skill establishes the standardized operating procedure for:
-1. Identifying high-leverage architectural and system design crossroads.
-2. Generating zero-assumption, complete-context architectural packets (`VICE_HEAD_HANDOFF.md` / `ARCH_SYSTEM_DESIGN.md`).
-3. Ingesting, evaluating, and executing the Vice Head's architectural guidance, System Design RFCs, and code diffs.
+---
+
+## ⚡ MANDATORY LIVING SKILL RULE: SYNCHRONIZED SKILL EVOLUTION
+> [!IMPORTANT]
+> **EVERY TIME A HANDOFF IS GIVEN TO OR RECEIVED FROM THE VICE LEADER, YOU MUST EDIT THIS SKILL FILE (`SKILL.md`).**
+>
+> **Why this rule exists:**
+> When handing off context across human bridges, project knowledge risks evaporation. Editing this skill at every handoff ensures that:
+> 1. All ratified Architectural Decision Records (ADRs), mathematical equations, and domain contracts are permanently captured in the skill's living reference corpus.
+> 2. The active phase, known constraints, resolved bugs, and current blockers are immediately available to any future subagent or agent session without re-auditing.
+> 3. Handoff formatting, prompt phrasing, and evaluation protocols continuously improve based on what yielded the highest precision output from the Vice Leader.
+>
+> **Action Required on Every Handoff**:
+> - Update **Section 5 (Living Architectural State & ADR Registry)** with the latest ADR, phase progress, and technical invariants.
+> - If new mathematical models or domain services were ratified, add their drop-in equations and interface contracts to **Section 6 (Ratified Mathematical & Domain Formulas)**.
+> - Keep both the workspace copy (`.agents/skills/vice-head/SKILL.md`) and global copy (`~/.gemini/config/skills/vice-head/SKILL.md`) in sync.
 
 ---
 
@@ -23,13 +35,13 @@ This skill establishes the standardized operating procedure for:
 Engage the Vice Head protocol for:
 - **Macro & Micro Architecture Decisions**:
   - Module decomposition, dependency boundaries, and architectural patterns (e.g. Unidirectional Data Flow / MVI, Clean Architecture, CQRS).
-  - Component decoupling, interface segregation, and plugin/sidecar abstractions.
+  - Component decoupling, interface segregation, and facade/adapter abstractions.
 - **System Design & High-Scalability Data Pipelines**:
   - Complex schema designs, Room/SQL migrations, indices, and data lifecycle management.
   - Offline-first synchronization, conflict resolution (CRDTs / Last-Write-Wins), and multi-tier cache invalidation.
   - Concurrency models, reactive streams (`StateFlow` / `SharedFlow`), backpressure handling, and thread confinement.
 - **Resilience, Resource Ceilings & Failure Domains**:
-  - Memory bounds (e.g. strict JVM heap limits, OOM avoidance, buffer pooling).
+  - Strict JVM heap limits (`-Xmx2048m -XX:MaxMetaspaceSize=512m`, single-worker Gradle daemon).
   - Background process survival (Foreground Services, WorkManager, Doze mode, Android App Standby buckets, process death & saved state restoration).
   - Fault tolerance, exponential backoff, circuit breakers, and crash recovery.
 - **Deep Algorithmic & Mathematical Modeling**:
@@ -67,7 +79,7 @@ Used for ongoing background services, audio engines, or async processing.
 
 ---
 
-## 3. Generating the Architectural Handoff Packet
+## 3. Preparing the Zero-Assumption Handoff Packet
 
 Create a dedicated, self-contained markdown bundle (`VICE_HEAD_HANDOFF.md` or `ARCH_SYSTEM_DESIGN.md`). Context length is unlimited—be completely exhaustive, explicit, and self-contained.
 
@@ -82,8 +94,8 @@ Create a dedicated, self-contained markdown bundle (`VICE_HEAD_HANDOFF.md` or `A
 - **Consultation Mode**: [RFC / System Design / Concurrency & Service / Math & Algorithmic].
 
 ## 2. Environment & Resource Constraints
-- **Platform & Runtime**: Android 14 (API 34), Min SDK 26, Kotlin 2.0, Jetpack Compose, Room v12, Hilt.
-- **Host System Limits**: 7.4GB RAM host, Gradle JVM ceiling `-Xmx2048m -XX:MaxMetaspaceSize=512m`, single-worker rule.
+- **Platform & Runtime**: Android 14 (API 34), Min SDK 26, Kotlin 2.0, Jetpack Compose, Room (v21+), Hilt.
+- **Host System Limits**: 7.4GB RAM host, Gradle JVM ceiling `-Xmx2048m -XX:MaxMetaspaceSize=512m`, single-worker rule (`--no-daemon -Dorg.gradle.workers.max=1`).
 - **Execution Lifecycle**: Process death resilience, configuration change survival, battery optimization allowances.
 
 ## 3. Current Architecture & System Topology
@@ -91,7 +103,7 @@ Create a dedicated, self-contained markdown bundle (`VICE_HEAD_HANDOFF.md` or `A
 ```mermaid
 graph TD
     UI[Jetpack Compose M3 UI] --> VM[ViewModel / StateFlow]
-    VM --> UC[Domain UseCases / Engines]
+    VM --> UC[Domain UseCases / Services]
     UC --> Repo[Repository Layer]
     Repo --> Local[Room Database / DataStore]
     Repo --> Remote[Remote Sync / WorkManager]
@@ -115,18 +127,10 @@ graph TD
 
 ## 5. Explicit Review & Guidance Request for Vice Head
 Instruct the Vice Head to return:
-1. **Architectural Decision Record (ADR)**:
-   - **Decision**: Recommended option or novel synthesis.
-   - **Rationale**: Deep technical justification referencing system constraints.
-   - **Trade-Off Analysis**: Why the trade-offs of this approach are acceptable.
-2. **System Design & Component Interaction**:
-   - Mermaid diagram illustrating reactive data flow, state transitions, or component boundaries.
-   - Interface definitions and public API contracts.
-3. **Drop-in Implementation Code**:
-   - Exact Kotlin / Compose / Room code or git diffs ready for direct execution.
-4. **Resilience, Edge Cases & Verification Plan**:
-   - Concurrency race conditions, process death survival, memory leak vectors.
-   - Concrete test cases (Kotest / JUnit 5 / MockK) to prove correctness.
+1. **Architectural Decision Record (ADR)**: Decision, Rationale, Trade-Off Analysis.
+2. **System Design & Component Interaction**: Flow diagrams, public API contracts.
+3. **Drop-in Implementation Code**: Exact Kotlin / Compose / Room code or git diffs.
+4. **Resilience, Edge Cases & Verification Plan**: Concurrency, memory bounds, unit test specs.
 ```
 
 ---
@@ -141,17 +145,72 @@ When the user returns with the Vice Head's recommendations:
    - **Memory & Resource Safety**: Ensure all background threads, AudioTracks, and Coroutine jobs have clean `onCleared()` or `try-finally` cancellation.
    - **Schema Safety**: Verify that any Room schema change includes non-destructive migration scripts with fallback safeguards.
 
-2. **Incremental Application**:
-   - Apply core data models and domain contracts first.
-   - Implement repository, engine, and service logic.
-   - Update presentation, UI composables, and navigation graphs.
+2. **Incremental Application (Strangler-Fig Protocol)**:
+   - Apply core data models and domain contracts behind Facades/Adapters first.
+   - Implement repository, engine, and service logic with standalone unit tests.
+   - Wire ViewModels and cut over existing callers.
+   - Safely prune legacy implementations only after 100% test pass verification.
 
 3. **Rigorous Local Verification**:
    - Always run the test suite with memory-safe flags:
      ```bash
      ./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1
      ```
-   - Verify zero regressions across existing unit and E2E suites.
+   - Verify zero regressions across all unit and E2E suites.
 
-4. **Document Architectural Decision**:
-   - Record the finalized architectural choice in `walkthrough.md` or git commit message for future traceability.
+4. **Synchronize This Skill (`SKILL.md`) Immediately**:
+   - Immediately update this skill file to record the new ADR, decisions, formulas, and progress.
+
+---
+
+## 5. Living Architectural State & ADR Registry
+
+### ADR-001: Radical Triptych Redesign & Domain Consolidation via Strangler-Fig
+- **Status**: RATIFIED & ACTIVE
+- **Decision**: Endorsed Option B (Radical Triptych Redesign & Domain Consolidation) over Option A (in-place patching). Monolithic 45-column tasks table and 11 fragmented domain engines are consolidated into a lean 3-surface UI (**Flow**, **Plan**, **Vault**) and **3 core domain services** (`CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`).
+- **Phased Execution Roadmap**:
+  - **Phase 1 [COMPLETE - commit `bc9e7d1`]**:
+    - P0 Hemorrhage stop (`FocusService.kt` notification completion Room persistence, `NeuroFlowApplication.kt` runaway loop elimination).
+    - Prerequisite component extractions (`StepByStepPlan`, `AffordanceRatingSheet`, `WoopPromptSheet`, `LogTimeViewModel`).
+    - Purged 31 obsolete V1 files + 10 dead test files (~13,753 lines of dead code removed).
+    - Verified 875/875 passing unit tests.
+  - **Phase 2 [ACTIVE]**:
+    - Introduce `CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`, and `TaskNaturalLanguageParser`.
+    - Provide Hilt DI bindings in `DomainServiceModule`.
+    - Implement standalone unit tests verifying non-saturating scoring, continuous Borbély math, and multi-step DAG interval scheduling.
+  - **Phase 3 [PENDING]**:
+    - Execute Room v13/v22 schema migration (`tasks`, `task_micro_steps`, `focus_sessions`, `quick_notes`, `protected_slots`).
+    - Add high-performance composite indices.
+    - Wire ViewModels to new services; retire 11 legacy engines.
+  - **Phase 4 [PENDING]**:
+    - Re-route NavHost to Triptych surfaces: **Flow** (Cockpit), **Plan** (Calendar + Timeline + Unscheduled Backlog tray), **Vault** (Icebox + Insights).
+    - Apply WCAG AA AMOLED tokens (`#000000` bg -> `#121216` elevated surfaces, `#94A3B8` tertiary text).
+
+---
+
+## 6. Ratified Mathematical & Domain Formulas
+
+### 6.1 Continuous Borbély Two-Process Model (`CircadianEnergyService`)
+1. **Sleep Recovery Initial Pressure ($S_0$)**:
+   $$S_0 = 0.10 + 0.75 \cdot \exp\left(-\frac{\text{sleepHours}}{3.6}\right)$$
+   *(Continuous sleep debt clearance; eliminates the artificial 60-minute threshold cliff).*
+2. **Homeostatic Sleep Pressure ($S(t_w)$)**:
+   $$S(t_w) = \text{clamp}_{[0, 1]}\left(1.0 - (1.0 - S_0) \cdot \exp\left(-\frac{t_w}{18.2}\right)\right)$$
+3. **Double-Harmonic Circadian Alertness ($C(t)$)**:
+   $$C(t) = \text{clamp}_{[0, 1]}\left(0.50 + 0.38 \cos\left(\frac{2\pi(t - \phi)}{24}\right) - 0.12 \cos\left(\frac{4\pi(t - \phi)}{24}\right)\right)$$
+   *(Phase peak $\phi = t_{\text{wake}} + 4.5\text{h}$; second harmonic models the afternoon post-lunch dip naturally).*
+4. **Synaptic Cognitive Depletion ($D_{\text{focus}}$)**:
+   $$D_{\text{focus}}(m) = 0.15 \cdot \left(1 - \exp\left(-\frac{\max(0, m - 45)}{60}\right)\right)$$
+   *(Applies only to unbroken focus $>45\text{m}$; entering flow state incurs zero penalty).*
+5. **Unified Usable Energy ($E_{\text{usable}}$)**:
+   $$E_{\text{usable}}(t) = \text{clamp}_{[0, 100]}\left(100 \cdot \left[ 0.55 \cdot C(t) + 0.45 \cdot (1.0 - S(t_w)) - D_{\text{focus}} \right]\right)$$
+   *(Sanity check: at 19:00 after 8h sleep and 12h awake, $E_{\text{usable}} = 53.2\%$, healthy evening wind-down).*
+
+### 6.2 4-Vector Normalized Prioritization (`TaskSchedulerService`)
+$$\text{Score}(\tau, t) = 0.30 \cdot U(\tau, t) + 0.30 \cdot I(\tau) + 0.25 \cdot E(\tau, t) + 0.15 \cdot M(\tau, t) \in [0.0, 100.0]$$
+- **Urgency ($U$)**: Continuous logistic horizon on slack hours $h_{\text{slack}} = h_{\text{remaining}} - h_{\text{duration}}$:
+  $$U(\tau, t) = \frac{100.0}{1.0 + \exp(0.12 \cdot (h_{\text{slack}} - 24.0))}$$
+- **Impact ($I$)**: Base priority ($65/40/15$) + 25 (Daily Frog) + $10 \cdot \min(3, \text{dependents})$.
+- **Energy & Category Fit ($E$)**: $0.70 \cdot \text{GaussianMatch}(E_{\text{usable}}, \text{Demand}) + 0.30 \cdot \text{CategoryAffinity}(E_{\text{usable}})$.
+- **Momentum ($M$)**: $30 \cdot P_{\text{done}} + 35 \cdot \mathbb{I}(\text{active}) + 20 \cdot \mathbb{I}(\text{microSteps}) + 15 \cdot \exp(-d_{\text{est}} / 45)$. Distraction history never inflates priority.
+- **Signed EWMA Calibration**: $\rho_{\text{new}} = \text{clamp}_{[0.5, 2.5]}(0.75 \rho_{\text{old}} + 0.25 (d_{\text{actual}} / d_{\text{est}}))$. Finishing early reduces duration ratio, fixing asymmetric MAPE. Explicit duration tokens (e.g. `"30m"`) are protected from historical inflation.
