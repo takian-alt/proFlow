@@ -63,7 +63,7 @@ class InsightsViewModelV2 @Inject constructor(
         val startOfToday = cal.timeInMillis
         val startOfWeek = startOfToday - 6 * 86400_000L
 
-        val todaySessions = allSessions.filter { it.startedAt >= startOfToday }
+        val todaySessions = allSessions.filter { it.startedAt >= startOfToday || (it.endedAt != null && it.endedAt!! >= startOfToday) }
         val weekSessions = allSessions.filter { it.startedAt >= startOfWeek }
 
         val todayFocusMinutes = todaySessions.sumOf { it.trackedMinutes(now).toInt() }

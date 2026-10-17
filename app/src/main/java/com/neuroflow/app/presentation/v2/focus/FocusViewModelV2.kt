@@ -20,6 +20,9 @@ import com.neuroflow.app.presentation.v2.focus.audio.NeuralSoundscapePlayer
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.service.BehavioralSupportService
+import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -74,7 +77,8 @@ class FocusViewModelV2 @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val woopRepository: WoopRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    @ApplicationContext private val context: Context? = null
+    @ApplicationContext private val context: Context? = null,
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
 ) : ViewModel() {
 
     val taskId: String = checkNotNull(savedStateHandle["taskId"])
@@ -565,15 +569,21 @@ class FocusViewModelV2 @Inject constructor(
 
     fun autoBreakDownTask() {
         val task = _uiState.value.task ?: return
-        val cleanTitle = task.title.trim().take(30)
-        val microSteps = listOf(
-            StepByStepPlanStep("Open workspace & gather materials for $cleanTitle", false),
-            StepByStepPlanStep("Spend 5 uninterrupted minutes on the first sub-action", false),
-            StepByStepPlanStep("Review progress & polish final result", false)
-        )
-        val serialized = StepByStepPlanCodec.serialize(microSteps)
-        _uiState.update { it.copy(microSteps = microSteps) }
+        val generated = behavioralSupportService.generateMicroSteps(task.title, task.estimatedDurationMinutes)
+        val microStepEntities = generated.mapIndexed { index, suggestion ->
+            TaskMicroStepEntity(
+                taskId = task.id,
+                title = suggestion.title,
+                sortOrder = index,
+                estimatedMinutes = suggestion.estimatedMinutes
+            )
+        }
+        val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
+        val serialized = StepByStepPlanCodec.serialize(planSteps)
+        _uiState.update { it.copy(microSteps = planSteps) }
         viewModelScope.launch {
+            taskRepository.deleteMicroStepsByTaskId(task.id)
+            taskRepository.insertMicroSteps(microStepEntities)
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }

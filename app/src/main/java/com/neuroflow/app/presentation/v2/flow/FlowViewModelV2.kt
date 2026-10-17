@@ -16,6 +16,18 @@ import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.service.BehavioralSupportService
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
+import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
+import com.neuroflow.app.domain.service.EnergyDemand
+import com.neuroflow.app.domain.service.SchedulableTask
+import com.neuroflow.app.domain.service.TaskCategory
+import com.neuroflow.app.domain.service.TaskSchedulerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -47,7 +59,10 @@ class FlowViewModelV2 @Inject constructor(
     private val energyScoreRepository: EnergyScoreRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val noteRepository: NoteRepository? = null,
-    private val sessionRepository: SessionRepository? = null
+    private val sessionRepository: SessionRepository? = null,
+    private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
@@ -99,11 +114,51 @@ class FlowViewModelV2 @Inject constructor(
         }
         val showZeroGuilt = overdueTasks.size >= 3 && !dismissedGuilt
 
-        // Recommend highest-impact task matching current biological zone
-        val recommended = activeTasks
-            .filter { it.energyLevel == currentEnergyZone }
-            .maxByOrNull { (if (it.isFrog) 1000 else 0) + it.impactScore }
-            ?: activeTasks.maxByOrNull { (if (it.isFrog) 1000 else 0) + it.impactScore }
+        // Calculate continuous Borbély circadian snapshot
+        val wakeHour = prefs.wakeUpHour
+        val cal = Calendar.getInstance().apply { timeInMillis = now }
+        val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+        val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
+        val wakeTimeMillis = now - (hoursAwake * 3600_000L)
+        val snapshot = circadianEnergyService.evaluateSnapshot(
+            timestampMillis = now,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = 480
+        )
+
+        // Recommend highest leverage task matching current biological zone
+        val matchingTasks = activeTasks.filter { it.energyLevel == currentEnergyZone }
+        val candidatePool = if (matchingTasks.isNotEmpty()) matchingTasks else activeTasks
+        val effectiveSnapshot = snapshot.copy(usableEnergy = battery)
+        val recommended = candidatePool.maxByOrNull { task ->
+            val schedulable = SchedulableTask(
+                id = task.id,
+                title = task.title,
+                category = when (task.taskType) {
+                    TaskType.ANALYTICAL -> TaskCategory.DEEP_WORK
+                    TaskType.CREATIVE -> TaskCategory.CREATIVE
+                    TaskType.ADMIN -> TaskCategory.ADMIN
+                    TaskType.PHYSICAL -> TaskCategory.EXERCISE
+                },
+                priority = when (task.priority) {
+                    Priority.HIGH -> 2
+                    Priority.MEDIUM -> 1
+                    else -> 0
+                },
+                estimatedMinutes = task.estimatedDurationMinutes,
+                energyDemand = when (task.energyLevel) {
+                    EnergyLevel.HIGH -> EnergyDemand.HIGH
+                    EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
+                    else -> EnergyDemand.LOW
+                },
+                isFrog = task.isFrog,
+                scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: now) + it },
+                deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
+                isLocked = task.isScheduleLocked
+            )
+            val baseLeverage = (if (task.isFrog) 1000 else 0) + task.impactScore
+            baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
+        }
 
         // Filter tasks by selected tag
         val filtered = if (tag.isNullOrBlank() || tag.equals("All", ignoreCase = true)) {
@@ -117,7 +172,6 @@ class FlowViewModelV2 @Inject constructor(
         }
 
         // Evening shutdown after 19:00 (7 PM)
-        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val isEvening = currentHour >= 19
 
         FlowUiStateV2(
@@ -243,24 +297,34 @@ class FlowViewModelV2 @Inject constructor(
 
     /**
      * "Break It Down" Magic Wand:
-     * Decomposes task into 3 microscopic actionable steps to overcome executive inertia.
+     * Decomposes task into microscopic actionable steps via BehavioralSupportService
+     * and persists them into the normalized task_micro_steps table.
      */
     fun breakDownTask(task: TaskEntity) {
         viewModelScope.launch {
             val cleanTitle = task.title.trim().take(30)
-            val microSteps = listOf(
-                StepByStepPlanStep("Open workspace & gather materials for $cleanTitle", false),
-                StepByStepPlanStep("Spend 5 uninterrupted minutes on the very first sub-step", false),
-                StepByStepPlanStep("Review progress & polish final output", false)
-            )
-            val serialized = StepByStepPlanCodec.serialize(microSteps)
+            val generated = behavioralSupportService.generateMicroSteps(task.title, task.estimatedDurationMinutes)
+            val microStepEntities = generated.mapIndexed { index, suggestion ->
+                TaskMicroStepEntity(
+                    taskId = task.id,
+                    title = suggestion.title,
+                    sortOrder = index,
+                    estimatedMinutes = suggestion.estimatedMinutes
+                )
+            }
+            taskRepository.deleteMicroStepsByTaskId(task.id)
+            taskRepository.insertMicroSteps(microStepEntities)
+
+            // Keep ifThenPlan synced for backwards compatibility
+            val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
+            val serialized = StepByStepPlanCodec.serialize(planSteps)
             taskRepository.update(
                 task.copy(
                     ifThenPlan = serialized,
                     updatedAt = System.currentTimeMillis()
                 )
             )
-            _lastActionMessage.value = "Decomposed '${cleanTitle}' into 3 micro-steps 🪄"
+            _lastActionMessage.value = "Decomposed '${cleanTitle}' into ${generated.size} micro-steps 🪄"
         }
     }
 

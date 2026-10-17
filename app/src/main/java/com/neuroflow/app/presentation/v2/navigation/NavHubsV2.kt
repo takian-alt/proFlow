@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 sealed class NavHubsV2(val route: String, val title: String, val icon: ImageVector) {
     data object Flow : NavHubsV2("flow_v2", "Flow", Icons.Default.Today)
     data object Plan : NavHubsV2("plan_v2", "Plan", Icons.Default.CalendarMonth)
-    data object Insights : NavHubsV2("insights_v2", "Insights", Icons.Default.TrendingUp)
+    data object Insights : NavHubsV2("insights_v2", "Vault", Icons.Default.TrendingUp)
 
     companion object {
         val items = listOf(Flow, Plan, Insights)

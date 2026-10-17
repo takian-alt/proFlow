@@ -21,6 +21,15 @@ import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
+import com.neuroflow.app.data.local.dao.QuickNoteDao
+import com.neuroflow.app.data.local.entity.QuickNoteEntity
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.service.BehavioralSupportService
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
+import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
+import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -69,7 +78,11 @@ class PlanViewModelV2 @Inject constructor(
     private val energyScoreRepository: EnergyScoreRepository,
     private val workManager: WorkManager,
     private val noteRepository: NoteRepository? = null,
-    private val sessionRepository: SessionRepository? = null
+    private val sessionRepository: SessionRepository? = null,
+    private val quickNoteDao: QuickNoteDao? = null,
+    private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+    private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
 ) : ViewModel() {
 
     private val _selectedDate = MutableStateFlow(startOfTodayMillis())
@@ -198,24 +211,39 @@ class PlanViewModelV2 @Inject constructor(
 
     fun breakDownTask(task: TaskEntity) {
         viewModelScope.launch {
-            val cleanTitle = task.title.trim().take(30)
-            val microSteps = listOf(
-                StepByStepPlanStep("Open workspace & gather tools for $cleanTitle", false),
-                StepByStepPlanStep("Spend 5 uninterrupted minutes on the first sub-action", false),
-                StepByStepPlanStep("Review progress & polish final result", false)
-            )
-            val serialized = StepByStepPlanCodec.serialize(microSteps)
+            val generated = behavioralSupportService.generateMicroSteps(task.title, task.estimatedDurationMinutes)
+            val microStepEntities = generated.mapIndexed { index, suggestion ->
+                TaskMicroStepEntity(
+                    taskId = task.id,
+                    title = suggestion.title,
+                    sortOrder = index,
+                    estimatedMinutes = suggestion.estimatedMinutes
+                )
+            }
+            taskRepository.deleteMicroStepsByTaskId(task.id)
+            taskRepository.insertMicroSteps(microStepEntities)
+
+            val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
+            val serialized = StepByStepPlanCodec.serialize(planSteps)
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
 
     fun saveQuickNote(content: String, title: String = "") {
-        if (content.isBlank() || noteRepository == null) return
+        if (content.isBlank()) return
         viewModelScope.launch {
-            noteRepository.saveNote(
+            val trimmed = content.trim()
+            quickNoteDao?.insert(
+                QuickNoteEntity(
+                    content = trimmed,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            noteRepository?.saveNote(
                 NoteEntity(
                     title = title.ifBlank { "Quick Thought" },
-                    content = content.trim(),
+                    content = trimmed,
                     createdAt = System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis()
                 )

@@ -31,32 +31,12 @@ class DefaultBehavioralSupportService @Inject constructor() : BehavioralSupportS
     }
 
     override fun generateMicroSteps(taskTitle: String, estimatedMinutes: Int): List<MicroStepSuggestion> {
-        val clean = taskTitle.trim()
-        val totalMins = estimatedMinutes.coerceAtLeast(15)
-        val stepCount = when {
-            totalMins >= 60 -> 4
-            totalMins >= 30 -> 3
-            else -> 2
-        }
-        val perStepMins = (totalMins / stepCount).coerceIn(5, 20)
-
-        return when (stepCount) {
-            4 -> listOf(
-                MicroStepSuggestion("Gather materials & open required tools for '$clean'", 5),
-                MicroStepSuggestion("Outline the first section or quick draft", perStepMins),
-                MicroStepSuggestion("Execute core implementation of '$clean'", perStepMins),
-                MicroStepSuggestion("Review, verify and finalize", 5)
-            )
-            3 -> listOf(
-                MicroStepSuggestion("Set up workspace & review instructions for '$clean'", 5),
-                MicroStepSuggestion("Draft first rough version without judgment", perStepMins),
-                MicroStepSuggestion("Polish and wrap up '$clean'", 5)
-            )
-            else -> listOf(
-                MicroStepSuggestion("Take the first 5-minute starter step for '$clean'", 5),
-                MicroStepSuggestion("Complete the remainder of '$clean'", totalMins - 5)
-            )
-        }
+        val clean = taskTitle.trim().take(30)
+        return listOf(
+            MicroStepSuggestion("Open workspace & gather materials for $clean", 5),
+            MicroStepSuggestion("Spend 5 uninterrupted minutes on the very first sub-step", 5),
+            MicroStepSuggestion("Review progress & polish final result", 5)
+        )
     }
 
     override fun evaluateDistraction(interruptionCount: Int, durationMinutes: Int): DistractionFeedback {

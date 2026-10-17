@@ -186,10 +186,14 @@ When the user returns with the Vice Head's recommendations:
     - Integrated with `AppModule`, `TaskRepository`, and `SessionRepository`.
     - Automated unit test suite `RoomMigration21To22Test` added and verified.
     - Verified 895/895 unit tests passing with 0 failures (100% test greenness).
-  - **Phase 4 [ACTIVE / NEXT]**:
-    - Re-route NavHost to Triptych surfaces: **Flow** (Cockpit), **Plan** (Calendar + Timeline + Unscheduled Backlog tray), **Vault** (Icebox + Insights).
-    - Wire ViewModels to new domain services (`CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`).
-    - Apply WCAG AA AMOLED tokens (`#000000` bg -> `#121216` elevated surfaces, `#94A3B8` tertiary text).
+  - **Phase 4 [COMPLETE - Phase 4 Triptych Cutover & Modernization Verified]**:
+    - Re-routed NavHost and bottom bar navigation to clean 3-hub Triptych: **Flow** (Execution Cockpit), **Plan** (Timeline & Calendar), **Vault** (Icebox, Quick Notes & Insights).
+    - Wired `FlowViewModelV2`, `PlanViewModelV2`, and `FocusViewModelV2` directly to consolidated domain services (`CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`).
+    - Normalized micro-step decomposition persisted into `task_micro_steps` child table.
+    - Quick scratchpad notes saved to `quick_notes` table via `QuickNoteDao`.
+    - Verified WCAG AA AMOLED token contrast against pure black (`#000000`).
+    - Added dedicated unit test suite `Phase4TriptychViewModelIntegrationTest`.
+    - All 900/900 unit tests passing with 0 failures, 0 errors, 0 skipped (100% test greenness).
 
 ---
 

@@ -1,145 +1,226 @@
-# VICE HEAD STRATEGIC BRIEFING & HANDOFF PACKET
+# VICE HEAD STRATEGIC BRIEFING & SYSTEM DESIGN HANDOFF
 
-**Document Version**: 1.0  
-**Classification**: High-Priority Strategic Briefing (Antigravity → Vice Head via User Bridge)  
-**Project**: neuroFlow (PROCUS)  
+**Classification**: High-Priority Strategic Architecture & System Design Dossier  
+**Channels**: Antigravity (Junior Architect) ───> User (Human Bridge) ───> Vice Head (Frontier Second-in-Command)  
+**Target System**: `neuroFlow` (Android, Jetpack Compose, Kotlin 2.0, Room DB, Pure Kotlin DSP)  
 **Repository Working Directory**: `/home/takian/Project/PROCUS`  
 **Current Branch**: `main`  
+**Date**: October 17, 2026  
 
 ---
 
 ## 1. Executive Summary & Objective
 
-The mission is to completely modernize and rebuild the Android application **neuroFlow** (formerly PROCUS). The objective is to transform it from an overburdened, fragile legacy productivity dashboard into a neuroscience-backed, ultra-low friction execution engine that eliminates cognitive friction for knowledge workers, researchers, and ADHD/neurodivergent minds.
+The mission is to architect and build the definitive neuroscience-backed executive function and productivity system for **both ADHD users and general productivity users**.
 
-The user acts as the supreme commander, and the **Vice Head** is the second-in-command frontier intelligence. Because direct programmatic communication between Antigravity and the Vice Head is not permitted by system topology, the user serves as the bidirectional human bridge.
+The project currently has:
+1. A **legacy V1 UI layer** (30+ screens, drawer navigation, Eisenhower matrix, verbose questionnaires).
+2. A **V2 UI layer** (default, 3-hub bottom bar: Flow, Plan, Insights, OLED obsidian theme, pure Kotlin DSP soundscapes, drift-proof timing, decompression zone, and voice capture).
+3. A suite of **927 passing tests (100% pass rate, 0 failures)** verifying core functionality.
 
-This handoff packet contains the unabridged architectural context, design invariants, implementation progress across all 5 milestones, and explicit verification vectors. It requires zero prior assumptions.
+We have just completed a **comprehensive, 4-agent architectural, algorithmic, feature, and UI/UX audit** across the entire codebase. The audit uncovered **13 critical mathematical and algorithmic flaws** in the domain engines, **critical data integrity and battery loss risks (P0)**, **over 525 KB of dead legacy code**, and **severe cognitive friction in the information architecture**.
 
----
+### The Strategic Crossroads
+The project owner has explicitly mandated:
+> *"i dont mind a completely new architec ui ux .as long as the app serve purposes better... not just adhd but for general use also"*
 
-## 2. System Context & Environment Specifications
+We are at a defining architectural crossroads:
+* **Option A (Conservative In-Place Patching)**: Fix the 13 bugs in place, add missing indexes to Room, delete the 31 dead V1 files, patch the notification data-loss bug, and retain the existing 11 engines and 45-column `TaskEntity`.
+* **Option B (Radical Triptych Redesign & Domain Consolidation)**: 
+  - Collapse the 11 fragmented engines into **3 core domain services** (`CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`) + 1 non-destructive token parser.
+  - Slay the 45-column `TaskEntity` into a **lean, normalized Room v13 schema** (`tasks`, `task_micro_steps`, `focus_sessions`, `quick_notes`).
+  - Adopt the **Triptych Surface Architecture** (**Flow** Cockpit, **Plan** 2-Way Calendar & Interactive Timeline, **Vault** Zero-Guilt Icebox & Notes).
+  - Deploy **sub-60s frictionless onboarding** and **dynamic 20% time-blindness buffering**.
 
-- **Target Platform**: Android 14 (API 34), Min SDK 26 (Android 8.0 Oreo).
-- **Core Language & Frameworks**:
-  - Kotlin 2.0.21, Jetpack Compose (BOM 2024.09.00), Material 3 Design System.
-  - Room Database v12 (In-place non-destructive migration from v11).
-  - Kotlin Coroutines & StateFlow (Zero `runBlocking` on the Android Main/UI thread).
-  - Dagger-Hilt 2.51.1 for dependency injection.
-  - WorkManager 2.9.1 for background sync and autonomous nudges.
-  - Testing: Kotest 5.8.0, JUnit 4 (vintage engine), JUnit 5 (jupiter engine), MockK 1.13.10.
-- **Host System Constraints**:
-  - Host RAM: ~7.4 GB total available memory.
-  - Strict Gradle JVM memory ceilings: `JAVA_OPTS="-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:+UseParallelGC"`.
-  - Gradle Daemon policy: Always use `--no-daemon -Dorg.gradle.workers.max=1` to prevent out-of-memory kernel termination or freeze.
-
----
-
-## 3. Five-Milestone Modernization Matrix & Current State
-
-### Milestone 1: 100% V1 Feature Parity & Navigation Consolidation
-- **Problem Solved**: V1 had fragmented drawers and disjointed screens. V2 was at risk of dropping critical user tools (Notes, Weekly 7-Day Matrix, Analytics heatmap, MEQ Chronotype Quiz, Ulysses contracts, WOOP reflections).
-- **Implementation State: PASSED & VERIFIED**.
-  - All 15 routes mapped into `NeuroFlowAppV2.kt` with bottom navigation hubs (`Flow`, `Plan`, `Insights`) and sub-routes (`notes`, `weekly_schedule`, `analytics`, `history`, `priority_weights`, `account_sync`, `hyperfocus_allowlist`, `privacy_permissions`, `app_guide`, `meq_quiz`, `sleep_logs`, `identity`, `log_time`).
-  - Added Keep-style floating quick notes sheet (`QuickNotesBottomSheet.kt`) and bidirectional navigation from Flow and Plan hubs.
-  - Embedded 7-day multi-column timeline view and sMAPE forecast accuracy analytics.
-  - Added retrospective time logging (`logPastTime`) and 1-tap WOOP anchor reflections.
-
-### Milestone 2: Pure Kotlin DSP Neural Soundscapes
-- **Problem Solved**: Traditional focus apps rely on static MP3 loops that cause auditory fatigue or file-loading IO hiccups.
-- **Implementation State: PASSED & VERIFIED**.
-  - Engineered zero-dependency audio synthesis in `com.neuroflow.app.presentation.v2.focus.audio`:
-    1. **40 Hz Gamma Waves**: Binaural beat generator with 200 Hz carrier on Left ear and 240 Hz carrier on Right ear to induce 40 Hz prefrontal neural synchrony.
-    2. **Deep Brown Noise**: 1/f² Brownian random walk with leaky integrator (`brownState = brownState * 0.95 + white * 0.05`) for acoustic distraction masking.
-    3. **Flow Pink Noise**: Paul Kellet 7-pole IIR filter algorithm delivering precise 3 dB/octave attenuation mimicking steady rain.
-  - Hardened with IEEE-754 `NaN` input volume clamping (`volume.coerceIn(0f, 1f)`) and safe audio thread teardown in `try-finally`.
-
-### Milestone 3: Drift-Proof Background Timing & Ongoing Focus Service
-- **Problem Solved**: Standard coroutine `delay(1000)` drifts by up to 8-15 seconds per 25-minute Pomodoro due to thread suspension, device doze, and UI recomposition.
-- **Implementation State: PASSED & VERIFIED**.
-  - Implemented monotonic wall-clock timing in `FocusTimingCalculator.kt`:
-    `elapsedSeconds = ((nowMillis - startedAtMillis - accumulatedPauseMillis) / 1000L).coerceAtLeast(0L)`
-  - Background Focus Foreground Service (`FocusService.kt`) with Android Notification Channel `focus_service_v2`, ongoing live countdown ticker, and Action PendingIntents:
-    - Pause / Resume
-    - Complete Task
-  - Registered in `AndroidManifest.xml` with `android:foregroundServiceType="specialUse"`.
-
-### Milestone 4: Default V2 UI & Home Screen Widget Interoperability
-- **Problem Solved**: Users were stranded on legacy UI unless an obscure toggle was flipped. Widgets opened legacy V1 dialogs.
-- **Implementation State: CODE COMPLETE & VERIFIED**.
-  - `UserPreferencesDataStore.kt`: Default for `useV2Ui` is now set to `true` both in the `UserPreferences` default constructor and the `preferencesFlow` fallback deserializer. Manual user toggle to V1 is strictly preserved.
-  - `MainActivity.kt`: Intent dispatcher routes `ACTION_OPEN_NEW_TASK` (`com.procus.ACTION_OPEN_NEW_TASK`) and `ACTION_OPEN_FOCUS` (`com.procus.ACTION_OPEN_FOCUS`) directly into `NeuroFlowAppV2`.
-  - Added empty active task list fallback (routes smoothly to Flow without crashing).
-  - Widgets (`QuickCaptureWidgetProvider`, `NextActionWidgetProvider`, `FocusWidgetProvider`) configured to target V2 intents.
-
-### Milestone 5: Hands-Free Voice Quick-Capture & Executive Transition Buffer
-- **Problem Solved**: High friction during task capture when hands are occupied or executive function is low. Abrupt transition from intense focus back to the noisy task list causes dopamine crashes.
-- **Implementation State: CODE COMPLETE & VERIFIED**.
-  - In `SmartTaskComposerSheetV2.kt`: Added 1-tap microphone button connected to Android `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`. Spoken text is automatically piped into `TaskInferenceEngine.inferFromInput(transcript, completedTasks)`, extracting:
-    - Title sanitization
-    - Spoken duration ("half hour" → 30m, "2 hours" → 120m)
-    - Context tags (`#work`, `@home`)
-    - Priority (`!p1`, `!high`, `!frog`)
-    - Energy level matching
-  - In `FocusViewModelV2.kt` & `FocusScreenV2.kt`: Added **3-Minute Executive Transition Buffer (Decompression Zone)** upon session completion:
-    - 180s calming countdown buffer to let cortisol and sympathetic tone settle.
-    - 1-tap "🫁 60s Guided Physiological Sigh" button (Huberman-style double inhale + prolonged exhale).
-    - "⚡ Ready Now" autonomy bypass button (allowing users who feel energized to skip immediately to their next challenge).
+We request your authoritative evaluation, Architectural Decision Record (ADR), mathematical models, and implementation guidance.
 
 ---
 
-## 4. System Topology & Concurrency Architecture
+## 2. Environment & Resource Constraints
 
-### 4.1 Macro Component Graph & Data Flow
+* **Platform & Runtime**: Android 14 (API 34), Min SDK 26 (Android 8.0 Oreo), Kotlin 2.0.21, Jetpack Compose (BOM 2024.09.00), Material 3.
+* **Architecture Style**: MVI / Unidirectional Data Flow (`StateFlow`), Clean Architecture, Hilt 2.51.1 DI.
+* **Host Hardware Limitations**:
+  - Host RAM: ~7.4 GB available memory.
+  - Strict Gradle JVM ceiling: `JAVA_OPTS="-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:+UseParallelGC"`.
+  - Gradle Execution: Strict single-worker rule: `./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`.
+* **Execution Invariants**:
+  - Android Main Thread is 100% protected from synchronous disk I/O, regex loops, and audio synthesis.
+  - Timing is strictly monotonic wall-clock delta (`SystemClock.elapsedRealtime()` / `System.currentTimeMillis()`), never coroutine tick accumulation.
+  - Database migrations must preserve all existing user tasks and history without data corruption.
+
+---
+
+## 3. Macro Component Topology
+
 ```mermaid
 graph TD
-    UI[Jetpack Compose M3 (V2 Screens)] -->|Events / Intents| VM[V2 ViewModels]
-    VM -->|Observes| StateFlow[Unidirectional StateFlow]
-    VM -->|Commands| UseCase[Domain Engines: Borbély, Scoring, Inference]
-    UseCase -->|Reads / Writes| Repo[Repository Layer]
-    Repo -->|Reactive Flow| Room[Room SQLite DB (v12)]
-    Repo -->|Background Enqueue| Work[WorkManager / Autonomous Nudges]
-    VM -->|IPC / Control| Service[FocusService (Foreground SpecialUse)]
-    Service -->|Monotonic Clock| Calc[FocusTimingCalculator]
-    Service -->|Audio PCM Pipe| DSP[NeuralSoundscapeGenerator & AudioTrack]
+    subgraph UI ["Presentation Layer (V2 + Widgets)"]
+        NavHost[NeuroFlowAppV2]
+        Flow[FlowScreenV2: Hero Barometer & Now-Doing]
+        Plan[PlanScreenV2: Timeline & Matrix]
+        Focus[FocusScreenV2: Cockpit, 40Hz Audio, Decompression]
+        Widgets[QuickCapture, NextAction, FocusWidgets]
+        Notif[FocusService Foreground Notification]
+    end
+
+    subgraph Domain ["Domain Layer (11 Fragmented Engines)"]
+        Scoring[TaskScoringEngine: 25 Factors, 1283 LOC]
+        AutoSched[AutoSchedulingEngine & Scheduler Subsystem]
+        Circadian[MomentEnergy, PeakEnergy, EnergyScore, SleepPressure]
+        Inference[TaskInferenceEngine: Regex Parser]
+        Behavioral[FreshStart, Distraction, Woop, AutonomyNudge]
+    end
+
+    subgraph Data ["Data & Persistence Layer"]
+        RoomDB[(Room SQLite DB: 45-col TaskEntity, 0 Indexes)]
+        DataStore[(UserPreferencesDataStore: 100+ keys God-Object)]
+        Repo[TaskRepository, SessionRepository, SleepLogRepository]
+        Workers[ScheduleAutoTasksWorker, NotificationBadgeService]
+    end
+
+    UI --> Domain
+    Domain --> Repo
+    Repo --> RoomDB
+    Repo --> DataStore
+    Workers --> Repo
+    Notif --> Calc[FocusTimingCalculator]
+    Focus --> DSP[NeuralSoundscapeGenerator & AudioTrack]
 ```
 
-### 4.2 Architectural Invariants & Non-Negotiables
-1. **Unidirectional Reactive State (UDF)**: Presentation layer observes immutable `StateFlow` and emits intents. Zero two-way bindings.
-2. **Strict Thread Confinement**: Android UI Main thread is strictly protected from synchronous I/O, file reading, or heavy loops. Domain engines operate on `Dispatchers.Default` and repositories on `Dispatchers.IO`.
-3. **Monotonic Wall-Clock Invariant**: Timing engines never rely on coroutine delay ticks for wall-clock correctness; `System.currentTimeMillis()` monotonic deltas are authoritative.
-4. **Non-Destructive Persistence**: Room database migrations preserve 100% of user tasks, notes, sleep logs, and contract entities across version upgrades.
-5. **Memory Cap**: Heap allocation constrained to $\le 2048$ MB with aggressive buffer disposal in `AudioTrack` and coroutine teardown.
+---
+
+## 4. Comprehensive Audit Findings: Critical Bugs & Algorithmic Flaws
+
+### 4.1 System & Persistence Risks (P0–P1)
+
+1. **[P0] Data Loss in `FocusService.kt:91`**:
+   Tapping "Complete" on the ongoing lock-screen notification invokes `ACTION_COMPLETE`. The service executes `stopForegroundAndSelf()` and dies. Because it lacks dependencies on `TaskRepository` and `SessionRepository`, **it never marks the task completed in Room DB and leaves `TimeSessionEntity` (`endedAt = null`) permanently unclosed**.
+2. **[P0] Battery & Storage Churn in `NeuroFlowApplication.kt:179`**:
+   An unbounded `while(true)` loop on `applicationScope` (process lifetime) wakes every 2–5 minutes and re-enqueues `ScheduleAutoTasksWorker` to WorkManager indefinitely. This keeps background services active, waking the CPU and churning SQLite transactions in WorkManager's database.
+3. **[P1] Missing Indexes on Room Tables**:
+   The 45-column `tasks` table and the 43,000+ row/month `energy_predictions` table have **zero indices** on `status`, `scheduledDate`, `quadrant`, `predictedAtMillis`, and `createdAtMillis`, forcing expensive full-table scans.
+4. **[P1] In-Memory Full Table Materialization (`SessionRepository.kt:35`)**:
+   `getInterruptionSummary()` calls `timeSessionDao.getAll().filter { it.startedAt >= fromMillis }`. It loads **all sessions in application history** into memory before filtering, causing GC pressure.
+5. **[P1] DataStore God-Object (`UserPreferencesDataStore.kt`)**:
+   Contains 100+ properties mixing simple flags with complex JSON lists (`protectedTimeSlots`, `affirmations`, `tagCatalog`, `yearlyGoals`). Every scalar write serializes all JSON strings and re-emits `preferencesFlow` to the entire application.
 
 ---
 
-## 5. Key Files & Architecture Map
+### 4.2 The 13 Domain Logic & Algorithmic Flaws
 
-| File Path | Description / Responsibility |
-|:---|:---|
-| `.agents/skills/vice-head/SKILL.md` | Official Antigravity Skill governing Vice Head communication protocols. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/navigation/NeuroFlowAppV2.kt` | Top-level V2 navigation graph consolidating all 15 parity routes. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowScreenV2.kt` | Daily execution hub with biological battery meter, next recommended task, and undo. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/composer/SmartTaskComposerSheetV2.kt` | 1-field NLP & Voice quick capture modal with heuristic inference engine. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusScreenV2.kt` | Radial bioluminescent timer, soundscape controls, decompression buffer, and micro-steps. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusViewModelV2.kt` | Focus state machine coordinating timing, Room persistence, DND, soundscapes, and service. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapeGenerator.kt` | Pure Kotlin DSP synthesis engine (40Hz Gamma, Brown Noise, Pink Noise). |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/focus/engine/FocusTimingCalculator.kt` | Monotonic wall-clock drift-proof calculator. |
-| `app/src/main/java/com/neuroflow/app/presentation/v2/focus/service/FocusService.kt` | Foreground ongoing notification service. |
-| `app/src/main/java/com/neuroflow/app/data/local/UserPreferencesDataStore.kt` | DataStore preferences with `useV2Ui = true` default. |
-| `app/src/test/java/com/neuroflow/app/e2e/harness/NeuroFlowV2Harness.kt` | Authoritative E2E Test Harness & Oracles. |
-| `app/src/test/java/com/neuroflow/app/e2e/*` | 5 comprehensive multi-tier E2E test suites (Parity, Soundscapes, Drift, Widget, Voice). |
+| # | Flaw | Location | Biological / Mathematical Defect |
+| :-: | :--- | :--- | :--- |
+| **1** | **Focus Trend Inversion (Deep Work Penalized)** | `MomentEnergyEngine.kt:28-82` | `diffs = focusTrajectory.zipWithNext { a, b -> b - a }` where `a` is the newest 5m window and `b` is older. Entering 100% deep focus evaluates as negative, applying a **15% energy penalty**. Slacking off after 3 hours generates a positive boost! |
+| **2** | **Score vs. Breakdown Contradiction** | `TaskScoringEngine.kt:637, 1102` | In `score()`, `effectiveLiveEnergy != null && usableEnergy >= 40` for `ADMIN` evaluates to `+10f`. In `scoreBreakdown()`, the branch drops to `isPeakHour -> -15f`. The breakdown card displays `-15f` while actual rank was awarded `+10f`. |
+| **3** | **126-Point Sleep Recovery Cliff** | `SleepPressureDetector.kt:289-296` | 59m of sleep = 59 recovery pts. 60m of sleep = 186 pts (instantaneous **+315% jump**). Biological recovery follows continuous SWS/REM decay, not a discrete step function. Jitter in sleep tracking causes wild score volatility. |
+| **4** | **DST 1-Hour Schedule Shift** | `ProtectedSlotClock.kt:116` | Slot start is computed as `dayStart + startMinuteOfDay * 60_000L`. On DST change days (23h or 25h days), physical millisecond addition shifts gym/focus blocks by 1 hour relative to wall-clock time. |
+| **5** | **Sequential Dependency Deadlock** | `AutoSchedulingEngine.kt:176, 2313` | Dependent tasks are marked `DEPENDENCY_BLOCKED` and excluded from scheduling unless precedent tasks are marked `COMPLETED` in the database. The scheduler cannot plan multi-step workflows (Spec -> Code -> QA) across a single day. |
+| **6** | **Asymmetric MAPE Error Inflation** | `AutoSchedulingEngine.kt:932-936` | Duration adjustment uses non-negative symmetric absolute error (MAPE). Finishing a 60m task in 30m yields 100% error, **doubling** the next estimate to 120m instead of decreasing it. |
+| **7** | **Score Saturation at 999** | `TaskScoringEngine.kt:67, 807` | `THEORETICAL_MAX` is capped at 1200f, but composite task bonuses easily exceed 2,000 raw points. All top tasks clamp at display score `999`, destroying prioritization differentiation. |
+| **8** | **Double-Counting Wake Fatigue** | `EnergyScoreEngine.kt:52`, `PeakEnergyEngine.kt:158` | `reservoirFactor` decays across wake hours, and `fatiguePenalty` subtracts sleep pressure across the same hours. Double-counting fatigue crushes calculated energy to <40% by 7:00 PM for healthy users with 8h sleep. |
+| **9** | **Slot Capacity Leaks Across Hour Bins** | `AutoSchedulingEngine.kt:1034-1064` | `slotSpanForDuration` integer arithmetic allocates all 30m of a task from 10:45–11:15 into slot 10:00 AM. Slot 11:00 AM receives 0 assigned minutes, causing overlapping placements. |
+| **10**| **Live Energy Disables Category Matching**| `TaskScoringEngine.kt:693-695` | When `effectiveLiveEnergy != null`, `categorySuitabilityScore` is completely skipped, disabling circadian matching for `MINDFULNESS`, `EXERCISE`, and `CREATIVE` tasks. |
+| **11**| **Destructive Regex Title Stripping** | `TaskInferenceEngine.kt:196-212` | Blind string replacement strips words without POS awareness: `"Read Today and Tomorrow by Ford"` becomes `"Read and by Ford"`. Explicit durations ("45m") are silently inflated by historical calibration factors. |
+| **12**| **Schedule Whiplash via 6h Re-bucketing** | `PlacementStability.kt:83-87` | Tasks are force-replanned every 6 hours based on `hashCode() % 5`, causing calendar blocks to jump 2–3 times a day and disorienting ADHD users who rely on spatial consistency. |
+| **13**| **Toxic Distraction Priority Boost** | `DistractionEngine.kt:479` | Tasks with heavy distraction receive a **+80 pt priority boost**, pulling anxiety-inducing avoidance tasks to the top of an ADHD user's queue. |
 
 ---
 
-## 6. Review & Strategic Guidance Request for Vice Head
+### 4.3 UI/UX Quality & Information Architecture Failures
 
-Vice Head, please review this system implementation across architecture and system design. If you have recommendations, please structure your feedback as:
-1. **Architectural Decision Record (ADR)**:
-   - Evaluation of architectural trade-offs (e.g. state management, service isolation, repository caching).
-2. **System Design & Scaling**:
-   - Deep review of data models, synchronization strategies, lifecycle resilience, and edge failure modes (e.g. process death, audio route change, Bluetooth disconnect).
-3. **Algorithmic Optimizations**:
-   - Refinements to the DSP audio synthesis (phase accumulator wrap, filter stability) or Borbély Two-Process circadian calculations.
-4. **Concrete Implementation Guidance**:
-   - Drop-in Kotlin code snippets, interface contracts, or diffs.
+1. **Weekly Schedule Day Tap Bug (`NeuroFlowAppV2.kt:167`)**:
+   `onNavigateToDay = { navController.popBackStack() }`. Tapping any day in the weekly calendar pops the screen instead of showing that day's schedule!
+2. **The Lost Unscheduled Backlog**:
+   `PlanViewModelV2` extracts unscheduled tasks, but `PlanScreenV2` **never renders them anywhere**—an ADHD object-impermanence black hole.
+3. **Touch-Target Crowding**:
+   `TimelineTaskCard` packs 4 icon buttons on the right (192dp) + 48dp checkmark, leaving only ~40dp for task titles on standard screens, causing severe truncation and accidental clicks.
+4. **AMOLED Contrast Failure**:
+   In `amoledDark` mode, cards and background are both `#000000`. Cards blend completely into the background, and `TextTertiary` (`#64748B`) fails WCAG AA minimum contrast standards (3.8:1).
+5. **Insights Wall of Charts**:
+   `InsightsScreenV2` stacks 11 continuous cards over 842 lines of code, creating cognitive fatigue.
+
+---
+
+## 5. The Concrete Deletion Manifest (31 Files / ~525 KB)
+
+Because V2 is the default interface (`useV2Ui = true`), the entire legacy V1 presentation package is dead code:
+
+### Prerequisite Moves:
+1. Move `StepByStepPlanCodec.kt` to `domain/model/StepByStepPlan.kt`.
+2. Move `AffordanceRatingSheet.kt` and `WoopPromptSheet.kt` to `presentation/v2/focus/components/`.
+3. Create a clean 15-line `LogTimeViewModel` injecting `TaskRepository` to decouple `LogTimeScreen.kt` from `MatrixViewModel`.
+4. Remove `useV2Ui` branch from `MainActivity.kt` and `SettingsScreen.kt`.
+
+### Complete Deletion Table:
+* **`presentation/today/`**: `TodayScreen.kt`, `TodayViewModel.kt`, `DailyFocusSummary.kt`
+* **`presentation/plan/`**: `PlanScreen.kt`
+* **`presentation/focus/`**: `FocusScreen.kt`, `FocusViewModel.kt`, `FocusCompletionManager.kt`, `FocusInterventionManager.kt`, `FocusReminderScheduler.kt`, `FocusSessionManager.kt`, `FocusWoopManager.kt`, `MiniWoopReflectionScreen.kt`
+* **`presentation/matrix/`**: `MatrixScreen.kt`, `OnHoldPlanningScreen.kt`, `QuadrantDetailScreen.kt`, `MatrixViewModel.kt`
+* **`presentation/schedule/`**: `ScheduleScreen.kt`, `ScheduleViewModel.kt`
+* **`presentation/progress/`**: `ProgressScreen.kt`, `ProgressViewModel.kt`
+* **`presentation/common/`**: `NeuroFlowApp.kt`, `DrawerViewModel.kt`, `MoreMenuSheet.kt`, `NewTaskSheet.kt`, `NewTaskFlowViewModel.kt`, `QuickTaskModalBottomSheet.kt`, `ProtectedSlotTakeoverCard.kt`, `TaskRow.kt`, `DueProtectedSlotFlow.kt`, `DueSlotCopy.kt`, `NavHubs.kt`
+* **9 Obsolete Test Files**: `DailyFocusSummaryTest.kt`, `TodayViewModelProtectedSlotTest.kt`, `ProgressViewModelTest.kt`, `NewTaskFlowViewModelTest.kt`, etc.
+
+---
+
+## 6. The Strategic Crossroads: Options Under Consideration
+
+### Option A: Conservative In-Place Patching
+* Fix the P0 `FocusService` notification bug.
+* Fix the 13 algorithmic bugs directly in `MomentEnergyEngine.kt`, `TaskScoringEngine.kt`, `AutoSchedulingEngine.kt`, etc.
+* Add composite indices to `TaskEntity` and `EnergyPredictionEntity`.
+* Execute the 31-file deletion manifest to remove legacy V1 code.
+* **Trade-Offs**: Low immediate risk, 100% backward compatible with existing tests, but leaves the monolithic 45-column `TaskEntity`, 11 fragmented engines, and cognitive screen clutter intact.
+
+### Option B: The Radical Triptych Redesign & Domain Consolidation
+* **The Triptych Navigation Core**: Collapses the app into 3 high-impact surfaces:
+  1. **FLOW (Execution Cockpit)**: Circadian Barometer, Now Doing (Daily Frog), Up Next queue (max 2 items), and Quick Scratchpad.
+  2. **PLAN (Visual Timeline & Calendar)**: Bidirectional 2-way sync with Google/Outlook calendar + interactive drag-and-drop timeline auto-fitting into biological energy peaks.
+  3. **VAULT (Knowledge & Long-term Storage)**: The Zero-Guilt Icebox (stale task archive), Projects, Notes, and Long-Term Circadian Insights.
+* **Domain Engine Consolidation**: Collapses 11 engines into **3 core services**:
+  1. `CircadianEnergyService`: Pure continuous Borbély Two-Process (exponential Process S + sinusoidal Process C). Zero discrete cliff steps.
+  2. `TaskSchedulerService`: 4-vector normalized scoring ($\text{Score} = w_u \cdot U + w_i \cdot I + w_e \cdot E + w_m \cdot M$) + interval tree reservation with dependency DAG scheduling.
+  3. `BehavioralSupportService`: 1-tap emergency schedule reset, WOOP implementation intentions, reflective distraction tracking (zero distraction priority boosts).
+  4. `TaskNaturalLanguageParser`: Non-destructive token parser.
+* **Lean Normalized Room Schema (v13)**:
+  - `tasks`: 14 columns (id, title, notes, status, estimated_minutes, actual_minutes, energy_demand, is_frog, scheduled_start, deadline, completed_at, is_locked, parent_task_id, timestamps).
+  - `task_micro_steps`: 1-to-many child table for "Break It Down" micro-steps.
+  - `focus_sessions`: Dedicated historical session logs with foreign key cascades.
+  - `quick_notes`: Lean scratchpad notes.
+* **High-Impact Differentiators**:
+  - Sub-60s 3-chip onboarding.
+  - Dynamic 20% time-blindness auto-buffering.
+  - "Break It Down" Magic Wand micro-step generator.
+  - Zero-guilt Icebox sweep (no red overdue badges).
+* **Trade-Offs**: Major refactoring effort, requires careful Room schema migration, but elevates neuroFlow into an elite, market-leading product for both ADHD and general users.
+
+---
+
+## 7. Explicit Strategic Guidance Request for Vice Head
+
+Vice Head, as second-in-command frontier intelligence, please provide your authoritative guidance on the following:
+
+### 1. Architectural Decision Record (ADR)
+* Do you endorse **Option A (Conservative Patch)** or **Option B (Radical Triptych Redesign & Domain Consolidation)**?
+* If Option B, what is your recommended phased migration path to ensure continuous test suite greenness?
+
+### 2. Algorithmic Formulations
+* **Borbély Two-Process Model**: Provide the exact mathematical equations for continuous exponential sleep pressure ($S(t)$) and sinusoidal circadian alertness ($C(t)$) that parameterize cleanly from a user's wake time without discrete cliff steps.
+* **4-Vector Task Prioritization**: Formulate the normalized scoring equation:
+  $$\text{Score} = w_u \cdot U(\text{Urgency}) + w_i \cdot I(\text{Impact}) + w_e \cdot E(\text{EnergyFit}) + w_m \cdot M(\text{Momentum})$$
+  Specify how each sub-score is normalized to $[0..100]$ to prevent score saturation.
+* **Dependency DAG Scheduling**: How should the `TaskSchedulerService` construct the topological sort and interval tree constraints so multi-step workflows schedule sequentially across available calendar gaps?
+
+### 3. Database Schema & Migration Strategy
+* Review the proposed **Room v13 schema** (`tasks`, `task_micro_steps`, `focus_sessions`, `quick_notes`).
+* Provide the SQLite migration script (`MIGRATION_12_13`) to transition existing users from the 45-column `tasks` table and JSON DataStore without data loss.
+
+### 4. Immediate Code Drops & Implementation Priority
+* Please supply drop-in Kotlin interface contracts and algorithm implementations for:
+  1. `CircadianEnergyService.kt`
+  2. `TaskSchedulerService.kt`
+  3. The fix for `FocusService.kt` notification completion.
+
+---
+*Ready for handover via user bridge.*
