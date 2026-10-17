@@ -80,6 +80,26 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 .setInputData(data)
                 .build()
         }
+
+        internal fun calculateWakeTimeMillis(nowMillis: Long, wakeHour: Int): Long {
+            val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+            val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
+            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
+            return nowMillis - (hoursAwake * 3600_000L)
+        }
+
+        internal fun splitMillisToDateAndTime(millis: Long): Pair<Long, Long> {
+            val dateStart = Calendar.getInstance().apply {
+                timeInMillis = millis
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val dateMillis = dateStart.timeInMillis
+            val timeOffset = millis - dateMillis
+            return dateMillis to timeOffset
+        }
     }
 
     override suspend fun doWork(): Result {
@@ -166,13 +186,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             }
 
             // Fetch external busy windows from Android Native Calendar Sync
-            val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-            val dayStart = cal.apply {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
+            val dayStart = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
             val dayEnd = dayStart + 24 * 3600_000L - 1
             val externalBusy = calendarSyncRepository?.getBusyWindows(dayStart, dayEnd) ?: emptyList()
             val totalBusyWindows = externalBusy + fixedWindows
@@ -223,10 +237,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             }
 
             // Wake time calculation
-            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-            val wakeHour = prefs.wakeUpHour
-            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-            val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
+            val wakeTimeMillis = calculateWakeTimeMillis(nowMillis, prefs.wakeUpHour)
 
             val placements = taskSchedulerService.scheduleDay(
                 tasks = preparedTasks,
@@ -300,19 +311,6 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             taskRepository.update(updatedTask)
         }
-    }
-
-    private fun splitMillisToDateAndTime(millis: Long): Pair<Long, Long> {
-        val dateStart = Calendar.getInstance().apply {
-            timeInMillis = millis
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val dateMillis = dateStart.timeInMillis
-        val timeOffset = millis - dateMillis
-        return dateMillis to timeOffset
     }
 
     private fun buildBlockedTaskIds(

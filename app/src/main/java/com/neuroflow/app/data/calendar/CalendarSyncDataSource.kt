@@ -37,6 +37,7 @@ class CalendarSyncDataSource @Inject constructor(
 ) : CalendarSyncRepository, AndroidCalendarSyncRepository {
 
     override suspend fun getBusyWindows(startMillis: Long, endMillis: Long): List<TimeSlotWindow> {
+        if (startMillis >= endMillis) return emptyList()
         return withContext(Dispatchers.IO) {
             val raw = queryInstances(startMillis, endMillis)
             coalesceWindows(raw)
@@ -44,6 +45,7 @@ class CalendarSyncDataSource @Inject constructor(
     }
 
     internal fun queryInstances(startMillis: Long, endMillis: Long): List<TimeSlotWindow> {
+        if (startMillis >= endMillis) return emptyList()
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
             android.Manifest.permission.READ_CALENDAR

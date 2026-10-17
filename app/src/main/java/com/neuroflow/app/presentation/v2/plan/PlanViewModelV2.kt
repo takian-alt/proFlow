@@ -200,22 +200,25 @@ class PlanViewModelV2 @Inject constructor(
             try {
                 val prefs = preferencesDataStore.preferencesFlow.first()
                 val allTasks = taskRepository.getActiveTasks()
-                val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
-                val dayStart = cal.apply {
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }.timeInMillis
+                val zoneId = java.time.ZoneId.systemDefault()
+                val dayDate = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId).toLocalDate()
+                val dayStart = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
                 val dayEnd = dayStart + 24 * 3600_000L - 1
 
                 val externalBusyWindows = calendarSyncRepository?.getBusyWindows(dayStart, dayEnd) ?: emptyList()
+                val fixedWindows = allTasks.filter { it.isScheduleLocked }.mapNotNull { task ->
+                    val sDate = task.scheduledDate ?: return@mapNotNull null
+                    val sTime = task.scheduledTime ?: return@mapNotNull null
+                    val start = sDate + sTime
+                    val duration = task.plannedBlockMinutes.takeIf { it > 0 } ?: task.estimatedDurationMinutes
+                    val end = start + duration * 60_000L
+                    if (end > dayStart && start < dayEnd) com.neuroflow.app.domain.service.TimeSlotWindow(start, end) else null
+                }
+                val totalBusyWindows = externalBusyWindows + fixedWindows
 
-                val zoneId = java.time.ZoneId.systemDefault()
-                val dayDate = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId).toLocalDate()
                 val nowMillis = System.currentTimeMillis()
-
-                val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+                val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+                val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
                 val wakeHour = prefs.wakeUpHour
                 val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
                 val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
@@ -268,7 +271,7 @@ class PlanViewModelV2 @Inject constructor(
                     nowMillis = nowMillis,
                     wakeTimeMillis = wakeTimeMillis,
                     lastSleepDurationMinutes = 480,
-                    busyWindows = externalBusyWindows,
+                    busyWindows = totalBusyWindows,
                     protectedSlots = protectedSlots,
                     calibrationRatio = 1.20,
                     forceReplan = forceReplan,

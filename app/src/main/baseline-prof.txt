@@ -50,8 +50,8 @@ Lcom/neuroflow/app/data/calendar/CalendarSyncDataSource;
 Lcom/neuroflow/app/data/calendar/CalendarSyncDataSource$Companion;
 
 # Room v22 Database & Normalized Child Entities
-Lcom/neuroflow/app/data/local/AppDatabase;
-Lcom/neuroflow/app/data/local/AppDatabase_Impl;
+Lcom/neuroflow/app/data/local/NeuroFlowDatabase;
+Lcom/neuroflow/app/data/local/NeuroFlowDatabase_Impl;
 Lcom/neuroflow/app/data/local/entity/TaskEntity;
 Lcom/neuroflow/app/data/local/entity/TaskMicroStepEntity;
 Lcom/neuroflow/app/data/local/entity/FocusSessionEntity;
@@ -59,8 +59,10 @@ Lcom/neuroflow/app/data/local/entity/QuickNoteEntity;
 Lcom/neuroflow/app/data/local/entity/TimeSessionEntity;
 Lcom/neuroflow/app/data/local/dao/TaskDao;
 Lcom/neuroflow/app/data/local/dao/TaskDao_Impl;
-Lcom/neuroflow/app/data/local/dao/SessionDao;
-Lcom/neuroflow/app/data/local/dao/SessionDao_Impl;
+Lcom/neuroflow/app/data/local/dao/FocusSessionDao;
+Lcom/neuroflow/app/data/local/dao/FocusSessionDao_Impl;
+Lcom/neuroflow/app/data/local/dao/TimeSessionDao;
+Lcom/neuroflow/app/data/local/dao/TimeSessionDao_Impl;
 Lcom/neuroflow/app/data/local/dao/QuickNoteDao;
 Lcom/neuroflow/app/data/local/dao/QuickNoteDao_Impl;
 Lcom/neuroflow/app/data/local/UserPreferencesDataStore;

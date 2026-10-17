@@ -21,8 +21,7 @@
 -keep class com.neuroflow.app.data.local.** { *; }
 -keep class com.neuroflow.app.domain.model.** { *; }
 -keep class androidx.room.migration.Migration { *; }
--keepclassmembers class * extends androidx.room.migration.Migration { *; }
--keepclassmembers class com.neuroflow.app.data.local.AppDatabaseKt { *; }
+-keepclassmembers class com.neuroflow.app.data.local.NeuroFlowDatabaseKt { *; }
 -keepclassmembers class com.neuroflow.app.data.local.Converters { *; }
 -dontwarn androidx.room.paging.**
 

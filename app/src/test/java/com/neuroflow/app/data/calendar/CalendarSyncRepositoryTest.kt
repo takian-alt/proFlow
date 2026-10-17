@@ -101,4 +101,29 @@ class CalendarSyncRepositoryTest : StringSpec({
         // 50 min >= 45m -> 55m with decompression buffer
         result[0].endMillis shouldBe baseMillis + 55 * 60_000L
     }
+
+    "coalesceWindows handles multi-day span calendar events (72+ hours)" {
+        val raw = listOf(
+            TimeSlotWindow(baseMillis, baseMillis + 72 * 3600_000L) // 72-hour conference
+        )
+        val result = CalendarSyncDataSource.coalesceWindows(raw)
+        result shouldHaveSize 1
+        result[0].startMillis shouldBe baseMillis
+        // 72h >= 45m -> gets +5m decompression buffer at conclusion
+        result[0].endMillis shouldBe baseMillis + 72 * 3600_000L + 5 * 60_000L
+        result[0].durationMinutes shouldBe (72 * 60 + 5)
+    }
+
+    "coalesceWindows merges consecutive long meetings separated by < 5m into single decompressed horizon" {
+        val raw = listOf(
+            TimeSlotWindow(baseMillis, baseMillis + 60 * 60_000L), // 60m
+            TimeSlotWindow(baseMillis + 62 * 60_000L, baseMillis + 120 * 60_000L) // 2m gap -> 58m
+        )
+        val result = CalendarSyncDataSource.coalesceWindows(raw)
+        result shouldHaveSize 1
+        result[0].startMillis shouldBe baseMillis
+        // Merged span: [0..120m] >= 45m -> gets +5m decompression buffer -> 125m
+        result[0].endMillis shouldBe baseMillis + 125 * 60_000L
+        result[0].durationMinutes shouldBe 125
+    }
 })

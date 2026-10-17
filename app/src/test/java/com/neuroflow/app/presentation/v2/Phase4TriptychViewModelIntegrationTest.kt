@@ -2,6 +2,7 @@ package com.neuroflow.app.presentation.v2
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.work.WorkManager
+import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.QuickNoteDao
@@ -15,6 +16,7 @@ import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
+import com.neuroflow.app.domain.service.TimeSlotWindow
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 import com.neuroflow.app.presentation.v2.focus.FocusViewModelV2
 import com.neuroflow.app.presentation.v2.navigation.NavHubsV2
@@ -151,6 +153,62 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
             val capturedNote = slot<QuickNoteEntity>()
             coVerify { quickNoteDao.insert(capture(capturedNote)) }
             capturedNote.captured.content shouldBe "Remember to check edge cases for midnight boundary"
+        }
+    }
+
+    "PlanViewModelV2 autoScheduleDay respects external calendar busy windows and locked tasks" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val workManager = mockk<WorkManager>(relaxed = true)
+            val calendarRepo = mockk<CalendarSyncRepository>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val unlockedTask = makeTask("plan-t2", "Draft Strategy Document").copy(
+                scheduledDate = null,
+                scheduledTime = null,
+                isScheduleLocked = false
+            )
+            val lockedTask = makeTask("plan-t3", "Locked Client Meeting").copy(
+                scheduledDate = now,
+                scheduledTime = 10 * 3600_000L,
+                isScheduleLocked = true,
+                plannedBlockMinutes = 60
+            )
+
+            coEvery { taskRepo.getActiveTasks() } returns listOf(unlockedTask, lockedTask)
+            coEvery { taskRepo.getById("plan-t2") } returns unlockedTask
+            coEvery { taskRepo.getById("plan-t3") } returns lockedTask
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(unlockedTask, lockedTask))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(autoSchedulingEnabled = true, wakeUpHour = 7))
+
+            coEvery { calendarRepo.getBusyWindows(any(), any()) } returns listOf(
+                TimeSlotWindow(now + 3600_000L, now + 7200_000L)
+            )
+
+            val circadianService = DefaultCircadianEnergyService()
+            val schedulerService = DefaultTaskSchedulerService(circadianService)
+
+            val viewModel = PlanViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                energyScoreRepository = energyRepo,
+                workManager = workManager,
+                taskSchedulerService = schedulerService,
+                circadianEnergyService = circadianService,
+                calendarSyncRepository = calendarRepo
+            )
+
+            viewModel.autoScheduleDay(now, forceReplan = true)
+            advanceUntilIdle()
+
+            // Verify taskRepo.update was called for the unlocked task
+            coVerify { taskRepo.update(match { it.id == "plan-t2" && it.isAutoScheduled }) }
+            // Verify locked task was NOT overwritten
+            coVerify(exactly = 0) { taskRepo.update(match { it.id == "plan-t3" }) }
         }
     }
 
