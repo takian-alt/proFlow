@@ -16,6 +16,10 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
 import com.neuroflow.app.presentation.focus.StepByStepPlanStep
+import com.neuroflow.app.presentation.v2.focus.audio.NeuralSoundscapePlayer
+import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
+import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
+import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -41,6 +45,9 @@ data class FocusUiStateV2(
     val elapsedSeconds: Long = 0L,
     val remainingSeconds: Long = 1500L,
     val activeSessionId: String? = null,
+    val startedAtMillis: Long = 0L,
+    val accumulatedPauseMillis: Long = 0L,
+    val pausedAtMillis: Long? = null,
     val woopData: WoopEntity? = null,
     val microSteps: List<StepByStepPlanStep> = emptyList(),
     val isCompleted: Boolean = false,
@@ -50,7 +57,14 @@ data class FocusUiStateV2(
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = true,
     val showAffordanceRating: Boolean = false,
-    val affordanceRatingSubmitted: Boolean = false
+    val affordanceRatingSubmitted: Boolean = false,
+    val selectedSoundscape: SoundscapeType = SoundscapeType.NONE,
+    val soundscapeVolume: Float = 0.7f,
+    val showDecompressionZone: Boolean = false,
+    val decompressionRemainingSeconds: Int = 180,
+    val isDecompressionSighActive: Boolean = false,
+    val decompressionSighRemainingSeconds: Int = 0,
+    val isDecompressionBypassed: Boolean = false
 )
 
 @HiltViewModel
@@ -69,8 +83,11 @@ class FocusViewModelV2 @Inject constructor(
     val uiState: StateFlow<FocusUiStateV2> = _uiState.asStateFlow()
 
     private var timerJob: Job? = null
-    private var sessionStartTimeMillis: Long = 0L
     private var pauseCount: Int = 0
+
+    val soundscapePlayer: NeuralSoundscapePlayer by lazy {
+        NeuralSoundscapePlayer(context)
+    }
 
     init {
         loadTask()
@@ -87,15 +104,64 @@ class FocusViewModelV2 @Inject constructor(
             val activeTasks = taskRepository.getActiveTasks()
             val next = activeTasks.firstOrNull { it.id != taskId }
 
-            _uiState.update {
-                it.copy(
-                    task = task,
-                    woopData = woop,
-                    microSteps = steps,
-                    nextTaskId = next?.id,
-                    nextTaskTitle = next?.title,
-                    isLoading = false
+            val openSession = sessionRepository.getOpenSessionForTask(taskId)?.takeIf { it.id.isNotBlank() && it.startedAt > 0L }
+            if (openSession != null) {
+                val startedAt = openSession.startedAt
+                val accPause = openSession.totalPausedMs
+                val pausedAt = openSession.pausedAt
+                val isPaused = pausedAt != null
+                val isRunning = !isPaused
+                pauseCount = openSession.pauseResumeCount
+
+                val now = System.currentTimeMillis()
+                val timing = FocusTimingCalculator.calculate(
+                    startedAtMillis = startedAt,
+                    accumulatedPauseMillis = accPause,
+                    pausedAtMillis = pausedAt,
+                    nowMillis = now,
+                    targetDurationSeconds = _uiState.value.timerMode.durationSeconds
                 )
+
+                _uiState.update {
+                    it.copy(
+                        task = task,
+                        woopData = woop,
+                        microSteps = steps,
+                        nextTaskId = next?.id,
+                        nextTaskTitle = next?.title,
+                        activeSessionId = openSession.id,
+                        startedAtMillis = startedAt,
+                        accumulatedPauseMillis = accPause,
+                        pausedAtMillis = pausedAt,
+                        isRunning = isRunning,
+                        isPaused = isPaused,
+                        elapsedSeconds = timing.elapsedSeconds,
+                        remainingSeconds = timing.remainingSeconds,
+                        isLoading = false
+                    )
+                }
+
+                if (isRunning) {
+                    startTicker()
+                    FocusService.startService(
+                        context = context,
+                        taskId = taskId,
+                        taskTitle = task?.title ?: "Deep Focus",
+                        durationSeconds = _uiState.value.timerMode.durationSeconds,
+                        startedAtMillis = startedAt
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        task = task,
+                        woopData = woop,
+                        microSteps = steps,
+                        nextTaskId = next?.id,
+                        nextTaskTitle = next?.title,
+                        isLoading = false
+                    )
+                }
             }
         }
     }
@@ -114,20 +180,87 @@ class FocusViewModelV2 @Inject constructor(
             it.copy(
                 timerMode = mode,
                 remainingSeconds = mode.durationSeconds,
-                elapsedSeconds = 0L
+                elapsedSeconds = 0L,
+                startedAtMillis = 0L,
+                accumulatedPauseMillis = 0L,
+                pausedAtMillis = null
             )
+        }
+    }
+
+    fun selectSoundscape(type: SoundscapeType) {
+        _uiState.update { it.copy(selectedSoundscape = type) }
+        if (_uiState.value.isRunning && !_uiState.value.isPaused) {
+            if (type == SoundscapeType.NONE) {
+                soundscapePlayer.pauseWithFadeOut()
+            } else {
+                soundscapePlayer.setVolume(_uiState.value.soundscapeVolume)
+                soundscapePlayer.play(type)
+            }
+        }
+    }
+
+    fun setSoundscapeVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        _uiState.update { it.copy(soundscapeVolume = clamped) }
+        soundscapePlayer.setVolume(clamped)
+    }
+
+    fun onScreenExit() {
+        if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
+            soundscapePlayer.pauseWithFadeOut()
+        }
+    }
+
+    fun saveWoop(wish: String, outcome: String, obstacle: String, plan: String) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val existing = woopRepository.getByTaskId(taskId)
+            val entity = existing?.copy(
+                wish = wish,
+                outcome = outcome,
+                obstacle = obstacle,
+                plan = plan,
+                updatedAt = now
+            ) ?: WoopEntity(
+                taskId = taskId,
+                wish = wish,
+                outcome = outcome,
+                obstacle = obstacle,
+                plan = plan,
+                createdAt = now,
+                updatedAt = now
+            )
+            woopRepository.upsert(entity)
+            _uiState.update { it.copy(woopData = entity) }
         }
     }
 
     fun startTimer() {
         if (_uiState.value.isRunning && !_uiState.value.isPaused) return
 
+        if (_uiState.value.isPaused) {
+            resumeTimer()
+            return
+        }
+
         val now = System.currentTimeMillis()
-        if (sessionStartTimeMillis == 0L) {
-            sessionStartTimeMillis = now
-            val sessionId = UUID.randomUUID().toString()
-            _uiState.update { it.copy(activeSessionId = sessionId) }
-            viewModelScope.launch {
+        val sessionId = _uiState.value.activeSessionId ?: UUID.randomUUID().toString()
+
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                isPaused = false,
+                activeSessionId = sessionId,
+                startedAtMillis = now,
+                accumulatedPauseMillis = 0L,
+                pausedAtMillis = null
+            )
+        }
+
+        viewModelScope.launch {
+            val existingSession = sessionRepository.getOpenSessionForTask(taskId)
+            if (existingSession == null) {
                 sessionRepository.insert(
                     TimeSessionEntity(
                         id = sessionId,
@@ -138,9 +271,24 @@ class FocusViewModelV2 @Inject constructor(
             }
         }
 
-        _uiState.update { it.copy(isRunning = true, isPaused = false) }
         enableDndIfPermitted()
+        if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
+            soundscapePlayer.setVolume(_uiState.value.soundscapeVolume)
+            soundscapePlayer.play(_uiState.value.selectedSoundscape)
+        }
 
+        FocusService.startService(
+            context = context,
+            taskId = taskId,
+            taskTitle = _uiState.value.task?.title ?: "Deep Focus",
+            durationSeconds = _uiState.value.timerMode.durationSeconds,
+            startedAtMillis = now
+        )
+
+        startTicker()
+    }
+
+    private fun startTicker() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (isActive && _uiState.value.isRunning && !_uiState.value.isPaused) {
@@ -153,39 +301,172 @@ class FocusViewModelV2 @Inject constructor(
 
     fun tickSecond() {
         if (!_uiState.value.isRunning || _uiState.value.isPaused) return
+        var countdownHitZero = false
+        val now = System.currentTimeMillis()
         _uiState.update { current ->
             if (!current.isRunning || current.isPaused) return@update current
-            val newElapsed = current.elapsedSeconds + 1
-            val newRemaining = if (current.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) {
-                0L
-            } else {
-                (current.remainingSeconds - 1).coerceAtLeast(0)
+            val timing = FocusTimingCalculator.calculate(
+                startedAtMillis = current.startedAtMillis,
+                accumulatedPauseMillis = current.accumulatedPauseMillis,
+                pausedAtMillis = current.pausedAtMillis,
+                nowMillis = now,
+                targetDurationSeconds = current.timerMode.durationSeconds
+            )
+            val elapsed = maxOf(current.elapsedSeconds + 1, timing.elapsedSeconds)
+            val isStopwatch = current.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
+            val remaining = if (isStopwatch) 0L else maxOf(0L, current.timerMode.durationSeconds - elapsed)
+            val isExpired = (!isStopwatch) && (elapsed >= current.timerMode.durationSeconds)
+
+            if (isExpired) {
+                countdownHitZero = true
             }
             current.copy(
-                elapsedSeconds = newElapsed,
-                remainingSeconds = newRemaining
+                elapsedSeconds = elapsed,
+                remainingSeconds = remaining
             )
+        }
+        if (countdownHitZero) {
+            soundscapePlayer.pauseWithFadeOut()
         }
     }
 
     fun pauseTimer() {
+        if (!_uiState.value.isRunning) return
+        val now = System.currentTimeMillis()
+        val currentPausedAt = _uiState.value.pausedAtMillis
+        val newPausedAt = FocusTimingCalculator.onPause(currentPausedAt, now)
         pauseCount++
+
         timerJob?.cancel()
         timerJob = null
         disableDnd()
-        _uiState.update { it.copy(isPaused = true, isRunning = false) }
-        updateSessionRecord(isOpen = true)
+        soundscapePlayer.pauseWithFadeOut()
+
+        val timing = FocusTimingCalculator.calculate(
+            startedAtMillis = _uiState.value.startedAtMillis,
+            accumulatedPauseMillis = _uiState.value.accumulatedPauseMillis,
+            pausedAtMillis = newPausedAt,
+            nowMillis = now,
+            targetDurationSeconds = _uiState.value.timerMode.durationSeconds
+        )
+
+        val elapsed = maxOf(_uiState.value.elapsedSeconds, timing.elapsedSeconds)
+        val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
+        val remaining = if (isStopwatch) 0L else maxOf(0L, _uiState.value.timerMode.durationSeconds - elapsed)
+
+        _uiState.update {
+            it.copy(
+                isPaused = true,
+                isRunning = false,
+                pausedAtMillis = newPausedAt,
+                elapsedSeconds = elapsed,
+                remainingSeconds = remaining
+            )
+        }
+
+        viewModelScope.launch {
+            val session = sessionRepository.getOpenSessionForTask(taskId)
+            if (session != null) {
+                sessionRepository.update(
+                    session.copy(
+                        pausedAt = newPausedAt,
+                        totalPausedMs = _uiState.value.accumulatedPauseMillis,
+                        durationMinutes = elapsed / 60f,
+                        pauseResumeCount = pauseCount
+                    )
+                )
+            }
+        }
+
+        FocusService.pauseService(context)
     }
 
     fun resumeTimer() {
-        startTimer()
+        if (!_uiState.value.isPaused) {
+            startTimer()
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val pausedAt = _uiState.value.pausedAtMillis
+        val currentAcc = _uiState.value.accumulatedPauseMillis
+        val newAcc = if (pausedAt != null) {
+            val (resAcc, _) = FocusTimingCalculator.onResume(pausedAt, currentAcc, now)
+            resAcc
+        } else {
+            currentAcc
+        }
+
+        val timing = FocusTimingCalculator.calculate(
+            startedAtMillis = _uiState.value.startedAtMillis,
+            accumulatedPauseMillis = newAcc,
+            pausedAtMillis = null,
+            nowMillis = now,
+            targetDurationSeconds = _uiState.value.timerMode.durationSeconds
+        )
+
+        val elapsed = maxOf(_uiState.value.elapsedSeconds, timing.elapsedSeconds)
+        val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
+        val remaining = if (isStopwatch) 0L else maxOf(0L, _uiState.value.timerMode.durationSeconds - elapsed)
+
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                isPaused = false,
+                pausedAtMillis = null,
+                accumulatedPauseMillis = newAcc,
+                elapsedSeconds = elapsed,
+                remainingSeconds = remaining
+            )
+        }
+
+        enableDndIfPermitted()
+        if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
+            soundscapePlayer.setVolume(_uiState.value.soundscapeVolume)
+            soundscapePlayer.play(_uiState.value.selectedSoundscape)
+        }
+
+        viewModelScope.launch {
+            val session = sessionRepository.getOpenSessionForTask(taskId)
+            if (session != null) {
+                sessionRepository.update(
+                    session.copy(
+                        pausedAt = null,
+                        totalPausedMs = newAcc,
+                        durationMinutes = timing.elapsedSeconds / 60f
+                    )
+                )
+            }
+        }
+
+        FocusService.resumeService(context)
+        startTicker()
     }
 
     fun completeTask() {
         timerJob?.cancel()
+        timerJob = null
         disableDnd()
+        soundscapePlayer.pauseWithFadeOut()
+        FocusService.stopService(context)
+
         val now = System.currentTimeMillis()
-        updateSessionRecord(isOpen = false)
+        val durationSec = _uiState.value.elapsedSeconds
+
+        viewModelScope.launch {
+            val session = sessionRepository.getOpenSessionForTask(taskId)
+            if (session != null) {
+                sessionRepository.update(
+                    session.copy(
+                        endedAt = now,
+                        pausedAt = null,
+                        totalPausedMs = _uiState.value.accumulatedPauseMillis,
+                        durationMinutes = durationSec / 60f,
+                        pauseResumeCount = pauseCount
+                    )
+                )
+            }
+        }
 
         val task = _uiState.value.task ?: return
         val points = 50 + if (task.isFrog) 50 else 0 + (task.impactScore / 2)
@@ -198,7 +479,12 @@ class FocusViewModelV2 @Inject constructor(
                     isPaused = false,
                     isCompleted = true,
                     showAffordanceRating = true,
-                    pointsEarned = points
+                    pointsEarned = points,
+                    showDecompressionZone = true,
+                    decompressionRemainingSeconds = 180,
+                    isDecompressionSighActive = false,
+                    decompressionSighRemainingSeconds = 0,
+                    isDecompressionBypassed = false
                 )
             }
         }
@@ -219,6 +505,62 @@ class FocusViewModelV2 @Inject constructor(
 
     fun dismissAffordanceRating() {
         _uiState.update { it.copy(showAffordanceRating = false) }
+    }
+
+    private var decompressionJob: Job? = null
+
+    fun startDecompressionTicker() {
+        decompressionJob?.cancel()
+        decompressionJob = viewModelScope.launch {
+            while (isActive && _uiState.value.showDecompressionZone && _uiState.value.decompressionRemainingSeconds > 0) {
+                delay(1000)
+                if (!isActive || !_uiState.value.showDecompressionZone) break
+                tickDecompressionSecond()
+            }
+        }
+    }
+
+    fun tickDecompressionSecond() {
+        _uiState.update { current ->
+            if (!current.showDecompressionZone) return@update current
+            val newRemaining = maxOf(0, current.decompressionRemainingSeconds - 1)
+            val newSighRemaining = if (current.isDecompressionSighActive) maxOf(0, current.decompressionSighRemainingSeconds - 1) else 0
+            val newSighActive = current.isDecompressionSighActive && newSighRemaining > 0
+            current.copy(
+                decompressionRemainingSeconds = newRemaining,
+                isDecompressionSighActive = newSighActive,
+                decompressionSighRemainingSeconds = newSighRemaining
+            )
+        }
+    }
+
+    fun triggerDecompressionSigh() {
+        _uiState.update {
+            it.copy(
+                isDecompressionSighActive = true,
+                decompressionSighRemainingSeconds = 60
+            )
+        }
+    }
+
+    fun readyNowBypassDecompression() {
+        decompressionJob?.cancel()
+        decompressionJob = null
+        _uiState.update {
+            it.copy(
+                decompressionRemainingSeconds = 0,
+                isDecompressionSighActive = false,
+                decompressionSighRemainingSeconds = 0,
+                isDecompressionBypassed = true,
+                showDecompressionZone = false
+            )
+        }
+    }
+
+    fun dismissDecompressionZone() {
+        decompressionJob?.cancel()
+        decompressionJob = null
+        _uiState.update { it.copy(showDecompressionZone = false) }
     }
 
     fun autoBreakDownTask() {
@@ -266,6 +608,8 @@ class FocusViewModelV2 @Inject constructor(
                 sessionRepository.update(
                     session.copy(
                         endedAt = if (isOpen) null else now,
+                        pausedAt = _uiState.value.pausedAtMillis,
+                        totalPausedMs = _uiState.value.accumulatedPauseMillis,
                         durationMinutes = duration / 60f,
                         pauseResumeCount = pauseCount
                     )
@@ -322,7 +666,10 @@ class FocusViewModelV2 @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         timerJob?.cancel()
+        decompressionJob?.cancel()
         disableDnd()
+        soundscapePlayer.release()
+        FocusService.stopService(context)
         if (_uiState.value.isRunning && !_uiState.value.isCompleted) {
             updateSessionRecord(isOpen = false)
         }

@@ -210,6 +210,16 @@
                 android:value="Focus session monitoring" />
         </service>
 
+        <!-- Focus V2: drift-proof background focus & lock-screen live notification service -->
+        <service
+            android:name=".presentation.v2.focus.service.FocusService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Live focus session tracking with drift-proof wall-clock countdown" />
+        </service>
+
     </application>
 
 </manifest>

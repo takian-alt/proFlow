@@ -2,7 +2,9 @@ package com.neuroflow.app.presentation.v2.theme
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme
 
 object NeuroFlowThemeV2Colors {
     // Deep Obsidian & Slate background palette
@@ -83,9 +85,13 @@ fun NeuroFlowThemeV2(
         baseScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography(),
-        content = content
-    )
+    CompositionLocalProvider(
+        LocalIsDarkTheme provides true
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography(),
+            content = content
+        )
+    }
 }

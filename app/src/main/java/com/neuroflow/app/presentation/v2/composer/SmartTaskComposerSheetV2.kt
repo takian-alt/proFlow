@@ -1,5 +1,10 @@
 package com.neuroflow.app.presentation.v2.composer
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -16,6 +21,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -88,6 +94,22 @@ fun SmartTaskComposerSheetV2(
 
     val focusRequester = remember { FocusRequester() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                rawInput = spokenText
+                userDurationOverride = null
+                userEnergyOverride = null
+                userTaskTypeOverride = null
+                userFrogOverride = null
+                userPriorityOverride = null
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         delay(150)
@@ -176,6 +198,26 @@ fun SmartTaskComposerSheetV2(
                     )
                 },
                 shape = RoundedCornerShape(14.dp),
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak task (e.g. 'Ship quarterly patch 45m #high')")
+                                }
+                                speechLauncher.launch(intent)
+                            } catch (_: Exception) {}
+                        },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice Dictation",
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
                     unfocusedBorderColor = NeuroFlowThemeV2Colors.SlateBorder

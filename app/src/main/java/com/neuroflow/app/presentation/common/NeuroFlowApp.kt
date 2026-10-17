@@ -595,7 +595,7 @@ private fun GoalsEditContent(
  * where a session start is a destination rather than a setting.
  */
 @Composable
-private fun HyperFocusAllowlistRoute(onNavigateBack: () -> Unit) {
+internal fun HyperFocusAllowlistRoute(onNavigateBack: () -> Unit) {
     val viewModel: com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel = hiltViewModel()
     var showActivationSheet by remember { mutableStateOf(false) }
 

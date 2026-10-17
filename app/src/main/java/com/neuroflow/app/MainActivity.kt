@@ -77,7 +77,16 @@ class MainActivity : ComponentActivity() {
                 return
             }
             "com.procus.ACTION_OPEN_FOCUS" -> {
-                initialFocusTaskId = taskId
+                if (!taskId.isNullOrBlank()) {
+                    initialFocusTaskId = taskId
+                } else {
+                    lifecycleScope.launch {
+                        val firstTask = taskRepository.getActiveTasks().firstOrNull()
+                        if (firstTask != null) {
+                            initialFocusTaskId = firstTask.id
+                        }
+                    }
+                }
                 return
             }
             "com.procus.ACTION_OPEN_GUIDE" -> {
@@ -302,7 +311,10 @@ class MainActivity : ComponentActivity() {
                                     if (prefs.useV2Ui) {
                                         com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2(
                                             initialTaskId = initialFocusTaskId,
-                                            onInitialTaskConsumed = { initialFocusTaskId = null }
+                                            onInitialTaskConsumed = { initialFocusTaskId = null },
+                                            initialOpenComposer = initialNewTaskOpen,
+                                            onInitialComposerConsumed = { initialNewTaskOpen = false },
+                                            amoledDark = prefs.amoledDarkEnabled
                                         )
                                     } else {
                                         NeuroFlowApp(

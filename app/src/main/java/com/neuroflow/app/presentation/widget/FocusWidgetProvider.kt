@@ -23,6 +23,7 @@ class FocusWidgetProvider : AppWidgetProvider() {
         appWidgetIds.forEach { widgetId ->
             val views = RemoteViews(context.packageName, R.layout.widget_focus)
             val launchIntent = Intent(context, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_FOCUS"
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             val pendingIntent = PendingIntent.getActivity(

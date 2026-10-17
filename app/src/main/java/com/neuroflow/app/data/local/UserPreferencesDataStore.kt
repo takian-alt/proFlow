@@ -162,7 +162,7 @@ data class UserPreferences(
     val dynamicColorEnabled: Boolean = true,
     val amoledDarkEnabled: Boolean = false,
     val dndEnabled: Boolean = true,
-    val useV2Ui: Boolean = false
+    val useV2Ui: Boolean = true
 )
 
 @Singleton
@@ -413,7 +413,7 @@ class UserPreferencesDataStore @Inject constructor(
             dynamicColorEnabled = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true,
             amoledDarkEnabled = prefs[Keys.AMOLED_DARK_ENABLED] ?: false,
             dndEnabled = prefs[Keys.DND_ENABLED] ?: true,
-            useV2Ui = prefs[Keys.USE_V2_UI] ?: false
+            useV2Ui = prefs[Keys.USE_V2_UI] ?: true
         )
     }
 

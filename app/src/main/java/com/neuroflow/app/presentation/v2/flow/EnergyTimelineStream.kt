@@ -8,19 +8,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreTime
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
@@ -31,8 +35,10 @@ fun EnergyTimelineStream(
     onCompleteTask: (TaskEntity) -> Unit,
     onDeferTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
+    var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -83,10 +89,23 @@ fun EnergyTimelineStream(
                     onTaskClick = { onTaskClick(task) },
                     onComplete = { onCompleteTask(task) },
                     onDefer = { onDeferTask(task) },
-                    onBreakDown = { onBreakDownTask(task) }
+                    onBreakDown = { onBreakDownTask(task) },
+                    onLogPastTime = { taskToLogTime = task }
                 )
             }
         }
+    }
+
+    taskToLogTime?.let { task ->
+        ManualTimeLogSheet(
+            taskTitle = task.title,
+            prefillMinutes = task.estimatedDurationMinutes,
+            onConfirm = { minutes ->
+                viewModel.logPastTime(task, minutes)
+                taskToLogTime = null
+            },
+            onSkip = { taskToLogTime = null }
+        )
     }
 }
 
@@ -96,7 +115,8 @@ fun TimelineTaskCard(
     onTaskClick: () -> Unit,
     onComplete: () -> Unit,
     onDefer: () -> Unit,
-    onBreakDown: () -> Unit = {}
+    onBreakDown: () -> Unit = {},
+    onLogPastTime: () -> Unit = {}
 ) {
     val energyBadgeColor = when (task.energyLevel) {
         EnergyLevel.HIGH -> NeuroFlowThemeV2Colors.WarmAmber
@@ -233,6 +253,38 @@ fun TimelineTaskCard(
                     tint = NeuroFlowThemeV2Colors.ElectricIndigo,
                     modifier = Modifier.size(22.dp)
                 )
+            }
+
+            // Task Options (Log Past Time)
+            var showOptionsMenu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(
+                    onClick = { showOptionsMenu = true },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Task options",
+                        tint = NeuroFlowThemeV2Colors.TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showOptionsMenu,
+                    onDismissRequest = { showOptionsMenu = false },
+                    modifier = Modifier.background(NeuroFlowThemeV2Colors.SlateSurfaceAlt)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                        leadingIcon = {
+                            Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                        },
+                        onClick = {
+                            showOptionsMenu = false
+                            onLogPastTime()
+                        }
+                    )
+                }
             }
         }
     }

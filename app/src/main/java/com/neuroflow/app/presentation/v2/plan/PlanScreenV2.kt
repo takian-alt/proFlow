@@ -15,7 +15,9 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -32,6 +34,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.text.SimpleDateFormat
@@ -43,11 +46,14 @@ import java.util.Locale
 @Composable
 fun PlanScreenV2(
     onNavigateToFocus: (String) -> Unit,
+    onNavigateToWeeklySchedule: () -> Unit = {},
+    onNavigateToNotes: () -> Unit = {},
     viewModel: PlanViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val recentNotes by viewModel.recentNotes.collectAsState(initial = emptyList())
     var showNotesSheet by remember { mutableStateOf(false) }
+    var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
 
     Scaffold(
         containerColor = NeuroFlowThemeV2Colors.Obsidian
@@ -80,6 +86,17 @@ fun PlanScreenV2(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconButton(
+                        onClick = onNavigateToWeeklySchedule,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = "Weekly Schedule",
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+
                     IconButton(
                         onClick = { showNotesSheet = true },
                         modifier = Modifier.size(48.dp)
@@ -208,7 +225,8 @@ fun PlanScreenV2(
                     state = state,
                     onStartFocus = onNavigateToFocus,
                     onCompleteTask = { viewModel.completeTask(it) },
-                    onBreakDownTask = { viewModel.breakDownTask(it) }
+                    onBreakDownTask = { viewModel.breakDownTask(it) },
+                    onLogPastTime = { taskToLogTime = it }
                 )
                 PlanViewModeV2.MATRIX -> MatrixPlanView(
                     state = state,
@@ -231,7 +249,20 @@ fun PlanScreenV2(
         QuickNotesBottomSheet(
             notes = recentNotes,
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
-            onDismiss = { showNotesSheet = false }
+            onDismiss = { showNotesSheet = false },
+            onOpenFullNotes = onNavigateToNotes
+        )
+    }
+
+    taskToLogTime?.let { task ->
+        ManualTimeLogSheet(
+            taskTitle = task.title,
+            prefillMinutes = task.estimatedDurationMinutes,
+            onConfirm = { minutes ->
+                viewModel.logPastTime(task, minutes)
+                taskToLogTime = null
+            },
+            onSkip = { taskToLogTime = null }
         )
     }
 }
@@ -321,7 +352,8 @@ fun TimelineScheduleView(
     state: PlanUiStateV2,
     onStartFocus: (String) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
-    onBreakDownTask: (TaskEntity) -> Unit = {}
+    onBreakDownTask: (TaskEntity) -> Unit = {},
+    onLogPastTime: (TaskEntity) -> Unit = {}
 ) {
     val peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9
     val peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
@@ -469,6 +501,38 @@ fun TimelineScheduleView(
                                 .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f), CircleShape)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = "Start Focus", tint = NeuroFlowThemeV2Colors.ElectricIndigo)
+                        }
+
+                        // Task Options (Log Past Time)
+                        var showItemMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(
+                                onClick = { showItemMenu = true },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Task options",
+                                    tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showItemMenu,
+                                onDismissRequest = { showItemMenu = false },
+                                modifier = Modifier.background(NeuroFlowThemeV2Colors.SlateSurfaceAlt)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                    },
+                                    onClick = {
+                                        showItemMenu = false
+                                        onLogPastTime(task)
+                                    }
+                                )
+                            }
                         }
                     }
                 }

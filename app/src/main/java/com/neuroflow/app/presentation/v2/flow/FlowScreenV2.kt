@@ -35,6 +35,9 @@ fun FlowScreenV2(
     onStartFocus: (String) -> Unit,
     onNavigateToMEQ: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
+    onNavigateToNotes: () -> Unit = {},
+    initialOpenComposer: Boolean = false,
+    onInitialComposerConsumed: () -> Unit = {},
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -43,6 +46,13 @@ fun FlowScreenV2(
 
     var showComposer by remember { mutableStateOf(false) }
     var showNotesSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialOpenComposer) {
+        if (initialOpenComposer) {
+            showComposer = true
+            onInitialComposerConsumed()
+        }
+    }
 
     // 4-Second Non-Destructive Undo Snackbar
     LaunchedEffect(state.lastActionMessage) {
@@ -326,7 +336,8 @@ fun FlowScreenV2(
         QuickNotesBottomSheet(
             notes = recentNotes,
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
-            onDismiss = { showNotesSheet = false }
+            onDismiss = { showNotesSheet = false },
+            onOpenFullNotes = onNavigateToNotes
         )
     }
 }

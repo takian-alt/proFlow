@@ -2,11 +2,13 @@ package com.neuroflow.app.presentation.v2.notes
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.*
@@ -28,7 +30,8 @@ import java.util.Locale
 fun QuickNotesBottomSheet(
     notes: List<NoteEntity>,
     onSaveNote: (title: String, content: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenFullNotes: () -> Unit = {}
 ) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
@@ -52,7 +55,7 @@ fun QuickNotesBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "📝 Scratchpad & Working Memory",
                         style = MaterialTheme.typography.titleMedium,
@@ -63,6 +66,20 @@ fun QuickNotesBottomSheet(
                         text = "Jot down ideas, research findings, and brain dumps without distraction",
                         style = MaterialTheme.typography.labelSmall,
                         color = NeuroFlowThemeV2Colors.TextSecondary
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        onDismiss()
+                        onOpenFullNotes()
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Open Full Notes Workspace",
+                        tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                     )
                 }
             }
@@ -149,7 +166,12 @@ fun QuickNotesBottomSheet(
                             .format(Date(note.updatedAt))
 
                         Surface(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onDismiss()
+                                    onOpenFullNotes()
+                                },
                             shape = RoundedCornerShape(10.dp),
                             color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                             border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)

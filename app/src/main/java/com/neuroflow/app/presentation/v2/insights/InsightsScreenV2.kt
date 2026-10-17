@@ -10,9 +10,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,20 +27,75 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.WorkManager
+import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.engine.SleepPressureDetector
+import com.neuroflow.app.domain.scheduler.BehavioralInsightsEngine
 import com.neuroflow.app.presentation.common.UlyssesContractSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+import java.util.Calendar
 
 @Composable
 fun InsightsScreenV2(
     onNavigateToMEQ: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
+    onNavigateToAnalytics: () -> Unit = {},
+    onNavigateToHistory: () -> Unit = {},
+    onNavigateToIdentity: () -> Unit = {},
     viewModel: InsightsViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     var showUlyssesSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val workManager = remember(context) { viewModel.workManager ?: WorkManager.getInstance(context) }
+    val allTasks by viewModel.taskRepository.observeAll().collectAsState(initial = emptyList())
+
+    val now = remember { System.currentTimeMillis() }
+    val sevenDaysAgo = remember(now) { now - 7L * 86400_000L }
+    val thirtyDaysAgo = remember(now) { now - 30L * 86400_000L }
+
+    val completed7d = remember(allTasks, sevenDaysAgo) {
+        allTasks.filter { it.completedAt != null && it.completedAt >= sevenDaysAgo }
+    }
+    val completed30d = remember(allTasks, thirtyDaysAgo) {
+        allTasks.filter { it.completedAt != null && it.completedAt >= thirtyDaysAgo }
+    }
+
+    val velocity7d = completed7d.size
+    val velocity30d = completed30d.size
+    val focusHours7d = remember(completed7d) {
+        completed7d.sumOf { (it.actualDurationMinutes ?: it.totalTimeTrackedMinutes).toDouble() }.toFloat() / 60f
+    }
+    val focusHours30d = remember(completed30d) {
+        completed30d.sumOf { (it.actualDurationMinutes ?: it.totalTimeTrackedMinutes).toDouble() }.toFloat() / 60f
+    }
+
+    val weightedSmape = remember(allTasks) {
+        AnalyticsEngine.computeWeightedSmape(allTasks)
+    }
+    val smapeGrade = remember(weightedSmape) {
+        AnalyticsEngine.mapeGrade(weightedSmape)
+    }
+
+    val hourlyDensity = remember(allTasks, state.preferences) {
+        val map = mutableMapOf<Int, Int>()
+        allTasks.forEach { task ->
+            val ts = task.completedAt ?: task.scheduledTime ?: task.updatedAt
+            val cal = Calendar.getInstance().apply { timeInMillis = ts }
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            val mins = (task.actualDurationMinutes ?: task.totalTimeTrackedMinutes).toInt()
+            if (mins > 0) {
+                map[hour] = (map[hour] ?: 0) + mins
+            }
+        }
+        if (map.isEmpty()) {
+            val pStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9
+            val pEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
+            for (h in pStart until pEnd) {
+                map[h] = 45
+            }
+        }
+        BehavioralInsightsEngine.calculateHourlyCircadianDensity(map)
+    }
 
     Scaffold(
         containerColor = NeuroFlowThemeV2Colors.Obsidian
@@ -317,6 +374,43 @@ fun InsightsScreenV2(
                 }
             }
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Velocity & Estimation Accuracy (sMAPE)
+            VelocityAndAccuracyCard(
+                velocity7d = velocity7d,
+                velocity30d = velocity30d,
+                focusHours7d = focusHours7d,
+                focusHours30d = focusHours30d,
+                weightedSmape = weightedSmape,
+                smapeGrade = smapeGrade
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 24-hr Circadian Density Heatmap
+            CircadianDensityHeatmapCard(
+                density = hourlyDensity,
+                peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9,
+                peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Subliminal Identity Affirmations
+            IdentityAffirmationsCard(
+                affirmations = state.preferences.affirmations,
+                onNavigateToIdentity = onNavigateToIdentity
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Full Deep Analytics & History Records Hub
+            DeepHubNavigationCard(
+                onNavigateToAnalytics = onNavigateToAnalytics,
+                onNavigateToHistory = onNavigateToHistory
+            )
+
             Spacer(modifier = Modifier.height(80.dp))
         }
     }
@@ -454,3 +548,294 @@ fun MetricTile(
         Text(subtitle, style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary, fontSize = 10.sp)
     }
 }
+
+@Composable
+fun VelocityAndAccuracyCard(
+    velocity7d: Int,
+    velocity30d: Int,
+    focusHours7d: Float,
+    focusHours30d: Float,
+    weightedSmape: Float,
+    smapeGrade: String
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = NeuroFlowThemeV2Colors.SlateSurface,
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("⚡", fontSize = 16.sp)
+                Text(
+                    text = "Execution Velocity & Estimation Calibration",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.TextPrimary
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                MetricTile(
+                    label = "7d Velocity",
+                    value = "$velocity7d tasks",
+                    subtitle = "${String.format(java.util.Locale.US, "%.1f", focusHours7d)}h focused"
+                )
+                MetricTile(
+                    label = "30d Velocity",
+                    value = "$velocity30d tasks",
+                    subtitle = "${String.format(java.util.Locale.US, "%.1f", focusHours30d)}h focused"
+                )
+                MetricTile(
+                    label = "sMAPE Error",
+                    value = if (weightedSmape > 0f) "${String.format(java.util.Locale.US, "%.1f", weightedSmape)}%" else "Calibrating",
+                    subtitle = when {
+                        weightedSmape <= 0f -> "Calibrating"
+                        weightedSmape <= 25f -> "High Precision"
+                        else -> "Moderate Drift"
+                    }
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = smapeGrade,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CircadianDensityHeatmapCard(
+    density: List<Float>,
+    peakStart: Int,
+    peakEnd: Int
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = NeuroFlowThemeV2Colors.SlateSurface,
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("🔥", fontSize = 16.sp)
+                    Text(
+                        text = "24-Hr Circadian Focus Density Heatmap",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                }
+                Text(
+                    text = "Peak: ${String.format("%02d:00", peakStart)}–${String.format("%02d:00", peakEnd)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.WarmAmber
+                )
+            }
+
+            Text(
+                text = "Empirical focus distribution across 24 hourly circadian bins.",
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowThemeV2Colors.TextSecondary
+            )
+
+            val maxDensity = density.maxOrNull()?.coerceAtLeast(0.01f) ?: 1f
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                density.forEachIndexed { hour, frac ->
+                    val isPeakHour = if (peakStart <= peakEnd) {
+                        hour in peakStart until peakEnd
+                    } else {
+                        hour >= peakStart || hour < peakEnd
+                    }
+                    val normalized = (frac / maxDensity).coerceIn(0.05f, 1f)
+                    val barHeight = (normalized * 50f).dp.coerceAtLeast(4.dp)
+                    val barColor = when {
+                        isPeakHour -> NeuroFlowThemeV2Colors.WarmAmber
+                        frac > 0.05f -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        else -> NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(barHeight)
+                                .background(barColor, RoundedCornerShape(2.dp))
+                        )
+                    }
+                }
+            }
+
+            // Hour labels (00, 06, 12, 18, 23)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("00:00", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary, fontSize = 9.sp)
+                Text("06:00", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary, fontSize = 9.sp)
+                Text("12:00", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary, fontSize = 9.sp)
+                Text("18:00", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary, fontSize = 9.sp)
+                Text("23:00", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary, fontSize = 9.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun IdentityAffirmationsCard(
+    affirmations: List<String>,
+    onNavigateToIdentity: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = NeuroFlowThemeV2Colors.SlateSurface,
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("🧘", fontSize = 16.sp)
+                    Text(
+                        text = "Subliminal Identity Affirmations",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                }
+                TextButton(onClick = onNavigateToIdentity) {
+                    Text("Manage", color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+
+            if (affirmations.isEmpty()) {
+                Text(
+                    text = "No affirmations configured yet. Rewire subconscious beliefs and reduce executive resistance by defining your core identity statements.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeuroFlowThemeV2Colors.TextSecondary
+                )
+                OutlinedButton(
+                    onClick = onNavigateToIdentity,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Add Identity Affirmations", fontSize = 12.sp)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    affirmations.take(3).forEach { affirmation ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                        ) {
+                            Text(
+                                text = "“$affirmation”",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = NeuroFlowThemeV2Colors.TextPrimary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeepHubNavigationCard(
+    onNavigateToAnalytics: () -> Unit,
+    onNavigateToHistory: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = "📊 Deep Work Analytics & Historical Records",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+            Text(
+                text = "Explore full MAPE breakdown, quadrant velocity, and searchable history logs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowThemeV2Colors.TextSecondary
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onNavigateToAnalytics,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.QueryStats, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Full Analytics", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onNavigateToHistory,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Task History", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+

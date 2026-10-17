@@ -6,7 +6,9 @@ import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.NoteRepository
+import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
@@ -44,7 +46,8 @@ class FlowViewModelV2 @Inject constructor(
     private val taskRepository: TaskRepository,
     private val energyScoreRepository: EnergyScoreRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
-    private val noteRepository: NoteRepository? = null
+    private val noteRepository: NoteRepository? = null,
+    private val sessionRepository: SessionRepository? = null
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
@@ -282,6 +285,35 @@ class FlowViewModelV2 @Inject constructor(
                 )
             )
             _lastActionMessage.value = "Note saved to scratchpad 📝"
+        }
+    }
+
+    fun logPastTime(task: TaskEntity, minutes: Float) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val session = TimeSessionEntity(
+                taskId = task.id,
+                startedAt = now - (minutes * 60_000f).toLong(),
+                endedAt = now,
+                durationMinutes = minutes,
+                sessionType = "MANUAL_LOG"
+            )
+            sessionRepository?.insert(session)
+            val newTracked = task.totalTimeTrackedMinutes + minutes
+            val newCount = task.sessionCount + 1
+            taskRepository.update(
+                task.copy(
+                    totalTimeTrackedMinutes = newTracked,
+                    sessionCount = newCount,
+                    lastSessionDurationMinutes = minutes,
+                    actualDurationMinutes = newTracked,
+                    updatedAt = now
+                )
+            )
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
+            }
+            _lastActionMessage.value = "Logged ${minutes.toInt()}m past time for ${task.title}"
         }
     }
 

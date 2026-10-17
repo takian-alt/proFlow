@@ -7,15 +7,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeMute
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -36,7 +41,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.presentation.focus.AffordanceRatingSheet
+import com.neuroflow.app.presentation.focus.WoopPromptSheet
+import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +59,13 @@ fun FocusScreenV2(
     var newThoughtText by remember { mutableStateOf("") }
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
+    var showWoopPromptSheet by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.onScreenExit()
+        }
+    }
 
     Scaffold(
         containerColor = NeuroFlowThemeV2Colors.Obsidian,
@@ -193,6 +208,160 @@ fun FocusScreenV2(
                 }
             }
 
+            // Neural Soundscapes Card
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Header with Active Animated Indicator
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                "🎧 Neural Soundscapes",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.TextPrimary
+                            )
+                            if (state.selectedSoundscape != SoundscapeType.NONE) {
+                                Text(
+                                    state.selectedSoundscape.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        val isAudioActive = state.selectedSoundscape != SoundscapeType.NONE && state.isRunning && !state.isPaused
+                        ActiveAudioIndicator(isActive = isAudioActive)
+                    }
+
+                    // Soundscape Selector Chips (Off, 40Hz Gamma 🧠, Deep Brown 🌊, Pink Rain 🌧️)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        SoundscapeType.entries.forEach { type ->
+                            val isSelected = state.selectedSoundscape == type
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.selectSoundscape(type) },
+                                label = {
+                                    Text(
+                                        type.shortChipLabel,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                                ),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            )
+                        }
+                    }
+
+                    // Headphone hint for 40Hz Gamma waves
+                    AnimatedVisibility(visible = state.selectedSoundscape == SoundscapeType.GAMMA_40HZ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Headphones,
+                                contentDescription = null,
+                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Stereo headphones recommended for 40 Hz binaural entrainment",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                        }
+                    }
+
+                    // Tactile Volume Slider (0% to 100%) with 48dp touch target
+                    AnimatedVisibility(visible = state.selectedSoundscape != SoundscapeType.NONE) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Acoustic Volume",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                                Text(
+                                    "${(state.soundscapeVolume * 100).toInt()}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (state.soundscapeVolume <= 0.01f) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeDown,
+                                    contentDescription = "Volume Down",
+                                    tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Slider(
+                                    value = state.soundscapeVolume,
+                                    onValueChange = { viewModel.setSoundscapeVolume(it) },
+                                    valueRange = 0f..1f,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                        activeTrackColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                        inactiveTrackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                                    )
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = "Volume Up",
+                                    tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // WOOP Intention Card
             val woop = state.woopData
             if (woop != null && (woop.wish.isNotBlank() || woop.obstacle.isNotBlank() || woop.plan.isNotBlank())) {
@@ -224,6 +393,60 @@ fun FocusScreenV2(
                         } else {
                             val summary = woop.plan.ifBlank { woop.wish }
                             Text(summary, style = MaterialTheme.typography.bodySmall, color = NeuroFlowThemeV2Colors.TextSecondary, maxLines = 1)
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showWoopPromptSheet = true },
+                    shape = RoundedCornerShape(14.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.Psychology,
+                                contentDescription = null,
+                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column {
+                                Text(
+                                    "Set WOOP Anchor",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary
+                                )
+                                Text(
+                                    "Pre-commit Wish, Obstacle, and If-Then execution plan",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { showWoopPromptSheet = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Set WOOP Anchor",
+                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
@@ -328,8 +551,111 @@ fun FocusScreenV2(
         }
     }
 
+    // Executive Transition Buffer (Decompression Zone)
+    LaunchedEffect(state.showDecompressionZone) {
+        if (state.showDecompressionZone) {
+            viewModel.startDecompressionTicker()
+        }
+    }
+
+    if (state.showDecompressionZone) {
+        val mins = state.decompressionRemainingSeconds / 60
+        val secs = state.decompressionRemainingSeconds % 60
+        val timeDisplay = String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
+
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.dismissDecompressionZone() },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "🧠 Executive Decompression Zone",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.SageGreen
+                )
+
+                Text(
+                    text = timeDisplay,
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (state.decompressionRemainingSeconds > 0) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SageGreen
+                )
+
+                Text(
+                    text = if (state.decompressionRemainingSeconds > 0)
+                        "Cortisol & sympathetic arousal are resetting. Take 3 minutes of passive rest before your next cognitive sprint to consolidate working memory."
+                    else
+                        "Rest restored. Your prefrontal cortex has recharged for your next flow state.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                if (state.isDecompressionSighActive) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                "🫁 Physiological Sigh Active: ${state.decompressionSighRemainingSeconds}s",
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.SageGreen
+                            )
+                            Text(
+                                "Inhale deeply through nose... top-off inhale... slow long exhale through mouth.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NeuroFlowThemeV2Colors.TextPrimary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                } else if (state.decompressionRemainingSeconds > 0) {
+                    FilledTonalButton(
+                        onClick = { viewModel.triggerDecompressionSigh() },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            contentColor = NeuroFlowThemeV2Colors.SageGreen
+                        ),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Text("🫁 Guided 60s Physiological Sigh", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.readyNowBypassDecompression() },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        if (state.decompressionRemainingSeconds > 0) "⚡ Ready Now (Skip Buffer)" else "Continue",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+
     // Completion Celebration Overlay
-    if (state.isCompleted) {
+    if (state.isCompleted && !state.showDecompressionZone) {
         AlertDialog(
             onDismissRequest = onNavigateBack,
             title = {
@@ -421,6 +747,16 @@ fun FocusScreenV2(
             onSkip = { viewModel.dismissAffordanceRating() }
         )
     }
+
+    if (showWoopPromptSheet) {
+        WoopPromptSheet(
+            onSubmit = { wish, outcome, obstacle, plan ->
+                viewModel.saveWoop(wish, outcome, obstacle, plan)
+                showWoopPromptSheet = false
+            },
+            onSkip = { showWoopPromptSheet = false }
+        )
+    }
 }
 
 @Composable
@@ -505,6 +841,48 @@ fun RadialTimerGauge(
                     isPaused -> NeuroFlowThemeV2Colors.WarmAmber
                     else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
                 }
+            )
+        }
+    }
+}
+
+@Composable
+fun ActiveAudioIndicator(isActive: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "audioBars")
+    val h1 by infiniteTransition.animateFloat(
+        initialValue = 4f, targetValue = 18f,
+        animationSpec = infiniteRepeatable(tween(400, easing = LinearEasing), RepeatMode.Reverse),
+        label = "h1"
+    )
+    val h2 by infiniteTransition.animateFloat(
+        initialValue = 16f, targetValue = 6f,
+        animationSpec = infiniteRepeatable(tween(550, easing = LinearEasing), RepeatMode.Reverse),
+        label = "h2"
+    )
+    val h3 by infiniteTransition.animateFloat(
+        initialValue = 6f, targetValue = 20f,
+        animationSpec = infiniteRepeatable(tween(350, easing = LinearEasing), RepeatMode.Reverse),
+        label = "h3"
+    )
+    val h4 by infiniteTransition.animateFloat(
+        initialValue = 12f, targetValue = 4f,
+        animationSpec = infiniteRepeatable(tween(480, easing = LinearEasing), RepeatMode.Reverse),
+        label = "h4"
+    )
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(22.dp)
+    ) {
+        val barColor = if (isActive) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder
+        val barHeights = if (isActive) listOf(h1, h2, h3, h4) else listOf(4f, 4f, 4f, 4f)
+        barHeights.forEach { height ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(height.dp)
+                    .background(barColor, RoundedCornerShape(1.5.dp))
             )
         }
     }

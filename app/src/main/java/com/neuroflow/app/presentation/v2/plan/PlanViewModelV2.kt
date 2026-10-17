@@ -9,8 +9,10 @@ import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.repository.NoteRepository
+import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
@@ -66,7 +68,8 @@ class PlanViewModelV2 @Inject constructor(
     private val preferencesDataStore: UserPreferencesDataStore,
     private val energyScoreRepository: EnergyScoreRepository,
     private val workManager: WorkManager,
-    private val noteRepository: NoteRepository? = null
+    private val noteRepository: NoteRepository? = null,
+    private val sessionRepository: SessionRepository? = null
 ) : ViewModel() {
 
     private val _selectedDate = MutableStateFlow(startOfTodayMillis())
@@ -247,6 +250,34 @@ class PlanViewModelV2 @Inject constructor(
                     if (slot.id == slotId) slot.copy(isEnabled = enabled) else slot
                 }
                 prefs.copy(protectedTimeSlots = updatedSlots)
+            }
+        }
+    }
+
+    fun logPastTime(task: TaskEntity, minutes: Float) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val session = TimeSessionEntity(
+                taskId = task.id,
+                startedAt = now - (minutes * 60_000f).toLong(),
+                endedAt = now,
+                durationMinutes = minutes,
+                sessionType = "MANUAL_LOG"
+            )
+            sessionRepository?.insert(session)
+            val newTracked = task.totalTimeTrackedMinutes + minutes
+            val newCount = task.sessionCount + 1
+            taskRepository.update(
+                task.copy(
+                    totalTimeTrackedMinutes = newTracked,
+                    sessionCount = newCount,
+                    lastSessionDurationMinutes = minutes,
+                    actualDurationMinutes = newTracked,
+                    updatedAt = now
+                )
+            )
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
             }
         }
     }

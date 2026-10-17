@@ -488,4 +488,211 @@ class NeuroFlowV2UiTest : StringSpec({
             filteredState.unscheduledTasks[0].id shouldBe "tag-1"
         }
     }
+
+    "FlowViewModelV2 logPastTime records MANUAL_LOG session, updates task, and increments totalFocusMinutes" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val task = makeTask(id = "flow-log-1", title = "Deep Work Session").copy(
+                totalTimeTrackedMinutes = 25f,
+                sessionCount = 1,
+                actualDurationMinutes = 25f
+            )
+
+            var savedPrefs = UserPreferences(totalFocusMinutes = 100)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(savedPrefs)
+            coEvery { prefsDataStore.updatePreferences(any()) } coAnswers {
+                val update = firstArg<(UserPreferences) -> UserPreferences>()
+                savedPrefs = update(savedPrefs)
+            }
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { energyRepo.observeEnergy(any()) } returns MutableStateFlow(mockk(relaxed = true))
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                energyScoreRepository = energyRepo,
+                preferencesDataStore = prefsDataStore,
+                sessionRepository = sessionRepo
+            )
+            viewModel.uiState.filter { !it.isLoading }.first()
+
+            viewModel.logPastTime(task, 45f)
+            advanceUntilIdle()
+
+            val sessionSlot = slot<TimeSessionEntity>()
+            coVerify { sessionRepo.insert(capture(sessionSlot)) }
+            sessionSlot.captured.taskId shouldBe "flow-log-1"
+            sessionSlot.captured.sessionType shouldBe "MANUAL_LOG"
+            sessionSlot.captured.durationMinutes shouldBe 45f
+
+            val taskSlot = slot<TaskEntity>()
+            coVerify { taskRepo.update(capture(taskSlot)) }
+            taskSlot.captured.id shouldBe "flow-log-1"
+            taskSlot.captured.totalTimeTrackedMinutes shouldBe 70f
+            taskSlot.captured.actualDurationMinutes shouldBe 70f
+            taskSlot.captured.sessionCount shouldBe 2
+            taskSlot.captured.lastSessionDurationMinutes shouldBe 45f
+
+            savedPrefs.totalFocusMinutes shouldBe 145
+
+            val actionMsg = viewModel.uiState.filter { it.lastActionMessage != null }.first().lastActionMessage
+            actionMsg shouldContain "Logged 45m past time for Deep Work Session"
+        }
+    }
+
+    "PlanViewModelV2 logPastTime records MANUAL_LOG session, updates task, and increments totalFocusMinutes" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val energyRepo = mockk<EnergyScoreRepository>(relaxed = true)
+            val workManager = mockk<WorkManager>(relaxed = true)
+
+            var savedPrefs = UserPreferences(totalFocusMinutes = 50)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(savedPrefs)
+            coEvery { prefsDataStore.updatePreferences(any()) } coAnswers {
+                val update = firstArg<(UserPreferences) -> UserPreferences>()
+                savedPrefs = update(savedPrefs)
+            }
+
+            val task = makeTask(id = "plan-log-1", title = "Sprint Architecture Review").copy(
+                totalTimeTrackedMinutes = 0f,
+                sessionCount = 0,
+                actualDurationMinutes = 0f
+            )
+
+            val viewModel = PlanViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                energyScoreRepository = energyRepo,
+                workManager = workManager,
+                sessionRepository = sessionRepo
+            )
+
+            viewModel.logPastTime(task, 30f)
+            advanceUntilIdle()
+
+            val sessionSlot = slot<TimeSessionEntity>()
+            coVerify { sessionRepo.insert(capture(sessionSlot)) }
+            sessionSlot.captured.taskId shouldBe "plan-log-1"
+            sessionSlot.captured.sessionType shouldBe "MANUAL_LOG"
+            sessionSlot.captured.durationMinutes shouldBe 30f
+
+            val taskSlot = slot<TaskEntity>()
+            coVerify { taskRepo.update(capture(taskSlot)) }
+            taskSlot.captured.id shouldBe "plan-log-1"
+            taskSlot.captured.totalTimeTrackedMinutes shouldBe 30f
+            taskSlot.captured.actualDurationMinutes shouldBe 30f
+            taskSlot.captured.sessionCount shouldBe 1
+            taskSlot.captured.lastSessionDurationMinutes shouldBe 30f
+
+            savedPrefs.totalFocusMinutes shouldBe 80
+        }
+    }
+
+    "FocusViewModelV2 saveWoop persists WoopEntity to WoopRepository and updates uiState" {
+        runTest(testDispatcher) {
+            val task = makeTask(
+                id = "woop-focus-1",
+                title = "Write Novel Chapter"
+            )
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "woop-focus-1"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            coEvery { taskRepo.getById("woop-focus-1") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            coEvery { woopRepo.getByTaskId("woop-focus-1") } returns null
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.uiState.value.woopData shouldBe null
+
+            val wish = "Complete chapter draft"
+            val outcome = "Sense of milestone completion"
+            val obstacle = "Notification distraction"
+            val plan = "Put phone on silent in drawer"
+
+            viewModel.saveWoop(wish, outcome, obstacle, plan)
+            advanceUntilIdle()
+
+            val woopSlot = slot<WoopEntity>()
+            coVerify { woopRepo.upsert(capture(woopSlot)) }
+            woopSlot.captured.taskId shouldBe "woop-focus-1"
+            woopSlot.captured.wish shouldBe wish
+            woopSlot.captured.outcome shouldBe outcome
+            woopSlot.captured.obstacle shouldBe obstacle
+            woopSlot.captured.plan shouldBe plan
+
+            val currentWoop = viewModel.uiState.value.woopData
+            currentWoop shouldBe woopSlot.captured
+            currentWoop?.wish shouldBe wish
+            currentWoop?.outcome shouldBe outcome
+            currentWoop?.obstacle shouldBe obstacle
+            currentWoop?.plan shouldBe plan
+        }
+    }
+
+    "FocusViewModelV2 completeTask triggers 3-minute Decompression Zone, guided sigh, and bypass" {
+        runTest(testDispatcher) {
+            val task = makeTask(
+                id = "decomp-task-1",
+                title = "Deep Architectural Refactoring",
+                impactScore = 80,
+                isFrog = true
+            )
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "decomp-task-1"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            coEvery { taskRepo.getById("decomp-task-1") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.startTimer()
+            viewModel.completeTask()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            state.isCompleted shouldBe true
+            state.showDecompressionZone shouldBe true
+            state.decompressionRemainingSeconds shouldBe 180
+            state.isDecompressionSighActive shouldBe false
+            state.isDecompressionBypassed shouldBe false
+
+            // Tick 10 seconds
+            repeat(10) { viewModel.tickDecompressionSecond() }
+            viewModel.uiState.value.decompressionRemainingSeconds shouldBe 170
+
+            // Trigger Physiological Sigh
+            viewModel.triggerDecompressionSigh()
+            viewModel.uiState.value.isDecompressionSighActive shouldBe true
+            viewModel.uiState.value.decompressionSighRemainingSeconds shouldBe 60
+
+            // Tick 20 seconds
+            repeat(20) { viewModel.tickDecompressionSecond() }
+            viewModel.uiState.value.decompressionRemainingSeconds shouldBe 150
+            viewModel.uiState.value.decompressionSighRemainingSeconds shouldBe 40
+
+            // User taps "Ready Now" autonomy bypass
+            viewModel.readyNowBypassDecompression()
+            viewModel.uiState.value.showDecompressionZone shouldBe false
+            viewModel.uiState.value.isDecompressionBypassed shouldBe true
+            viewModel.uiState.value.decompressionRemainingSeconds shouldBe 0
+            viewModel.uiState.value.isDecompressionSighActive shouldBe false
+        }
+    }
 })

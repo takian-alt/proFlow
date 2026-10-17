@@ -1,6 +1,9 @@
 package com.neuroflow.app.presentation.v2.navigation
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -15,7 +18,18 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.neuroflow.app.presentation.analytics.AnalyticsScreen
+import com.neuroflow.app.presentation.common.HyperFocusAllowlistRoute
+import com.neuroflow.app.presentation.history.HistoryScreen
+import com.neuroflow.app.presentation.identity.IdentityScreen
+import com.neuroflow.app.presentation.logtime.LogTimeScreen
+import com.neuroflow.app.presentation.notes.NotesScreen
+import com.neuroflow.app.presentation.onboarding.AppGuideScreen
+import com.neuroflow.app.presentation.schedule.WeeklyScheduleScreen
+import com.neuroflow.app.presentation.settings.AccountSyncScreen
 import com.neuroflow.app.presentation.settings.MEQQuizScreen
+import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
+import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
 import com.neuroflow.app.presentation.settings.SleepLogsScreen
 import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
@@ -25,10 +39,13 @@ import com.neuroflow.app.presentation.v2.plan.PlanScreenV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NeuroFlowAppV2(
     initialTaskId: String? = null,
     onInitialTaskConsumed: () -> Unit = {},
+    initialOpenComposer: Boolean = false,
+    onInitialComposerConsumed: () -> Unit = {},
     amoledDark: Boolean = false
 ) {
     val navController = rememberNavController()
@@ -85,32 +102,44 @@ fun NeuroFlowAppV2(
             ) {
                 composable(NavHubsV2.Flow.route) {
                     FlowScreenV2(
+                        initialOpenComposer = initialOpenComposer,
+                        onInitialComposerConsumed = onInitialComposerConsumed,
                         onNavigateToSettings = { navController.navigate("settings") },
                         onStartFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
                         onNavigateToMEQ = { navController.navigate("meq_quiz") },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") }
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
+                        onNavigateToNotes = { navController.navigate("notes") }
                     )
                 }
 
                 composable(NavHubsV2.Plan.route) {
                     PlanScreenV2(
-                        onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
+                        onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
+                        onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") },
+                        onNavigateToNotes = { navController.navigate("notes") }
                     )
                 }
 
                 composable(NavHubsV2.Insights.route) {
                     InsightsScreenV2(
                         onNavigateToMEQ = { navController.navigate("meq_quiz") },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") }
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
+                        onNavigateToAnalytics = { navController.navigate("analytics") },
+                        onNavigateToHistory = { navController.navigate("history") },
+                        onNavigateToIdentity = { navController.navigate("identity") }
                     )
                 }
 
                 composable("settings") {
                     SettingsScreen(
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToPriorityWeights = { },
+                        onNavigateToPriorityWeights = { navController.navigate("priority_weights") },
+                        onNavigateToHyperFocusAllowlist = { navController.navigate("hyperfocus_allowlist") },
+                        onNavigateToAppGuide = { navController.navigate("app_guide") },
+                        onNavigateToPrivacyPermissions = { navController.navigate("privacy_permissions") },
                         onNavigateToMEQQuiz = { navController.navigate("meq_quiz") },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") }
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
+                        onNavigateToAccountSync = { navController.navigate("account_sync") }
                     )
                 }
 
@@ -122,6 +151,116 @@ fun NeuroFlowAppV2(
 
                 composable("sleep_logs") {
                     SleepLogsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("notes") {
+                    NotesScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("weekly_schedule") {
+                    WeeklyScheduleScreen(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToDay = { navController.popBackStack() },
+                        onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
+                    )
+                }
+
+                composable("analytics") {
+                    Scaffold(
+                        topBar = {
+                            TopAppBar(
+                                title = { Text("Analytics") },
+                                navigationIcon = {
+                                    IconButton(onClick = { navController.popBackStack() }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Back"
+                                        )
+                                    }
+                                },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                        }
+                    ) { innerPadding ->
+                        Box(modifier = Modifier.padding(innerPadding)) {
+                            AnalyticsScreen(hideTopBar = true)
+                        }
+                    }
+                }
+
+                composable("history") {
+                    Scaffold(
+                        topBar = {
+                            TopAppBar(
+                                title = { Text("History") },
+                                navigationIcon = {
+                                    IconButton(onClick = { navController.popBackStack() }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Back"
+                                        )
+                                    }
+                                },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                        }
+                    ) { innerPadding ->
+                        Box(modifier = Modifier.padding(innerPadding)) {
+                            HistoryScreen(hideTopBar = true)
+                        }
+                    }
+                }
+
+                composable("priority_weights") {
+                    PriorityWeightsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("account_sync") {
+                    AccountSyncScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("hyperfocus_allowlist") {
+                    HyperFocusAllowlistRoute(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("privacy_permissions") {
+                    PrivacyPermissionsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("app_guide") {
+                    AppGuideScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("identity") {
+                    IdentityScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("log_time") {
+                    LogTimeScreen(
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
