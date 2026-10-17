@@ -178,13 +178,17 @@ When the user returns with the Vice Head's recommendations:
     - Introduced `CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`, and `TaskNaturalLanguageParser`.
     - Provided Hilt DI bindings in `DomainServiceModule`.
     - Implemented standalone unit tests verifying non-saturating scoring, continuous Borbély math, and multi-step DAG interval scheduling.
-    - Verified 891/891 unit tests passing with 0 failures.
-  - **Phase 3 [ACTIVE / NEXT]**:
-    - Execute Room v13/v22 schema migration (`tasks`, `task_micro_steps`, `focus_sessions`, `quick_notes`, `protected_slots`).
-    - Add high-performance composite indices.
-    - Wire ViewModels to new services; retire 11 legacy engines.
-  - **Phase 4 [PENDING]**:
+  - **Phase 3 [COMPLETE - commit `c9e0ac0`]**:
+    - Executed Room v21 -> v22 non-destructive schema migration (`MIGRATION_21_22`).
+    - Normalized child tables created: `task_micro_steps`, `focus_sessions`, `quick_notes`, `protected_slots`.
+    - Added high-performance composite indices on `tasks`, `energy_predictions`, `task_micro_steps`, and `focus_sessions`.
+    - Extracted legacy micro-steps from `tasks.ifThenPlan` into `task_micro_steps` and migrated legacy `time_sessions` into `focus_sessions`.
+    - Integrated with `AppModule`, `TaskRepository`, and `SessionRepository`.
+    - Automated unit test suite `RoomMigration21To22Test` added and verified.
+    - Verified 895/895 unit tests passing with 0 failures (100% test greenness).
+  - **Phase 4 [ACTIVE / NEXT]**:
     - Re-route NavHost to Triptych surfaces: **Flow** (Cockpit), **Plan** (Calendar + Timeline + Unscheduled Backlog tray), **Vault** (Icebox + Insights).
+    - Wire ViewModels to new domain services (`CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`).
     - Apply WCAG AA AMOLED tokens (`#000000` bg -> `#121216` elevated surfaces, `#94A3B8` tertiary text).
 
 ---
