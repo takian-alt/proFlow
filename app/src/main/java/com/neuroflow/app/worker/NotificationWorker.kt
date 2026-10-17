@@ -15,7 +15,6 @@ import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.repository.TaskRepository
-import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
@@ -136,7 +135,9 @@ class DailyPlanWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val taskRepository: TaskRepository,
-    private val preferencesDataStore: UserPreferencesDataStore
+    private val preferencesDataStore: UserPreferencesDataStore,
+    private val taskSchedulerService: com.neuroflow.app.domain.service.TaskSchedulerService,
+    private val circadianEnergyService: com.neuroflow.app.domain.service.CircadianEnergyService
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = try {
@@ -144,7 +145,48 @@ class DailyPlanWorker @AssistedInject constructor(
         if (!prefs.dailyPlanNotificationsEnabled) Result.success()
         else {
             val tasks = taskRepository.getActiveTasks()
-            val topTasks = TaskScoringEngine.sortedByScore(tasks, prefs).take(3)
+            val nowMillis = System.currentTimeMillis()
+            val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+            val wakeHour = prefs.wakeUpHour
+            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
+            val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
+            val snapshot = circadianEnergyService.evaluateSnapshot(
+                timestampMillis = nowMillis,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = 480
+            )
+
+            val topTasks = tasks.map { task ->
+                val schedulable = com.neuroflow.app.domain.service.SchedulableTask(
+                    id = task.id,
+                    title = task.title,
+                    category = when (task.taskType) {
+                        com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
+                        com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
+                        com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
+                        com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                    },
+                    priority = when (task.priority) {
+                        com.neuroflow.app.domain.model.Priority.HIGH -> 2
+                        com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
+                        else -> 0
+                    },
+                    estimatedMinutes = task.estimatedDurationMinutes,
+                    energyDemand = when (task.energyLevel) {
+                        com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
+                        com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
+                        else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
+                    },
+                    isFrog = task.isFrog,
+                    scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: nowMillis) + it },
+                    deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
+                    isLocked = task.isScheduleLocked,
+                    parentTaskId = task.parentTaskId
+                )
+                val score = taskSchedulerService.evaluateTaskScore(schedulable, snapshot).totalScore
+                task to score
+            }.sortedByDescending { it.second }.take(3).map { it.first }
 
             if (topTasks.isNotEmpty()) {
                 val taskNames = topTasks.joinToString(", ") { it.title }

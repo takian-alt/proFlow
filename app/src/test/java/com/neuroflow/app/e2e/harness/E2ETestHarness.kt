@@ -5,7 +5,6 @@ import com.neuroflow.app.data.local.entity.ContractOutcome
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.PeakEnergyEngine
 import com.neuroflow.app.domain.engine.EnergyScoreEngine
-import com.neuroflow.app.domain.engine.TaskScoringEngine
 import com.neuroflow.app.domain.model.*
 import java.util.Locale
 import kotlin.math.*

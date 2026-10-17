@@ -1,7 +1,79 @@
-# Baseline Profile for proFlow
-# Stale by design until regenerated: the entries naming presentation/launcher classes were deleted
-# with the launcher (tag archive/launcher-2026-10-12), and nothing here yet covers the HyperFocus
-# black home. Run ./scripts/generate-baseline-profile.sh on a device to replace this file.
+# Baseline Profile for neuroFlow (ADR-002 Curated Static Profile)
+# Optimizes critical cold start, warm start, and frame execution paths
+# Without requiring heavy emulator instrumentation on 7.4GB RAM host.
 
-# TaskScoringEngine (critical for top task calculation)
-Lcom/neuroflow/app/domain/engine/TaskScoringEngine;
+# Core Application & MainActivity
+Lcom/neuroflow/app/NeuroFlowApplication;
+Lcom/neuroflow/app/MainActivity;
+Lcom/neuroflow/app/MainActivityKt;
+
+# Triptych Presentation Hubs (V2 M3)
+Lcom/neuroflow/app/presentation/v2/navigation/NavHubsV2;
+Lcom/neuroflow/app/presentation/v2/flow/FlowScreenV2Kt;
+Lcom/neuroflow/app/presentation/v2/flow/FlowViewModelV2;
+Lcom/neuroflow/app/presentation/v2/flow/CircadianHeroBarometerKt;
+Lcom/neuroflow/app/presentation/v2/plan/PlanScreenV2Kt;
+Lcom/neuroflow/app/presentation/v2/plan/PlanViewModelV2;
+Lcom/neuroflow/app/presentation/v2/insights/InsightsScreenV2Kt;
+Lcom/neuroflow/app/presentation/v2/insights/InsightsViewModelV2;
+Lcom/neuroflow/app/presentation/v2/focus/FocusScreenV2Kt;
+Lcom/neuroflow/app/presentation/v2/focus/FocusViewModelV2;
+Lcom/neuroflow/app/presentation/v2/theme/NeuroFlowThemeV2Kt;
+Lcom/neuroflow/app/presentation/v2/theme/NeuroFlowThemeV2Colors;
+
+# Consolidated Domain Services
+Lcom/neuroflow/app/domain/service/CircadianEnergyService;
+Lcom/neuroflow/app/domain/service/DefaultCircadianEnergyService;
+Lcom/neuroflow/app/domain/service/CircadianSnapshot;
+Lcom/neuroflow/app/domain/service/EnergyDemand;
+Lcom/neuroflow/app/domain/service/TaskCategory;
+Lcom/neuroflow/app/domain/service/EnergyPhase;
+Lcom/neuroflow/app/domain/service/TaskSchedulerService;
+Lcom/neuroflow/app/domain/service/DefaultTaskSchedulerService;
+Lcom/neuroflow/app/domain/service/SchedulableTask;
+Lcom/neuroflow/app/domain/service/ScheduledPlacement;
+Lcom/neuroflow/app/domain/service/TimeSlotWindow;
+Lcom/neuroflow/app/domain/service/TaskScoreBreakdown;
+Lcom/neuroflow/app/domain/service/ProtectedLocalSlot;
+Lcom/neuroflow/app/domain/service/BehavioralSupportService;
+Lcom/neuroflow/app/domain/service/DefaultBehavioralSupportService;
+Lcom/neuroflow/app/domain/service/TaskNaturalLanguageParser;
+Lcom/neuroflow/app/domain/service/DefaultTaskNaturalLanguageParser;
+Lcom/neuroflow/app/domain/service/ChronobiologySignalNormalizer;
+Lcom/neuroflow/app/domain/service/RawSleepTelemetry;
+Lcom/neuroflow/app/domain/service/NormalizedChronobiologySignal;
+
+# Android Native Calendar Sync
+Lcom/neuroflow/app/data/calendar/CalendarSyncRepository;
+Lcom/neuroflow/app/data/calendar/AndroidCalendarSyncRepository;
+Lcom/neuroflow/app/data/calendar/CalendarSyncDataSource;
+Lcom/neuroflow/app/data/calendar/CalendarSyncDataSource$Companion;
+
+# Room v22 Database & Normalized Child Entities
+Lcom/neuroflow/app/data/local/AppDatabase;
+Lcom/neuroflow/app/data/local/AppDatabase_Impl;
+Lcom/neuroflow/app/data/local/entity/TaskEntity;
+Lcom/neuroflow/app/data/local/entity/TaskMicroStepEntity;
+Lcom/neuroflow/app/data/local/entity/FocusSessionEntity;
+Lcom/neuroflow/app/data/local/entity/QuickNoteEntity;
+Lcom/neuroflow/app/data/local/entity/TimeSessionEntity;
+Lcom/neuroflow/app/data/local/dao/TaskDao;
+Lcom/neuroflow/app/data/local/dao/TaskDao_Impl;
+Lcom/neuroflow/app/data/local/dao/SessionDao;
+Lcom/neuroflow/app/data/local/dao/SessionDao_Impl;
+Lcom/neuroflow/app/data/local/dao/QuickNoteDao;
+Lcom/neuroflow/app/data/local/dao/QuickNoteDao_Impl;
+Lcom/neuroflow/app/data/local/UserPreferencesDataStore;
+Lcom/neuroflow/app/data/local/UserPreferences;
+
+# Repositories & Modern Background Workers
+Lcom/neuroflow/app/data/repository/TaskRepository;
+Lcom/neuroflow/app/data/repository/SessionRepository;
+Lcom/neuroflow/app/data/repository/NoteRepository;
+Lcom/neuroflow/app/worker/ScheduleAutoTasksWorker;
+Lcom/neuroflow/app/worker/FocusWidgetUpdateWorker;
+Lcom/neuroflow/app/worker/NotificationWorkerKt;
+Lcom/neuroflow/app/worker/DailyPlanWorker;
+Lcom/neuroflow/app/worker/StreakCheckWorker;
+Lcom/neuroflow/app/worker/DeadlineEscalationWorker;
+Lcom/neuroflow/app/worker/TaskReminderWorker;

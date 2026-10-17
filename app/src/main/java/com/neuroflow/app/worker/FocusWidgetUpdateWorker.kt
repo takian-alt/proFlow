@@ -13,26 +13,81 @@ import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.repository.TaskRepository
-import com.neuroflow.app.domain.engine.TaskScoringEngine
+import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.EnergyDemand
+import com.neuroflow.app.domain.service.SchedulableTask
+import com.neuroflow.app.domain.service.TaskCategory
+import com.neuroflow.app.domain.service.TaskSchedulerService
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
+import java.util.Calendar
+import kotlin.math.roundToInt
 
 @HiltWorker
 class FocusWidgetUpdateWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val taskRepository: TaskRepository,
-    private val preferencesDataStore: UserPreferencesDataStore
+    private val preferencesDataStore: UserPreferencesDataStore,
+    private val taskSchedulerService: TaskSchedulerService,
+    private val circadianEnergyService: CircadianEnergyService
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
         try {
             val tasks = taskRepository.getActiveTasks()
             val preferences = preferencesDataStore.preferencesFlow.first()
-            val scoringContext = TaskScoringEngine.ScoringContext.from(tasks)
-            val sorted = TaskScoringEngine.sortedByScore(tasks, preferences)
-            val topTask = sorted.firstOrNull()
+            val nowMillis = System.currentTimeMillis()
+
+            val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+            val wakeHour = preferences.wakeUpHour
+            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
+            val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
+            val snapshot = circadianEnergyService.evaluateSnapshot(
+                timestampMillis = nowMillis,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = 480
+            )
+
+            val sortedWithScores = tasks.map { task ->
+                val schedulable = SchedulableTask(
+                    id = task.id,
+                    title = task.title,
+                    category = when (task.taskType) {
+                        TaskType.ANALYTICAL -> TaskCategory.DEEP_WORK
+                        TaskType.CREATIVE -> TaskCategory.CREATIVE
+                        TaskType.ADMIN -> TaskCategory.ADMIN
+                        TaskType.PHYSICAL -> TaskCategory.EXERCISE
+                    },
+                    priority = when (task.priority) {
+                        Priority.HIGH -> 2
+                        Priority.MEDIUM -> 1
+                        else -> 0
+                    },
+                    estimatedMinutes = task.estimatedDurationMinutes,
+                    energyDemand = when (task.energyLevel) {
+                        EnergyLevel.HIGH -> EnergyDemand.HIGH
+                        EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
+                        else -> EnergyDemand.LOW
+                    },
+                    isFrog = task.isFrog,
+                    scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: nowMillis) + it },
+                    deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
+                    isLocked = task.isScheduleLocked,
+                    parentTaskId = task.parentTaskId
+                )
+                val breakdown = taskSchedulerService.evaluateTaskScore(schedulable, snapshot)
+                task to breakdown
+            }.sortedByDescending { it.second.totalScore }
+
+            val topPair = sortedWithScores.firstOrNull()
+            val topTask = topPair?.first
+            val topScore = topPair?.second?.totalScore?.roundToInt() ?: 0
 
             val appWidgetManager = AppWidgetManager.getInstance(appContext)
 
@@ -42,7 +97,7 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                 focusViews.setTextViewText(R.id.widget_task_title, topTask.title)
                 focusViews.setTextViewText(
                     R.id.widget_task_score,
-                    "Priority Score: ${TaskScoringEngine.displayScore(topTask, preferences, scoringContext)}"
+                    "Priority Score: $topScore"
                 )
 
                 val startIntent = Intent(appContext, MainActivity::class.java).apply {
@@ -111,4 +166,3 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
         return Result.success()
     }
 }
-

@@ -41,4 +41,16 @@ abstract class DomainServiceModule {
     abstract fun bindBehavioralSupportService(
         impl: DefaultBehavioralSupportService
     ): BehavioralSupportService
+
+    @Binds
+    @Singleton
+    abstract fun bindCalendarSyncRepository(
+        impl: com.neuroflow.app.data.calendar.CalendarSyncDataSource
+    ): com.neuroflow.app.data.calendar.CalendarSyncRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAndroidCalendarSyncRepository(
+        impl: com.neuroflow.app.data.calendar.CalendarSyncDataSource
+    ): com.neuroflow.app.data.calendar.AndroidCalendarSyncRepository
 }

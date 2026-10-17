@@ -82,7 +82,8 @@ class PlanViewModelV2 @Inject constructor(
     private val quickNoteDao: QuickNoteDao? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
-    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
+    private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null
 ) : ViewModel() {
 
     private val _selectedDate = MutableStateFlow(startOfTodayMillis())
@@ -193,13 +194,123 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
-    fun triggerAutoScheduleNow() {
+    fun autoScheduleDay(dateMillis: Long = _selectedDate.value, forceReplan: Boolean = false) {
         viewModelScope.launch {
             _isAutoScheduling.value = true
+            try {
+                val prefs = preferencesDataStore.preferencesFlow.first()
+                val allTasks = taskRepository.getActiveTasks()
+                val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
+                val dayStart = cal.apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                val dayEnd = dayStart + 24 * 3600_000L - 1
+
+                val externalBusyWindows = calendarSyncRepository?.getBusyWindows(dayStart, dayEnd) ?: emptyList()
+
+                val zoneId = java.time.ZoneId.systemDefault()
+                val dayDate = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId).toLocalDate()
+                val nowMillis = System.currentTimeMillis()
+
+                val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+                val wakeHour = prefs.wakeUpHour
+                val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
+                val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
+
+                val candidateTasks = allTasks.filter { task ->
+                    val sDate = task.scheduledDate
+                    sDate == null || (sDate in dayStart..dayEnd && !task.isScheduleLocked)
+                }
+
+                val schedulableTasks = candidateTasks.map { task ->
+                    com.neuroflow.app.domain.service.SchedulableTask(
+                        id = task.id,
+                        title = task.title,
+                        category = when (task.taskType) {
+                            com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
+                            com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
+                            com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
+                            com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                        },
+                        priority = when (task.priority) {
+                            com.neuroflow.app.domain.model.Priority.HIGH -> 2
+                            com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
+                            else -> 0
+                        },
+                        estimatedMinutes = task.estimatedDurationMinutes,
+                        energyDemand = when (task.energyLevel) {
+                            com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
+                            com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
+                            else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
+                        },
+                        isFrog = task.isFrog,
+                        scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: dayStart) + it },
+                        deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
+                        isLocked = task.isScheduleLocked,
+                        parentTaskId = task.parentTaskId
+                    )
+                }
+
+                val protectedSlots = prefs.protectedTimeSlots.filter { it.isEnabled }.map {
+                    com.neuroflow.app.domain.service.ProtectedLocalSlot(
+                        startHour = it.startMinuteOfDay / 60,
+                        startMinute = it.startMinuteOfDay % 60,
+                        durationMinutes = it.durationMinutes
+                    )
+                }
+
+                val placements = taskSchedulerService.scheduleDay(
+                    tasks = schedulableTasks,
+                    dayDate = dayDate,
+                    nowMillis = nowMillis,
+                    wakeTimeMillis = wakeTimeMillis,
+                    lastSleepDurationMinutes = 480,
+                    busyWindows = externalBusyWindows,
+                    protectedSlots = protectedSlots,
+                    calibrationRatio = 1.20,
+                    forceReplan = forceReplan,
+                    zoneId = zoneId
+                )
+
+                for (placement in placements) {
+                    val fresh = taskRepository.getById(placement.task.id) ?: continue
+                    if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE || fresh.isScheduleLocked) continue
+                    val calSlot = Calendar.getInstance().apply { timeInMillis = placement.window.startMillis }
+                    val startOfDay = calSlot.apply {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }.timeInMillis
+                    val timeOffset = placement.window.startMillis - startOfDay
+
+                    taskRepository.update(
+                        fresh.copy(
+                            scheduledDate = startOfDay,
+                            scheduledTime = timeOffset,
+                            isAutoScheduled = true,
+                            plannedBlockMinutes = placement.window.durationMinutes,
+                            lastAutoScheduledAt = nowMillis,
+                            updatedAt = nowMillis
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PlanViewModelV2", "Auto-schedule failed", e)
+            } finally {
+                _isAutoScheduling.value = false
+            }
+        }
+    }
+
+    fun triggerAutoScheduleNow() {
+        viewModelScope.launch {
+            autoScheduleDay(_selectedDate.value, forceReplan = false)
             val request = OneTimeWorkRequestBuilder<ScheduleAutoTasksWorker>().build()
             workManager.enqueueUniqueWork("AutoScheduleNowV2", ExistingWorkPolicy.REPLACE, request)
-            kotlinx.coroutines.delay(1200)
-            _isAutoScheduling.value = false
         }
     }
 
