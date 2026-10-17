@@ -12,16 +12,26 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.neuroflow.app.MainActivity
+import com.neuroflow.app.data.repository.SessionRepository
+import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class FocusService : Service() {
+
+    @Inject lateinit var taskRepository: TaskRepository
+    @Inject lateinit var sessionRepository: SessionRepository
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private var tickerJob: Job? = null
@@ -88,7 +98,11 @@ class FocusService : Service() {
                     startTicker()
                 }
             }
-            ACTION_COMPLETE, ACTION_STOP -> {
+            ACTION_COMPLETE -> {
+                handleCompleteAndStop(taskId)
+                return START_NOT_STICKY
+            }
+            ACTION_STOP -> {
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
@@ -215,6 +229,32 @@ class FocusService : Service() {
             }
         } catch (_: Throwable) {
             // Defensive: headless / unit test
+        }
+    }
+
+    private fun handleCompleteAndStop(activeTaskId: String) {
+        tickerJob?.cancel()
+        tickerJob = null
+        serviceScope.launch {
+            withContext(NonCancellable + Dispatchers.IO) {
+                try {
+                    if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && activeTaskId.isNotBlank()) {
+                        val now = System.currentTimeMillis()
+                        val openSession = sessionRepository.getOpenSessionForTask(activeTaskId)
+                        if (openSession != null) {
+                            val durationMins = ((now - openSession.startedAt) / 60000f).coerceAtLeast(1f)
+                            sessionRepository.update(openSession.copy(endedAt = now, durationMinutes = durationMins))
+                        }
+                        val task = taskRepository.getById(activeTaskId)
+                        if (task != null) {
+                            taskRepository.completeAndRecur(task, now)
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // Defensive: protect teardown flow
+                }
+            }
+            stopForegroundAndSelf()
         }
     }
 

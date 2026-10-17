@@ -1,9 +1,13 @@
 package com.neuroflow.app.presentation.common
 
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
+import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
+import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import java.util.Calendar
 
 fun getWeekDays(referenceMillis: Long = System.currentTimeMillis()): List<Long> {
@@ -43,4 +47,31 @@ fun isTaskOnDay(task: TaskEntity, dayStart: Long, dayEnd: Long): Boolean {
 
 fun isProtectedSlotOnDay(slot: ProtectedTimeSlot, dayMillis: Long): Boolean {
     return slot.isEnabled && ProtectedSlotClock.occursOnDay(slot, dayMillis)
+}
+
+@Composable
+fun getQuadrantBgColor(quadrant: Quadrant): Color {
+    return when (quadrant) {
+        Quadrant.DO_FIRST  -> NeuroFlowColors.DoFirstBg
+        Quadrant.SCHEDULE  -> NeuroFlowColors.ScheduleBg
+        Quadrant.DELEGATE  -> NeuroFlowColors.DelegateBg
+        Quadrant.ELIMINATE -> NeuroFlowColors.EliminateBg
+    }
+}
+
+@Composable
+fun getQuadrantTextColor(quadrant: Quadrant): Color {
+    return when (quadrant) {
+        Quadrant.DO_FIRST  -> NeuroFlowColors.DoFirstText
+        Quadrant.SCHEDULE  -> NeuroFlowColors.ScheduleText
+        Quadrant.DELEGATE  -> NeuroFlowColors.DelegateText
+        Quadrant.ELIMINATE -> NeuroFlowColors.EliminateText
+    }
+}
+
+fun getQuadrantLabel(quadrant: Quadrant): String = when (quadrant) {
+    Quadrant.DO_FIRST  -> "DO FIRST"
+    Quadrant.SCHEDULE  -> "SCHEDULE"
+    Quadrant.DELEGATE  -> "DELEGATE"
+    Quadrant.ELIMINATE -> "ON HOLD"
 }

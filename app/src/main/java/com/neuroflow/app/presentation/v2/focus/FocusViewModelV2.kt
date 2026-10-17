@@ -14,8 +14,8 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.WoopRepository
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
-import com.neuroflow.app.presentation.focus.StepByStepPlanStep
+import com.neuroflow.app.domain.model.StepByStepPlanCodec
+import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.focus.audio.NeuralSoundscapePlayer
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator

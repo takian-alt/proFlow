@@ -1,4 +1,4 @@
-package com.neuroflow.app.presentation.focus
+package com.neuroflow.app.domain.model
 
 import java.util.Locale
 

@@ -1,4 +1,4 @@
-package com.neuroflow.app.presentation.focus
+package com.neuroflow.app.presentation.v2.focus.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape

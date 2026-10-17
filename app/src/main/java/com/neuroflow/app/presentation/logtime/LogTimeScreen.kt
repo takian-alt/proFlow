@@ -16,7 +16,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
-import com.neuroflow.app.presentation.matrix.MatrixViewModel
 
 /**
  * Standalone screen accessible from the drawer.
@@ -27,7 +26,7 @@ import com.neuroflow.app.presentation.matrix.MatrixViewModel
 @Composable
 fun LogTimeScreen(
     onNavigateBack: () -> Unit,
-    viewModel: MatrixViewModel = hiltViewModel()
+    viewModel: LogTimeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTask by remember { mutableStateOf<TaskEntity?>(null) }

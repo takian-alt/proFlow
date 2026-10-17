@@ -33,7 +33,7 @@ import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.presentation.common.GoalPeriod
 import com.neuroflow.app.presentation.common.TopGoalsRefillCard
-import com.neuroflow.app.presentation.common.NeuroFlowApp
+import com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2
 import com.neuroflow.app.presentation.common.NewChapterCard
 import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
 import com.neuroflow.app.presentation.onboarding.OnboardingScreen
@@ -308,28 +308,13 @@ class MainActivity : ComponentActivity() {
                                     onSkip = { weeklyGoalHandled = true }
                                 )
                                 else -> {
-                                    if (prefs.useV2Ui) {
-                                        com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2(
-                                            initialTaskId = initialFocusTaskId,
-                                            onInitialTaskConsumed = { initialFocusTaskId = null },
-                                            initialOpenComposer = initialNewTaskOpen,
-                                            onInitialComposerConsumed = { initialNewTaskOpen = false },
-                                            amoledDark = prefs.amoledDarkEnabled
-                                        )
-                                    } else {
-                                        NeuroFlowApp(
-                                            initialTaskId = initialFocusTaskId,
-                                            initialWoopTaskId = initialWoopTaskId,
-                                            initialGuideOpen = initialGuideOpen,
-                                            initialNewTaskOpen = initialNewTaskOpen,
-                                            initialScheduleOpen = initialScheduleOpen,
-                                            onInitialTaskConsumed = { initialFocusTaskId = null },
-                                            onInitialWoopTaskConsumed = { initialWoopTaskId = null },
-                                            onInitialGuideConsumed = { initialGuideOpen = false },
-                                            onInitialNewTaskConsumed = { initialNewTaskOpen = false },
-                                            onInitialScheduleConsumed = { initialScheduleOpen = false }
-                                        )
-                                    }
+                                    NeuroFlowAppV2(
+                                        initialTaskId = initialFocusTaskId,
+                                        onInitialTaskConsumed = { initialFocusTaskId = null },
+                                        initialOpenComposer = initialNewTaskOpen,
+                                        onInitialComposerConsumed = { initialNewTaskOpen = false },
+                                        amoledDark = prefs.amoledDarkEnabled
+                                    )
                                 }
                             }
                         }

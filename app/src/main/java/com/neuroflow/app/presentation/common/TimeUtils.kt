@@ -1,5 +1,15 @@
 package com.neuroflow.app.presentation.common
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -76,3 +86,40 @@ fun timeBlockHeadline(
     isTracking: Boolean,
     now: Long = System.currentTimeMillis()
 ): String = if (isTracking) "Focusing now" else formatRelativeTime(anchorMillis, hasTime, now)
+
+@Composable
+fun TagChip(tag: String) {
+    val chipColors = listOf(
+        Color(0xFF1C1F28),
+        Color(0xFF222736),
+        Color(0xFF2A2E3B),
+        Color(0xFF1F232E),
+        Color(0xFF252936),
+        Color(0xFF181B22)
+    )
+    val colorIndex = tag.hashCode().let { kotlin.math.abs(it) } % chipColors.size
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = chipColors[colorIndex],
+        modifier = Modifier.height(22.dp)
+    ) {
+        Text(
+            text = tag,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+        )
+    }
+}
+
+fun formatDurationFloat(minutes: Float): String {
+    val totalMinutes = minutes.toInt()
+    return when {
+        totalMinutes < 60 -> "${String.format(Locale.getDefault(), "%.1f", minutes)} min"
+        else -> {
+            val h = totalMinutes / 60
+            val m = totalMinutes % 60
+            "${h}h ${m}m"
+        }
+    }
+}

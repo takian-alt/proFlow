@@ -40,8 +40,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.neuroflow.app.presentation.focus.AffordanceRatingSheet
-import com.neuroflow.app.presentation.focus.WoopPromptSheet
+import com.neuroflow.app.presentation.v2.focus.components.AffordanceRatingSheet
+import com.neuroflow.app.presentation.v2.focus.components.WoopPromptSheet
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.util.Locale

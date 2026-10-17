@@ -25,7 +25,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
-import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
+import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 @Composable

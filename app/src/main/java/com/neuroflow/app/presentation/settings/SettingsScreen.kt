@@ -102,40 +102,6 @@ fun SettingsScreen(
             }
 
             // neuroFlow V2 UI Switcher Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (prefs.useV2Ui) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "✨ neuroFlow V2 Experience",
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Timeline day stream, OLED obsidian theme, AI smart composer, and live biological barometer",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = prefs.useV2Ui,
-                        onCheckedChange = { isChecked ->
-                            viewModel.updatePreferences { p -> p.copy(useV2Ui = isChecked) }
-                        }
-                    )
-                }
-            }
 
             // Profile & Identity
             SettingsSection("Profile & Identity") {

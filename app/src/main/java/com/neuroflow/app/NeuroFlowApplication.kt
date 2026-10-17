@@ -174,22 +174,6 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             }
         }
 
-        // Foreground refresh loop — while app process is alive, request a scheduler pass every 2-5 minutes.
-        // Background periodic work remains the fallback when the app process is not active.
-        applicationScope.launch {
-            while (true) {
-                val prefs = userPreferencesDataStore.preferencesFlow.first()
-                if (prefs.autoSchedulingEnabled) {
-                    workManager.enqueueUniqueWork(
-                        ScheduleAutoTasksWorker.FOREGROUND_TICK_WORK_NAME,
-                        ExistingWorkPolicy.KEEP,
-                        ScheduleAutoTasksWorker.buildOneTimeWorkRequest()
-                    )
-                }
-                val intervalMinutes = if (prefs.isAutoScheduleToggleOn) 2L else 5L
-                delay(TimeUnit.MINUTES.toMillis(intervalMinutes))
-            }
-        }
 
         // DistractionSyncWorker — runs once daily to refresh per-task distraction scores
         // Silently skips if PACKAGE_USAGE_STATS permission is not granted

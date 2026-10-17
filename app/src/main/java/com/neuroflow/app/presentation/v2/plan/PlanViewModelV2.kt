@@ -19,8 +19,8 @@ import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
 import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.ScheduleConflict
-import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
-import com.neuroflow.app.presentation.focus.StepByStepPlanStep
+import com.neuroflow.app.domain.model.StepByStepPlanCodec
+import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*

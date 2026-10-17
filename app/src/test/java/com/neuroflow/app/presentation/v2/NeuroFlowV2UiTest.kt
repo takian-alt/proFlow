@@ -17,7 +17,7 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.repository.EnergyScoreRepository
-import com.neuroflow.app.presentation.focus.StepByStepPlanCodec
+import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 import com.neuroflow.app.presentation.v2.focus.FocusTimerModeV2
 import com.neuroflow.app.presentation.v2.focus.FocusViewModelV2

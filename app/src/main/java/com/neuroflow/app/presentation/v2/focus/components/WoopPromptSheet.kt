@@ -1,4 +1,4 @@
-package com.neuroflow.app.presentation.focus
+package com.neuroflow.app.presentation.v2.focus.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.neuroflow.app.domain.engine.WoopEngine
-import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,7 +36,8 @@ fun WoopPromptSheet(
     ModalBottomSheet(
         onDismissRequest = onSkip,
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(
             modifier = Modifier
@@ -60,45 +61,52 @@ fun WoopPromptSheet(
             OutlinedTextField(
                 value = wish,
                 onValueChange = { wish = it },
-                label = { Text("Wish") },
-                placeholder = { Text("What do you wish to achieve?") },
-                singleLine = true,
+                label = { Text("Wish: What do you want to achieve?") },
+                placeholder = { Text("e.g. Finish the quarterly report draft") },
                 modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                maxLines = 2,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    focusedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigo
                 )
             )
+
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = outcome,
                 onValueChange = { outcome = it },
-                label = { Text("Outcome") },
-                placeholder = { Text("What's the best outcome?") },
-                minLines = 2,
-                maxLines = 3,
+                label = { Text("Outcome: What is the best result / feeling?") },
+                placeholder = { Text("e.g. Relief, clear weekend ahead") },
                 modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                maxLines = 2,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    focusedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigo
                 )
             )
+
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = obstacle,
-                onValueChange = { obstacle = it },
-                label = { Text("Obstacle") },
-                placeholder = { Text("What might get in the way?") },
-                minLines = 2,
-                maxLines = 3,
+                onValueChange = {
+                    obstacle = it
+                    planEdited = false
+                },
+                label = { Text("Obstacle: What internal hurdle might stop you?") },
+                placeholder = { Text("e.g. Checking phone when stuck, fatigue") },
                 modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                maxLines = 2,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    focusedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigo
                 )
             )
+
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
@@ -107,16 +115,17 @@ fun WoopPromptSheet(
                     plan = it
                     planEdited = true
                 },
-                label = { Text("Plan (if-then)") },
-                placeholder = { Text("If obstacle, then I will…") },
-                minLines = 2,
-                maxLines = 4,
+                label = { Text("Plan: If [obstacle], then I will [action]") },
+                placeholder = { Text("e.g. If I want to check my phone, then I will take 3 deep breaths") },
                 modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                maxLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NeuroFlowColors.Purple,
-                    focusedLabelColor = NeuroFlowColors.Purple
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    focusedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigo
                 )
             )
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(
@@ -131,13 +140,14 @@ fun WoopPromptSheet(
                 }
                 Button(
                     onClick = { onSubmit(wish, outcome, obstacle, plan) },
-                    modifier = Modifier.weight(1f),
                     enabled = wish.isNotBlank() && obstacle.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
                 ) {
-                    Text("Submit")
+                    Text("Save & Focus")
                 }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
