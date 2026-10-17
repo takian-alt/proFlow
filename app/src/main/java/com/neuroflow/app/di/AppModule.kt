@@ -25,13 +25,18 @@ import com.neuroflow.app.data.local.MIGRATION_18_19
 import com.neuroflow.app.data.local.MIGRATION_17_19
 import com.neuroflow.app.data.local.MIGRATION_19_20
 import com.neuroflow.app.data.local.MIGRATION_20_21
+import com.neuroflow.app.data.local.MIGRATION_21_22
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
+import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.NoteDao
+import com.neuroflow.app.data.local.dao.ProtectedSlotDao
+import com.neuroflow.app.data.local.dao.QuickNoteDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
+import com.neuroflow.app.data.local.dao.TaskMicroStepDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
@@ -78,7 +83,8 @@ object AppModule {
                 MIGRATION_18_19,
                 MIGRATION_17_19,
                 MIGRATION_19_20,
-                MIGRATION_20_21
+                MIGRATION_20_21,
+                MIGRATION_21_22
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -89,6 +95,18 @@ object AppModule {
 
     @Provides
     fun provideTimeSessionDao(database: NeuroFlowDatabase): TimeSessionDao = database.timeSessionDao()
+
+    @Provides
+    fun provideTaskMicroStepDao(database: NeuroFlowDatabase): TaskMicroStepDao = database.taskMicroStepDao()
+
+    @Provides
+    fun provideFocusSessionDao(database: NeuroFlowDatabase): FocusSessionDao = database.focusSessionDao()
+
+    @Provides
+    fun provideQuickNoteDao(database: NeuroFlowDatabase): QuickNoteDao = database.quickNoteDao()
+
+    @Provides
+    fun provideProtectedSlotDao(database: NeuroFlowDatabase): ProtectedSlotDao = database.protectedSlotDao()
 
     @Provides
     fun provideGoalDao(database: NeuroFlowDatabase): GoalDao = database.goalDao()

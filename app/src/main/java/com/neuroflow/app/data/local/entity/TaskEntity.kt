@@ -1,6 +1,7 @@
 package com.neuroflow.app.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
@@ -10,7 +11,14 @@ import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
 import java.util.UUID
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [
+        Index(value = ["status", "scheduledDate"], name = "index_tasks_status_scheduledDate"),
+        Index(value = ["status", "deadlineDate"], name = "index_tasks_status_deadlineDate"),
+        Index(value = ["parentTaskId"], name = "index_tasks_parentTaskId")
+    ]
+)
 data class TaskEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val title: String,

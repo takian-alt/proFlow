@@ -6,18 +6,26 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
+import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.NoteDao
+import com.neuroflow.app.data.local.dao.ProtectedSlotDao
+import com.neuroflow.app.data.local.dao.QuickNoteDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
+import com.neuroflow.app.data.local.dao.TaskMicroStepDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
+import com.neuroflow.app.data.local.entity.FocusSessionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.NoteEntity
+import com.neuroflow.app.data.local.entity.ProtectedSlotEntity
+import com.neuroflow.app.data.local.entity.QuickNoteEntity
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
@@ -25,6 +33,7 @@ import com.neuroflow.app.feature.hyperfocus.data.GateRequestDao
 import com.neuroflow.app.feature.hyperfocus.data.GateRequestEntity
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionEntity
+import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.feature.hyperfocus.data.UnlockCodeDao
 import com.neuroflow.app.feature.hyperfocus.data.UnlockCodeEntity
 
@@ -311,9 +320,140 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
     }
 }
 
+val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Create task_micro_steps table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `task_micro_steps` (
+                `id` TEXT NOT NULL,
+                `taskId` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `sortOrder` INTEGER NOT NULL,
+                `isCompleted` INTEGER NOT NULL,
+                `estimatedMinutes` INTEGER NOT NULL,
+                PRIMARY KEY(`id`),
+                FOREIGN KEY(`taskId`) REFERENCES `tasks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_task_micro_steps_task_id_sort` ON `task_micro_steps` (`taskId`, `sortOrder`)")
+
+        // 2. Create focus_sessions table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `focus_sessions` (
+                `id` TEXT NOT NULL,
+                `taskId` TEXT NOT NULL,
+                `startedAt` INTEGER NOT NULL,
+                `endedAt` INTEGER,
+                `durationSeconds` INTEGER NOT NULL,
+                `interruptionCount` INTEGER NOT NULL,
+                `energyAtStart` INTEGER NOT NULL,
+                `wasCompleted` INTEGER NOT NULL,
+                PRIMARY KEY(`id`),
+                FOREIGN KEY(`taskId`) REFERENCES `tasks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_started_at` ON `focus_sessions` (`startedAt`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_task_id` ON `focus_sessions` (`taskId`)")
+
+        // 3. Create quick_notes table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `quick_notes` (
+                `id` TEXT NOT NULL,
+                `content` TEXT NOT NULL,
+                `isPinned` INTEGER NOT NULL,
+                `convertedTaskId` TEXT,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+
+        // 4. Create protected_slots table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `protected_slots` (
+                `id` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `startHour` INTEGER NOT NULL,
+                `startMinute` INTEGER NOT NULL,
+                `durationMinutes` INTEGER NOT NULL,
+                `daysOfWeekMask` INTEGER NOT NULL,
+                `isEnabled` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+
+        // 5. Create composite indices on existing tables
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_status_scheduledDate` ON `tasks` (`status`, `scheduledDate`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_status_deadlineDate` ON `tasks` (`status`, `deadlineDate`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_parentTaskId` ON `tasks` (`parentTaskId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_energy_predictions_predictedAtMillis` ON `energy_predictions` (`predictedAtMillis`)")
+
+        // 6. Migrate legacy time_sessions to focus_sessions
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO `focus_sessions` (`id`, `taskId`, `startedAt`, `endedAt`, `durationSeconds`, `interruptionCount`, `energyAtStart`, `wasCompleted`)
+            SELECT s.id, s.taskId, s.startedAt, s.endedAt, CAST(ROUND(s.durationMinutes * 60) AS INTEGER), (s.pauseResumeCount + s.appSwitchCount + s.interruptionBurstCount), 50, CASE WHEN s.endedAt IS NOT NULL THEN 1 ELSE 0 END
+            FROM `time_sessions` s
+            WHERE s.taskId IN (SELECT id FROM `tasks`)
+            """.trimIndent()
+        )
+
+        // 7. Extract legacy micro-steps from tasks.ifThenPlan
+        val cursor = db.query("SELECT id, ifThenPlan FROM `tasks` WHERE `ifThenPlan` IS NOT NULL AND `ifThenPlan` != ''")
+        cursor.use { c ->
+            while (c.moveToNext()) {
+                val taskId = c.getString(0)
+                val ifThenPlan = c.getString(1)
+                val steps = StepByStepPlanCodec.parse(ifThenPlan)
+                steps.forEachIndexed { index, step ->
+                    val stepId = java.util.UUID.randomUUID().toString()
+                    val isCompleted = if (step.completed) 1 else 0
+                    val stmt = db.compileStatement(
+                        "INSERT INTO `task_micro_steps` (`id`, `taskId`, `title`, `sortOrder`, `isCompleted`, `estimatedMinutes`) VALUES (?, ?, ?, ?, ?, 5)"
+                    )
+                    stmt.bindString(1, stepId)
+                    stmt.bindString(2, taskId)
+                    stmt.bindString(3, step.text)
+                    stmt.bindLong(4, index.toLong())
+                    stmt.bindLong(5, isCompleted.toLong())
+                    stmt.executeInsert()
+                }
+            }
+        }
+
+        // 8. Prune energy_predictions older than 14 days
+        val cutoffMillis = System.currentTimeMillis() - (14L * 24 * 60 * 60 * 1000)
+        db.execSQL("DELETE FROM `energy_predictions` WHERE `predictedAtMillis` < $cutoffMillis")
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, TimeSessionEntity::class, GoalEntity::class, WoopEntity::class, UlyssesContractEntity::class, UnlockCodeEntity::class, HyperFocusSessionEntity::class, SleepLogEntity::class, EnergyPredictionEntity::class, NoteEntity::class, GateRequestEntity::class],
-    version = 21,
+    entities = [
+        TaskEntity::class,
+        TimeSessionEntity::class,
+        GoalEntity::class,
+        WoopEntity::class,
+        UlyssesContractEntity::class,
+        UnlockCodeEntity::class,
+        HyperFocusSessionEntity::class,
+        SleepLogEntity::class,
+        EnergyPredictionEntity::class,
+        NoteEntity::class,
+        GateRequestEntity::class,
+        TaskMicroStepEntity::class,
+        FocusSessionEntity::class,
+        QuickNoteEntity::class,
+        ProtectedSlotEntity::class
+    ],
+    version = 22,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -329,4 +469,8 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun energyPredictionDao(): EnergyPredictionDao
     abstract fun noteDao(): NoteDao
     abstract fun gateRequestDao(): GateRequestDao
+    abstract fun taskMicroStepDao(): TaskMicroStepDao
+    abstract fun focusSessionDao(): FocusSessionDao
+    abstract fun quickNoteDao(): QuickNoteDao
+    abstract fun protectedSlotDao(): ProtectedSlotDao
 }

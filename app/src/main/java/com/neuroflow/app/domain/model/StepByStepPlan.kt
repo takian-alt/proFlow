@@ -11,6 +11,9 @@ object StepByStepPlanCodec {
 
     fun parse(raw: String): List<StepByStepPlanStep> {
         return raw
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\r", "\n")
             .lineSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }

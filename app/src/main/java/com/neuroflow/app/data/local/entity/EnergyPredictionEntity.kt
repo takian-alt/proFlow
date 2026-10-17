@@ -1,6 +1,7 @@
 package com.neuroflow.app.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -9,7 +10,12 @@ import androidx.room.PrimaryKey
  *
  * One record per prediction refresh (~60 seconds). Bounded retention: 30 days raw, 90 days aggregated.
  */
-@Entity(tableName = "energy_predictions")
+@Entity(
+    tableName = "energy_predictions",
+    indices = [
+        Index(value = ["predictedAtMillis"], name = "index_energy_predictions_predictedAtMillis")
+    ]
+)
 data class EnergyPredictionEntity(
     @PrimaryKey
     val id: String,

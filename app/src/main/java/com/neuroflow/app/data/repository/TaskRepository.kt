@@ -12,8 +12,11 @@ import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
+import com.neuroflow.app.data.local.dao.TaskMicroStepDao
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -62,8 +65,45 @@ private fun nextRecurringAnchorAfter(
 class TaskRepository @Inject constructor(
     private val taskDao: TaskDao,
     private val hyperFocusManager: Lazy<HyperFocusManager>,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val taskMicroStepDao: TaskMicroStepDao? = null
 ) {
+    // Secondary constructor for tests or callers providing only base dependencies
+    constructor(
+        taskDao: TaskDao,
+        hyperFocusManager: Lazy<HyperFocusManager>,
+        workManager: WorkManager
+    ) : this(taskDao, hyperFocusManager, workManager, null)
+
+    fun observeMicroSteps(taskId: String): Flow<List<TaskMicroStepEntity>> =
+        taskMicroStepDao?.observeByTaskId(taskId) ?: flowOf(emptyList())
+
+    suspend fun getMicroSteps(taskId: String): List<TaskMicroStepEntity> =
+        taskMicroStepDao?.getByTaskId(taskId) ?: emptyList()
+
+    suspend fun insertMicroStep(step: TaskMicroStepEntity) {
+        taskMicroStepDao?.insert(step)
+    }
+
+    suspend fun insertMicroSteps(steps: List<TaskMicroStepEntity>) {
+        taskMicroStepDao?.insertAll(steps)
+    }
+
+    suspend fun updateMicroStep(step: TaskMicroStepEntity) {
+        taskMicroStepDao?.update(step)
+    }
+
+    suspend fun deleteMicroStep(step: TaskMicroStepEntity) {
+        taskMicroStepDao?.delete(step)
+    }
+
+    suspend fun deleteMicroStepsByTaskId(taskId: String) {
+        taskMicroStepDao?.deleteByTaskId(taskId)
+    }
+
+    suspend fun toggleMicroStepCompleted(step: TaskMicroStepEntity) {
+        taskMicroStepDao?.update(step.copy(isCompleted = !step.isCompleted))
+    }
     fun observeAll(): Flow<List<TaskEntity>> = taskDao.observeAll()
     fun observeActiveTasks(): Flow<List<TaskEntity>> = taskDao.observeActiveTasks()
     fun observeCompletedTasks(): Flow<List<TaskEntity>> = taskDao.observeCompletedTasks()
