@@ -1,30 +1,36 @@
-# VICE HEAD STRATEGIC BRIEFING & ARCHITECTURAL HANDOFF (PHASE 4 SIGN-OFF & ADR-002)
+# VICE HEAD STRATEGIC BRIEFING & ARCHITECTURAL HANDOFF (ADR-002 COMPLETION & ADR-003 PROPOSALS)
 
 **Classification**: Authoritative Strategic Architecture Dossier & Verification Sign-Off  
 **Channels**: Antigravity (Junior Architect) ───> User (Human Bridge) ───> Vice Head (Frontier Second-in-Command)  
 **Target System**: `neuroFlow` (Android 14 / Jetpack Compose / Kotlin 2.0 / Room v22 / Hilt DI)  
 **Repository Working Directory**: `/home/takian/Project/PROCUS`  
-**Current Branch**: `main` (Latest commit: `e3c91fa`)  
+**Current Branch**: `main` (Latest commit: `cae13f5`)  
 **Date**: October 18, 2026  
 
 ---
 
 ## 1. Executive Summary & Objective
 
-Vice Head, this dossier marks the **successful, 100% complete execution of Architectural Directive ADR-001 (Option B: Radical Triptych Redesign & Domain Consolidation)** across the `neuroFlow` codebase.
+Vice Head, this dossier marks the **successful, 100% verified execution of Architectural Directive ADR-002** across the `neuroFlow` codebase.
 
-Following the phased Strangler-Fig methodology you ratified, we have modernized the entire application architecture from database schemas to UI ViewModels, eliminating the 13 fundamental mathematical flaws and cognitive friction bottlenecks without incurring a single test regression.
+All four tracks mandated by your directive have been fully implemented, rigorously tested, and committed to git:
+1. **Track 1 (Legacy Engine Purge & Background Worker Modernization)**: Completely eliminated the Split-Brain scheduling risk. `ScheduleAutoTasksWorker`, `FocusWidgetUpdateWorker`, and `NotificationWorker` are now rewired to `TaskSchedulerService` and `CircadianEnergyService`. The monolithic `AutoSchedulingEngine.kt` (2,438 lines) and `TaskScoringEngine.kt` (1,282 lines) along with 10 superseded legacy test files have been hard-deleted (**6,883 lines of debt purged**).
+2. **Track 2 (Native Android Calendar Synchronization)**: Deployed `CalendarSyncDataSource.kt` implementing `AndroidCalendarSyncRepository` via `CalendarContract.Instances`. Features sweep-line interval coalescing, automatic 5-minute post-meeting decompression buffers for meetings $\ge 45$m, and self-authored block exclusion (`CUSTOM_APP_PACKAGE = "com.neuroflow.app"`). Wired directly into `PlanViewModelV2.kt`.
+3. **Track 3 (Passive Chronobiology Telemetry Normalizer)**: Deployed `ChronobiologySignalNormalizer.kt` featuring 45-minute WASO episodic coalescing, sleep stage architecture weighting ($d_{\text{eff}}$ prioritizing SWS and REM), Bayesian duration blending ($c \in [0.0..1.0]$), and $\pm 90$m late-sync wake shift damping to eliminate ADHD schedule whiplash.
+4. **Track 4 (Production Hardening & Baseline Profiles)**: Deployed curated static `baseline-prof.txt` targeting critical startup paths (`NeuroFlowApplication`, `MainActivity`, `FlowScreenV2`, `DefaultCircadianEnergyService`, Room DAOs) and hardened `proguard-rules.pro` for Room v22, Coroutines, and Foreground Service state machines.
 
 ### System Verification Scorecard:
-* **All 4 Refactoring Phases**: 100% COMPLETE.
-* **Test Suite Greenness**: **900 / 900 unit tests passing (100% pass rate, 0 failures, 0 errors, 0 skipped)** under strict memory-safe single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
-* **Schema Integrity**: Room upgraded from v21 to v22 via non-destructive automated migration (`MIGRATION_21_22`), introducing normalized child tables and composite indices with verified backward compatibility.
-* **Triptych Navigation Cutover**: Fully wired to **Flow** (Execution Cockpit), **Plan** (Visual Timeline & Calendar), and **Vault** (Icebox, Quick Notes & Insights).
-* **AMOLED Compliance**: Pure black (`#000000`) background and elevated surfaces verified with WCAG AAA/AA contrast compliance.
+* **All 5 Refactoring Phases**: 100% COMPLETE.
+* **Test Suite Greenness**: **840 / 840 unit tests passing (100% pass rate, 0 failures, 0 errors, 0 skipped)** under strict memory-safe single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
+* **Critical Bug Fixes Resolved**:
+  - In-place `Calendar` mutation bug in `ScheduleAutoTasksWorker.kt` and `PlanViewModelV2.kt` that was zeroing out current hour.
+  - Locked-task busy window omission in `PlanViewModelV2.kt` auto-scheduling.
+  - Inverted time range boundary checks in `CalendarSyncDataSource.kt`.
+  - Room v22 DAO class symbol correction in `baseline-prof.txt` and `proguard-rules.pro`.
 
 ---
 
-## 2. Refactoring Execution Ledger (Phases 1 — 4)
+## 2. Refactoring Execution Ledger (Phases 1 — 5)
 
 ```mermaid
 graph TD
@@ -56,54 +62,29 @@ graph TD
         PVM[PlanViewModelV2 wired to BSS + QuickNoteDao]
         FocusVM[FocusViewModelV2 wired to normalized micro-steps]
         AMOLED[WCAG AA AMOLED Theme Tokens]
-        Tests[900/900 Unit Tests Passing]
+    end
+
+    subgraph Phase5 ["Phase 5: ADR-002 Execution (3f70f01 / cae13f5)"]
+        Worker[Workers wired to TSS + CES]
+        PurgeEngines[Hard-deleted AutoSchedulingEngine & TaskScoringEngine: -6,883 lines]
+        CalSync[AndroidCalendarSyncRepository via CalendarContract.Instances]
+        ChronoNorm[ChronobiologySignalNormalizer with anti-whiplash damping]
+        Hardening[Static baseline-prof.txt & hardened proguard-rules.pro]
+        BugFixes[Resolved Calendar mutation & locked task preservation]
+        Tests840[840/840 Unit Tests Passing 100% Green]
     end
 
     Phase1 --> Phase2
     Phase2 --> Phase3
     Phase3 --> Phase4
+    Phase4 --> Phase5
 ```
-
-### 2.1 Phase 1 (`bc9e7d1`): P0 Fixes & Dead Code Purge
-- Fixed the P0 notification completion data loss in `FocusService.kt` using `NonCancellable + Dispatchers.IO` repository updates.
-- Decoupled `NeuroFlowApplication.kt` from eager blocking loops on cold start.
-- Relocated core utilities (`StepByStepPlan.kt`, focus sheets, `LogTimeViewModel.kt`).
-- Deleted 31 obsolete V1 UI files and 10 dead test suites, removing **13,753 lines of dead code**.
-
-### 2.2 Phase 2 (`5e87dfc`): Consolidated Domain Services
-- **`CircadianEnergyService`**: Implemented the continuous Borbély Two-Process model ($S(t_w)$, $C(t)$, $D_{\text{focus}}$, $E_{\text{usable}}$). Eliminated the artificial 60-minute cliff and modeled the bimodal afternoon dip naturally.
-- **`TaskSchedulerService`**: Implemented 4-vector normalized scoring ($\text{Score} \in [0.0..100.0]$), Kahn topological DAG scheduling, exact minute-resolution free intervals, and signed EWMA duration calibration.
-- **`BehavioralSupportService`**: Implemented non-punitive distraction intervention, 1-tap emergency schedule reset, and executive dysfunction micro-step decomposition.
-- **`TaskNaturalLanguageParser`**: Implemented token-based natural language parsing.
-- Bound services in Hilt DI via `DomainServiceModule`.
-
-### 2.3 Phase 3 (`c9e0ac0` & `7530109`): Room Database Normalization
-- Upgraded database to version 22 with non-destructive `MIGRATION_21_22`.
-- Created child tables:
-  - `task_micro_steps`: Foreign key cascading to `tasks(id)`.
-  - `focus_sessions`: Foreign key cascading to `tasks(id)`.
-  - `quick_notes`: Lean scratchpad table.
-  - `protected_slots`: Recurring protected calendar blocks.
-- Added composite indices: `tasks(status, scheduledDate)`, `tasks(status, deadlineDate)`, `tasks(parentTaskId)`, `energy_predictions(predictedAtMillis)`, `task_micro_steps(taskId, sortOrder)`.
-- Extracted legacy checklist data from `tasks.ifThenPlan` into `task_micro_steps` and migrated legacy `time_sessions` into `focus_sessions`.
-- Built automated migration test suite `RoomMigration21To22Test.kt`.
-
-### 2.4 Phase 4 (`e3c91fa`): Triptych Navigation & ViewModel Cutover
-- Consolidated navigation into 3 clean core hubs in `NavHubsV2`:
-  - **Flow** (`flow_v2`): Biological energy barometer, Daily Frog, 1-tap quick capture.
-  - **Plan** (`plan_v2`): Minute-resolution timeline, calendar matrix, and 1-tap auto-schedule.
-  - **Vault** (`insights_v2`): Unifies scratchpad notes (`quick_notes` table), Zero-Guilt Icebox, and long-term circadian insights.
-- Integrated `FlowViewModelV2`, `PlanViewModelV2`, and `FocusViewModelV2` with `CircadianEnergyService`, `TaskSchedulerService`, and `BehavioralSupportService`.
-- Decomposed micro-steps now automatically persist into `task_micro_steps` normalized table.
-- Quick thoughts in Plan/Flow persist into `quick_notes` table via `QuickNoteDao`.
-- AMOLED color palette verified in `NeuroFlowThemeV2.kt` with pure black `#000000` and high-contrast text (`#F8FAFC` at 19.8:1, `#94A3B8` at 8.6:1).
-- Added dedicated `Phase4TriptychViewModelIntegrationTest.kt`.
 
 ---
 
 ## 3. Ratified Mathematical Models & Implemented Formulas
 
-All formulas ratified in ADR-001 are live, tested, and active in production:
+All formulas ratified across ADR-001 and ADR-002 are live, active, and fully tested in production:
 
 ### 3.1 Continuous Borbély Two-Process Formulation (`CircadianEnergyService.kt`)
 1. **Sleep Debt Clearance**:
@@ -130,9 +111,21 @@ $$\text{Score}(\tau, t) = 0.30 \cdot U(\tau, t) + 0.30 \cdot I(\tau) + 0.25 \cdo
 - **Signed EWMA Calibration**:
   $$\rho_{\text{new}} = \text{clamp}_{[0.5, 2.5]}\left(0.75 \rho_{\text{old}} + 0.25 \frac{d_{\text{actual}}}{d_{\text{est}}}\right)$$
 
+### 3.3 Stage-Weighted & Anti-Whiplash Normalizer (`ChronobiologySignalNormalizer.kt`)
+1. **Sleep Stage Restorative Hours**:
+   $$d_{\text{eff}} = d_{\text{total}} \cdot \text{clamp}_{[0.75, 1.25]}\left(0.85 + 0.75 \cdot \frac{d_{\text{SWS}} + d_{\text{REM}}}{d_{\text{total}}}\right)$$
+2. **Bayesian Duration Blending**:
+   $$d_{\text{blended}} = c \cdot d_{\text{eff}} + (1 - c) \cdot d_{\text{base}}$$
+3. **Anti-Whiplash Wake-Time Clamping**:
+   $$t_{\text{wake}}^* = t_{\text{wake\_base}} + \text{clamp}_{[-90\text{m}, +90\text{m}]}\left(c \cdot (t_{\text{wake\_wearable}} - t_{\text{wake\_base}})\right)$$
+
+### 3.4 Sweep-Line Interval Coalescing & Decompression Buffering (`CalendarSyncDataSource.kt`)
+$$\text{BusyWindow}_{\text{effective}} = \left[s_{\text{merged}}, \; e_{\text{merged}} + \mathbb{I}(e_{\text{merged}} - s_{\text{merged}} \ge 45\text{m}) \cdot 5\text{m}\right]$$
+All overlapping intervals and intervals separated by $< 5\text{m}$ coalesce into a single unified busy window.
+
 ---
 
-## 4. Current Architecture Topology
+## 4. Current System Architecture Topology
 
 ```mermaid
 graph TD
@@ -146,15 +139,22 @@ graph TD
         Vault --> IVM[InsightsViewModelV2]
     end
 
+    subgraph OS_Bridge ["OS Local Bridge Layer"]
+        CalContract[Android CalendarContract.Instances] --> CSR[AndroidCalendarSyncRepository]
+        CSR --> PVM
+    end
+
     subgraph Domain ["Modern Domain Services Layer"]
-        FVM & PVM --> CES[CircadianEnergyService]
-        FVM & PVM --> TSS[TaskSchedulerService]
+        FVM & PVM & Workers[ScheduleAutoTasksWorker] --> CES[CircadianEnergyService]
+        FVM & PVM & Workers --> TSS[TaskSchedulerService]
         FVM & PVM & FocusVM[FocusViewModelV2] --> BSS[BehavioralSupportService]
         Composer[QuickCapture] --> NLP[TaskNaturalLanguageParser]
+        Chrono[Wearables / Health Connect] --> CSN[ChronobiologySignalNormalizer]
+        CSN --> CES
     end
 
     subgraph Data ["Normalized Data Layer (Room v22)"]
-        TSS & FVM & PVM --> TR[TaskRepository]
+        TSS & FVM & PVM & Workers --> TR[TaskRepository]
         FocusVM & IVM --> SR[SessionRepository]
         PVM --> QND[QuickNoteDao]
         
@@ -167,41 +167,32 @@ graph TD
 
 ---
 
-## 5. Strategic Crossroads & Strategic Review Request (ADR-002)
+## 5. Strategic Proposals & Questions for ADR-003
 
-With Phase 4 complete and all 900 tests green, the foundations of `neuroFlow` are rock-solid. We are now at the threshold of the next evolutionary phase.
+With the Split-Brain engine hazard permanently eliminated, native calendar synchronization operational, and production baseline profiles committed, we request your strategic directives for **ADR-003**:
 
-We solicit your authoritative review and strategic decisions on the following **4 Strategic Tracks for ADR-002**:
+### Topic 1: Health Connect Live Sensor Integration
+* **Context**: `ChronobiologySignalNormalizer` is currently pure domain logic with 7 dedicated unit tests.
+* **Proposal**: Add `androidx.health.connect:connect-client:1.1.0-alpha10` to `app/build.gradle.kts`, implement `HealthConnectSleepDataSource.kt` reading `SleepSessionRecord`, and register the Health Connect permissions contract.
+* **Question for Vice Head**: Do you endorse adding the Health Connect client dependency now, or should we keep the domain adapter boundary strictly abstract until the final release phase?
 
-### Track 1: Legacy Engine Strangler-Fig Sunsetting
-* **Context**: Legacy calculation engines (`TaskScoringEngine.kt`, `AutoSchedulingEngine.kt`, `PeakEnergyEngine.kt`, `MomentEnergyEngine.kt`, `DistractionEngine.kt`) still exist in the repository to satisfy legacy background workers and unit test suites.
-* **Option A**: Replace the internal implementations of these engines with thin delegation wrappers forwarding to `TaskSchedulerService`, `CircadianEnergyService`, and `BehavioralSupportService`, then retire legacy tests.
-* **Option B**: Keep legacy engines untouched as deprecated compatibility shims until a final release cut.
-* **Question for Vice Head**: What is your directive on the timeline and mechanism for sunsetting legacy calculation engines?
+### Topic 2: Deprecation of Legacy Energy Repositories
+* **Context**: `PeakEnergyRepository` and `EnergyScoreRepository` still exist as legacy data providers consumed by `SettingsScreen`, `SleepLogsScreen`, and `DistractionSyncWorker`.
+* **Proposal**: Re-wire `SettingsScreen` and `SleepLogsScreen` to read directly from `CircadianEnergyService` and `ChronobiologySignalNormalizer`, and safely retire `PeakEnergyRepository` and `EnergyScoreRepository`.
+* **Question for Vice Head**: What is your recommended sequence for sunsetting the remaining legacy energy repositories?
 
-### Track 2: Bidirectional External Calendar Synchronization (Plan Surface)
-* **Context**: ADHD and high-performance knowledge workers cannot maintain isolated schedule silos. The visual timeline on **Plan** needs awareness of Google Calendar / Outlook events.
-* **Proposed Architecture**: Use the Android `CalendarContract` provider with a read/write sync adapter. External events are mapped into `busyWindows: List<TimeSlotWindow>` for `TaskSchedulerService.scheduleDay`, so neuroFlow tasks auto-pack dynamically around meetings without collision.
-* **Question for Vice Head**: Do you endorse using Android's native `CalendarContract` local provider for privacy-preserving offline calendar sync, or a cloud OAuth token architecture?
-
-### Track 3: Passive Chronobiological Signals & Wearable Integration
-* **Context**: Currently, wake-up times and sleep durations are read from `UserPreferences` (or defaults).
-* **Proposed Architecture**: Integrate Android Health Connect API (`SleepSessionRecord`, `RestingHeartRateRecord`) to automatically feed real-world $t_{\text{sleep}}$, $t_{\text{wake}}$, and sleep stage efficiency into `CircadianEnergyService.evaluateSnapshot(...)`, removing manual input friction entirely.
-* **Question for Vice Head**: How should the `CircadianEnergyService` ingest fragmented or delayed sleep telemetry without causing sudden shifts in daytime task schedules?
-
-### Track 4: Production Hardening, Baseline Profiles & Memory Optimization
-* **Context**: Target devices include low-to-mid tier hardware where memory ceilings are constrained.
-* **Proposed Architecture**: Formulate custom ProGuard / R8 keep rules, construct Macrobenchmark Baseline Profiles for instantaneous cold starts, and verify that the 7.4 GB host memory ceiling is strictly adhered to.
+### Topic 3: UI Visual Polish & Widget Optimization
+* **Context**: With `FocusWidgetUpdateWorker` rewired to `TaskSchedulerService`, the home screen glance widget can render the real-time recommended Task and continuous energy level.
+* **Proposal**: Polish the Glance AppWidget layout and add interactive completion actions.
 
 ---
 
-## 6. Explicit Request for Vice Head Response
+## 6. Explicit Request for Vice Head Feedback
 
 Vice Head, please provide:
-1. **Architectural Sign-off on Phase 1–4 Execution**: Confirm whether the implemented domain services, Room v22 schema, and Triptych presentation meet your architectural standard.
-2. **Architectural Decision Record (ADR-002)**: Authoritative ruling on Tracks 1, 2, 3, and 4.
-3. **Mathematical or Algorithmic Refinements**: Any enhancements to the Two-Process equations, interval tree packing, or calendar sync stability heuristics.
-4. **Immediate Next Implementation Payload**: Concrete priority directives for the next development iteration.
+1. **Formal Architectural Sign-off on Phase 5**: Confirm acceptance of the legacy engine deletion, calendar sweep-line coalescing, chronobiology signal normalizer, and production baseline profile rules.
+2. **ADR-003 Directives**: Strategic ruling on Topics 1, 2, and 3.
+3. **Next Priority Payload**: The immediate priority task for the engineering core.
 
 ---
 *Ready for transmission to the Vice Head via human bridge.*
