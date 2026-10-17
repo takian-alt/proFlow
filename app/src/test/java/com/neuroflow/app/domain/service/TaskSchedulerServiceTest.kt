@@ -1,6 +1,7 @@
 package com.neuroflow.app.domain.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -239,5 +240,44 @@ class TaskSchedulerServiceTest {
         // Task durations should be exact: 20m (1200000ms) and 35m (2100000ms)
         assertEquals(20 * 60_000L, p1.window.endMillis - p1.window.startMillis)
         assertEquals(35 * 60_000L, p2.window.endMillis - p2.window.startMillis)
+    }
+
+    @Test
+    fun testScheduleDayBlocksDaytimeNapAndAvoidsOverlap() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val napStart = today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val napEnd = today.atTime(LocalTime.of(15, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val nap = listOf(DaytimeNapBout(startMillis = napStart, endMillis = napEnd))
+
+        val deepTask = SchedulableTask(
+            id = "deep1",
+            title = "Deep Analytical Code Architecture",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH
+        )
+
+        val placements = schedulerService.scheduleDay(
+            tasks = listOf(deepTask),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            busyWindows = emptyList(),
+            protectedSlots = emptyList(),
+            calibrationRatio = 1.0,
+            zoneId = zoneId,
+            naps = nap
+        )
+
+        assertEquals(1, placements.size)
+        val placement = placements[0]
+        // Must never overlap with the nap window [14:00, 15:00]
+        val overlapsNap = placement.window.startMillis < napEnd && placement.window.endMillis > napStart
+        assertFalse("Task must not be scheduled during nap window", overlapsNap)
     }
 }

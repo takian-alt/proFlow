@@ -53,3 +53,5 @@
 # ---- Modern Domain Services & ADR-002 Contracts ----
 -keep class com.neuroflow.app.domain.service.** { *; }
 -keep class com.neuroflow.app.data.calendar.** { *; }
+-keep class com.neuroflow.app.presentation.v2.focus.audio.** { *; }
+-keep class com.neuroflow.app.data.sleep.** { *; }

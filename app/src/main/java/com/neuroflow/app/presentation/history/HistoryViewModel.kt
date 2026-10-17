@@ -76,7 +76,7 @@ class HistoryViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 taskRepository.observeCompletedTasks(),
-                userPreferencesDataStore.preferencesFlow.map { it.tagCatalog },
+                userPreferencesDataStore.preferencesFlow.map { it.tagCatalog }.distinctUntilChanged(),
                 selectedDateRange,
                 selectedTag
             ) { tasks, catalogTags, range, tag ->

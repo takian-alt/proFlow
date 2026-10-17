@@ -81,16 +81,23 @@ class WeeklyScheduleViewModel @Inject constructor(
 
     private fun observePreferences() {
         viewModelScope.launch {
-            preferencesDataStore.preferencesFlow.collect { prefs ->
-                _uiState.update {
-                    it.copy(
-                        protectedSlots = prefs.protectedTimeSlots,
-                        weeklyIntent = prefs.weeklyIntent,
-                        workDayStart = prefs.workDayStart,
-                        workDayEnd = prefs.workDayEnd
-                    )
+            preferencesDataStore.preferencesFlow
+                .distinctUntilChanged { old, new ->
+                    old.protectedTimeSlots == new.protectedTimeSlots &&
+                    old.weeklyIntent == new.weeklyIntent &&
+                    old.workDayStart == new.workDayStart &&
+                    old.workDayEnd == new.workDayEnd
                 }
-            }
+                .collect { prefs ->
+                    _uiState.update {
+                        it.copy(
+                            protectedSlots = prefs.protectedTimeSlots,
+                            weeklyIntent = prefs.weeklyIntent,
+                            workDayStart = prefs.workDayStart,
+                            workDayEnd = prefs.workDayEnd
+                        )
+                    }
+                }
         }
     }
 

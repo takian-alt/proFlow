@@ -6,6 +6,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -18,6 +19,7 @@ class TaskTagViewModel @Inject constructor(
 
     val tags: StateFlow<List<String>> = userPreferencesDataStore.preferencesFlow
         .map { prefs -> prefs.tagCatalog }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun addTags(newTags: Collection<String>) {

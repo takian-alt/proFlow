@@ -192,4 +192,171 @@ class CircadianEnergyServiceTest {
             rested.recommendedDeepWorkMinutes >= sleepDeprived.recommendedDeepWorkMinutes
         )
     }
+
+    @Test
+    fun testPowerNap20mLowersProcessSAndRaisesEnergyWithoutInertiaOrPhaseShift() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val napStart = today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val napEnd = today.atTime(LocalTime.of(14, 20)).atZone(zoneId).toInstant().toEpochMilli()
+        val evalTime15 = today.atTime(LocalTime.of(15, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val powerNap = listOf(DaytimeNapBout(startMillis = napStart, endMillis = napEnd))
+
+        // Without nap
+        val snapNoNap = service.evaluateSnapshot(
+            timestampMillis = evalTime15,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        // With 20m power nap
+        val snapWithNap = service.evaluateSnapshot(
+            timestampMillis = evalTime15,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            naps = powerNap
+        )
+
+        // 1. Process S must be lower after nap
+        assertTrue(
+            "Process S with nap (${snapWithNap.homeostaticPressureS}) must be lower than without nap (${snapNoNap.homeostaticPressureS})",
+            snapWithNap.homeostaticPressureS < snapNoNap.homeostaticPressureS
+        )
+
+        // 2. Usable energy must be higher in afternoon
+        assertTrue(
+            "Usable energy with nap (${snapWithNap.usableEnergy}) must exceed no-nap energy (${snapNoNap.usableEnergy})",
+            snapWithNap.usableEnergy > snapNoNap.usableEnergy
+        )
+
+        // 3. Sleep inertia penalty for 20m nap must be strictly 0.0 (stays in stage 1/2)
+        assertEquals(0.0, snapWithNap.sleepInertiaPenalty, 0.0001)
+
+        // 4. Circadian alertness C(t) is 100% phase-locked (zero shift to phi)
+        assertEquals(snapNoNap.circadianAlertnessC, snapWithNap.circadianAlertnessC, 0.0001)
+
+        // 5. Daily summary peak hour phi is identical with or without nap
+        val summaryNoNap = service.computeDailySummary(
+            timestampMillis = evalTime15,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+        val summaryWithNap = service.computeDailySummary(
+            timestampMillis = evalTime15,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            naps = powerNap
+        )
+        assertEquals(summaryNoNap.peakWindowStartHour, summaryWithNap.peakWindowStartHour)
+    }
+
+    @Test
+    fun testDeepNap60mAppliesTransientSleepInertiaThatDecaysBy45Minutes() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val napStart = today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val napEnd = today.atTime(LocalTime.of(15, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val deepNap = listOf(DaytimeNapBout(startMillis = napStart, endMillis = napEnd))
+
+        // Immediately after waking: 15:01 (1 minute post-nap)
+        val time1501 = today.atTime(LocalTime.of(15, 1)).atZone(zoneId).toInstant().toEpochMilli()
+        val snapAtWake = service.evaluateSnapshot(
+            timestampMillis = time1501,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            naps = deepNap
+        )
+
+        // Sleep inertia penalty is active (> 0.10)
+        assertTrue(
+            "Sleep inertia penalty at 15:01 (${snapAtWake.sleepInertiaPenalty}) must be > 0.10",
+            snapAtWake.sleepInertiaPenalty > 0.10
+        )
+
+        // 45 minutes later: 15:45
+        val time1545 = today.atTime(LocalTime.of(15, 45)).atZone(zoneId).toInstant().toEpochMilli()
+        val snapAt45m = service.evaluateSnapshot(
+            timestampMillis = time1545,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            naps = deepNap
+        )
+
+        // Sleep inertia penalty must decay away (< 0.02)
+        assertTrue(
+            "Sleep inertia penalty at 15:45 (${snapAt45m.sleepInertiaPenalty}) must be < 0.02",
+            snapAt45m.sleepInertiaPenalty < 0.02
+        )
+
+        // Early evening: 18:00
+        val time1800 = today.atTime(LocalTime.of(18, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val snapEveningNoNap = service.evaluateSnapshot(
+            timestampMillis = time1800,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+        val snapEveningWithNap = service.evaluateSnapshot(
+            timestampMillis = time1800,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            naps = deepNap
+        )
+
+        // Inertia completely gone at 18:00
+        assertEquals(0.0, snapEveningWithNap.sleepInertiaPenalty, 0.001)
+
+        // Sustained early-evening energy higher than without nap
+        assertTrue(
+            "Evening energy with 60m nap (${snapEveningWithNap.usableEnergy}) must exceed no-nap energy (${snapEveningNoNap.usableEnergy})",
+            snapEveningWithNap.usableEnergy > snapEveningNoNap.usableEnergy
+        )
+    }
+
+    @Test
+    fun testNocturnalSleepAloneProducesBitForBitIdenticalOutputToPhase6() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val testTimes = listOf(
+            today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(12, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(15, 30)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(19, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(22, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+
+        for (t in testTimes) {
+            val legacy5ArgSnap = service.evaluateSnapshot(
+                timestampMillis = t,
+                wakeTimeMillis = wakeTime,
+                lastSleepDurationMinutes = 480,
+                continuousActiveFocusMinutes = 0,
+                zoneId = zoneId
+            )
+            val explicitEmptyNapsSnap = service.evaluateSnapshot(
+                timestampMillis = t,
+                wakeTimeMillis = wakeTime,
+                lastSleepDurationMinutes = 480,
+                continuousActiveFocusMinutes = 0,
+                zoneId = zoneId,
+                naps = emptyList()
+            )
+
+            assertEquals(legacy5ArgSnap.usableEnergy, explicitEmptyNapsSnap.usableEnergy)
+            assertEquals(legacy5ArgSnap.homeostaticPressureS, explicitEmptyNapsSnap.homeostaticPressureS, 0.0)
+            assertEquals(legacy5ArgSnap.circadianAlertnessC, explicitEmptyNapsSnap.circadianAlertnessC, 0.0)
+            assertEquals(legacy5ArgSnap.focusDepletionPenalty, explicitEmptyNapsSnap.focusDepletionPenalty, 0.0)
+            assertEquals(legacy5ArgSnap.phase, explicitEmptyNapsSnap.phase)
+            assertEquals(0.0, legacy5ArgSnap.sleepInertiaPenalty, 0.0)
+        }
+    }
 }

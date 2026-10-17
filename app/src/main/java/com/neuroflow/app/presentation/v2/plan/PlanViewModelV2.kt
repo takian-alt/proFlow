@@ -108,7 +108,14 @@ class PlanViewModelV2 @Inject constructor(
             PlanNavParams(date, mode, autoScheduling, tag)
         },
         taskRepository.observeActiveTasks(),
-        preferencesDataStore.preferencesFlow,
+        preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+            old.workDayStart == new.workDayStart &&
+            old.workDayEnd == new.workDayEnd &&
+            old.autoSchedulingEnabled == new.autoSchedulingEnabled &&
+            old.protectedTimeSlots == new.protectedTimeSlots &&
+            old.wakeUpHour == new.wakeUpHour &&
+            old.sleepPressurePoints == new.sleepPressurePoints
+        },
         sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
     ) { params, allTasks, prefs, sleepLogs ->
         val dateMillis = params.dateMillis
@@ -277,6 +284,14 @@ class PlanViewModelV2 @Inject constructor(
                     )
                 }
 
+                val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
+                val signal = sleepTelemetryRepository?.normalizeLogs(
+                    logs = sleepLogs,
+                    baseWakeMillis = wakeTimeMillis,
+                    baseSleepMinutes = 480.0
+                )
+                val naps = signal?.daytimeNaps ?: emptyList()
+
                 val placements = taskSchedulerService.scheduleDay(
                     tasks = schedulableTasks,
                     dayDate = dayDate,
@@ -287,7 +302,8 @@ class PlanViewModelV2 @Inject constructor(
                     protectedSlots = protectedSlots,
                     calibrationRatio = 1.20,
                     forceReplan = forceReplan,
-                    zoneId = zoneId
+                    zoneId = zoneId,
+                    naps = naps
                 )
 
                 for (placement in placements) {

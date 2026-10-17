@@ -81,7 +81,11 @@ class FlowViewModelV2 @Inject constructor(
         combine(
             taskRepository.observeActiveTasks(),
             taskRepository.observeCompletedTasks(),
-            preferencesDataStore.preferencesFlow,
+            preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+                old.wakeUpHour == new.wakeUpHour &&
+                old.sleepPressurePoints == new.sleepPressurePoints &&
+                old.onboardingCompleted == new.onboardingCompleted
+            },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { active, completed, prefs, sleepLogs ->
             Quad(active, completed, prefs, sleepLogs)

@@ -123,4 +123,48 @@ class ChronobiologySignalNormalizerTest : StringSpec({
         signal.consolidatedSessions shouldHaveSize 1
         signal.effectiveDurationMinutes shouldBe ((480.0 - 15.0) * (0.85 + 0.75 * (180.0 / 465.0)) plusOrMinus 1.0)
     }
+
+    "extractDaytimeNaps filters valid 10-180m bouts after morning wake" {
+        val morningWake = baseMillis + 480 * 60_000L
+        val microNap = TimeSlotWindow(morningWake + 60 * 60_000L, morningWake + 65 * 60_000L) // 5m (< 10m, invalid)
+        val powerNap = TimeSlotWindow(morningWake + 120 * 60_000L, morningWake + 140 * 60_000L) // 20m (valid)
+        val longSleep = TimeSlotWindow(morningWake + 200 * 60_000L, morningWake + 400 * 60_000L) // 200m (> 180m, invalid)
+
+        val naps = normalizer.extractDaytimeNaps(listOf(microNap, powerNap, longSleep), morningWake)
+        naps shouldHaveSize 1
+        naps[0].durationMinutes shouldBe 20
+        naps[0].startMillis shouldBe (morningWake + 120 * 60_000L)
+    }
+
+    "normalize extracts secondary daytime nap without corrupting morning wake anchor" {
+        val nocturnalSleep = TimeSlotWindow(baseMillis, baseMillis + 480 * 60_000L) // 8h sleep
+        val daytimeNap = TimeSlotWindow(baseMillis + 840 * 60_000L, baseMillis + 870 * 60_000L) // 30m nap at 14:00
+
+        val baseWake = baseMillis + 480 * 60_000L
+        val telemetry = RawSleepTelemetry(
+            intervals = listOf(nocturnalSleep, daytimeNap),
+            confidence = 1.0
+        )
+
+        val signal = normalizer.normalize(telemetry, baseWake, 480.0)
+        signal.normalizedWakeTimeMillis shouldBe baseWake // Wake anchor NOT corrupted to 14:30
+        signal.totalSleepMinutes shouldBe 480.0 // Nap not counted as nocturnal sleep
+        signal.daytimeNaps shouldHaveSize 1
+        signal.daytimeNaps[0].durationMinutes shouldBe 30
+    }
+
+    "normalize with ONLY daytime nap preserves baseWakeMillis and does not shift morning wake" {
+        val daytimeNap = TimeSlotWindow(baseMillis + 420 * 60_000L, baseMillis + 450 * 60_000L) // 30m nap at 14:00
+        val telemetry = RawSleepTelemetry(
+            intervals = listOf(daytimeNap),
+            detectedWakeMillis = daytimeNap.endMillis,
+            confidence = 1.0
+        )
+
+        val signal = normalizer.normalize(telemetry, baseMillis, 480.0)
+        signal.normalizedWakeTimeMillis shouldBe baseMillis // Strictly preserved, NOT shifted by +90m
+        signal.totalSleepMinutes shouldBe 480.0 // Falls back to baseline sleep
+        signal.daytimeNaps shouldHaveSize 1
+        signal.daytimeNaps[0].durationMinutes shouldBe 30
+    }
 })

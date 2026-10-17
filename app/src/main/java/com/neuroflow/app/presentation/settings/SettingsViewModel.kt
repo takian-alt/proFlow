@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -96,7 +97,9 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val circadianSummary: StateFlow<DailyCircadianSummary?> = combine(
-        preferencesDataStore.preferencesFlow,
+        preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+            old.wakeUpHour == new.wakeUpHour
+        },
         sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
     ) { prefs, sleepLogs ->
         val now = System.currentTimeMillis()
@@ -116,12 +119,23 @@ class SettingsViewModel @Inject constructor(
         val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
         val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
 
-        circadianEnergyService.computeDailySummary(
-            timestampMillis = now,
-            wakeTimeMillis = wakeTimeMillis,
-            lastSleepDurationMinutes = sleepDurationMinutes,
-            zoneId = zoneId
-        )
+        val naps = signal?.daytimeNaps ?: emptyList()
+        if (naps.isNotEmpty()) {
+            circadianEnergyService.computeDailySummary(
+                timestampMillis = now,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                zoneId = zoneId,
+                naps = naps
+            )
+        } else {
+            circadianEnergyService.computeDailySummary(
+                timestampMillis = now,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                zoneId = zoneId
+            )
+        }
     }
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 

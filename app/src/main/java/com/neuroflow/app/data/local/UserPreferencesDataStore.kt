@@ -20,6 +20,15 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
 
+/**
+ * ADR-004 ARCHITECTURAL DIRECTIVE (Track 1):
+ * FROZEN TO STRICTLY SCALAR PRIMITIVES GOING FORWARD.
+ *
+ * All complex, nested, or relational domain models MUST be persisted in Room child tables
+ * (e.g. Room v22 `task_micro_steps`, `focus_sessions`, `quick_notes`, `protected_slots`).
+ * ViewModels collecting [preferencesFlow] MUST apply `.distinctUntilChanged { old, new -> ... }`
+ * on only the specific scalar fields required for their state evaluation.
+ */
 data class UserPreferences(
     val wakeUpHour: Int = 7,
     val sleepHour: Int = 23,

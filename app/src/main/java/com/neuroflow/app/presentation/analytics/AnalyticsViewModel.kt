@@ -59,7 +59,15 @@ class AnalyticsViewModel @Inject constructor(
         combine(
             taskRepository.observeAll(),
             sessionRepository.observeAll(),
-            preferencesDataStore.preferencesFlow
+            preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+                old.quizPeakEnabled == new.quizPeakEnabled &&
+                old.effectivePeakStart == new.effectivePeakStart &&
+                old.effectivePeakEnd == new.effectivePeakEnd &&
+                old.peakEnergyStart == new.peakEnergyStart &&
+                old.peakEnergyEnd == new.peakEnergyEnd &&
+                old.dailyStreak == new.dailyStreak &&
+                old.longestStreak == new.longestStreak
+            }
         ) { tasks, sessions, prefs ->
             val summary = AnalyticsEngine.buildSummary(
                 allTasks = tasks,
@@ -100,7 +108,9 @@ class AnalyticsViewModel @Inject constructor(
         }.launchIn(viewModelScope)
 
         combine(
-            preferencesDataStore.preferencesFlow,
+            preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+                old.wakeUpHour == new.wakeUpHour
+            },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { prefs, sleepLogs ->
             val now = System.currentTimeMillis()

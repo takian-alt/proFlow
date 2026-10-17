@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -159,7 +160,12 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
         // ScheduleAutoTasksWorker — runs periodically (configurable throttle) to auto-schedule eligible tasks
         // Gated by autoSchedulingEnabled preference
         applicationScope.launch {
-            userPreferencesDataStore.preferencesFlow.collect { prefs ->
+            userPreferencesDataStore.preferencesFlow
+                .distinctUntilChanged { old, new ->
+                    old.autoSchedulingEnabled == new.autoSchedulingEnabled &&
+                    old.autoSchedulingBackgroundThrottleMinutes == new.autoSchedulingBackgroundThrottleMinutes
+                }
+                .collect { prefs ->
                 if (prefs.autoSchedulingEnabled) {
                     val throttleMinutes = prefs.autoSchedulingBackgroundThrottleMinutes
                     val autoScheduleRequest = ScheduleAutoTasksWorker.buildPeriodicWorkRequest(throttleMinutes)

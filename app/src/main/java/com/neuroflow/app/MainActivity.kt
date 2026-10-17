@@ -24,6 +24,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.TaskRepository
@@ -133,7 +134,26 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
 
         setContent {
-            val preferences by preferencesDataStore.preferencesFlow.collectAsState(initial = null)
+            val preferencesFlow = remember(preferencesDataStore) {
+                preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+                    old.theme == new.theme &&
+                    old.dynamicColorEnabled == new.dynamicColorEnabled &&
+                    old.amoledDarkEnabled == new.amoledDarkEnabled &&
+                    old.onboardingCompleted == new.onboardingCompleted &&
+                    old.lastAppOpenMillis == new.lastAppOpenMillis &&
+                    old.dailyStreak == new.dailyStreak &&
+                    old.lastActiveDate == new.lastActiveDate &&
+                    old.lastFreshStartShownWeek == new.lastFreshStartShownWeek &&
+                    old.lastFreshStartShownYear == new.lastFreshStartShownYear &&
+                    old.yearlyGoals == new.yearlyGoals &&
+                    old.weeklyGoals == new.weeklyGoals &&
+                    old.lastYearlyGoalShownYear == new.lastYearlyGoalShownYear &&
+                    old.lastWeeklyGoalShownWeek == new.lastWeeklyGoalShownWeek &&
+                    old.lastWeeklyGoalShownYear == new.lastWeeklyGoalShownYear &&
+                    old.firstAppOpenMillis == new.firstAppOpenMillis
+                }
+            }
+            val preferences by preferencesFlow.collectAsState(initial = null)
             val scope = rememberCoroutineScope()
             // Track whether fresh-start card has been handled this session
             var freshStartHandled by remember { mutableStateOf(false) }

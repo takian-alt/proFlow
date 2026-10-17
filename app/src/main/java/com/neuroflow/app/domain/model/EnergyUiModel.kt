@@ -126,12 +126,25 @@ fun computeEnergyUiState(
     val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
     val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
 
-    val snapshot = circadianEnergyService.evaluateSnapshot(
-        timestampMillis = nowMillis,
-        wakeTimeMillis = wakeTimeMillis,
-        lastSleepDurationMinutes = sleepDurationMinutes,
-        zoneId = zoneId
-    )
+    val naps = signal?.daytimeNaps ?: emptyList()
+    val snapshot = if (naps.isNotEmpty()) {
+        circadianEnergyService.evaluateSnapshot(
+            timestampMillis = nowMillis,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = sleepDurationMinutes,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId,
+            naps = naps
+        )
+    } else {
+        circadianEnergyService.evaluateSnapshot(
+            timestampMillis = nowMillis,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = sleepDurationMinutes,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId
+        )
+    }
 
     val energyUi = buildEnergyUiModel(
         usableEnergy = snapshot.usableEnergy,

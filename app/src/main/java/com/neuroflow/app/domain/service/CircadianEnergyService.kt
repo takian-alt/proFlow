@@ -25,13 +25,100 @@ enum class EnergyPhase {
     PEAK, REBOUND, DIP, WIND_DOWN, RECOVERY_NEEDED
 }
 
+/**
+ * Represents an intra-day restorative nap bout occurring after the primary morning wake time.
+ * Discharges Process S (homeostatic pressure) without shifting Process C (circadian phase).
+ */
+data class DaytimeNapBout(
+    val startMillis: Long,
+    val endMillis: Long
+) {
+    val durationMinutes: Int
+        get() = max(0L, (endMillis - startMillis) / 60_000L).toInt()
+}
+
+object PolyphasicNapCalculator {
+    private const val S_MIN = 0.10
+    private const val TAU_WAKE_HOURS = 18.2
+    private const val TAU_NAP_CLEARANCE_HOURS = 2.8
+    private const val INERTIA_THRESHOLD_MINUTES = 30
+    private const val INERTIA_DECAY_TAU_MINUTES = 20.0
+    private const val MAX_INERTIA_PENALTY = 0.12
+
+    data class NapAdjustedHomeostasis(
+        val processS: Double,
+        val sleepInertiaPenalty: Double
+    )
+
+    /**
+     * Evaluates sequential Process S accumulation and nap discharge across 0..N daytime naps.
+     */
+    fun computeHomeostaticState(
+        timestampMillis: Long,
+        morningWakeMillis: Long,
+        initialPressureS0: Double,
+        naps: List<DaytimeNapBout>
+    ): NapAdjustedHomeostasis {
+        if (timestampMillis <= morningWakeMillis) {
+            return NapAdjustedHomeostasis(initialPressureS0.coerceIn(0.0, 1.0), 0.0)
+        }
+
+        val validNaps = naps
+            .filter { it.startMillis >= morningWakeMillis && it.endMillis > it.startMillis && it.durationMinutes in 10..180 }
+            .sortedBy { it.startMillis }
+
+        var currentAnchorTime = morningWakeMillis
+        var currentAnchorS = initialPressureS0.coerceIn(S_MIN, 1.0)
+        var inertiaPenalty = 0.0
+
+        for (nap in validNaps) {
+            if (timestampMillis < nap.startMillis) break
+
+            // 1. Accumulate wake pressure up to nap start
+            val wakeHoursBeforeNap = max(0.0, (nap.startMillis - currentAnchorTime) / 3_600_000.0)
+            val sAtNapStart = 1.0 - (1.0 - currentAnchorS) * exp(-wakeHoursBeforeNap / TAU_WAKE_HOURS)
+
+            if (timestampMillis <= nap.endMillis) {
+                // Currently mid-nap: decay Process S up to current timestamp
+                val elapsedNapHours = max(0.0, (timestampMillis - nap.startMillis) / 3_600_000.0)
+                val sMidNap = S_MIN + (sAtNapStart - S_MIN) * exp(-elapsedNapHours / TAU_NAP_CLEARANCE_HOURS)
+                return NapAdjustedHomeostasis(sMidNap.coerceIn(0.0, 1.0), 0.0)
+            }
+
+            // 2. Nap completed prior to timestampMillis: discharge S and advance anchor to nap.endMillis
+            val napHours = nap.durationMinutes / 60.0
+            currentAnchorS = S_MIN + (sAtNapStart - S_MIN) * exp(-napHours / TAU_NAP_CLEARANCE_HOURS)
+            currentAnchorTime = nap.endMillis
+
+            // 3. Evaluate transient sleep inertia if nap exceeded 30 minutes (SWS entry)
+            if (nap.durationMinutes > INERTIA_THRESHOLD_MINUTES) {
+                val minsSinceNapWake = max(0.0, (timestampMillis - nap.endMillis) / 60_000.0)
+                val depthFactor = min(1.0, (nap.durationMinutes - INERTIA_THRESHOLD_MINUTES) / 30.0)
+                inertiaPenalty = MAX_INERTIA_PENALTY * depthFactor * exp(-minsSinceNapWake / INERTIA_DECAY_TAU_MINUTES)
+            } else {
+                inertiaPenalty = 0.0
+            }
+        }
+
+        // Accumulate wake pressure from the latest wake anchor (morning wake or last completed nap end)
+        val remainingWakeHours = max(0.0, (timestampMillis - currentAnchorTime) / 3_600_000.0)
+        val finalS = (1.0 - (1.0 - currentAnchorS) * exp(-remainingWakeHours / TAU_WAKE_HOURS)).coerceIn(0.0, 1.0)
+
+        return NapAdjustedHomeostasis(
+            processS = finalS,
+            sleepInertiaPenalty = inertiaPenalty
+        )
+    }
+}
+
 data class CircadianSnapshot(
     val timestampMillis: Long,
     val usableEnergy: Int,            // [0..100]
     val homeostaticPressureS: Double, // [0.0..1.0]
     val circadianAlertnessC: Double,  // [0.0..1.0]
     val focusDepletionPenalty: Double,// [0.0..0.15]
-    val phase: EnergyPhase
+    val phase: EnergyPhase,
+    val sleepInertiaPenalty: Double = 0.0
 ) {
     val circadianAlertness: Double get() = circadianAlertnessC
     val homeostaticSleepPressure: Double get() = homeostaticPressureS
@@ -52,8 +139,24 @@ interface CircadianEnergyService {
         timestampMillis: Long,
         wakeTimeMillis: Long,
         lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int,
+        zoneId: ZoneId
+    ): CircadianSnapshot = evaluateSnapshot(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = emptyList()
+    )
+
+    fun evaluateSnapshot(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
         continuousActiveFocusMinutes: Int = 0,
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        naps: List<DaytimeNapBout> = emptyList()
     ): CircadianSnapshot
 
     fun projectDayTimeline(
@@ -64,12 +167,30 @@ interface CircadianEnergyService {
         zoneId: ZoneId = ZoneId.systemDefault()
     ): List<CircadianSnapshot>
 
+    fun projectDayTimeline(
+        dayStartMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        stepMinutes: Int,
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>
+    ): List<CircadianSnapshot>
+
     fun computeDailySummary(
         timestampMillis: Long = System.currentTimeMillis(),
         wakeTimeMillis: Long,
         lastSleepDurationMinutes: Int = 480,
         continuousActiveFocusMinutes: Int = 0,
         zoneId: ZoneId = ZoneId.systemDefault()
+    ): DailyCircadianSummary
+
+    fun computeDailySummary(
+        timestampMillis: Long = System.currentTimeMillis(),
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int = 480,
+        continuousActiveFocusMinutes: Int = 0,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        naps: List<DaytimeNapBout> = emptyList()
     ): DailyCircadianSummary
 
     fun computeCategoryAffinity(
@@ -96,16 +217,38 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         lastSleepDurationMinutes: Int,
         continuousActiveFocusMinutes: Int,
         zoneId: ZoneId
+    ): CircadianSnapshot = evaluateSnapshot(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = emptyList()
+    )
+
+    override fun evaluateSnapshot(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int,
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>
     ): CircadianSnapshot {
         // 1. Continuous Sleep Recovery -> Initial Wake Pressure S0 (No 60m cliff)
         val sleepHours = max(0.0, lastSleepDurationMinutes / 60.0)
         val s0 = S_MIN + (S_MAX - S_MIN) * exp(-sleepHours / TAU_RECOVERY_HOURS)
 
-        // 2. Continuous Homeostatic Wake Pressure S(t_w)
-        val hoursAwake = max(0.0, (timestampMillis - wakeTimeMillis) / 3_600_000.0)
-        val processS = (1.0 - (1.0 - s0) * exp(-hoursAwake / TAU_WAKE_HOURS)).coerceIn(0.0, 1.0)
+        // 2. Continuous Homeostatic Wake Pressure with Daytime Nap Discharge
+        val homeostatic = PolyphasicNapCalculator.computeHomeostaticState(
+            timestampMillis = timestampMillis,
+            morningWakeMillis = wakeTimeMillis,
+            initialPressureS0 = s0,
+            naps = naps
+        )
+        val processS = homeostatic.processS
+        val inertiaPenalty = homeostatic.sleepInertiaPenalty
 
-        // 3. DST-Safe Wall-Clock Extraction for Process C(t)
+        // 3. DST-Safe Wall-Clock Extraction for Process C(t) (100% phase-locked to morning wake)
         val zonedNow = Instant.ofEpochMilli(timestampMillis).atZone(zoneId)
         val zonedWake = Instant.ofEpochMilli(wakeTimeMillis).atZone(zoneId)
         val clockHour = zonedNow.hour + (zonedNow.minute / 60.0)
@@ -126,9 +269,10 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         }
 
         // 5. Unified Usable Energy [0..100] (Fixes Flaw #8: Single fatigue representation)
-        val rawEnergy = 100.0 * (0.55 * processC + 0.45 * (1.0 - processS) - focusDepletion)
+        val rawEnergy = 100.0 * (0.55 * processC + 0.45 * (1.0 - processS) - focusDepletion - inertiaPenalty)
         val usableEnergy = rawEnergy.roundToInt().coerceIn(0, 100)
 
+        val hoursAwake = max(0.0, (timestampMillis - wakeTimeMillis) / 3_600_000.0)
         val phase = when {
             continuousActiveFocusMinutes >= 90 -> EnergyPhase.RECOVERY_NEEDED
             usableEnergy >= 72 -> EnergyPhase.PEAK
@@ -143,7 +287,8 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
             homeostaticPressureS = processS,
             circadianAlertnessC = processC,
             focusDepletionPenalty = focusDepletion,
-            phase = phase
+            phase = phase,
+            sleepInertiaPenalty = inertiaPenalty
         )
     }
 
@@ -153,6 +298,22 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         lastSleepDurationMinutes: Int,
         stepMinutes: Int,
         zoneId: ZoneId
+    ): List<CircadianSnapshot> = projectDayTimeline(
+        dayStartMillis = dayStartMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        stepMinutes = stepMinutes,
+        zoneId = zoneId,
+        naps = emptyList()
+    )
+
+    override fun projectDayTimeline(
+        dayStartMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        stepMinutes: Int,
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>
     ): List<CircadianSnapshot> {
         val stepMillis = stepMinutes * 60_000L
         val steps = (24 * 60) / stepMinutes
@@ -163,7 +324,8 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
                 wakeTimeMillis = wakeTimeMillis,
                 lastSleepDurationMinutes = lastSleepDurationMinutes,
                 continuousActiveFocusMinutes = 0,
-                zoneId = zoneId
+                zoneId = zoneId,
+                naps = naps
             )
         }
     }
@@ -174,13 +336,30 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         lastSleepDurationMinutes: Int,
         continuousActiveFocusMinutes: Int,
         zoneId: ZoneId
+    ): DailyCircadianSummary = computeDailySummary(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = emptyList()
+    )
+
+    override fun computeDailySummary(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int,
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>
     ): DailyCircadianSummary {
         val currentSnapshot = evaluateSnapshot(
             timestampMillis = timestampMillis,
             wakeTimeMillis = wakeTimeMillis,
             lastSleepDurationMinutes = lastSleepDurationMinutes,
             continuousActiveFocusMinutes = continuousActiveFocusMinutes,
-            zoneId = zoneId
+            zoneId = zoneId,
+            naps = naps
         )
 
         val zonedTimestamp = Instant.ofEpochMilli(timestampMillis).atZone(zoneId)
@@ -194,7 +373,8 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
             wakeTimeMillis = dayWakeMillis,
             lastSleepDurationMinutes = lastSleepDurationMinutes,
             stepMinutes = 30,
-            zoneId = zoneId
+            zoneId = zoneId,
+            naps = naps
         )
 
         // Peak Window: argmax E_usable(t)

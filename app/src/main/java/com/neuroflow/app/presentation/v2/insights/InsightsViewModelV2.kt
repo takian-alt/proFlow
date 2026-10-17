@@ -56,7 +56,12 @@ class InsightsViewModelV2 @Inject constructor(
     val uiState: StateFlow<InsightsUiStateV2> = combine(
         taskRepository.observeAll(),
         sessionRepository.observeAll(),
-        preferencesDataStore.preferencesFlow,
+        preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+            old.peakEnergyStart == new.peakEnergyStart &&
+            old.peakEnergyEnd == new.peakEnergyEnd &&
+            old.wakeUpHour == new.wakeUpHour &&
+            old.sleepPressurePoints == new.sleepPressurePoints
+        },
         contractRepository.observeActive(),
         sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
     ) { allTasks, allSessions, prefs, activeContracts, sleepLogs ->

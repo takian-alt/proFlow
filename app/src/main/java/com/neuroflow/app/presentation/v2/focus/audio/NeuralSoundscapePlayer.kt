@@ -27,6 +27,7 @@ class NeuralSoundscapePlayer(
         private const val TAG = "NeuralSoundscapePlayer"
         const val SAMPLE_RATE = 44100
         const val CHUNK_FRAMES = 1024 // ~23.2ms latency per synthesis buffer
+        const val FADE_DURATION_MS = 400L
         const val FADE_OUT_DURATION_MS = 400L
     }
 
@@ -202,6 +203,7 @@ class NeuralSoundscapePlayer(
             val buffer = ShortArray(CHUNK_FRAMES * 2)
             var fadeStartVol = currentVolume
             var fadeStartTime = 0L
+            val fadeInStartTime = System.currentTimeMillis()
 
             try {
                 while (isPlaying.get() && !Thread.currentThread().isInterrupted) {
@@ -223,7 +225,9 @@ class NeuralSoundscapePlayer(
                         }
                         val elapsed = System.currentTimeMillis() - fadeStartTime
                         val fraction = (elapsed.toFloat() / FADE_OUT_DURATION_MS).coerceIn(0f, 1f)
-                        vol = (fadeStartVol * (1f - fraction)).coerceAtLeast(0f)
+                        // Click-free raised cosine fade-out envelope
+                        val cosineFadeFactor = (0.5 * (1.0 + kotlin.math.cos(kotlin.math.PI * fraction))).toFloat()
+                        vol = (fadeStartVol * cosineFadeFactor).coerceAtLeast(0f)
 
                         generator.generateFrames(type, buffer, CHUNK_FRAMES, vol)
 
@@ -241,7 +245,16 @@ class NeuralSoundscapePlayer(
                         }
                     } else {
                         fadeStartTime = 0L
-                        vol = currentVolume
+                        val baseVol = currentVolume
+                        val elapsedIn = System.currentTimeMillis() - fadeInStartTime
+                        val inFraction = (elapsedIn.toFloat() / FADE_DURATION_MS).coerceIn(0f, 1f)
+                        // Click-free raised cosine fade-in envelope
+                        val cosineFadeIn = if (inFraction < 1.0f) {
+                            (0.5 * (1.0 - kotlin.math.cos(kotlin.math.PI * inFraction))).toFloat()
+                        } else {
+                            1.0f
+                        }
+                        vol = (baseVol * cosineFadeIn).coerceIn(0f, 1f)
                         generator.generateFrames(type, buffer, CHUNK_FRAMES, vol)
                     }
 

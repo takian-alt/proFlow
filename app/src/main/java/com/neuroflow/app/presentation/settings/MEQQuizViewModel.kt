@@ -9,6 +9,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import javax.inject.Inject
@@ -50,13 +51,18 @@ class MEQQuizViewModel @Inject constructor(
     init {
         // Load preferences and initialize quiz
         viewModelScope.launch {
-            preferencesDataStore.preferencesFlow.collect { prefs ->
-                _preferences.value = prefs
-                // Initialize quiz on first load
-                if (_quizState.value.questions.isEmpty()) {
-                    initializeQuiz(prefs)
+            preferencesDataStore.preferencesFlow
+                .distinctUntilChanged { old, new ->
+                    old.quizProgress == new.quizProgress &&
+                    old.wakeUpHour == new.wakeUpHour
                 }
-            }
+                .collect { prefs ->
+                    _preferences.value = prefs
+                    // Initialize quiz on first load
+                    if (_quizState.value.questions.isEmpty()) {
+                        initializeQuiz(prefs)
+                    }
+                }
         }
     }
 

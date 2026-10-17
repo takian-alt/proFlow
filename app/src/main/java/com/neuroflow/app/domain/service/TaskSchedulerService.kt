@@ -95,7 +95,8 @@ interface TaskSchedulerService {
         protectedSlots: List<ProtectedLocalSlot>,
         calibrationRatio: Double = 1.20,
         forceReplan: Boolean = false,
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        naps: List<DaytimeNapBout> = emptyList()
     ): List<ScheduledPlacement>
 }
 
@@ -198,7 +199,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         protectedSlots: List<ProtectedLocalSlot>,
         calibrationRatio: Double,
         forceReplan: Boolean,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>
     ): List<ScheduledPlacement> {
         if (tasks.isEmpty()) return emptyList()
 
@@ -212,7 +214,8 @@ class DefaultTaskSchedulerService @Inject constructor(
 
         // 2. Build Exact Minute-Resolution Free Intervals (Fixes Flaw #9)
         var freeIntervals = mutableListOf(TimeSlotWindow(dayStartMillis, dayEndMillis))
-        val allBlocked = busyWindows + protectedSlots.map { it.resolveForDate(dayDate, zoneId) }
+        val napWindows = naps.map { TimeSlotWindow(it.startMillis, it.endMillis) }
+        val allBlocked = busyWindows + protectedSlots.map { it.resolveForDate(dayDate, zoneId) } + napWindows
         for (blocked in allBlocked) {
             freeIntervals = subtractInterval(freeIntervals, blocked)
         }
@@ -235,9 +238,15 @@ class DefaultTaskSchedulerService @Inject constructor(
                 fitsInFreeIntervals(freeIntervals, existingWindow)
 
             if (keepAnchored && existingWindow != null) {
-                val snap = circadianService.evaluateSnapshot(
-                    existingWindow.startMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId
-                )
+                val snap = if (naps.isNotEmpty()) {
+                    circadianService.evaluateSnapshot(
+                        existingWindow.startMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId, naps
+                    )
+                } else {
+                    circadianService.evaluateSnapshot(
+                        existingWindow.startMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId
+                    )
+                }
                 val breakdown = evaluateTaskScore(
                     task, snap, dependentsMap[task.id]?.size ?: 0, calibrationRatio
                 )
@@ -270,9 +279,15 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
-        val nowSnapshot = circadianService.evaluateSnapshot(
-            dayStartMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId
-        )
+        val nowSnapshot = if (naps.isNotEmpty()) {
+            circadianService.evaluateSnapshot(
+                dayStartMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId, naps
+            )
+        } else {
+            circadianService.evaluateSnapshot(
+                dayStartMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId
+            )
+        }
         val scoreCache = remainingTasks.associate { t ->
             t.id to evaluateTaskScore(t, nowSnapshot, dependentsMap[t.id]?.size ?: 0, calibrationRatio)
         }
@@ -300,7 +315,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                 lastSleepDurationMinutes = lastSleepDurationMinutes,
                 dependentCount = dependentsMap[current.id]?.size ?: 0,
                 calibrationRatio = calibrationRatio,
-                zoneId = zoneId
+                zoneId = zoneId,
+                naps = naps
             )
 
             if (bestSlot != null) {
@@ -339,7 +355,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         lastSleepDurationMinutes: Int,
         dependentCount: Int,
         calibrationRatio: Double,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout> = emptyList()
     ): Pair<TimeSlotWindow, TaskScoreBreakdown>? {
         var bestWindow: TimeSlotWindow? = null
         var bestBreakdown: TaskScoreBreakdown? = null
@@ -350,9 +367,15 @@ class DefaultTaskSchedulerService @Inject constructor(
             var candidateStart = max(interval.startMillis, earliestStartMillis)
             while (candidateStart + durationMillis <= interval.endMillis) {
                 val midpoint = candidateStart + durationMillis / 2
-                val snap = circadianService.evaluateSnapshot(
-                    midpoint, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId
-                )
+                val snap = if (naps.isNotEmpty()) {
+                    circadianService.evaluateSnapshot(
+                        midpoint, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId, naps
+                    )
+                } else {
+                    circadianService.evaluateSnapshot(
+                        midpoint, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId
+                    )
+                }
                 val breakdown = evaluateTaskScore(task, snap, dependentCount, calibrationRatio)
                 // Slight bias toward earlier placement when energy fit is equal
                 val hoursFromNow = (candidateStart - earliestStartMillis) / 3_600_000.0

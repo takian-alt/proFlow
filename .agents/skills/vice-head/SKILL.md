@@ -212,6 +212,26 @@ When the user returns with the Vice Head's recommendations:
   3. **Interactive Glance Widget (Priority 3)**: Implemented `CompleteTaskWidgetAction.kt` and `CompleteTaskReceiver.kt` utilizing `goAsync()` with `NonCancellable + Dispatchers.IO` to execute atomic Room v22 task completion and enqueue immediate widget refresh (<150ms total response time). Updated `widget_next_action.xml` with 48dp+ `[ ✓ Done ]` touch target and dynamic `widget_energy_pill`.
   4. **Verification & Greenness**: 783/783 unit tests passing (100% pass rate, 0 failures, 0 errors, 0 skipped) under memory-safe execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
 
+### ADR-004: Release Hardening, Polyphasic Nap Biophysics & Pure-Kotlin Audio DSP
+- **Status**: RATIFIED & EXECUTED (October 18, 2026)
+- **Decisions & Implementation**:
+  1. **Polyphasic Nap Biophysics & Scheduling (Step 7.1)**:
+     - Endorsed Authoritative Neurobiological Ruling: daytime power naps (10m $\le d \le$ 180m) are treated strictly as an intra-day homeostatic pressure discharge ($\Delta S_{\text{nap}}$) and transient sleep inertia envelope ($I_{\text{inertia}}$), NEVER triggering a Process $C(t)$ circadian phase realignment ($\phi = t_{\text{wake\_hour}} + 4.5\text{h}$ remains phase-locked).
+     - Implemented `DaytimeNapBout` and `PolyphasicNapCalculator` with $\tau_{\text{nap}} = 2.8\text{h}$, $S_{\text{min}} = 0.10$, and 20-minute exponential decay sleep inertia penalty ($I_{\text{inertia}} \le 0.12$) for naps $> 30\text{m}$.
+     - Upgraded `ChronobiologySignalNormalizer` and `DefaultSleepTelemetryRepository` to isolate nocturnal sleep from daytime naps, ensuring telemetry with only daytime naps never shifts or corrupts the morning wake anchor.
+     - Wired into `DefaultCircadianEnergyService` (`evaluateSnapshot`, `projectDayTimeline`, `computeDailySummary`), `EnergyUiModel`, `SettingsViewModel`, `PlanViewModelV2`, and `TaskSchedulerService` (blocking naps from task placement and factoring nap discharge into placement scores).
+     - Verified with dedicated unit tests in `CircadianEnergyServiceTest`, `ChronobiologySignalNormalizerTest`, and `TaskSchedulerServiceTest`.
+  2. **Zero-Allocation Pure Kotlin DSP Audio Hardening (Step 7.2)**:
+     - Hardened `NeuralSoundscapePlayer` streaming synthesizer over `AudioTrack` (`MODE_STREAM`, 16-bit PCM, 44.1kHz stereo) with click-free 400ms raised cosine envelopes on fade-in and fade-out ($\text{FadeIn}(f) = 0.5(1 - \cos(\pi f))$, $\text{FadeOut}(f) = 0.5(1 + \cos(\pi f))$).
+     - Verified zero GC allocations inside the synthesis loop with strict off-main-thread playback thread confinement.
+  3. **DataStore & StrictMode Hardening (Step 7.3)**:
+     - Froze `UserPreferencesDataStore` strictly to scalar primitives.
+     - Applied `.distinctUntilChanged { old, new -> ... }` on scalar field subsets across ALL ViewModels collecting `preferencesFlow` (`FlowViewModelV2`, `PlanViewModelV2`, `FocusViewModelV2`, `InsightsViewModelV2`, `AnalyticsViewModel`, `SettingsViewModel`, `WeeklyScheduleViewModel`, `TaskTagViewModel`, `IdentityViewModel`, `HistoryViewModel`, `MEQQuizViewModel`, and `MainActivity`).
+     - Verified `StrictMode.ThreadPolicy` and `StrictMode.VmPolicy` active in debug builds in `NeuroFlowApplication.onCreate()`.
+  4. **Release Gate Verification (Step 7.4)**:
+     - Maintained 100% test pass rate across all unit tests under memory-bounded single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
+     - Verified `assembleRelease` R8 full-mode shrinking, ProGuard keep rules, and `baseline-prof.txt` compilation.
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
@@ -258,4 +278,19 @@ $$\text{Score}(\tau, t) = 0.30 \cdot U(\tau, t) + 0.30 \cdot I(\tau) + 0.25 \cdo
 $$\text{PeakWindow} = [\arg\max E_{\text{usable}}(t), \; \arg\max E_{\text{usable}}(t) + 3\text{h}]$$
 $$\text{DipWindow} = [\arg\min_{t \in [t_{\text{wake}}+4\text{h}, t_{\text{wake}}+11\text{h}]} E_{\text{usable}}(t), \; \arg\min E_{\text{usable}}(t) + 2\text{h}]$$
 Derived directly via `computeDailySummary(...)` projecting 30-minute intervals from a single source of truth without separate database table reads.
+
+### 6.6 Polyphasic Nap Biophysics & Sleep Inertia Envelope (`PolyphasicNapCalculator`)
+1. **Pre-Nap Homeostatic Pressure ($S_{\text{pre}}$)**:
+   $$S_{\text{pre}} = 1.0 - (1.0 - S_0) \cdot \exp\left(-\frac{t_{w1}}{\tau_w}\right), \quad \tau_w = 18.2\text{h}$$
+2. **Exponential Homeostatic Discharge During Nap ($S_{\text{post}}$)**:
+   $$S_{\text{post}} = S_{\text{min}} + (S_{\text{pre}} - S_{\text{min}}) \cdot \exp\left(-\frac{d_{\text{nap}}}{\tau_{\text{nap}}}\right), \quad \tau_{\text{nap}} = 2.8\text{h}, \quad S_{\text{min}} = 0.10$$
+3. **Post-Nap Homeostatic Trajectory ($S(t)$ for $t \ge t_{\text{nap\_end}}$)**:
+   $$S(t) = 1.0 - (1.0 - S_{\text{post}}) \cdot \exp\left(-\frac{t_{w2}}{\tau_w}\right)$$
+4. **Transient Sleep Inertia Penalty for SWS Naps ($d_{\text{nap\_mins}} > 30$)**:
+   $$I_{\text{inertia}}(t) = \begin{cases} 0.12 \cdot \min\left(1.0, \frac{d_{\text{nap\_mins}} - 30}{30}\right) \cdot \exp\left(-\frac{t_{m2}}{20.0}\right) & \text{if } d_{\text{nap\_mins}} > 30 \text{ and } t \ge t_{\text{nap\_end}} \\ 0.0 & \text{otherwise} \end{cases}$$
+5. **Phase-Locked Usable Energy Equation**:
+   $$E_{\text{usable}}(t) = \text{clamp}_{[0, 100]}\left(100 \cdot \left[ 0.55 \cdot C(t_{\text{clock}}) + 0.45 \cdot (1.0 - S(t)) - D_{\text{focus}} - I_{\text{inertia}}(t) \right]\right)$$
+   *(Process $C(t)$ remains 100% phase-locked to morning wake $t_{\text{wake}}$; naps do not shift $\phi$).*
+6. **Raised Cosine Audio Transition Envelope**:
+   $$\text{FadeIn}(f) = 0.5 \cdot (1.0 - \cos(\pi \cdot f)), \quad \text{FadeOut}(f) = 0.5 \cdot (1.0 + \cos(\pi \cdot f)) \quad (f \in [0.0..1.0] \text{ over } 400\text{ms})$$
 

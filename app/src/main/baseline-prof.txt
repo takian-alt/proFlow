@@ -42,6 +42,13 @@ Lcom/neuroflow/app/domain/service/DefaultTaskNaturalLanguageParser;
 Lcom/neuroflow/app/domain/service/ChronobiologySignalNormalizer;
 Lcom/neuroflow/app/domain/service/RawSleepTelemetry;
 Lcom/neuroflow/app/domain/service/NormalizedChronobiologySignal;
+Lcom/neuroflow/app/domain/service/DaytimeNapBout;
+Lcom/neuroflow/app/domain/service/PolyphasicNapCalculator;
+
+# Pure Kotlin DSP Soundscape Generator & AudioTrack Player
+Lcom/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapeGenerator;
+Lcom/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapePlayer;
+Lcom/neuroflow/app/presentation/v2/focus/audio/SoundscapeType;
 
 # Android Native Calendar Sync
 Lcom/neuroflow/app/data/calendar/CalendarSyncRepository;

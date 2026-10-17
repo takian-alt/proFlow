@@ -113,13 +113,14 @@ class DefaultSleepTelemetryRepository @Inject constructor(
             else -> 0.85
         }
 
-        val (consolidated, wasoMinutes) = normalizer.coalesceWasoEpisodes(intervals)
-        val rawMinutes = (consolidated.sumOf { (it.endMillis - it.startMillis) / 60_000.0 } - wasoMinutes).coerceAtLeast(0.0)
+        val nocturnalLogs = validLogs.filter { it.startAt < baseWakeMillis || (it.endAt - it.startAt) > 180 * 60_000L }
+        val effectiveNocturnalLogs = if (nocturnalLogs.isNotEmpty()) nocturnalLogs else emptyList()
+        val (nocturnalConsolidated, nocturnalWaso) = normalizer.coalesceWasoEpisodes(effectiveNocturnalLogs.map { TimeSlotWindow(it.startAt, it.endAt) })
+        val nocturnalRawMinutes = (nocturnalConsolidated.sumOf { (it.endMillis - it.startMillis) / 60_000.0 } - nocturnalWaso).coerceAtLeast(0.0)
 
-        val finalDeep = if (anyStageParsed) totalDeep else if (hasWearableSource) rawMinutes * 0.20 else 0.0
-        val finalRem = if (anyStageParsed) totalRem else if (hasWearableSource) rawMinutes * 0.20 else 0.0
-
-        val latestWake = validLogs.maxOfOrNull { it.endAt }
+        val finalDeep = if (anyStageParsed) totalDeep else if (hasWearableSource && effectiveNocturnalLogs.isNotEmpty()) nocturnalRawMinutes * 0.20 else 0.0
+        val finalRem = if (anyStageParsed) totalRem else if (hasWearableSource && effectiveNocturnalLogs.isNotEmpty()) nocturnalRawMinutes * 0.20 else 0.0
+        val latestWake = nocturnalLogs.maxOfOrNull { it.endAt }
 
         val telemetry = RawSleepTelemetry(
             intervals = intervals,

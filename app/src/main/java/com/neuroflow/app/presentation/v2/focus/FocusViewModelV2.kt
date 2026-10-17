@@ -172,9 +172,14 @@ class FocusViewModelV2 @Inject constructor(
 
     private fun observePreferences() {
         viewModelScope.launch {
-            preferencesDataStore.preferencesFlow.collect { prefs ->
-                _uiState.update { it.copy(preferences = prefs) }
-            }
+            preferencesDataStore.preferencesFlow
+                .distinctUntilChanged { old, new ->
+                    old.dndEnabled == new.dndEnabled &&
+                    old.totalFocusMinutes == new.totalFocusMinutes
+                }
+                .collect { prefs ->
+                    _uiState.update { it.copy(preferences = prefs) }
+                }
         }
     }
 

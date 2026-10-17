@@ -21,7 +21,8 @@ data class NormalizedChronobiologySignal(
     val blendedDurationMinutes: Double,
     val normalizedWakeTimeMillis: Long,
     val totalWasoMinutes: Double,
-    val consolidatedSessions: List<TimeSlotWindow>
+    val consolidatedSessions: List<TimeSlotWindow>,
+    val daytimeNaps: List<DaytimeNapBout> = emptyList()
 )
 
 /**
@@ -134,6 +135,21 @@ class ChronobiologySignalNormalizer @Inject constructor() {
     }
 
     /**
+     * Extracts secondary daytime sleep bouts (10m <= d <= 180m) occurring after the morning wake anchor.
+     */
+    fun extractDaytimeNaps(
+        intervals: List<TimeSlotWindow>,
+        effectiveWakeTimeMillis: Long
+    ): List<DaytimeNapBout> {
+        val (consolidated, _) = coalesceWasoEpisodes(intervals)
+        return consolidated
+            .filter { it.startMillis >= effectiveWakeTimeMillis && it.endMillis > it.startMillis }
+            .map { DaytimeNapBout(it.startMillis, it.endMillis) }
+            .filter { it.durationMinutes in 10..180 }
+            .sortedBy { it.startMillis }
+    }
+
+    /**
      * Full normalization pipeline aggregating telemetry into normalized signal.
      */
     fun normalize(
@@ -142,8 +158,61 @@ class ChronobiologySignalNormalizer @Inject constructor() {
         baseSleepMinutes: Double
     ): NormalizedChronobiologySignal {
         val (consolidated, wasoMinutes) = coalesceWasoEpisodes(telemetry.intervals)
-        val rawSleepMinutes = if (telemetry.intervals.isNotEmpty()) {
-            consolidated.sumOf { (it.endMillis - it.startMillis) / 60_000.0 } - wasoMinutes
+
+        // Identify primary nocturnal sleep vs secondary daytime naps
+        val nocturnalSessions = consolidated.filter {
+            it.startMillis < baseWakeMillis || (it.endMillis - it.startMillis) > 180 * 60_000L
+        }
+
+        val nocturnalWake = nocturnalSessions.maxOfOrNull { it.endMillis }
+        val wearableWake = when {
+            nocturnalWake != null -> {
+                if (telemetry.detectedWakeMillis != null &&
+                    telemetry.detectedWakeMillis <= nocturnalWake + MAX_WASO_GAP_MILLIS &&
+                    telemetry.detectedWakeMillis >= nocturnalWake - MAX_WASO_GAP_MILLIS
+                ) {
+                    telemetry.detectedWakeMillis
+                } else {
+                    nocturnalWake
+                }
+            }
+            telemetry.detectedWakeMillis != null &&
+                kotlin.math.abs(telemetry.detectedWakeMillis - baseWakeMillis) <= MAX_WAKE_SHIFT_MILLIS &&
+                consolidated.none { it.endMillis == telemetry.detectedWakeMillis } -> {
+                telemetry.detectedWakeMillis
+            }
+            else -> baseWakeMillis
+        }
+
+        val normalizedWake = clampWakeShift(
+            baseWakeMillis = baseWakeMillis,
+            wearableWakeMillis = wearableWake,
+            confidence = telemetry.confidence
+        )
+
+        // Extract secondary daytime sleep bouts (10m <= d <= 180m) after morning wake
+        val daytimeNaps = consolidated
+            .filter { it.startMillis >= (nocturnalWake ?: normalizedWake) && it.endMillis > it.startMillis }
+            .map { DaytimeNapBout(it.startMillis, it.endMillis) }
+            .filter { it.durationMinutes in 10..180 }
+            .sortedBy { it.startMillis }
+
+        val napIntervalWindows = daytimeNaps.map { TimeSlotWindow(it.startMillis, it.endMillis) }
+        val primarySessions = consolidated.filter { s ->
+            napIntervalWindows.none { it.startMillis == s.startMillis && it.endMillis == s.endMillis }
+        }
+
+        var effectiveWasoMinutes = wasoMinutes
+        val rawSleepMinutes = if (primarySessions.isNotEmpty()) {
+            val (primCoalesced, primWaso) = coalesceWasoEpisodes(
+                telemetry.intervals.filter { interval ->
+                    primarySessions.any { p -> interval.startMillis >= p.startMillis && interval.endMillis <= p.endMillis }
+                }
+            )
+            effectiveWasoMinutes = primWaso
+            (primCoalesced.sumOf { (it.endMillis - it.startMillis) / 60_000.0 } - primWaso).coerceAtLeast(0.0)
+        } else if (telemetry.intervals.isEmpty()) {
+            baseSleepMinutes
         } else {
             baseSleepMinutes
         }.coerceAtLeast(0.0)
@@ -160,20 +229,14 @@ class ChronobiologySignalNormalizer @Inject constructor() {
             confidence = telemetry.confidence
         )
 
-        val wearableWake = telemetry.detectedWakeMillis ?: consolidated.lastOrNull()?.endMillis ?: baseWakeMillis
-        val normalizedWake = clampWakeShift(
-            baseWakeMillis = baseWakeMillis,
-            wearableWakeMillis = wearableWake,
-            confidence = telemetry.confidence
-        )
-
         return NormalizedChronobiologySignal(
             totalSleepMinutes = rawSleepMinutes,
             effectiveDurationMinutes = effectiveDuration,
             blendedDurationMinutes = blendedDuration,
             normalizedWakeTimeMillis = normalizedWake,
-            totalWasoMinutes = wasoMinutes.toDouble(),
-            consolidatedSessions = consolidated
+            totalWasoMinutes = effectiveWasoMinutes.toDouble(),
+            consolidatedSessions = consolidated,
+            daytimeNaps = daytimeNaps
         )
     }
 }
