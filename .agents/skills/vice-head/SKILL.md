@@ -195,6 +195,15 @@ When the user returns with the Vice Head's recommendations:
     - Added dedicated unit test suite `Phase4TriptychViewModelIntegrationTest`.
     - All 900/900 unit tests passing with 0 failures, 0 errors, 0 skipped (100% test greenness).
 
+### ADR-002 Consultation Dossier Dispatched (October 18, 2026)
+- **Status**: TRANSMITTED VIA HUMAN BRIDGE (`VICE_HEAD_HANDOFF.md`)
+- **Core Verification**: All 4 phases of ADR-001 verified green (900/900 tests passing).
+- **Decisions Requested**:
+  1. **Legacy Engine Sunsetting**: Timeline for replacing legacy calculation engines with thin delegates.
+  2. **External Calendar Sync**: Endorsement of Android native `CalendarContract` provider vs. cloud OAuth.
+  3. **Biometric Integration**: Health Connect passive sleep/circadian telemetry ingestion into `CircadianEnergyService`.
+  4. **Production Hardening**: Baseline profiles and custom R8 optimization.
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
