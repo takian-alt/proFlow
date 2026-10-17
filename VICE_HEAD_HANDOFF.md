@@ -88,7 +88,32 @@ This handoff packet contains the unabridged architectural context, design invari
 
 ---
 
-## 4. Key Files & Architecture Map
+## 4. System Topology & Concurrency Architecture
+
+### 4.1 Macro Component Graph & Data Flow
+```mermaid
+graph TD
+    UI[Jetpack Compose M3 (V2 Screens)] -->|Events / Intents| VM[V2 ViewModels]
+    VM -->|Observes| StateFlow[Unidirectional StateFlow]
+    VM -->|Commands| UseCase[Domain Engines: Borbély, Scoring, Inference]
+    UseCase -->|Reads / Writes| Repo[Repository Layer]
+    Repo -->|Reactive Flow| Room[Room SQLite DB (v12)]
+    Repo -->|Background Enqueue| Work[WorkManager / Autonomous Nudges]
+    VM -->|IPC / Control| Service[FocusService (Foreground SpecialUse)]
+    Service -->|Monotonic Clock| Calc[FocusTimingCalculator]
+    Service -->|Audio PCM Pipe| DSP[NeuralSoundscapeGenerator & AudioTrack]
+```
+
+### 4.2 Architectural Invariants & Non-Negotiables
+1. **Unidirectional Reactive State (UDF)**: Presentation layer observes immutable `StateFlow` and emits intents. Zero two-way bindings.
+2. **Strict Thread Confinement**: Android UI Main thread is strictly protected from synchronous I/O, file reading, or heavy loops. Domain engines operate on `Dispatchers.Default` and repositories on `Dispatchers.IO`.
+3. **Monotonic Wall-Clock Invariant**: Timing engines never rely on coroutine delay ticks for wall-clock correctness; `System.currentTimeMillis()` monotonic deltas are authoritative.
+4. **Non-Destructive Persistence**: Room database migrations preserve 100% of user tasks, notes, sleep logs, and contract entities across version upgrades.
+5. **Memory Cap**: Heap allocation constrained to $\le 2048$ MB with aggressive buffer disposal in `AudioTrack` and coroutine teardown.
+
+---
+
+## 5. Key Files & Architecture Map
 
 | File Path | Description / Responsibility |
 |:---|:---|
@@ -107,9 +132,14 @@ This handoff packet contains the unabridged architectural context, design invari
 
 ---
 
-## 5. Review & Strategic Guidance Request for Vice Head
+## 6. Review & Strategic Guidance Request for Vice Head
 
-Vice Head, please review this system implementation. If you have recommendations, please structure your feedback as:
-1. **Algorithmic Optimizations**: Any refinements to the DSP audio synthesis (gamma binaural phase accumulation, Paul Kellet filter stability) or the Borbély Two-Process circadian energy calculations.
-2. **Edge Cases**: Any subtle Android lifecycle edge cases (e.g. process death during FocusService, Bluetooth audio headset disconnect handling).
-3. **Executive Function UX**: Any additional cognitive-load reduction micro-interactions that would enhance flow-state entry.
+Vice Head, please review this system implementation across architecture and system design. If you have recommendations, please structure your feedback as:
+1. **Architectural Decision Record (ADR)**:
+   - Evaluation of architectural trade-offs (e.g. state management, service isolation, repository caching).
+2. **System Design & Scaling**:
+   - Deep review of data models, synchronization strategies, lifecycle resilience, and edge failure modes (e.g. process death, audio route change, Bluetooth disconnect).
+3. **Algorithmic Optimizations**:
+   - Refinements to the DSP audio synthesis (phase accumulator wrap, filter stability) or Borbély Two-Process circadian calculations.
+4. **Concrete Implementation Guidance**:
+   - Drop-in Kotlin code snippets, interface contracts, or diffs.
