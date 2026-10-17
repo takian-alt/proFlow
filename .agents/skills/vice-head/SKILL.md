@@ -174,11 +174,12 @@ When the user returns with the Vice Head's recommendations:
     - Prerequisite component extractions (`StepByStepPlan`, `AffordanceRatingSheet`, `WoopPromptSheet`, `LogTimeViewModel`).
     - Purged 31 obsolete V1 files + 10 dead test files (~13,753 lines of dead code removed).
     - Verified 875/875 passing unit tests.
-  - **Phase 2 [ACTIVE]**:
-    - Introduce `CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`, and `TaskNaturalLanguageParser`.
-    - Provide Hilt DI bindings in `DomainServiceModule`.
-    - Implement standalone unit tests verifying non-saturating scoring, continuous Borbély math, and multi-step DAG interval scheduling.
-  - **Phase 3 [PENDING]**:
+  - **Phase 2 [COMPLETE - commit `5e87dfc`]**:
+    - Introduced `CircadianEnergyService`, `TaskSchedulerService`, `BehavioralSupportService`, and `TaskNaturalLanguageParser`.
+    - Provided Hilt DI bindings in `DomainServiceModule`.
+    - Implemented standalone unit tests verifying non-saturating scoring, continuous Borbély math, and multi-step DAG interval scheduling.
+    - Verified 891/891 unit tests passing with 0 failures.
+  - **Phase 3 [ACTIVE / NEXT]**:
     - Execute Room v13/v22 schema migration (`tasks`, `task_micro_steps`, `focus_sessions`, `quick_notes`, `protected_slots`).
     - Add high-performance composite indices.
     - Wire ViewModels to new services; retire 11 legacy engines.
