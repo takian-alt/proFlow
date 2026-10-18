@@ -12,17 +12,30 @@ import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.domain.model.buildEnergyUiModel
 import com.neuroflow.app.domain.model.computeEnergyUiState
+import com.neuroflow.app.domain.scheduler.BehavioralInsightsEngine
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import java.util.Calendar
 import javax.inject.Inject
 
 import androidx.work.WorkManager
+
+data class InsightsMetricsUiModel(
+    val velocity7d: Int = 0,
+    val velocity30d: Int = 0,
+    val focusHours7d: Float = 0f,
+    val focusHours30d: Float = 0f,
+    val weightedSmape: Float = 0f,
+    val smapeGrade: String = "Calibrating",
+    val hourlyDensity: List<Float> = emptyList()
+)
 
 data class InsightsUiStateV2(
     val energyUi: EnergyUiModel? = null,
@@ -163,4 +176,77 @@ class InsightsViewModelV2 @Inject constructor(
         SharingStarted.WhileSubscribed(5000),
         InsightsUiStateV2()
     )
+
+    val insightsMetricsFlow: StateFlow<InsightsMetricsUiModel> = combine(
+        taskRepository.observeAll(),
+        preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+            old.peakEnergyStart == new.peakEnergyStart &&
+            old.peakEnergyEnd == new.peakEnergyEnd
+        }
+    ) { allTasks, prefs ->
+        computeSmapeAndCircadianDensity(allTasks, prefs)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            InsightsMetricsUiModel()
+        )
+
+    fun computeSmapeAndCircadianDensity(
+        allTasks: List<TaskEntity>,
+        prefs: UserPreferences,
+        now: Long = System.currentTimeMillis()
+    ): InsightsMetricsUiModel {
+        val sevenDaysAgo = now - 7L * 86400_000L
+        val thirtyDaysAgo = now - 30L * 86400_000L
+
+        val completed7d = allTasks.filter { it.completedAt != null && it.completedAt >= sevenDaysAgo }
+        val completed30d = allTasks.filter { it.completedAt != null && it.completedAt >= thirtyDaysAgo }
+
+        val velocity7d = completed7d.size
+        val velocity30d = completed30d.size
+        val focusHours7d = completed7d.sumOf { (it.actualDurationMinutes ?: it.totalTimeTrackedMinutes).toDouble() }.toFloat() / 60f
+        val focusHours30d = completed30d.sumOf { (it.actualDurationMinutes ?: it.totalTimeTrackedMinutes).toDouble() }.toFloat() / 60f
+
+        val weightedSmape = AnalyticsEngine.computeWeightedSmape(allTasks)
+        val smapeGrade = AnalyticsEngine.mapeGrade(weightedSmape)
+
+        val map = mutableMapOf<Int, Int>()
+        allTasks.forEach { task ->
+            val hour = when {
+                task.completedAt != null -> {
+                    Calendar.getInstance().apply { timeInMillis = task.completedAt }.get(Calendar.HOUR_OF_DAY)
+                }
+                task.scheduledTime != null -> {
+                    ((task.scheduledTime / 3600_000L) % 24).toInt()
+                }
+                else -> {
+                    Calendar.getInstance().apply { timeInMillis = task.updatedAt }.get(Calendar.HOUR_OF_DAY)
+                }
+            }
+            val mins = (task.actualDurationMinutes ?: task.totalTimeTrackedMinutes).toInt()
+            if (mins > 0) {
+                map[hour] = (map[hour] ?: 0) + mins
+            }
+        }
+        if (map.isEmpty()) {
+            val pStart = prefs.peakEnergyStart.takeIf { it > 0 } ?: 9
+            val pEnd = prefs.peakEnergyEnd.takeIf { it > 0 } ?: 12
+            for (h in pStart until pEnd) {
+                map[h] = 45
+            }
+        }
+        val hourlyDensity = BehavioralInsightsEngine.calculateHourlyCircadianDensity(map)
+
+        return InsightsMetricsUiModel(
+            velocity7d = velocity7d,
+            velocity30d = velocity30d,
+            focusHours7d = focusHours7d,
+            focusHours30d = focusHours30d,
+            weightedSmape = weightedSmape,
+            smapeGrade = smapeGrade,
+            hourlyDensity = hourlyDensity
+        )
+    }
 }

@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -84,14 +85,16 @@ fun EnergyTimelineStream(
             }
         } else {
             scheduledTasks.forEach { task ->
-                TimelineTaskCard(
-                    task = task,
-                    onTaskClick = { onTaskClick(task) },
-                    onComplete = { onCompleteTask(task) },
-                    onDefer = { onDeferTask(task) },
-                    onBreakDown = { onBreakDownTask(task) },
-                    onLogPastTime = { taskToLogTime = task }
-                )
+                key(task.id) {
+                    TimelineTaskCard(
+                        task = task,
+                        onTaskClick = { onTaskClick(task) },
+                        onComplete = { onCompleteTask(task) },
+                        onDefer = { onDeferTask(task) },
+                        onBreakDown = { onBreakDownTask(task) },
+                        onLogPastTime = { taskToLogTime = task }
+                    )
+                }
             }
         }
     }
@@ -109,6 +112,7 @@ fun EnergyTimelineStream(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimelineTaskCard(
     task: TaskEntity,
@@ -126,164 +130,336 @@ fun TimelineTaskCard(
 
     val microSteps = StepByStepPlanCodec.parse(task.ifThenPlan)
     val hasMicroSteps = microSteps.isNotEmpty()
+    var showDetailSheet by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onTaskClick),
-        shape = RoundedCornerShape(16.dp),
-        color = NeuroFlowThemeV2Colors.SlateSurface,
-        tonalElevation = 2.dp
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onComplete()
+                    false
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onDefer()
+                    false
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val color = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.25f)
+                SwipeToDismissBoxValue.EndToStart -> NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.25f)
+                SwipeToDismissBoxValue.Settled -> Color.Transparent
+            }
+            val alignment = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                SwipeToDismissBoxValue.Settled -> Alignment.Center
+            }
+            val icon = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> Icons.Default.CheckCircle
+                SwipeToDismissBoxValue.EndToStart -> Icons.Default.MoreTime
+                SwipeToDismissBoxValue.Settled -> null
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = alignment
+            ) {
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                }
+            }
+        },
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = true
     ) {
-        Row(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                .clickable(onClick = { showDetailSheet = true }),
+            shape = RoundedCornerShape(16.dp),
+            color = NeuroFlowThemeV2Colors.SlateSurface,
+            tonalElevation = 2.dp
         ) {
-            // Checkmark button (touch target >= 48dp)
-            IconButton(
-                onClick = onComplete,
-                modifier = Modifier.size(48.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Complete task",
-                    tint = NeuroFlowThemeV2Colors.TextSecondary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Leading Complete Button (48dp touch target)
+                IconButton(
+                    onClick = onComplete,
+                    modifier = Modifier.size(48.dp)
                 ) {
-                    if (task.isFrog) {
-                        Text("🐸", fontSize = 14.sp)
-                    }
-                    Text(
-                        text = task.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Complete task",
+                        tint = NeuroFlowThemeV2Colors.TextSecondary,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                // Middle: Frog emoji + Title (up to 2 lines) + Metadata badges
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (task.isFrog) {
+                            Text("🐸", fontSize = 14.sp)
+                        }
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "${task.estimatedDurationMinutes}m",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .background(energyBadgeColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = task.energyLevel.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = energyBadgeColor,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        if (hasMicroSteps) {
+                            Text(
+                                text = "🪜 ${microSteps.size} steps",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        if (task.impactScore >= 70) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.WarmAmber,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    "High Leverage",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.WarmAmber
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Trailing Quick Focus start button (48dp touch target)
+                IconButton(
+                    onClick = onTaskClick,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Start Focus",
+                        tint = NeuroFlowThemeV2Colors.ElectricIndigo,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (showDetailSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showDetailSheet = false },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = NeuroFlowThemeV2Colors.TextSecondary.copy(alpha = 0.5f)) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (task.isFrog) {
+                        Text("🐸", fontSize = 20.sp)
+                    }
+                    Text(
+                        text = task.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "${task.estimatedDurationMinutes}m",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "⏱ ${task.estimatedDurationMinutes} mins",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = NeuroFlowThemeV2Colors.TextSecondary
                     )
+                    Text("•", color = NeuroFlowThemeV2Colors.TextSecondary)
+                    Text(
+                        text = "Energy: ${task.energyLevel.name}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = energyBadgeColor
+                    )
+                }
 
-                    Box(
-                        modifier = Modifier
-                            .background(energyBadgeColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = task.energyLevel.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = energyBadgeColor,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                if (task.description.isNotBlank()) {
+                    Text(
+                        text = task.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NeuroFlowThemeV2Colors.TextSecondary
+                    )
+                }
 
-                    if (hasMicroSteps) {
-                        Text(
-                            text = "🪜 ${microSteps.size} steps",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    if (task.impactScore >= 70) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Star, contentDescription = null, tint = NeuroFlowThemeV2Colors.WarmAmber, modifier = Modifier.size(12.dp))
-                            Text("High Leverage", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.WarmAmber)
+                if (hasMicroSteps) {
+                    Text(
+                        text = "Micro-steps (${microSteps.size}):",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        microSteps.forEachIndexed { index, step ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "${index + 1}.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = step.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            // "Break It Down" Magic Wand button (touch target >= 48dp)
-            IconButton(
-                onClick = onBreakDown,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "Break it down into micro-steps",
-                    tint = if (hasMicroSteps) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Defer 2h button (touch target >= 48dp)
-            IconButton(
-                onClick = onDefer,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreTime,
-                    contentDescription = "Defer 2 hours",
-                    tint = NeuroFlowThemeV2Colors.TextSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Quick Focus start button (touch target >= 48dp)
-            IconButton(
-                onClick = onTaskClick,
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Start Focus",
-                    tint = NeuroFlowThemeV2Colors.ElectricIndigo,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            // Task Options (Log Past Time)
-            var showOptionsMenu by remember { mutableStateOf(false) }
-            Box {
-                IconButton(
-                    onClick = { showOptionsMenu = true },
-                    modifier = Modifier.size(48.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Task options",
-                        tint = NeuroFlowThemeV2Colors.TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                DropdownMenu(
-                    expanded = showOptionsMenu,
-                    onDismissRequest = { showOptionsMenu = false },
-                    modifier = Modifier.background(NeuroFlowThemeV2Colors.SlateSurfaceAlt)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
-                        leadingIcon = {
-                            Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
-                        },
+                    OutlinedButton(
                         onClick = {
-                            showOptionsMenu = false
+                            showDetailSheet = false
+                            onBreakDown()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("AI Breakdown")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showDetailSheet = false
+                            onDefer()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+                    ) {
+                        Icon(Icons.Default.MoreTime, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Defer +2h")
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            showDetailSheet = false
                             onLogPastTime()
-                        }
-                    )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Log Time")
+                    }
+
+                    Button(
+                        onClick = {
+                            showDetailSheet = false
+                            onTaskClick()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeuroFlowThemeV2Colors.ElectricIndigo
+                        )
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Start Focus")
+                    }
                 }
             }
         }

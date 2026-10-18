@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -51,6 +52,10 @@ fun NeuroFlowAppV2(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    val currentRoute = currentDestination?.route.orEmpty()
+    val showBottomBar = remember(currentRoute) {
+        !currentRoute.startsWith("focus_v2") && !currentRoute.startsWith("hyperfocus_v2") && !currentRoute.startsWith("focus/")
+    }
 
     LaunchedEffect(initialTaskId) {
         if (!initialTaskId.isNullOrBlank()) {
@@ -64,33 +69,35 @@ fun NeuroFlowAppV2(
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = NeuroFlowThemeV2Colors.TextPrimary
-                ) {
-                    NavHubsV2.items.forEach { hub ->
-                        val selected = currentDestination?.hierarchy?.any { it.route == hub.route } == true
-                        NavigationBarItem(
-                            icon = { Icon(hub.icon, contentDescription = hub.title) },
-                            label = { Text(hub.title) },
-                            selected = selected,
-                            onClick = {
-                                navController.navigate(hub.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                if (showBottomBar) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = NeuroFlowThemeV2Colors.TextPrimary
+                    ) {
+                        NavHubsV2.items.forEach { hub ->
+                            val selected = currentDestination?.hierarchy?.any { it.route == hub.route } == true
+                            NavigationBarItem(
+                                icon = { Icon(hub.icon, contentDescription = hub.title) },
+                                label = { Text(hub.title) },
+                                selected = selected,
+                                onClick = {
+                                    navController.navigate(hub.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedTextColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                indicatorColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                unselectedIconColor = NeuroFlowThemeV2Colors.TextSecondary,
-                                unselectedTextColor = NeuroFlowThemeV2Colors.TextSecondary
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                    selectedTextColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    indicatorColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    unselectedIconColor = NeuroFlowThemeV2Colors.TextSecondary,
+                                    unselectedTextColor = NeuroFlowThemeV2Colors.TextSecondary
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }

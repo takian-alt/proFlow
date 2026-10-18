@@ -98,6 +98,9 @@ data class UserPreferences(
     // Tracks when we last showed the weekly goals refill prompt (ISO week + year)
     val lastWeeklyGoalShownWeek: Int = 0,
     val lastWeeklyGoalShownYear: Int = 0,
+    // ADR-005: Persistent Skip & Handled Guards (scalar ints)
+    val lastYearlyGoalHandledYear: Int = 0,
+    val lastWeeklyGoalHandledWeek: Int = 0,
     // Focus behaviour toggles
     val woopEnabled: Boolean = true,
     val autoTrackerEnabled: Boolean = false,
@@ -236,6 +239,8 @@ class UserPreferencesDataStore @Inject constructor(
         val LAST_YEARLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_yearly_goal_shown_year")
         val LAST_WEEKLY_GOAL_SHOWN_WEEK = intPreferencesKey("last_weekly_goal_shown_week")
         val LAST_WEEKLY_GOAL_SHOWN_YEAR = intPreferencesKey("last_weekly_goal_shown_year")
+        val LAST_YEARLY_GOAL_HANDLED_YEAR = intPreferencesKey("last_yearly_goal_handled_year")
+        val LAST_WEEKLY_GOAL_HANDLED_WEEK = intPreferencesKey("last_weekly_goal_handled_week")
         val WOOP_ENABLED = booleanPreferencesKey("woop_enabled")
         val AUTO_TRACKER_ENABLED = booleanPreferencesKey("auto_tracker_enabled")
         val DAILY_PLAN_NOTIFICATIONS_ENABLED = booleanPreferencesKey("daily_plan_notifications_enabled")
@@ -361,6 +366,8 @@ class UserPreferencesDataStore @Inject constructor(
             lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
             lastWeeklyGoalShownWeek = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] ?: 0,
             lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
+            lastYearlyGoalHandledYear = prefs[Keys.LAST_YEARLY_GOAL_HANDLED_YEAR] ?: 0,
+            lastWeeklyGoalHandledWeek = prefs[Keys.LAST_WEEKLY_GOAL_HANDLED_WEEK] ?: 0,
             woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
             autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
             dailyPlanNotificationsEnabled = prefs[Keys.DAILY_PLAN_NOTIFICATIONS_ENABLED] ?: true,
@@ -552,6 +559,8 @@ class UserPreferencesDataStore @Inject constructor(
                 lastYearlyGoalShownYear = prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] ?: 0,
                 lastWeeklyGoalShownWeek = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] ?: 0,
                 lastWeeklyGoalShownYear = prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] ?: 0,
+                lastYearlyGoalHandledYear = prefs[Keys.LAST_YEARLY_GOAL_HANDLED_YEAR] ?: 0,
+                lastWeeklyGoalHandledWeek = prefs[Keys.LAST_WEEKLY_GOAL_HANDLED_WEEK] ?: 0,
                 woopEnabled = prefs[Keys.WOOP_ENABLED] ?: true,
                 autoTrackerEnabled = prefs[Keys.AUTO_TRACKER_ENABLED] ?: false,
                 dailyPlanNotificationsEnabled = prefs[Keys.DAILY_PLAN_NOTIFICATIONS_ENABLED] ?: true,
@@ -672,6 +681,8 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.LAST_YEARLY_GOAL_SHOWN_YEAR] = updated.lastYearlyGoalShownYear
             prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_WEEK] = updated.lastWeeklyGoalShownWeek
             prefs[Keys.LAST_WEEKLY_GOAL_SHOWN_YEAR] = updated.lastWeeklyGoalShownYear
+            prefs[Keys.LAST_YEARLY_GOAL_HANDLED_YEAR] = updated.lastYearlyGoalHandledYear
+            prefs[Keys.LAST_WEEKLY_GOAL_HANDLED_WEEK] = updated.lastWeeklyGoalHandledWeek
             prefs[Keys.WOOP_ENABLED] = updated.woopEnabled
             prefs[Keys.AUTO_TRACKER_ENABLED] = updated.autoTrackerEnabled
             prefs[Keys.DAILY_PLAN_NOTIFICATIONS_ENABLED] = updated.dailyPlanNotificationsEnabled
@@ -748,6 +759,35 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun setUseV2Ui(enabled: Boolean) {
         updatePreferences { prefs ->
             prefs.copy(useV2Ui = enabled)
+        }
+    }
+
+    suspend fun setLastYearlyGoalHandledYear(year: Int) {
+        updatePreferences { prefs ->
+            prefs.copy(lastYearlyGoalHandledYear = year)
+        }
+    }
+
+    suspend fun setLastWeeklyGoalHandledWeek(weekKey: Int) {
+        updatePreferences { prefs ->
+            prefs.copy(lastWeeklyGoalHandledWeek = weekKey)
+        }
+    }
+
+    suspend fun clearGoalStrings() {
+        updatePreferences { prefs ->
+            prefs.copy(yearlyGoals = emptyList(), weeklyGoals = emptyList())
+        }
+    }
+
+    suspend fun clearGoalStringsAndMarkHandled(yearlyHandledYear: Int, weeklyHandledWeek: Int) {
+        updatePreferences { prefs ->
+            prefs.copy(
+                yearlyGoals = emptyList(),
+                weeklyGoals = emptyList(),
+                lastYearlyGoalHandledYear = if (yearlyHandledYear > 0) yearlyHandledYear else prefs.lastYearlyGoalHandledYear,
+                lastWeeklyGoalHandledWeek = if (weeklyHandledWeek > 0) weeklyHandledWeek else prefs.lastWeeklyGoalHandledWeek
+            )
         }
     }
 

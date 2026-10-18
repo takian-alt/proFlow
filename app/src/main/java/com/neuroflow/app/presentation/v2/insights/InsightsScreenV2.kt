@@ -47,55 +47,7 @@ fun InsightsScreenV2(
     var showUlyssesSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val workManager = remember(context) { viewModel.workManager ?: WorkManager.getInstance(context) }
-    val allTasks by viewModel.taskRepository.observeAll().collectAsState(initial = emptyList())
-
-    val now = remember { System.currentTimeMillis() }
-    val sevenDaysAgo = remember(now) { now - 7L * 86400_000L }
-    val thirtyDaysAgo = remember(now) { now - 30L * 86400_000L }
-
-    val completed7d = remember(allTasks, sevenDaysAgo) {
-        allTasks.filter { it.completedAt != null && it.completedAt >= sevenDaysAgo }
-    }
-    val completed30d = remember(allTasks, thirtyDaysAgo) {
-        allTasks.filter { it.completedAt != null && it.completedAt >= thirtyDaysAgo }
-    }
-
-    val velocity7d = completed7d.size
-    val velocity30d = completed30d.size
-    val focusHours7d = remember(completed7d) {
-        completed7d.sumOf { (it.actualDurationMinutes ?: it.totalTimeTrackedMinutes).toDouble() }.toFloat() / 60f
-    }
-    val focusHours30d = remember(completed30d) {
-        completed30d.sumOf { (it.actualDurationMinutes ?: it.totalTimeTrackedMinutes).toDouble() }.toFloat() / 60f
-    }
-
-    val weightedSmape = remember(allTasks) {
-        AnalyticsEngine.computeWeightedSmape(allTasks)
-    }
-    val smapeGrade = remember(weightedSmape) {
-        AnalyticsEngine.mapeGrade(weightedSmape)
-    }
-
-    val hourlyDensity = remember(allTasks, state.preferences) {
-        val map = mutableMapOf<Int, Int>()
-        allTasks.forEach { task ->
-            val ts = task.completedAt ?: task.scheduledTime ?: task.updatedAt
-            val cal = Calendar.getInstance().apply { timeInMillis = ts }
-            val hour = cal.get(Calendar.HOUR_OF_DAY)
-            val mins = (task.actualDurationMinutes ?: task.totalTimeTrackedMinutes).toInt()
-            if (mins > 0) {
-                map[hour] = (map[hour] ?: 0) + mins
-            }
-        }
-        if (map.isEmpty()) {
-            val pStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9
-            val pEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
-            for (h in pStart until pEnd) {
-                map[h] = 45
-            }
-        }
-        BehavioralInsightsEngine.calculateHourlyCircadianDensity(map)
-    }
+    val metrics by viewModel.insightsMetricsFlow.collectAsState()
 
     Scaffold(
         containerColor = NeuroFlowThemeV2Colors.Obsidian
@@ -378,19 +330,19 @@ fun InsightsScreenV2(
 
             // Velocity & Estimation Accuracy (sMAPE)
             VelocityAndAccuracyCard(
-                velocity7d = velocity7d,
-                velocity30d = velocity30d,
-                focusHours7d = focusHours7d,
-                focusHours30d = focusHours30d,
-                weightedSmape = weightedSmape,
-                smapeGrade = smapeGrade
+                velocity7d = metrics.velocity7d,
+                velocity30d = metrics.velocity30d,
+                focusHours7d = metrics.focusHours7d,
+                focusHours30d = metrics.focusHours30d,
+                weightedSmape = metrics.weightedSmape,
+                smapeGrade = metrics.smapeGrade
             )
 
             Spacer(modifier = Modifier.height(14.dp))
 
             // 24-hr Circadian Density Heatmap
             CircadianDensityHeatmapCard(
-                density = hourlyDensity,
+                density = metrics.hourlyDensity,
                 peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9,
                 peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
             )

@@ -1,6 +1,9 @@
 package com.neuroflow.app.presentation.v2.focus.audio
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -79,6 +82,39 @@ class NeuralSoundscapePlayer(
 
     private var audioFocusRequest: Any? = null
 
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                pauseWithFadeOut()
+            }
+        }
+    }
+    private var isNoisyReceiverRegistered = false
+
+    private fun registerNoisyReceiver() {
+        if (context != null && !isNoisyReceiverRegistered) {
+            try {
+                val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                context.registerReceiver(noisyReceiver, filter)
+                isNoisyReceiverRegistered = true
+            } catch (t: Throwable) {
+                Log.w(TAG, "Could not register noisy receiver: ${t.message}")
+            }
+        }
+    }
+
+    private fun unregisterNoisyReceiver() {
+        if (context != null && isNoisyReceiverRegistered) {
+            try {
+                context.unregisterReceiver(noisyReceiver)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Could not unregister noisy receiver: ${t.message}")
+            } finally {
+                isNoisyReceiverRegistered = false
+            }
+        }
+    }
+
     /**
      * Starts or switches active soundscape stream.
      */
@@ -99,12 +135,14 @@ class NeuralSoundscapePlayer(
         }
 
         requestAudioFocus()
+        registerNoisyReceiver()
         initAudioTrackIfNeeded()
 
         try {
             audioTrack?.play()
         } catch (t: Throwable) {
             Log.w(TAG, "AudioTrack play failed: ${t.message}")
+            unregisterNoisyReceiver()
             return
         }
 
@@ -137,6 +175,7 @@ class NeuralSoundscapePlayer(
         isPlaying.set(false)
         isFadingOut.set(false)
         stopPlaybackThread()
+        unregisterNoisyReceiver()
 
         try {
             audioTrack?.pause()
@@ -153,6 +192,7 @@ class NeuralSoundscapePlayer(
     @Synchronized
     fun release() {
         stop()
+        unregisterNoisyReceiver()
         try {
             audioTrack?.release()
         } catch (t: Throwable) {
@@ -318,6 +358,7 @@ class NeuralSoundscapePlayer(
     }
 
     private fun abandonAudioFocus() {
+        unregisterNoisyReceiver()
         val am = audioManager ?: return
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

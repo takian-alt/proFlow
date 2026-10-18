@@ -41,6 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,11 +53,30 @@ fun PlanScreenV2(
 ) {
     val state by viewModel.uiState.collectAsState()
     val recentNotes by viewModel.recentNotes.collectAsState(initial = emptyList())
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var showNotesSheet by remember { mutableStateOf(false) }
     var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
+    var isObjectivesExpanded by remember { mutableStateOf(false) }
+
+    val handleCompleteTask: (TaskEntity) -> Unit = { task ->
+        viewModel.completeTask(task)
+        scope.launch {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            val result = snackbarHostState.showSnackbar(
+                message = "Completed: ${task.title}",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.uncompleteTask(task)
+            }
+        }
+    }
 
     Scaffold(
-        containerColor = NeuroFlowThemeV2Colors.Obsidian
+        containerColor = NeuroFlowThemeV2Colors.Obsidian,
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -134,6 +154,67 @@ fun PlanScreenV2(
                 }
             }
 
+            // Collapsible Active Objectives Banner
+            if (state.activeGoals.isNotEmpty()) {
+                Surface(
+                    onClick = { isObjectivesExpanded = !isObjectivesExpanded },
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("🎯", fontSize = 16.sp)
+                                Text(
+                                    text = "Active Objectives (${state.activeGoals.size})",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                )
+                            }
+                            Text(
+                                text = if (isObjectivesExpanded) "▲ Hide" else "▼ Show",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.TextSecondary
+                            )
+                        }
+                        AnimatedVisibility(visible = isObjectivesExpanded) {
+                            Column(
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                state.activeGoals.forEach { goal ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(NeuroFlowThemeV2Colors.ElectricIndigoGlow, CircleShape)
+                                        )
+                                        Text(
+                                            text = goal.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = NeuroFlowThemeV2Colors.TextPrimary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Mode Selector Segmented Tabs
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
@@ -189,7 +270,7 @@ fun PlanScreenV2(
                             labelColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.heightIn(min = 40.dp)
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     )
                 }
             }
@@ -224,7 +305,7 @@ fun PlanScreenV2(
                 PlanViewModeV2.TIMELINE -> TimelineScheduleView(
                     state = state,
                     onStartFocus = onNavigateToFocus,
-                    onCompleteTask = { viewModel.completeTask(it) },
+                    onCompleteTask = handleCompleteTask,
                     onBreakDownTask = { viewModel.breakDownTask(it) },
                     onLogPastTime = { taskToLogTime = it }
                 )
@@ -232,7 +313,7 @@ fun PlanScreenV2(
                     state = state,
                     onStartFocus = onNavigateToFocus,
                     onMoveQuadrant = { task, q -> viewModel.moveTaskToQuadrant(task, q) },
-                    onCompleteTask = { viewModel.completeTask(it) },
+                    onCompleteTask = handleCompleteTask,
                     onBreakDownTask = { viewModel.breakDownTask(it) }
                 )
                 PlanViewModeV2.AUTOPILOT -> AutopilotConfigView(

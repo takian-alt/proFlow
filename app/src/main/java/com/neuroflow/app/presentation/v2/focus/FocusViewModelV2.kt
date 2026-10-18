@@ -68,7 +68,9 @@ data class FocusUiStateV2(
     val isDecompressionSighActive: Boolean = false,
     val decompressionSighRemainingSeconds: Int = 0,
     val isDecompressionBypassed: Boolean = false
-)
+) {
+    val isSessionActive: Boolean get() = isRunning
+}
 
 @HiltViewModel
 class FocusViewModelV2 @Inject constructor(
@@ -78,7 +80,8 @@ class FocusViewModelV2 @Inject constructor(
     private val woopRepository: WoopRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     @ApplicationContext private val context: Context? = null,
-    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
+    private val focusCompletionNotifier: FocusCompletionNotifier? = null
 ) : ViewModel() {
 
     val taskId: String = checkNotNull(savedStateHandle["taskId"])
@@ -88,6 +91,7 @@ class FocusViewModelV2 @Inject constructor(
 
     private var timerJob: Job? = null
     private var pauseCount: Int = 0
+    private var hasNotifiedCompletion = false
 
     val soundscapePlayer: NeuralSoundscapePlayer by lazy {
         NeuralSoundscapePlayer(context)
@@ -185,6 +189,7 @@ class FocusViewModelV2 @Inject constructor(
 
     fun selectTimerMode(mode: FocusTimerModeV2) {
         if (_uiState.value.isRunning) return
+        hasNotifiedCompletion = false
         _uiState.update {
             it.copy(
                 timerMode = mode,
@@ -255,6 +260,7 @@ class FocusViewModelV2 @Inject constructor(
 
         val now = System.currentTimeMillis()
         val sessionId = _uiState.value.activeSessionId ?: UUID.randomUUID().toString()
+        hasNotifiedCompletion = false
 
         _uiState.update {
             it.copy(
@@ -336,6 +342,10 @@ class FocusViewModelV2 @Inject constructor(
         }
         if (countdownHitZero) {
             soundscapePlayer.pauseWithFadeOut()
+            if (!hasNotifiedCompletion) {
+                hasNotifiedCompletion = true
+                focusCompletionNotifier?.playCompletionChimeAndHaptics(viewModelScope)
+            }
         }
     }
 

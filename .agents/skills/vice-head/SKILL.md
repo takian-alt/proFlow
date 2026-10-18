@@ -232,6 +232,41 @@ When the user returns with the Vice Head's recommendations:
      - Maintained 100% test pass rate across all unit tests under memory-bounded single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
      - Verified `assembleRelease` R8 full-mode shrinking, ProGuard keep rules, and `baseline-prof.txt` compilation (final APK: 6.8 MB).
      - **Production Tags Created**: Authorized and tagged `v2.0.0-rc1` and `v2.0.0-GM` at commit `40139d1`.
+     - **Live Emulator Verification**: Cold-booted on Android 14 (API 36 x86_64, `neuroflow_book`) in ~9 seconds with `-memory 2048` and swiftshader indirect rendering. WorkManager background workers and Compose rendering verified clean with 0 unhandled exceptions or fatal crashes.
+
+### ADR-005: UX Modernization, Focus Ergonomics, Goal Architecture Consolidation & Accessibility Polish
+- **Status**: RATIFIED & EXECUTED (October 18, 2026)
+- **Problem Statement**:
+  Following live emulator verification of `v2.0.0-GM`, an exhaustive UI/UX and code audit revealed 4 critical broken UX invariants and ergonomic bottlenecks:
+  1. **Focus Sprints Silently Expire & Sleep**: `FocusScreenV2` counted down to `00:00` with zero audio chime, vibration, or notification. Furthermore, the display slept during deep work due to missing `FLAG_KEEP_SCREEN_ON`.
+  2. **Active Focus Exposed to Navigation Interruption**: `NeuroFlowAppV2` displayed the root bottom navigation bar (`Flow`, `Plan`, `Vault`) during active focus sprints, inviting accidental task abandonment.
+  3. **Persistent Goal Refill Skip Bug**: Skipping `TopGoalsRefillCard` did not persist skip timestamps to DataStore, causing blocking full-screen goal cards on every subsequent app launch.
+  4. **The Phantom Goal Disconnect**: Goals collected in DataStore with the promise *"These will be pinned in your Plan hub as a daily reminder"* were completely ignored by `PlanScreenV2` and `PlanViewModelV2`. In addition, full Room entities (`GoalEntity`), DAOs, and repositories existed in the data layer but remained orphaned from the UI.
+  5. **UI Ergonomics & Accessibility**: Horizontal button crowding on `FlowScreenV2` timeline cards; missing non-destructive undo in `PlanScreenV2`; Main thread SMAPE computation in `InsightsScreenV2`; 32dp touch targets in `SettingsScreen`; and a white splash window background flash on cold launch in `themes.xml`.
+- **Decisions & Implementation**:
+  1. **Focus Mode Hardening (Track 1)**:
+     - Deployed `KeepScreenOnEffect.kt` setting `FLAG_KEEP_SCREEN_ON` on the active window during non-paused focus sessions and safely clearing it on pause/exit.
+     - Created `FocusCompletionNotifier.kt` with procedural dual-harmonic 528Hz + 792Hz solfeggio bell chime (1.6s exponential decay) and double-pulse haptic waveform ($[(0\text{ms}, 0), (120\text{ms}, 160), (100\text{ms}, 0), (220\text{ms}, 220)]$).
+     - Wired `FocusCompletionNotifier` into `FocusViewModelV2` upon countdown timer zero expiration.
+     - Concealed root bottom navigation bar in `NeuroFlowAppV2.kt` whenever route matches `focus_v2`, `hyperfocus_v2`, or `focus/`.
+  2. **Onboarding & Goal Subsystem Consolidation (Track 2)**:
+     - Added scalar integer keys `lastYearlyGoalHandledYear` and `lastWeeklyGoalHandledWeek` to `UserPreferencesDataStore.kt`.
+     - Updated `MainActivity.kt` to persist handled calendar periods on both Save and Skip, permanently fixing recurring card modal interrupts.
+     - Added lazy Room migration `checkAndMigrateLegacyGoals()` in `GoalRepository.kt` to safely elevate legacy DataStore string goals into Room `GoalEntity` rows and clear DataStore strings without Room schema bump.
+     - Connected `GoalRepository.observeActiveGoals()` into `PlanViewModelV2.kt` and rendered a collapsible "Active Objectives" banner chip row in `PlanScreenV2.kt`.
+  3. **Information Architecture & Accessibility Polish (Track 3)**:
+     - Refactored `TimelineTaskCard` in `EnergyTimelineStream.kt` to use `SwipeToDismissBox` (Right: complete, Left: defer +2h) with 2 static 48dp buttons (`[ ✓ ]` leading, `[ ▶ Focus ]` trailing) and full tap-for-detail-sheet with microstep breakdown, reclaiming 144dp for multi-line title visibility.
+     - Added 4-second non-destructive Undo Snackbar via `SnackbarHostState` and `PlanViewModelV2.uncompleteTask(task)` in `PlanScreenV2.kt`.
+     - Offloaded heavy statistical SMAPE computations and 24-hr circadian heatmap density to `Dispatchers.Default` via `insightsMetricsFlow` in `InsightsViewModelV2.kt`, eliminating frame drops during `InsightsScreenV2` composition.
+     - Enforced 48dp minimum touch targets on all interactive stepper icons and target chips in `SettingsScreen.kt` and filter chips in `PlanScreenV2.kt`.
+     - Hardened `app/src/main/res/values/themes.xml` with pure Obsidian `#000000` window and bar background.
+  4. **Audio Focus & Noise Management (Track 4)**:
+     - Implemented `AudioManager.requestAudioFocus(AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)` in `FocusCompletionNotifier.kt`.
+     - Registered context-scoped `BroadcastReceiver` for `AudioManager.ACTION_AUDIO_BECOMING_NOISY` on playback start and safely unregistered on pause/stop/release/abandon in `NeuralSoundscapePlayer.kt`.
+  5. **Verification & Greenness**:
+     - Verified with dedicated unit tests in `GoalRepositoryTest.kt`, `InsightsViewModelV2Test.kt`, and `FocusCompletionNotifierTest.kt`.
+     - 801/801 unit tests passing (100% test pass rate, 0 failures, 0 errors, 0 skipped) under memory-bounded single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
+     - Verified debug APK assembly (`./gradlew assembleDebug --no-daemon -Dorg.gradle.workers.max=1`).
 
 ---
 
@@ -294,4 +329,18 @@ Derived directly via `computeDailySummary(...)` projecting 30-minute intervals f
    *(Process $C(t)$ remains 100% phase-locked to morning wake $t_{\text{wake}}$; naps do not shift $\phi$).*
 6. **Raised Cosine Audio Transition Envelope**:
    $$\text{FadeIn}(f) = 0.5 \cdot (1.0 - \cos(\pi \cdot f)), \quad \text{FadeOut}(f) = 0.5 \cdot (1.0 + \cos(\pi \cdot f)) \quad (f \in [0.0..1.0] \text{ over } 400\text{ms})$$
+
+### 6.7 Procedural Solfeggio Dual-Harmonic Bell Synthesis (`FocusCompletionNotifier`)
+1. **Harmonic Composition**:
+   $$W(t) = 0.70 \cdot \sin(2\pi \cdot f_1 \cdot t) + 0.30 \cdot \sin(2\pi \cdot f_2 \cdot t)$$
+   where $f_1 = 528.0\text{ Hz}$ (Solfeggio C5 DNA repair / transformation warm tone) and $f_2 = 792.0\text{ Hz}$ (Perfect fifth G5 harmonic).
+2. **Attack-Decay Envelope**:
+   $$E(t) = A(t) \cdot D(t) = \min\left(1.0, \frac{t}{0.015}\right) \cdot \exp(-3.2 \cdot t) \quad (t \in [0.0, 1.6\text{s}])$$
+   *(Fast 15ms linear rise avoiding digital speaker click, coupled with a gentle 3.2 natural exponential acoustic bell decay).*
+3. **Discrete 16-bit PCM Amplitude Normalization**:
+   $$S[i] = \text{clamp}_{[\text{Short.MIN}, \text{Short.MAX}]}\left(W(t_i) \cdot E(t_i) \cdot 0.45 \cdot \text{Short.MAX}\right), \quad t_i = \frac{i}{44100}$$
+4. **Haptic Pulse Cadence**:
+   $$\text{Waveform} = [(0\text{ms}, 0), (120\text{ms}, 160), (100\text{ms}, 0), (220\text{ms}, 220)]$$
+   *(Double-pulse tactile envelope for clear non-intrusive focus session culmination).*
+
 

@@ -52,6 +52,7 @@ data class PlanUiStateV2(
     val tasksForDay: List<TaskEntity> = emptyList(),
     val unscheduledTasks: List<TaskEntity> = emptyList(),
     val tasksByQuadrant: Map<Quadrant, List<TaskEntity>> = emptyMap(),
+    val activeGoals: List<com.neuroflow.app.data.local.entity.GoalEntity> = emptyList(),
     val protectedSlots: List<ProtectedTimeSlot> = emptyList(),
     val conflicts: List<ScheduleConflict> = emptyList(),
     val isAutoScheduleOn: Boolean = false,
@@ -86,7 +87,8 @@ class PlanViewModelV2 @Inject constructor(
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
-    private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null
+    private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null,
+    private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null
 ) : ViewModel() {
 
     private val _selectedDate = MutableStateFlow(startOfTodayMillis())
@@ -116,8 +118,9 @@ class PlanViewModelV2 @Inject constructor(
             old.wakeUpHour == new.wakeUpHour &&
             old.sleepPressurePoints == new.sleepPressurePoints
         },
-        sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
-    ) { params, allTasks, prefs, sleepLogs ->
+        sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList()),
+        goalRepository?.observeActiveGoals() ?: flowOf(emptyList())
+    ) { params, allTasks, prefs, sleepLogs, activeGoals ->
         val dateMillis = params.dateMillis
         val mode = params.mode
         val autoScheduling = params.autoScheduling
@@ -177,6 +180,7 @@ class PlanViewModelV2 @Inject constructor(
             tasksForDay = tasksForDay,
             unscheduledTasks = unscheduled,
             tasksByQuadrant = byQuadrant,
+            activeGoals = activeGoals,
             protectedSlots = prefs.protectedTimeSlots,
             conflicts = conflicts,
             isAutoScheduleOn = prefs.autoSchedulingEnabled,
@@ -410,6 +414,18 @@ class PlanViewModelV2 @Inject constructor(
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
+        }
+    }
+
+    fun uncompleteTask(task: TaskEntity) {
+        viewModelScope.launch {
+            taskRepository.update(
+                task.copy(
+                    status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+                    completedAt = null,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
         }
     }
 

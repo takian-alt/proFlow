@@ -944,7 +944,8 @@ private fun SettingsDeepWorkTargetRow(minutes: Int, onChange: (Int) -> Unit) {
                 FilterChip(
                     selected = minutes == value,
                     onClick = { onChange(value) },
-                    label = { Text(label, fontSize = 12.sp) }
+                    label = { Text(label, fontSize = 12.sp) },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 )
             }
         }
@@ -1315,11 +1316,11 @@ private fun SettingsNumberRow(
     ) {
         Text(label, fontSize = 14.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { if (enabled && value > min) onValueChange(value - 1) }, enabled = enabled, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = { if (enabled && value > min) onValueChange(value - 1) }, enabled = enabled, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                 Icon(Icons.Filled.Remove, "Decrease", modifier = Modifier.size(18.dp))
             }
             Text(displayValue, fontWeight = FontWeight.Bold, modifier = Modifier.width(52.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 13.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-            IconButton(onClick = { if (enabled && value < max) onValueChange(value + 1) }, enabled = enabled, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = { if (enabled && value < max) onValueChange(value + 1) }, enabled = enabled, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                 Icon(Icons.Filled.Add, "Increase", modifier = Modifier.size(18.dp))
             }
         }

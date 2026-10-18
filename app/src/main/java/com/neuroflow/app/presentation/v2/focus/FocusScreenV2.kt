@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.presentation.v2.focus.components.AffordanceRatingSheet
+import com.neuroflow.app.presentation.v2.focus.components.KeepScreenOnEffect
 import com.neuroflow.app.presentation.v2.focus.components.WoopPromptSheet
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
@@ -60,6 +61,8 @@ fun FocusScreenV2(
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
     var showWoopPromptSheet by remember { mutableStateOf(false) }
+
+    KeepScreenOnEffect(enabled = state.isSessionActive && !state.isPaused)
 
     DisposableEffect(Unit) {
         onDispose {
