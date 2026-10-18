@@ -228,9 +228,10 @@ When the user returns with the Vice Head's recommendations:
      - Froze `UserPreferencesDataStore` strictly to scalar primitives.
      - Applied `.distinctUntilChanged { old, new -> ... }` on scalar field subsets across ALL ViewModels collecting `preferencesFlow` (`FlowViewModelV2`, `PlanViewModelV2`, `FocusViewModelV2`, `InsightsViewModelV2`, `AnalyticsViewModel`, `SettingsViewModel`, `WeeklyScheduleViewModel`, `TaskTagViewModel`, `IdentityViewModel`, `HistoryViewModel`, `MEQQuizViewModel`, and `MainActivity`).
      - Verified `StrictMode.ThreadPolicy` and `StrictMode.VmPolicy` active in debug builds in `NeuroFlowApplication.onCreate()`.
-  4. **Release Gate Verification (Step 7.4)**:
+  4. **Release Gate Verification & Golden Master Tagging (Step 7.4)**:
      - Maintained 100% test pass rate across all unit tests under memory-bounded single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
-     - Verified `assembleRelease` R8 full-mode shrinking, ProGuard keep rules, and `baseline-prof.txt` compilation.
+     - Verified `assembleRelease` R8 full-mode shrinking, ProGuard keep rules, and `baseline-prof.txt` compilation (final APK: 6.8 MB).
+     - **Production Tags Created**: Authorized and tagged `v2.0.0-rc1` and `v2.0.0-GM` at commit `40139d1`.
 
 ---
 
