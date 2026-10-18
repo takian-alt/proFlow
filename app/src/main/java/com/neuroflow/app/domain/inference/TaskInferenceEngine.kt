@@ -91,7 +91,7 @@ object TaskInferenceEngine {
                 sanitizedTitle = "",
                 durationMinutes = defaultDuration,
                 energyDemand = EnergyLevel.MEDIUM,
-                taskType = TaskType.ANALYTICAL,
+                taskType = TaskType.GENERAL,
                 contextTags = emptyList(),
                 isFrog = false,
                 priority = Priority.MEDIUM,
@@ -145,15 +145,19 @@ object TaskInferenceEngine {
             EXPLICIT_MED_ENERGY.containsMatchIn(text) || text.contains("#med", ignoreCase = true) -> EnergyLevel.MEDIUM
             HIGH_ENERGY_KEYWORDS.containsMatchIn(text) -> EnergyLevel.HIGH
             LOW_ENERGY_KEYWORDS.containsMatchIn(text) -> EnergyLevel.LOW
+            rawDurationMinutes >= 45 -> EnergyLevel.HIGH
+            rawDurationMinutes <= 15 -> EnergyLevel.LOW
             else -> EnergyLevel.MEDIUM
         }
 
-        // Task type heuristic
+        // Task type heuristic (structural complexity fallback over blind ANALYTICAL default)
         val taskType = when {
             ANALYTICAL_KEYWORDS.containsMatchIn(text) -> TaskType.ANALYTICAL
             CREATIVE_KEYWORDS.containsMatchIn(text) -> TaskType.CREATIVE
             ADMIN_KEYWORDS.containsMatchIn(text) -> TaskType.ADMIN
             PHYSICAL_KEYWORDS.containsMatchIn(text) -> TaskType.PHYSICAL
+            rawDurationMinutes <= 15 -> TaskType.ADMIN
+            rawDurationMinutes in 16..40 -> TaskType.GENERAL
             else -> TaskType.ANALYTICAL
         }
 

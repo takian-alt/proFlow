@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
@@ -48,33 +50,41 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+sealed interface SheetMode {
+    data object Create : SheetMode
+    data class Edit(val task: TaskEntity) : SheetMode
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SmartTaskComposerSheetV2(
     onDismiss: () -> Unit,
     onSave: (TaskEntity) -> Unit,
     modifier: Modifier = Modifier,
+    mode: SheetMode = SheetMode.Create,
+    circadianSummary: DailyCircadianSummary? = null,
     completedTasks: List<TaskEntity> = emptyList()
 ) {
-    var rawInput by remember { mutableStateOf("") }
-    var userDurationOverride by remember { mutableStateOf<Int?>(null) }
-    var userEnergyOverride by remember { mutableStateOf<EnergyLevel?>(null) }
-    var userTaskTypeOverride by remember { mutableStateOf<TaskType?>(null) }
-    var userFrogOverride by remember { mutableStateOf<Boolean?>(null) }
-    var userPriorityOverride by remember { mutableStateOf<Priority?>(null) }
+    val existingTask = (mode as? SheetMode.Edit)?.task
+    var rawInput by remember(existingTask) { mutableStateOf(existingTask?.title ?: "") }
+    var userDurationOverride by remember(existingTask) { mutableStateOf<Int?>(existingTask?.estimatedDurationMinutes) }
+    var userEnergyOverride by remember(existingTask) { mutableStateOf<EnergyLevel?>(existingTask?.energyLevel) }
+    var userTaskTypeOverride by remember(existingTask) { mutableStateOf<TaskType?>(existingTask?.taskType) }
+    var userFrogOverride by remember(existingTask) { mutableStateOf<Boolean?>(existingTask?.isFrog) }
+    var userPriorityOverride by remember(existingTask) { mutableStateOf<Priority?>(existingTask?.priority) }
 
     // Strategic criteria & scheduling state
-    var impactScore by remember { mutableStateOf(50f) }
-    var effortScore by remember { mutableStateOf(50f) }
-    var userScheduledDate by remember { mutableStateOf<Long?>(null) }
-    var userScheduledTime by remember { mutableStateOf<Long?>(null) }
-    var userDeadlineDate by remember { mutableStateOf<Long?>(null) }
-    var userDeadlineTime by remember { mutableStateOf<Long?>(null) }
-    var isScheduleLocked by remember { mutableStateOf(false) }
+    var impactScore by remember(existingTask) { mutableStateOf(existingTask?.impactScore?.toFloat() ?: 50f) }
+    var effortScore by remember(existingTask) { mutableStateOf(existingTask?.effortScore?.toFloat() ?: 50f) }
+    var userScheduledDate by remember(existingTask) { mutableStateOf<Long?>(existingTask?.scheduledDate) }
+    var userScheduledTime by remember(existingTask) { mutableStateOf<Long?>(existingTask?.scheduledTime) }
+    var userDeadlineDate by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineDate) }
+    var userDeadlineTime by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineTime) }
+    var isScheduleLocked by remember(existingTask) { mutableStateOf(existingTask?.isScheduleLocked ?: false) }
 
-    var isExpanded by remember { mutableStateOf(false) }
-    var description by remember { mutableStateOf("") }
-    var selectedQuadrant by remember { mutableStateOf(Quadrant.DO_FIRST) }
+    var isExpanded by remember { mutableStateOf(existingTask != null) }
+    var description by remember(existingTask) { mutableStateOf(existingTask?.description ?: "") }
+    var selectedQuadrant by remember(existingTask) { mutableStateOf(existingTask?.quadrant ?: Quadrant.DO_FIRST) }
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -119,28 +129,49 @@ fun SmartTaskComposerSheetV2(
     }
 
     fun handleSave() {
-        val title = inferred.sanitizedTitle.ifBlank { rawInput.trim() }
+        val title = (if (mode is SheetMode.Edit) rawInput.trim() else inferred.sanitizedTitle.ifBlank { rawInput.trim() })
         if (title.isBlank()) return
 
-        val task = TaskEntity(
-            title = title,
-            description = description.trim(),
-            estimatedDurationMinutes = effectiveDuration,
-            energyLevel = effectiveEnergy,
-            taskType = effectiveTaskType,
-            tags = inferred.contextTags.joinToString(","),
-            isFrog = effectiveFrog,
-            quadrant = selectedQuadrant,
-            priority = effectivePriority,
-            impactScore = impactScore.toInt(),
-            effortScore = effortScore.toInt(),
-            deadlineDate = effectiveDeadlineDate,
-            deadlineTime = userDeadlineTime,
-            scheduledDate = effectiveScheduledDate,
-            scheduledTime = userScheduledTime,
-            isScheduleLocked = isScheduleLocked
-        )
-        onSave(task)
+        val taskToSave = if (existingTask != null) {
+            existingTask.copy(
+                title = title,
+                description = description.trim(),
+                estimatedDurationMinutes = effectiveDuration,
+                energyLevel = effectiveEnergy,
+                taskType = effectiveTaskType,
+                isFrog = effectiveFrog,
+                quadrant = selectedQuadrant,
+                priority = effectivePriority,
+                impactScore = impactScore.toInt(),
+                effortScore = effortScore.toInt(),
+                deadlineDate = effectiveDeadlineDate,
+                deadlineTime = userDeadlineTime,
+                scheduledDate = effectiveScheduledDate,
+                scheduledTime = userScheduledTime,
+                isScheduleLocked = isScheduleLocked,
+                updatedAt = System.currentTimeMillis()
+            )
+        } else {
+            TaskEntity(
+                title = title,
+                description = description.trim(),
+                estimatedDurationMinutes = effectiveDuration,
+                energyLevel = effectiveEnergy,
+                taskType = effectiveTaskType,
+                tags = inferred.contextTags.joinToString(","),
+                isFrog = effectiveFrog,
+                quadrant = selectedQuadrant,
+                priority = effectivePriority,
+                impactScore = impactScore.toInt(),
+                effortScore = effortScore.toInt(),
+                deadlineDate = effectiveDeadlineDate,
+                deadlineTime = userDeadlineTime,
+                scheduledDate = effectiveScheduledDate,
+                scheduledTime = userScheduledTime,
+                isScheduleLocked = isScheduleLocked
+            )
+        }
+        onSave(taskToSave)
         onDismiss()
     }
 
@@ -164,7 +195,7 @@ fun SmartTaskComposerSheetV2(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Smart Task Composer",
+                    text = if (mode is SheetMode.Edit) "Edit Task" else "Smart Task Composer",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = NeuroFlowThemeV2Colors.TextPrimary
@@ -240,10 +271,20 @@ fun SmartTaskComposerSheetV2(
                 ) {
                     Text("🤖", fontSize = 16.sp)
                     Column {
+                        val peakHour = circadianSummary?.peakWindowStartHour ?: 9
+                        val dipHour = circadianSummary?.dipWindowStartHour ?: 14
+                        val plateauHour = ((peakHour + 5) % 24).coerceIn(13, 17)
+
+                        fun formatHour(hour: Int): String {
+                            val h = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+                            val amPm = if (hour < 12) "AM" else "PM"
+                            return String.format("%02d:00 %s", h, amPm)
+                        }
+
                         val slotRecommendation = when (effectiveEnergy) {
-                            EnergyLevel.HIGH -> "Recommended Slot: 09:30 AM (Peak Biological Alertness)"
-                            EnergyLevel.MEDIUM -> "Recommended Slot: 02:00 PM (Focus Plateau)"
-                            EnergyLevel.LOW -> "Recommended Slot: 05:00 PM (Recovery & Admin)"
+                            EnergyLevel.HIGH -> "Recommended Slot: ${formatHour(peakHour)} (Peak Biological Alertness)"
+                            EnergyLevel.MEDIUM -> "Recommended Slot: ${formatHour(plateauHour)} (Focus Plateau)"
+                            EnergyLevel.LOW -> "Recommended Slot: ${formatHour(dipHour)} (Recovery & Admin)"
                         }
                         Text(
                             text = slotRecommendation,
@@ -458,9 +499,13 @@ fun SmartTaskComposerSheetV2(
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null)
+                Icon(if (mode is SheetMode.Edit) Icons.Default.Check else Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Schedule Into Energy Stream", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(
+                    text = if (mode is SheetMode.Edit) "Save Changes" else "Schedule Into Energy Stream",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))

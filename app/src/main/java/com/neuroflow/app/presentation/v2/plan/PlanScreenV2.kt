@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -35,6 +36,8 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
+import com.neuroflow.app.presentation.v2.composer.SheetMode
+import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.text.SimpleDateFormat
@@ -57,6 +60,7 @@ fun PlanScreenV2(
     val scope = rememberCoroutineScope()
     var showNotesSheet by remember { mutableStateOf(false) }
     var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
+    var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var isObjectivesExpanded by remember { mutableStateOf(false) }
 
     val handleCompleteTask: (TaskEntity) -> Unit = { task ->
@@ -307,14 +311,16 @@ fun PlanScreenV2(
                     onStartFocus = onNavigateToFocus,
                     onCompleteTask = handleCompleteTask,
                     onBreakDownTask = { viewModel.breakDownTask(it) },
-                    onLogPastTime = { taskToLogTime = it }
+                    onLogPastTime = { taskToLogTime = it },
+                    onEditTask = { task -> editingTask = task }
                 )
                 PlanViewModeV2.MATRIX -> MatrixPlanView(
                     state = state,
                     onStartFocus = onNavigateToFocus,
                     onMoveQuadrant = { task, q -> viewModel.moveTaskToQuadrant(task, q) },
                     onCompleteTask = handleCompleteTask,
-                    onBreakDownTask = { viewModel.breakDownTask(it) }
+                    onBreakDownTask = { viewModel.breakDownTask(it) },
+                    onEditTask = { task -> editingTask = task }
                 )
                 PlanViewModeV2.AUTOPILOT -> AutopilotConfigView(
                     state = state,
@@ -344,6 +350,18 @@ fun PlanScreenV2(
                 taskToLogTime = null
             },
             onSkip = { taskToLogTime = null }
+        )
+    }
+
+    editingTask?.let { task ->
+        SmartTaskComposerSheetV2(
+            onDismiss = { editingTask = null },
+            mode = SheetMode.Edit(task),
+            circadianSummary = state.circadianSummary,
+            onSave = { updated ->
+                editingTask = null
+                viewModel.updateTask(updated)
+            }
         )
     }
 }
@@ -434,7 +452,8 @@ fun TimelineScheduleView(
     onStartFocus: (String) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
     onBreakDownTask: (TaskEntity) -> Unit = {},
-    onLogPastTime: (TaskEntity) -> Unit = {}
+    onLogPastTime: (TaskEntity) -> Unit = {},
+    onEditTask: (TaskEntity) -> Unit = {}
 ) {
     val peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9
     val peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
@@ -547,8 +566,12 @@ fun TimelineScheduleView(
                             Icon(Icons.Default.CheckCircle, contentDescription = "Complete", tint = NeuroFlowThemeV2Colors.TextSecondary)
                         }
 
-                        // Title & Info
-                        Column(modifier = Modifier.weight(1f)) {
+                        // Title & Info (Tap to Edit)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onEditTask(task) }
+                        ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (task.isFrog) Text("🐸", fontSize = 14.sp)
                                 Text(
@@ -584,7 +607,7 @@ fun TimelineScheduleView(
                             Icon(Icons.Default.PlayArrow, contentDescription = "Start Focus", tint = NeuroFlowThemeV2Colors.ElectricIndigo)
                         }
 
-                        // Task Options (Log Past Time)
+                        // Task Options (Edit & Log Past Time)
                         var showItemMenu by remember { mutableStateOf(false) }
                         Box {
                             IconButton(
@@ -603,6 +626,16 @@ fun TimelineScheduleView(
                                 onDismissRequest = { showItemMenu = false },
                                 modifier = Modifier.background(NeuroFlowThemeV2Colors.SlateSurfaceAlt)
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit Task", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Edit, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                    },
+                                    onClick = {
+                                        showItemMenu = false
+                                        onEditTask(task)
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
                                     leadingIcon = {
@@ -670,8 +703,23 @@ fun MatrixPlanView(
     onStartFocus: (String) -> Unit,
     onMoveQuadrant: (TaskEntity, Quadrant) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
-    onBreakDownTask: (TaskEntity) -> Unit = {}
+    onBreakDownTask: (TaskEntity) -> Unit = {},
+    onEditTask: (TaskEntity) -> Unit = {}
 ) {
+    val coral = NeuroFlowThemeV2Colors.MutedCoral
+    val indigoGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+    val sage = NeuroFlowThemeV2Colors.SageGreen
+    val textTertiary = NeuroFlowThemeV2Colors.TextTertiary
+
+    val quadrants = remember(coral, indigoGlow, sage, textTertiary) {
+        listOf(
+            Quadrant.DO_FIRST to ("🎯 Do First (High Impact & Frog)" to coral),
+            Quadrant.SCHEDULE to ("🔵 Schedule (High Impact, Deep Focus)" to indigoGlow),
+            Quadrant.DELEGATE to ("🟢 Quick Wins / Low Energy" to sage),
+            Quadrant.ELIMINATE to ("⚪ Backlog / Low Priority" to textTertiary)
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -679,13 +727,6 @@ fun MatrixPlanView(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(bottom = 80.dp)
     ) {
-        val quadrants = listOf(
-            Quadrant.DO_FIRST to ("🎯 Do First (High Impact & Frog)" to NeuroFlowThemeV2Colors.MutedCoral),
-            Quadrant.SCHEDULE to ("🔵 Schedule (High Impact, Deep Focus)" to NeuroFlowThemeV2Colors.ElectricIndigoGlow),
-            Quadrant.DELEGATE to ("🟢 Quick Wins / Low Energy" to NeuroFlowThemeV2Colors.SageGreen),
-            Quadrant.ELIMINATE to ("⚪ Backlog / Low Priority" to NeuroFlowThemeV2Colors.TextTertiary)
-        )
-
         items(quadrants) { (quadrant, info) ->
             val (title, color) = info
             val tasks = state.tasksByQuadrant[quadrant] ?: emptyList()
@@ -742,7 +783,11 @@ fun MatrixPlanView(
                                         Icon(Icons.Default.CheckCircle, contentDescription = "Complete", tint = NeuroFlowThemeV2Colors.TextSecondary)
                                     }
 
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { onEditTask(task) }
+                                    ) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                             if (task.isFrog) Text("🐸", fontSize = 12.sp)
                                             Text(task.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
@@ -752,6 +797,14 @@ fun MatrixPlanView(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
+                                    }
+
+                                    // Edit task button
+                                    IconButton(
+                                        onClick = { onEditTask(task) },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit Task", tint = NeuroFlowThemeV2Colors.TextSecondary, modifier = Modifier.size(18.dp))
                                     }
 
                                     // Break down wand

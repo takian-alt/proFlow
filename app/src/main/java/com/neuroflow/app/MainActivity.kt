@@ -37,6 +37,7 @@ import com.neuroflow.app.presentation.common.TopGoalsRefillCard
 import com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2
 import com.neuroflow.app.presentation.common.NewChapterCard
 import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2
 import com.neuroflow.app.presentation.onboarding.OnboardingScreen
 import com.neuroflow.app.worker.AutonomyNudgeWorker
 import dagger.hilt.android.AndroidEntryPoint
@@ -170,9 +171,8 @@ class MainActivity : ComponentActivity() {
                 com.neuroflow.app.domain.model.AppTheme.LIGHT -> false
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
             }
-            NeuroFlowTheme(
+            NeuroFlowThemeV2(
                 darkTheme = isDark,
-                dynamicColor = preferences?.dynamicColorEnabled ?: true,
                 amoledDark = preferences?.amoledDarkEnabled ?: false
             ) {
                 Surface(
@@ -351,6 +351,7 @@ class MainActivity : ComponentActivity() {
                                         onInitialTaskConsumed = { initialFocusTaskId = null },
                                         initialOpenComposer = initialNewTaskOpen,
                                         onInitialComposerConsumed = { initialNewTaskOpen = false },
+                                        darkTheme = isDark,
                                         amoledDark = prefs.amoledDarkEnabled
                                     )
                                 }

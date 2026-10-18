@@ -187,6 +187,10 @@ fun CircadianHeroBarometer(
                     .fillMaxWidth()
                     .height(80.dp)
             ) {
+                val indigo = NeuroFlowThemeV2Colors.ElectricIndigo
+                val indigoGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                val warmAmber = NeuroFlowThemeV2Colors.WarmAmber
+
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
@@ -228,7 +232,7 @@ fun CircadianHeroBarometer(
                         path = processCFill,
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                indigo.copy(alpha = 0.25f),
                                 Color.Transparent
                             )
                         )
@@ -237,14 +241,14 @@ fun CircadianHeroBarometer(
                     // Draw Process C line (Indigo)
                     drawPath(
                         path = processCPath,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                        color = indigoGlow,
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
 
                     // Draw Process S line (Amber dashed)
                     drawPath(
                         path = processSPath,
-                        color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.75f),
+                        color = warmAmber.copy(alpha = 0.75f),
                         style = Stroke(
                             width = 2.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 10f), 0f),
@@ -266,7 +270,7 @@ fun CircadianHeroBarometer(
 
                     // Halo Beacon
                     drawCircle(
-                        color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.35f),
+                        color = indigo.copy(alpha = 0.35f),
                         radius = 8.dp.toPx(),
                         center = Offset(cursorX, cursorCY)
                     )
@@ -276,7 +280,7 @@ fun CircadianHeroBarometer(
                         center = Offset(cursorX, cursorCY)
                     )
                     drawCircle(
-                        color = NeuroFlowThemeV2Colors.ElectricIndigo,
+                        color = indigo,
                         radius = 2.5.dp.toPx(),
                         center = Offset(cursorX, cursorCY)
                     )

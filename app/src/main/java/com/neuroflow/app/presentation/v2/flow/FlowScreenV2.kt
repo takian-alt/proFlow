@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
@@ -45,6 +46,7 @@ fun FlowScreenV2(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showComposer by remember { mutableStateOf(false) }
+    var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var showNotesSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialOpenComposer) {
@@ -314,7 +316,8 @@ fun FlowScreenV2(
                 onTaskClick = { task -> onStartFocus(task.id) },
                 onCompleteTask = { task -> viewModel.completeTask(task) },
                 onDeferTask = { task -> viewModel.deferTask(task) },
-                onBreakDownTask = { task -> viewModel.breakDownTask(task) }
+                onBreakDownTask = { task -> viewModel.breakDownTask(task) },
+                onEditTask = { task -> editingTask = task }
             )
 
             Spacer(modifier = Modifier.height(80.dp))
@@ -324,9 +327,24 @@ fun FlowScreenV2(
     if (showComposer) {
         SmartTaskComposerSheetV2(
             onDismiss = { showComposer = false },
+            mode = SheetMode.Create,
+            circadianSummary = state.circadianSummary,
             onSave = { task ->
                 showComposer = false
                 viewModel.addTask(task)
+            },
+            completedTasks = state.completedTasks
+        )
+    }
+
+    editingTask?.let { task ->
+        SmartTaskComposerSheetV2(
+            onDismiss = { editingTask = null },
+            mode = SheetMode.Edit(task),
+            circadianSummary = state.circadianSummary,
+            onSave = { updated ->
+                editingTask = null
+                viewModel.updateTask(updated)
             },
             completedTasks = state.completedTasks
         )

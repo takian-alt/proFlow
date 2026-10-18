@@ -23,7 +23,9 @@ import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.service.BehavioralSupportService
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
@@ -42,6 +44,7 @@ data class FlowUiStateV2(
     val filteredTasks: List<TaskEntity> = emptyList(),
     val completedTasks: List<TaskEntity> = emptyList(),
     val energyUi: EnergyUiModel? = null,
+    val circadianSummary: DailyCircadianSummary? = null,
     val recommendedTask: TaskEntity? = null,
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = false,
@@ -142,6 +145,8 @@ class FlowViewModelV2 @Inject constructor(
                     TaskType.CREATIVE -> TaskCategory.CREATIVE
                     TaskType.ADMIN -> TaskCategory.ADMIN
                     TaskType.PHYSICAL -> TaskCategory.EXERCISE
+                    TaskType.GENERAL -> TaskCategory.GENERAL
+                    TaskType.MINDFULNESS -> TaskCategory.MINDFULNESS
                 },
                 priority = when (task.priority) {
                     Priority.HIGH -> 2
@@ -177,11 +182,26 @@ class FlowViewModelV2 @Inject constructor(
         // Evening shutdown after 19:00 (7 PM)
         val isEvening = currentHour >= 19
 
+        val manualPeakHour = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
+        val circadianSummary = runCatching {
+            circadianEnergyService.computeDailySummary(
+                timestampMillis = now,
+                wakeTimeMillis = now - 6 * 3600_000L,
+                lastSleepDurationMinutes = 480,
+                continuousActiveFocusMinutes = 0,
+                zoneId = java.time.ZoneId.systemDefault(),
+                naps = emptyList(),
+                chronotype = ChronotypeProfile.fromString(prefs.quizChronotype),
+                manualPeakStartHour = manualPeakHour
+            )
+        }.getOrNull()
+
         FlowUiStateV2(
             activeTasks = activeTasks,
             filteredTasks = filtered,
             completedTasks = completedTasks,
             energyUi = energyUi,
+            circadianSummary = circadianSummary,
             recommendedTask = recommended,
             preferences = prefs,
             isLoading = false,
@@ -203,6 +223,12 @@ class FlowViewModelV2 @Inject constructor(
     fun addTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.insert(task)
+        }
+    }
+
+    fun updateTask(task: TaskEntity) {
+        viewModelScope.launch {
+            taskRepository.update(task)
         }
     }
 
@@ -306,7 +332,13 @@ class FlowViewModelV2 @Inject constructor(
     fun breakDownTask(task: TaskEntity) {
         viewModelScope.launch {
             val cleanTitle = task.title.trim().take(30)
-            val generated = behavioralSupportService.generateMicroSteps(task.title, task.estimatedDurationMinutes)
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val generated = behavioralSupportService.generateMicroStepsWithAi(
+                taskTitle = task.title,
+                estimatedMinutes = task.estimatedDurationMinutes,
+                apiKey = prefs.geminiApiKey,
+                useAi = prefs.geminiAiEnabled
+            )
             val microStepEntities = generated.mapIndexed { index, suggestion ->
                 TaskMicroStepEntity(
                     taskId = task.id,

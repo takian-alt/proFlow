@@ -22,6 +22,12 @@ data class DistractionFeedback(
 interface BehavioralSupportService {
     fun resetScheduleAnchors(tasks: List<SchedulableTask>): List<SchedulableTask>
     fun generateMicroSteps(taskTitle: String, estimatedMinutes: Int): List<MicroStepSuggestion>
+    suspend fun generateMicroStepsWithAi(
+        taskTitle: String,
+        estimatedMinutes: Int,
+        apiKey: String? = null,
+        useAi: Boolean = false
+    ): List<MicroStepSuggestion> = generateMicroSteps(taskTitle, estimatedMinutes)
     fun evaluateDistraction(interruptionCount: Int, durationMinutes: Int): DistractionFeedback
 
     companion object {
@@ -101,7 +107,11 @@ interface BehavioralSupportService {
 }
 
 @Singleton
-class DefaultBehavioralSupportService @Inject constructor() : BehavioralSupportService {
+class DefaultBehavioralSupportService @Inject constructor(
+    private val decompositionService: SmartTaskDecompositionService
+) : BehavioralSupportService {
+
+    constructor() : this(DefaultSmartTaskDecompositionService())
 
     override fun resetScheduleAnchors(tasks: List<SchedulableTask>): List<SchedulableTask> {
         // Unlock unpinned tasks to allow a completely clean replan
@@ -111,12 +121,16 @@ class DefaultBehavioralSupportService @Inject constructor() : BehavioralSupportS
     }
 
     override fun generateMicroSteps(taskTitle: String, estimatedMinutes: Int): List<MicroStepSuggestion> {
-        val clean = taskTitle.trim().take(30)
-        return listOf(
-            MicroStepSuggestion("Open workspace & gather materials for $clean", 5),
-            MicroStepSuggestion("Spend 5 uninterrupted minutes on the very first sub-step", 5),
-            MicroStepSuggestion("Review progress & polish final result", 5)
-        )
+        return decompositionService.decomposeTaskLocally(taskTitle, estimatedMinutes)
+    }
+
+    override suspend fun generateMicroStepsWithAi(
+        taskTitle: String,
+        estimatedMinutes: Int,
+        apiKey: String?,
+        useAi: Boolean
+    ): List<MicroStepSuggestion> {
+        return decompositionService.decomposeTask(taskTitle, estimatedMinutes, apiKey, useAi)
     }
 
     override fun evaluateDistraction(interruptionCount: Int, durationMinutes: Int): DistractionFeedback {

@@ -584,19 +584,25 @@ class FocusViewModelV2 @Inject constructor(
 
     fun autoBreakDownTask() {
         val task = _uiState.value.task ?: return
-        val generated = behavioralSupportService.generateMicroSteps(task.title, task.estimatedDurationMinutes)
-        val microStepEntities = generated.mapIndexed { index, suggestion ->
-            TaskMicroStepEntity(
-                taskId = task.id,
-                title = suggestion.title,
-                sortOrder = index,
-                estimatedMinutes = suggestion.estimatedMinutes
-            )
-        }
-        val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
-        val serialized = StepByStepPlanCodec.serialize(planSteps)
-        _uiState.update { it.copy(microSteps = planSteps) }
         viewModelScope.launch {
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val generated = behavioralSupportService.generateMicroStepsWithAi(
+                taskTitle = task.title,
+                estimatedMinutes = task.estimatedDurationMinutes,
+                apiKey = prefs.geminiApiKey,
+                useAi = prefs.geminiAiEnabled
+            )
+            val microStepEntities = generated.mapIndexed { index, suggestion ->
+                TaskMicroStepEntity(
+                    taskId = task.id,
+                    title = suggestion.title,
+                    sortOrder = index,
+                    estimatedMinutes = suggestion.estimatedMinutes
+                )
+            }
+            val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
+            val serialized = StepByStepPlanCodec.serialize(planSteps)
+            _uiState.update { it.copy(microSteps = planSteps) }
             taskRepository.deleteMicroStepsByTaskId(task.id)
             taskRepository.insertMicroSteps(microStepEntities)
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))

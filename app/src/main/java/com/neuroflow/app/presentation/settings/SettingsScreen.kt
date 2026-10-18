@@ -33,6 +33,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.BuildConfig
+import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
@@ -101,7 +102,87 @@ fun SettingsScreen(
                 }
             }
 
-            // neuroFlow V2 UI Switcher Card
+            // Appearance & Theming
+            SettingsSection("Appearance") {
+                Text(
+                    "Theme Mode",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val themes = listOf(
+                        AppTheme.SYSTEM to "System",
+                        AppTheme.LIGHT to "Light",
+                        AppTheme.DARK to "Dark"
+                    )
+                    themes.forEach { (themeOption, label) ->
+                        val isSelected = prefs.theme == themeOption
+                        OutlinedButton(
+                            onClick = { viewModel.setTheme(themeOption) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            ),
+                            border = BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        ) {
+                            Text(
+                                label,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                SettingsToggleRow(
+                    label = "Pure Black AMOLED",
+                    description = "Use pitch-black backgrounds for OLED battery savings",
+                    checked = prefs.amoledDarkEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(amoledDarkEnabled = it) } }
+                )
+            }
+
+            // AI & Task Decomposition
+            SettingsSection("AI & Task Decomposition") {
+                SettingsToggleRow(
+                    label = "Gemini Flash AI Breakdown",
+                    description = "Use Google Gemini 1.5 Flash to intelligently break down complex tasks into micro-steps",
+                    checked = prefs.geminiAiEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(geminiAiEnabled = it) } }
+                )
+                if (prefs.geminiAiEnabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    var apiKey by rememberSaveable(prefs.geminiApiKey) { mutableStateOf(prefs.geminiApiKey) }
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = {
+                            apiKey = it
+                            viewModel.updatePreferences { p -> p.copy(geminiApiKey = it.trim()) }
+                        },
+                        label = { Text("Gemini API Key (BYOK)") },
+                        placeholder = { Text("AIzaSy...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        supportingText = {
+                            Text(
+                                "Uses your personal free Gemini API key from Google AI Studio. Stored privately on-device.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                }
+            }
 
             // Profile & Identity
             SettingsSection("Profile & Identity") {

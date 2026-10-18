@@ -784,6 +784,10 @@ fun RadialTimerGauge(
             .padding(10.dp),
         contentAlignment = Alignment.Center
     ) {
+        val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+        val ringColor = NeuroFlowThemeV2Colors.ElectricIndigo
+        val ringGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 14.dp.toPx()
             val diameter = size.minDimension - strokeWidth
@@ -792,7 +796,7 @@ fun RadialTimerGauge(
 
             // Background track
             drawArc(
-                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                color = trackColor,
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -805,9 +809,9 @@ fun RadialTimerGauge(
             drawArc(
                 brush = Brush.sweepGradient(
                     listOf(
-                        NeuroFlowThemeV2Colors.ElectricIndigo,
-                        NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                        NeuroFlowThemeV2Colors.ElectricIndigo
+                        ringColor,
+                        ringGlow,
+                        ringColor
                     )
                 ),
                 startAngle = -90f,

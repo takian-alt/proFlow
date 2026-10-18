@@ -15,7 +15,7 @@ class TaskInferenceEngineTest {
         assertEquals("", result.sanitizedTitle)
         assertEquals(25, result.durationMinutes)
         assertEquals(EnergyLevel.MEDIUM, result.energyDemand)
-        assertEquals(TaskType.ANALYTICAL, result.taskType)
+        assertEquals(TaskType.GENERAL, result.taskType)
         assertTrue(result.contextTags.isEmpty())
         assertFalse(result.isFrog)
     }

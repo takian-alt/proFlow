@@ -47,6 +47,7 @@ fun NeuroFlowAppV2(
     onInitialTaskConsumed: () -> Unit = {},
     initialOpenComposer: Boolean = false,
     onInitialComposerConsumed: () -> Unit = {},
+    darkTheme: Boolean = true,
     amoledDark: Boolean = false
 ) {
     val navController = rememberNavController()
@@ -64,15 +65,15 @@ fun NeuroFlowAppV2(
         }
     }
 
-    val isAmoled = amoledDark || MaterialTheme.colorScheme.background == Color.Black
-    NeuroFlowThemeV2(amoledDark = isAmoled) {
+    val isAmoled = darkTheme && (amoledDark || MaterialTheme.colorScheme.background == Color.Black)
+    NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 if (showBottomBar) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = NeuroFlowThemeV2Colors.TextPrimary
+                        contentColor = MaterialTheme.colorScheme.onSurface
                     ) {
                         NavHubsV2.items.forEach { hub ->
                             val selected = currentDestination?.hierarchy?.any { it.route == hub.route } == true
@@ -90,11 +91,11 @@ fun NeuroFlowAppV2(
                                     }
                                 },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                    selectedTextColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    indicatorColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    unselectedIconColor = NeuroFlowThemeV2Colors.TextSecondary,
-                                    unselectedTextColor = NeuroFlowThemeV2Colors.TextSecondary
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             )
                         }

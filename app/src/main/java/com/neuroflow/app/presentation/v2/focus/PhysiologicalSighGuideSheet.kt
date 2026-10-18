@@ -113,6 +113,9 @@ fun PhysiologicalSighGuideSheet(
                     .padding(8.dp),
                 contentAlignment = Alignment.Center
             ) {
+                val sage = NeuroFlowThemeV2Colors.SageGreen
+                val indigoGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val radius = (size.minDimension / 2f) * targetScale
                     val center = Offset(size.width / 2f, size.height / 2f)
@@ -121,7 +124,7 @@ fun PhysiologicalSighGuideSheet(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.35f),
+                                sage.copy(alpha = 0.35f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -135,8 +138,8 @@ fun PhysiologicalSighGuideSheet(
                     drawCircle(
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                NeuroFlowThemeV2Colors.SageGreen,
-                                NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                sage,
+                                indigoGlow
                             )
                         ),
                         radius = radius,

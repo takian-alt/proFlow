@@ -210,6 +210,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                         TaskType.CREATIVE -> TaskCategory.CREATIVE
                         TaskType.ADMIN -> TaskCategory.ADMIN
                         TaskType.PHYSICAL -> TaskCategory.EXERCISE
+                        TaskType.GENERAL -> TaskCategory.GENERAL
+                        TaskType.MINDFULNESS -> TaskCategory.MINDFULNESS
                     },
                     priority = when (task.priority) {
                         Priority.HIGH -> 2

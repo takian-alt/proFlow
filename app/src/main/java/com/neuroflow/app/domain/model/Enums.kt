@@ -48,7 +48,9 @@ enum class TaskType {
     ANALYTICAL,
     CREATIVE,
     ADMIN,
-    PHYSICAL
+    PHYSICAL,
+    GENERAL,
+    MINDFULNESS
 }
 
 enum class HyperFocusState {

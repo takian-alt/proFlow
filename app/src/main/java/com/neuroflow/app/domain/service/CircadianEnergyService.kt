@@ -25,6 +25,34 @@ enum class EnergyPhase {
     PEAK, REBOUND, DIP, WIND_DOWN, RECOVERY_NEEDED
 }
 
+enum class ChronotypeProfile(val peakOffsetFromWakeHours: Double) {
+    DEFINITE_MORNING(3.0),
+    MODERATE_MORNING(3.8),
+    INTERMEDIATE(4.5),
+    MODERATE_EVENING(6.5),
+    DEFINITE_EVENING(8.0);
+
+    companion object {
+        fun fromString(value: String?): ChronotypeProfile {
+            if (value.isNullOrBlank()) return INTERMEDIATE
+            return entries.firstOrNull { it.name.equals(value.trim(), ignoreCase = true) } ?: INTERMEDIATE
+        }
+    }
+}
+
+fun computePhasePeakHour(
+    wakeClockHour: Double,
+    chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+    manualPeakStartHour: Int? = null
+): Double {
+    val bioPeak = (wakeClockHour + chronotype.peakOffsetFromWakeHours) % 24.0
+    return if (manualPeakStartHour != null && manualPeakStartHour in 0..23) {
+        (0.70 * bioPeak + 0.30 * manualPeakStartHour.toDouble()) % 24.0
+    } else {
+        bioPeak
+    }
+}
+
 /**
  * Represents an intra-day restorative nap bout occurring after the primary morning wake time.
  * Discharges Process S (homeostatic pressure) without shifting Process C (circadian phase).
@@ -157,6 +185,26 @@ interface CircadianEnergyService {
         continuousActiveFocusMinutes: Int = 0,
         zoneId: ZoneId = ZoneId.systemDefault(),
         naps: List<DaytimeNapBout> = emptyList()
+    ): CircadianSnapshot = evaluateSnapshot(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = naps,
+        chronotype = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour = null
+    )
+
+    fun evaluateSnapshot(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int = 0,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        naps: List<DaytimeNapBout> = emptyList(),
+        chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour: Int? = null
     ): CircadianSnapshot
 
     fun projectDayTimeline(
@@ -165,7 +213,14 @@ interface CircadianEnergyService {
         lastSleepDurationMinutes: Int,
         stepMinutes: Int = 30,
         zoneId: ZoneId = ZoneId.systemDefault()
-    ): List<CircadianSnapshot>
+    ): List<CircadianSnapshot> = projectDayTimeline(
+        dayStartMillis = dayStartMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        stepMinutes = stepMinutes,
+        zoneId = zoneId,
+        naps = emptyList()
+    )
 
     fun projectDayTimeline(
         dayStartMillis: Long,
@@ -174,6 +229,26 @@ interface CircadianEnergyService {
         stepMinutes: Int,
         zoneId: ZoneId,
         naps: List<DaytimeNapBout>
+    ): List<CircadianSnapshot> = projectDayTimeline(
+        dayStartMillis = dayStartMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        stepMinutes = stepMinutes,
+        zoneId = zoneId,
+        naps = naps,
+        chronotype = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour = null
+    )
+
+    fun projectDayTimeline(
+        dayStartMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        stepMinutes: Int,
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>,
+        chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour: Int? = null
     ): List<CircadianSnapshot>
 
     fun computeDailySummary(
@@ -182,7 +257,16 @@ interface CircadianEnergyService {
         lastSleepDurationMinutes: Int = 480,
         continuousActiveFocusMinutes: Int = 0,
         zoneId: ZoneId = ZoneId.systemDefault()
-    ): DailyCircadianSummary
+    ): DailyCircadianSummary = computeDailySummary(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = emptyList(),
+        chronotype = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour = null
+    )
 
     fun computeDailySummary(
         timestampMillis: Long = System.currentTimeMillis(),
@@ -191,6 +275,26 @@ interface CircadianEnergyService {
         continuousActiveFocusMinutes: Int = 0,
         zoneId: ZoneId = ZoneId.systemDefault(),
         naps: List<DaytimeNapBout> = emptyList()
+    ): DailyCircadianSummary = computeDailySummary(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = naps,
+        chronotype = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour = null
+    )
+
+    fun computeDailySummary(
+        timestampMillis: Long = System.currentTimeMillis(),
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int = 480,
+        continuousActiveFocusMinutes: Int = 0,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        naps: List<DaytimeNapBout> = emptyList(),
+        chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour: Int? = null
     ): DailyCircadianSummary
 
     fun computeCategoryAffinity(
@@ -232,7 +336,9 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         lastSleepDurationMinutes: Int,
         continuousActiveFocusMinutes: Int,
         zoneId: ZoneId,
-        naps: List<DaytimeNapBout>
+        naps: List<DaytimeNapBout>,
+        chronotype: ChronotypeProfile,
+        manualPeakStartHour: Int?
     ): CircadianSnapshot {
         // 1. Continuous Sleep Recovery -> Initial Wake Pressure S0 (No 60m cliff)
         val sleepHours = max(0.0, lastSleepDurationMinutes / 60.0)
@@ -248,12 +354,12 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         val processS = homeostatic.processS
         val inertiaPenalty = homeostatic.sleepInertiaPenalty
 
-        // 3. DST-Safe Wall-Clock Extraction for Process C(t) (100% phase-locked to morning wake)
+        // 3. DST-Safe Wall-Clock Extraction for Process C(t) (phase-locked with chronotype modulation)
         val zonedNow = Instant.ofEpochMilli(timestampMillis).atZone(zoneId)
         val zonedWake = Instant.ofEpochMilli(wakeTimeMillis).atZone(zoneId)
         val clockHour = zonedNow.hour + (zonedNow.minute / 60.0)
         val wakeClockHour = zonedWake.hour + (zonedWake.minute / 60.0)
-        val phasePeakPhi = (wakeClockHour + PEAK_OFFSET_FROM_WAKE_HOURS) % 24.0
+        val phasePeakPhi = computePhasePeakHour(wakeClockHour, chronotype, manualPeakStartHour)
 
         // Bimodal sinusoidal model (captures morning peak, afternoon dip, early evening rebound)
         val primaryHarmonic = 0.38 * cos((2.0 * PI * (clockHour - phasePeakPhi)) / 24.0)
@@ -297,23 +403,10 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         wakeTimeMillis: Long,
         lastSleepDurationMinutes: Int,
         stepMinutes: Int,
-        zoneId: ZoneId
-    ): List<CircadianSnapshot> = projectDayTimeline(
-        dayStartMillis = dayStartMillis,
-        wakeTimeMillis = wakeTimeMillis,
-        lastSleepDurationMinutes = lastSleepDurationMinutes,
-        stepMinutes = stepMinutes,
-        zoneId = zoneId,
-        naps = emptyList()
-    )
-
-    override fun projectDayTimeline(
-        dayStartMillis: Long,
-        wakeTimeMillis: Long,
-        lastSleepDurationMinutes: Int,
-        stepMinutes: Int,
         zoneId: ZoneId,
-        naps: List<DaytimeNapBout>
+        naps: List<DaytimeNapBout>,
+        chronotype: ChronotypeProfile,
+        manualPeakStartHour: Int?
     ): List<CircadianSnapshot> {
         val stepMillis = stepMinutes * 60_000L
         val steps = (24 * 60) / stepMinutes
@@ -325,7 +418,9 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
                 lastSleepDurationMinutes = lastSleepDurationMinutes,
                 continuousActiveFocusMinutes = 0,
                 zoneId = zoneId,
-                naps = naps
+                naps = naps,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakStartHour
             )
         }
     }
@@ -335,23 +430,10 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         wakeTimeMillis: Long,
         lastSleepDurationMinutes: Int,
         continuousActiveFocusMinutes: Int,
-        zoneId: ZoneId
-    ): DailyCircadianSummary = computeDailySummary(
-        timestampMillis = timestampMillis,
-        wakeTimeMillis = wakeTimeMillis,
-        lastSleepDurationMinutes = lastSleepDurationMinutes,
-        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
-        zoneId = zoneId,
-        naps = emptyList()
-    )
-
-    override fun computeDailySummary(
-        timestampMillis: Long,
-        wakeTimeMillis: Long,
-        lastSleepDurationMinutes: Int,
-        continuousActiveFocusMinutes: Int,
         zoneId: ZoneId,
-        naps: List<DaytimeNapBout>
+        naps: List<DaytimeNapBout>,
+        chronotype: ChronotypeProfile,
+        manualPeakStartHour: Int?
     ): DailyCircadianSummary {
         val currentSnapshot = evaluateSnapshot(
             timestampMillis = timestampMillis,
@@ -359,7 +441,9 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
             lastSleepDurationMinutes = lastSleepDurationMinutes,
             continuousActiveFocusMinutes = continuousActiveFocusMinutes,
             zoneId = zoneId,
-            naps = naps
+            naps = naps,
+            chronotype = chronotype,
+            manualPeakStartHour = manualPeakStartHour
         )
 
         val zonedTimestamp = Instant.ofEpochMilli(timestampMillis).atZone(zoneId)
@@ -374,7 +458,9 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
             lastSleepDurationMinutes = lastSleepDurationMinutes,
             stepMinutes = 30,
             zoneId = zoneId,
-            naps = naps
+            naps = naps,
+            chronotype = chronotype,
+            manualPeakStartHour = manualPeakStartHour
         )
 
         // Peak Window: argmax E_usable(t)

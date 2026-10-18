@@ -182,6 +182,8 @@ fun TaskEntity.determineCategory(): TaskCategory {
             com.neuroflow.app.domain.model.TaskType.CREATIVE -> TaskCategory.CREATIVE
             com.neuroflow.app.domain.model.TaskType.ADMIN -> TaskCategory.ROUTINE
             com.neuroflow.app.domain.model.TaskType.PHYSICAL -> TaskCategory.PHYSICAL
+            com.neuroflow.app.domain.model.TaskType.GENERAL -> TaskCategory.ROUTINE
+            com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> TaskCategory.ROUTINE
         }
     }
 }

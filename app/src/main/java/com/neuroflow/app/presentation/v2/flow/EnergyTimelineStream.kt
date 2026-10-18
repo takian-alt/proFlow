@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreTime
 import androidx.compose.material.icons.filled.MoreVert
@@ -36,6 +37,7 @@ fun EnergyTimelineStream(
     onCompleteTask: (TaskEntity) -> Unit,
     onDeferTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
+    onEditTask: (TaskEntity) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
@@ -92,6 +94,7 @@ fun EnergyTimelineStream(
                         onComplete = { onCompleteTask(task) },
                         onDefer = { onDeferTask(task) },
                         onBreakDown = { onBreakDownTask(task) },
+                        onEdit = { onEditTask(task) },
                         onLogPastTime = { taskToLogTime = task }
                     )
                 }
@@ -120,6 +123,7 @@ fun TimelineTaskCard(
     onComplete: () -> Unit,
     onDefer: () -> Unit,
     onBreakDown: () -> Unit = {},
+    onEdit: () -> Unit = {},
     onLogPastTime: () -> Unit = {}
 ) {
     val energyBadgeColor = when (task.energyLevel) {
@@ -316,18 +320,34 @@ fun TimelineTaskCard(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (task.isFrog) {
-                        Text("🐸", fontSize = 20.sp)
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (task.isFrog) {
+                            Text("🐸", fontSize = 20.sp)
+                        }
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
                     }
-                    Text(
-                        text = task.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary
-                    )
+                    IconButton(
+                        onClick = {
+                            showDetailSheet = false
+                            onEdit()
+                        },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit task", tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                    }
                 }
 
                 Row(
@@ -391,6 +411,23 @@ fun TimelineTaskCard(
                     OutlinedButton(
                         onClick = {
                             showDetailSheet = false
+                            onEdit()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Edit Task")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showDetailSheet = false
                             onBreakDown()
                         },
                         modifier = Modifier
@@ -404,7 +441,12 @@ fun TimelineTaskCard(
                         Spacer(Modifier.width(6.dp))
                         Text("AI Breakdown")
                     }
+                }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     OutlinedButton(
                         onClick = {
                             showDetailSheet = false
@@ -421,12 +463,7 @@ fun TimelineTaskCard(
                         Spacer(Modifier.width(6.dp))
                         Text("Defer +2h")
                     }
-                }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
                     OutlinedButton(
                         onClick = {
                             showDetailSheet = false
@@ -443,23 +480,23 @@ fun TimelineTaskCard(
                         Spacer(Modifier.width(6.dp))
                         Text("Log Time")
                     }
+                }
 
-                    Button(
-                        onClick = {
-                            showDetailSheet = false
-                            onTaskClick()
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NeuroFlowThemeV2Colors.ElectricIndigo
-                        )
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Start Focus")
-                    }
+                Button(
+                    onClick = {
+                        showDetailSheet = false
+                        onTaskClick()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeuroFlowThemeV2Colors.ElectricIndigo
+                    )
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Start Focus", fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -28,7 +28,9 @@ import com.neuroflow.app.data.local.dao.QuickNoteDao
 import com.neuroflow.app.data.local.entity.QuickNoteEntity
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.domain.service.BehavioralSupportService
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
@@ -62,6 +64,7 @@ data class PlanUiStateV2(
     val workDayStart: Int = 8,
     val workDayEnd: Int = 20,
     val energyUi: EnergyUiModel? = null,
+    val circadianSummary: DailyCircadianSummary? = null,
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = true
 )
@@ -174,6 +177,20 @@ class PlanViewModelV2 @Inject constructor(
             dayMillis = dateMillis
         )
 
+        val manualPeakHour = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
+        val circadianSummary = runCatching {
+            circadianEnergyService.computeDailySummary(
+                timestampMillis = dateMillis,
+                wakeTimeMillis = dateMillis + (prefs.wakeUpHour * 3600_000L),
+                lastSleepDurationMinutes = 480,
+                continuousActiveFocusMinutes = 0,
+                zoneId = java.time.ZoneId.systemDefault(),
+                naps = emptyList(),
+                chronotype = ChronotypeProfile.fromString(prefs.quizChronotype),
+                manualPeakStartHour = manualPeakHour
+            )
+        }.getOrNull()
+
         PlanUiStateV2(
             selectedDateMillis = dateMillis,
             viewMode = mode,
@@ -189,6 +206,7 @@ class PlanViewModelV2 @Inject constructor(
             workDayStart = prefs.workDayStart,
             workDayEnd = prefs.workDayEnd,
             energyUi = energyUi,
+            circadianSummary = circadianSummary,
             preferences = prefs,
             isLoading = false
         )
@@ -260,6 +278,8 @@ class PlanViewModelV2 @Inject constructor(
                             com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
                             com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
                             com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                            com.neuroflow.app.domain.model.TaskType.GENERAL -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
+                            com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
                         },
                         priority = when (task.priority) {
                             com.neuroflow.app.domain.model.Priority.HIGH -> 2
@@ -355,6 +375,12 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun updateTask(task: TaskEntity) {
+        viewModelScope.launch {
+            taskRepository.update(task)
+        }
+    }
+
     fun moveTaskToQuadrant(task: TaskEntity, newQuadrant: Quadrant) {
         viewModelScope.launch {
             taskRepository.update(task.copy(quadrant = newQuadrant, updatedAt = System.currentTimeMillis()))
@@ -363,7 +389,13 @@ class PlanViewModelV2 @Inject constructor(
 
     fun breakDownTask(task: TaskEntity) {
         viewModelScope.launch {
-            val generated = behavioralSupportService.generateMicroSteps(task.title, task.estimatedDurationMinutes)
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val generated = behavioralSupportService.generateMicroStepsWithAi(
+                taskTitle = task.title,
+                estimatedMinutes = task.estimatedDurationMinutes,
+                apiKey = prefs.geminiApiKey,
+                useAi = prefs.geminiAiEnabled
+            )
             val microStepEntities = generated.mapIndexed { index, suggestion ->
                 TaskMicroStepEntity(
                     taskId = task.id,

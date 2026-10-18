@@ -174,7 +174,9 @@ data class UserPreferences(
     val dynamicColorEnabled: Boolean = true,
     val amoledDarkEnabled: Boolean = false,
     val dndEnabled: Boolean = true,
-    val useV2Ui: Boolean = true
+    val useV2Ui: Boolean = true,
+    val geminiApiKey: String = "",
+    val geminiAiEnabled: Boolean = false
 )
 
 @Singleton
@@ -182,6 +184,8 @@ class UserPreferencesDataStore @Inject constructor(
     private val context: Context
 ) {
     private object Keys {
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val GEMINI_AI_ENABLED = booleanPreferencesKey("gemini_ai_enabled")
         val WAKE_UP_HOUR = intPreferencesKey("wake_up_hour")
         val SLEEP_HOUR = intPreferencesKey("sleep_hour")
         val PEAK_ENERGY_START = intPreferencesKey("peak_energy_start")
@@ -429,7 +433,9 @@ class UserPreferencesDataStore @Inject constructor(
             dynamicColorEnabled = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true,
             amoledDarkEnabled = prefs[Keys.AMOLED_DARK_ENABLED] ?: false,
             dndEnabled = prefs[Keys.DND_ENABLED] ?: true,
-            useV2Ui = prefs[Keys.USE_V2_UI] ?: true
+            useV2Ui = prefs[Keys.USE_V2_UI] ?: true,
+            geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
+            geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: false
         )
     }
 
@@ -621,7 +627,10 @@ class UserPreferencesDataStore @Inject constructor(
                 protectedTimeSlots = parseProtectedTimeSlots(prefs[Keys.PROTECTED_TIME_SLOTS]),
                 dynamicColorEnabled = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true,
                 amoledDarkEnabled = prefs[Keys.AMOLED_DARK_ENABLED] ?: false,
-                dndEnabled = prefs[Keys.DND_ENABLED] ?: true
+                dndEnabled = prefs[Keys.DND_ENABLED] ?: true,
+                useV2Ui = prefs[Keys.USE_V2_UI] ?: true,
+                geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
+                geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: false
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -753,6 +762,8 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.AMOLED_DARK_ENABLED] = updated.amoledDarkEnabled
             prefs[Keys.DND_ENABLED] = updated.dndEnabled
             prefs[Keys.USE_V2_UI] = updated.useV2Ui
+            prefs[Keys.GEMINI_API_KEY] = updated.geminiApiKey
+            prefs[Keys.GEMINI_AI_ENABLED] = updated.geminiAiEnabled
         }
     }
 

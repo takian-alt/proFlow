@@ -166,6 +166,8 @@ class DailyPlanWorker @AssistedInject constructor(
                         com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
                         com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
                         com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                        com.neuroflow.app.domain.model.TaskType.GENERAL -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
+                        com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
                     },
                     priority = when (task.priority) {
                         com.neuroflow.app.domain.model.Priority.HIGH -> 2

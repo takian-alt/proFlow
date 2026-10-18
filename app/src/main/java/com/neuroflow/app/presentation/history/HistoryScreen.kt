@@ -335,10 +335,12 @@ private fun HistoryDetailSheet(
                 })
                 DetailRow("Priority", task.priority.name)
                 DetailRow("Task Type", when (task.taskType) {
-                    TaskType.ANALYTICAL -> "🧠 Analytical"
-                    TaskType.CREATIVE   -> "🎨 Creative"
-                    TaskType.ADMIN      -> "📋 Admin"
-                    TaskType.PHYSICAL   -> "💪 Physical"
+                    TaskType.ANALYTICAL  -> "🧠 Analytical"
+                    TaskType.CREATIVE    -> "🎨 Creative"
+                    TaskType.ADMIN       -> "📋 Admin"
+                    TaskType.PHYSICAL    -> "💪 Physical"
+                    TaskType.GENERAL     -> "📌 General"
+                    TaskType.MINDFULNESS -> "🧘 Mindfulness"
                 })
                 DetailRow("Energy Level", when (task.energyLevel) {
                     EnergyLevel.HIGH   -> "🔴 High"

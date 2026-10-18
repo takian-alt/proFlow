@@ -205,11 +205,10 @@ class DefaultTaskSchedulerService @Inject constructor(
         if (tasks.isEmpty()) return emptyList()
 
         // 1. Construct DST-safe day horizon [max(now, 06:00), 22:30]
-        val dayStartMillis = max(
-            nowMillis,
-            dayDate.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli()
-        )
-        val dayEndMillis = dayDate.atTime(LocalTime.of(22, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        val earliestDayStart = dayDate.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val latestDayEnd = dayDate.atTime(LocalTime.of(22, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        val dayStartMillis = if (nowMillis >= latestDayEnd) earliestDayStart else max(nowMillis, earliestDayStart)
+        val dayEndMillis = latestDayEnd
         if (dayStartMillis >= dayEndMillis) return emptyList()
 
         // 2. Build Exact Minute-Resolution Free Intervals (Fixes Flaw #9)
@@ -233,11 +232,10 @@ class DefaultTaskSchedulerService @Inject constructor(
                 TimeSlotWindow(existingStart, existingStart + durationMins * 60_000L)
             } else null
 
-            val keepAnchored = existingWindow != null &&
+            if (existingWindow != null &&
                 (task.isLocked || (!forceReplan && existingWindow.startMillis >= nowMillis - 15 * 60_000L)) &&
                 fitsInFreeIntervals(freeIntervals, existingWindow)
-
-            if (keepAnchored && existingWindow != null) {
+            ) {
                 val snap = if (naps.isNotEmpty()) {
                     circadianService.evaluateSnapshot(
                         existingWindow.startMillis, wakeTimeMillis, lastSleepDurationMinutes, 0, zoneId, naps
@@ -293,7 +291,16 @@ class DefaultTaskSchedulerService @Inject constructor(
         }
 
         val readyQueue = PriorityQueue<SchedulableTask>(
-            compareByDescending { scoreCache[it.id]?.totalScore ?: 0.0 }
+            compareByDescending { task ->
+                val baseScore = scoreCache[task.id]?.totalScore ?: 0.0
+                val scarcityBonus = when (task.energyDemand) {
+                    EnergyDemand.HIGH -> 12.0
+                    EnergyDemand.MODERATE -> 4.0
+                    EnergyDemand.LOW -> 0.0
+                }
+                val frogBonus = if (task.isFrog) 15.0 else 0.0
+                baseScore + scarcityBonus + frogBonus
+            }
         )
         remainingTasks.filter { inDegree[it.id] == 0 }.forEach { readyQueue.add(it) }
 
@@ -301,6 +308,7 @@ class DefaultTaskSchedulerService @Inject constructor(
             val current = readyQueue.poll() ?: break
             val breakdown = scoreCache.getValue(current.id)
             val durationMillis = breakdown.bufferedDurationMinutes * 60_000L
+            val rawDurationMillis = max(5, current.estimatedMinutes) * 60_000L
 
             // Respect parent completion time if parent was scheduled earlier in this pass
             val parentEnd = current.parentTaskId?.let { completionEndMap[it] } ?: dayStartMillis
@@ -317,7 +325,21 @@ class DefaultTaskSchedulerService @Inject constructor(
                 calibrationRatio = calibrationRatio,
                 zoneId = zoneId,
                 naps = naps
-            )
+            ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
+                // Fallback to exact uninflated duration so 25m tasks fit 25m calendar gaps
+                findBestCircadianWindow(
+                    task = current,
+                    durationMillis = rawDurationMillis,
+                    earliestStartMillis = earliestStart,
+                    freeIntervals = freeIntervals,
+                    wakeTimeMillis = wakeTimeMillis,
+                    lastSleepDurationMinutes = lastSleepDurationMinutes,
+                    dependentCount = dependentsMap[current.id]?.size ?: 0,
+                    calibrationRatio = calibrationRatio,
+                    zoneId = zoneId,
+                    naps = naps
+                )
+            } else null
 
             if (bestSlot != null) {
                 val (window, slotBreakdown) = bestSlot
@@ -377,9 +399,16 @@ class DefaultTaskSchedulerService @Inject constructor(
                     )
                 }
                 val breakdown = evaluateTaskScore(task, snap, dependentCount, calibrationRatio)
-                // Slight bias toward earlier placement when energy fit is equal
+                // Demand-elastic time decay lambda(tau)
+                val hourlyDecayLambda = when {
+                    task.energyDemand == EnergyDemand.HIGH ||
+                    task.category == TaskCategory.DEEP_WORK ||
+                    task.category == TaskCategory.CREATIVE -> 0.08
+                    task.energyDemand == EnergyDemand.MODERATE -> 0.22
+                    else -> 0.45
+                }
                 val hoursFromNow = (candidateStart - earliestStartMillis) / 3_600_000.0
-                val utility = breakdown.totalScore - (0.6 * hoursFromNow)
+                val utility = breakdown.totalScore - (hourlyDecayLambda * hoursFromNow)
 
                 if (utility > bestUtility) {
                     bestUtility = utility

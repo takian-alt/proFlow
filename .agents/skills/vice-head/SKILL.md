@@ -288,6 +288,33 @@ When the user returns with the Vice Head's recommendations:
      - All 812/812 unit tests passing (100% test pass rate, 0 failures, 0 errors, 0 skipped) under single-worker daemon constraints.
      - Cut tag `v2.1.0`.
 
+### ADR-007: Theming Engine Overhaul, Task Lifecycle Re-editing, Gemini Free API Decomposition & Algorithmic Calibrations
+- **Status**: RATIFIED, IMPLEMENTED & VERIFIED (October 18, 2026)
+- **Decisions & Implementation Tracks**:
+  1. **Dual-Palette M3 Semantic Migration (Track A)**:
+     - Eliminated nested theme clobber: `MainActivity` observes `isDark` and `amoledDark` from DataStore, passing them to root `NeuroFlowThemeV2`. Inner redundant dark theme wrapper in `NeuroFlowAppV2` removed.
+     - Deployed `NeuroFlowSemanticPalette` (`DarkSemanticPalette`, `AmoledSemanticPalette`, `LightSemanticPalette`) via `LocalNeuroFlowPalette` and `LocalIsDarkTheme`.
+     - Preserved static `Color` tokens on `NeuroFlowThemeV2Colors` for draw scopes, canvas, and non-composable JVM tests, while exposing dynamic theme resolution via `LocalNeuroFlowPalette.current` and `MaterialTheme.colorScheme`.
+     - Added Appearance Card with Light / Dark / System segmented options and Pure Black AMOLED toggle switch to `SettingsScreen.kt`.
+  2. **Polymorphic Task Composer & Card Ergonomics (Track B)**:
+     - Implemented polymorphic `SheetMode` (`SheetMode.Create` vs `SheetMode.Edit(val task: TaskEntity)`) in `SmartTaskComposerSheetV2`. In edit mode, pre-populates all overrides and updates existing task via `TaskRepository.update(task)`.
+     - Decoupled focus play launch from task card inspection/editing: Dedicated `[ ▶ ]` focus button launches timer; tapping the card body or detail sheet header opens task detail with dedicated `[ Edit Task ]` and `[ Break It Down ]` affordances across `FlowScreenV2` and `PlanScreenV2` (Timeline and Matrix views).
+     - Connected dynamic circadian slot recommendations: Displays real-time peak, dip, and rebound windows derived directly from `DailyCircadianSummary`.
+  3. **BYOK Gemini Flash API + Action-Verb Local Fallback (Track C)**:
+     - Deployed `SmartTaskDecompositionService` calling Google Gemini 1.5 Flash endpoint (`gemini-1.5-flash:generateContent`) using native `HttpsURLConnection` + `org.json.JSONObject` on `Dispatchers.IO` (0 KB external SDK bloat, preserving strict 6.8 MB APK limit).
+     - Privacy-guaranteed BYOK storage: 100% opt-in, API key stored locally in `UserPreferencesDataStore`, transmitted exclusively via `x-goog-api-key` header with a 4-second connect/read timeout and immediate fallback.
+     - Heuristic classification engine supporting 6 lexical intent archetypes (`CODING_TECH`, `WRITING_RESEARCH`, `STUDY_ACADEMIC`, `CHORE_MAINTENANCE`, `ADMIN_LOGISTICS`, `GENERAL`) and robust regex JSON extraction fallback.
+     - Integrated with `BehavioralSupportService` and wired through `FlowViewModelV2`, `PlanViewModelV2`, and `FocusViewModelV2`.
+  4. **Algorithmic & Mathematical Calibrations (Track D)**:
+     - Added `ChronotypeProfile` ($\Delta_{\text{peak}} \in \{3.0, 3.8, 4.5, 6.5, 8.0\}\text{h}$) blended with manual peak hour ($70/30$ weighting) to `CircadianEnergyService`.
+     - Expanded `TaskType` with `GENERAL` and `MINDFULNESS` (Room v22 string enum backward-compatible, 0 migration needed) and overhauled `TaskInferenceEngine` with duration-based heuristics ($\le 15\text{m} \rightarrow$ `ADMIN`/`LOW`; $16..40\text{m} \rightarrow$ `GENERAL`/`MEDIUM`; $>40\text{m} \rightarrow$ `ANALYTICAL`/`HIGH`).
+     - Calibrated `TaskSchedulerService` with scarcity-aware `readyQueue` ordering ($+12$ for high energy, $+15$ for frogs), demand-elastic time-decay damping $\lambda(\tau) \in \{0.08, 0.22, 0.45\}\text{ pts/hr}$, unbuffered gap-fit fallback pass, and midnight boundary horizon resilience.
+  5. **Verification & Greenness**:
+     - Added unit tests for `SmartTaskDecompositionService` (archetypes, JSON parsing, codeblock strip, local fallback) and `SmartTaskComposerSheetV2Test`.
+     - 819 / 819 unit tests passing (100% test pass rate, 0 failures, 0 errors, 0 skipped) under single-worker daemon constraints (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
+     - Maintained 6.8 MB APK footprint and bounded host RAM consumption.
+     - Cut tag `v2.2.0-GM` at commit `5364da0`.
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
@@ -362,5 +389,31 @@ Derived directly via `computeDailySummary(...)` projecting 30-minute intervals f
 4. **Haptic Pulse Cadence**:
    $$\text{Waveform} = [(0\text{ms}, 0), (120\text{ms}, 160), (100\text{ms}, 0), (220\text{ms}, 220)]$$
    *(Double-pulse tactile envelope for clear non-intrusive focus session culmination).*
+
+### 6.8 Chronotype-Modulated Circadian Phase ($\phi$)
+$$\Delta_{\text{peak}}(K) = \begin{cases}
+3.0\text{h} & \text{if } K = \text{DEFINITE\_MORNING (Extreme Lark)} \\
+3.8\text{h} & \text{if } K = \text{MODERATE\_MORNING} \\
+4.5\text{h} & \text{if } K = \text{INTERMEDIATE (Standard Default)} \\
+6.5\text{h} & \text{if } K = \text{MODERATE\_EVENING} \\
+8.0\text{h} & \text{if } K = \text{DEFINITE\_EVENING (Extreme Owl)}
+\end{cases}$$
+
+Circadian phase peak $\phi$ blended with user-configured manual peak hour $H_{\text{user}} \in [0, 23]$:
+$$\phi = \left(0.70 \cdot (t_{\text{wake}} + \Delta_{\text{peak}}(K)) + 0.30 \cdot H_{\text{user}}\right) \bmod 24$$
+
+### 6.9 Demand-Elastic Scheduler Utility Damping ($\lambda(\tau)$)
+$$\text{Utility}(\tau, t_{\text{cand}}) = \text{Score}(\tau, t_{\text{cand}}) - \lambda(\tau) \cdot \left(\frac{t_{\text{cand}} - t_{\text{earliest}}}{3,600,000\text{ ms}}\right)$$
+where:
+$$\lambda(\tau) = \begin{cases}
+0.08\text{ pts/hr} & \text{if } \tau.\text{energyDemand} = \text{HIGH or } \tau.\text{category} \in \{\text{DEEP\_WORK}, \text{CREATIVE}\} \\
+0.22\text{ pts/hr} & \text{if } \tau.\text{energyDemand} = \text{MODERATE} \\
+0.45\text{ pts/hr} & \text{if } \tau.\text{energyDemand} = \text{LOW}
+\end{cases}$$
+
+### 6.10 Scarcity-Aware Queue Prioritization Key
+$$\text{QueueKey}(\tau) = \text{Score}(\tau, t_{\text{now}}) + 12.0 \cdot \mathbb{I}(\tau.\text{energyDemand} = \text{HIGH}) + 15.0 \cdot \mathbb{I}(\tau.\text{isFrog})$$
+
+
 
 

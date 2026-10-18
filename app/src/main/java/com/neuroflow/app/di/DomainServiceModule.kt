@@ -4,8 +4,10 @@ import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
+import com.neuroflow.app.domain.service.DefaultSmartTaskDecompositionService
 import com.neuroflow.app.domain.service.DefaultTaskNaturalLanguageParser
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
+import com.neuroflow.app.domain.service.SmartTaskDecompositionService
 import com.neuroflow.app.domain.service.TaskNaturalLanguageParser
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import dagger.Binds
@@ -41,6 +43,12 @@ abstract class DomainServiceModule {
     abstract fun bindBehavioralSupportService(
         impl: DefaultBehavioralSupportService
     ): BehavioralSupportService
+
+    @Binds
+    @Singleton
+    abstract fun bindSmartTaskDecompositionService(
+        impl: DefaultSmartTaskDecompositionService
+    ): SmartTaskDecompositionService
 
     @Binds
     @Singleton
