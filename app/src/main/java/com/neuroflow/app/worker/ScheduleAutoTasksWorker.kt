@@ -310,6 +310,13 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             )
 
             taskRepository.update(updatedTask)
+            if (updatedTask.isFrog) {
+                calendarSyncRepository?.upsertTaskEvent(
+                    updatedTask,
+                    startMillis = placement.window.startMillis,
+                    durationMinutes = placement.window.durationMinutes
+                )
+            }
         }
     }
 

@@ -267,6 +267,26 @@ When the user returns with the Vice Head's recommendations:
      - Verified with dedicated unit tests in `GoalRepositoryTest.kt`, `InsightsViewModelV2Test.kt`, and `FocusCompletionNotifierTest.kt`.
      - 801/801 unit tests passing (100% test pass rate, 0 failures, 0 errors, 0 skipped) under memory-bounded single-worker execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
      - Verified debug APK assembly (`./gradlew assembleDebug --no-daemon -Dorg.gradle.workers.max=1`).
+     - Cut tag `v2.0.1-GM` at commit `a7b6c91`.
+
+### ADR-006: Bidirectional Calendar Write-Back, Android 14 FGS Compliance & Play Store Packaging (`v2.1.0`)
+- **Status**: RATIFIED & EXECUTED (October 18, 2026)
+- **Decisions & Implementation**:
+  1. **Post-Launch Track B (2-Way Calendar Write-Back)**:
+     - Implemented loop-safe calendar event export in `CalendarSyncDataSource.kt` (`upsertTaskEvent`, `deleteTaskEvent`, `handleTaskStateChanged`).
+     - Query target: Primary writable calendar (`IS_PRIMARY == 1 && CALENDAR_ACCESS_LEVEL >= CAL_ACCESS_CONTRIBUTOR`), with safe fallback to first writable contributor calendar.
+     - Loop-prevention stamp: Every exported event sets `CUSTOM_APP_PACKAGE = "com.neuroflow.app"` and `CUSTOM_APP_URI = "neuroflow://task/${task.id}"`, guaranteeing that neuroFlow's calendar read engine ignores them during free-window calculation.
+     - Idempotent upsert & lifecycle: Updates existing calendar event by `findEventIdByTaskId`, updates title prefix (`"✓ [Flow] ..."` on completion, `"🎯 [Flow] ..."` for frogs), and deletes unstarted events on task archive or un-schedule.
+     - Bound into `PlanViewModelV2` and `ScheduleAutoTasksWorker` for locked focus blocks and daily frogs.
+     - Verified with dedicated suite `CalendarWriteBackSyncTest.kt` (11 new unit tests).
+  2. **Post-Launch Track A (Play Store Release Compliance & AAB Packaging)**:
+     - Android 14 compliance: Declared `android:foregroundServiceType="specialUse|mediaPlayback"` on `FocusService` in `AndroidManifest.xml` with `PROPERTY_SPECIAL_USE_FGS_SUBTYPE = "Live focus session tracking with drift-proof wall-clock countdown"`.
+     - Manifest permissions added: `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `READ_CALENDAR`, `WRITE_CALENDAR`.
+     - Built optimized, ProGuard-shrunk release bundle: `app/build/outputs/bundle/release/app-release.aab` (12 MB) via `./gradlew bundleRelease --no-daemon -Dorg.gradle.workers.max=1`.
+     - Zero-server privacy guarantee: Confirmed all calendar, sleep, and task telemetry stays 100% on-device.
+  3. **Verification & Greenness**:
+     - All 812/812 unit tests passing (100% test pass rate, 0 failures, 0 errors, 0 skipped) under single-worker daemon constraints.
+     - Cut tag `v2.1.0`.
 
 ---
 

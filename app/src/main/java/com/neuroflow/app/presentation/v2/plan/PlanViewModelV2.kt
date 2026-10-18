@@ -322,16 +322,22 @@ class PlanViewModelV2 @Inject constructor(
                     }.timeInMillis
                     val timeOffset = placement.window.startMillis - startOfDay
 
-                    taskRepository.update(
-                        fresh.copy(
-                            scheduledDate = startOfDay,
-                            scheduledTime = timeOffset,
-                            isAutoScheduled = true,
-                            plannedBlockMinutes = placement.window.durationMinutes,
-                            lastAutoScheduledAt = nowMillis,
-                            updatedAt = nowMillis
-                        )
+                    val updated = fresh.copy(
+                        scheduledDate = startOfDay,
+                        scheduledTime = timeOffset,
+                        isAutoScheduled = true,
+                        plannedBlockMinutes = placement.window.durationMinutes,
+                        lastAutoScheduledAt = nowMillis,
+                        updatedAt = nowMillis
                     )
+                    taskRepository.update(updated)
+                    if (updated.isFrog) {
+                        calendarSyncRepository?.upsertTaskEvent(
+                            updated,
+                            startMillis = placement.window.startMillis,
+                            durationMinutes = placement.window.durationMinutes
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("PlanViewModelV2", "Auto-schedule failed", e)
@@ -400,32 +406,36 @@ class PlanViewModelV2 @Inject constructor(
     fun assignTaskTime(task: TaskEntity, hour: Int, minute: Int) {
         viewModelScope.launch {
             val millisInDay = hour * 3600_000L + minute * 60_000L
-            taskRepository.update(
-                task.copy(
-                    scheduledDate = uiState.value.selectedDateMillis,
-                    scheduledTime = millisInDay,
-                    isScheduleLocked = true,
-                    updatedAt = System.currentTimeMillis()
-                )
+            val updatedTask = task.copy(
+                scheduledDate = uiState.value.selectedDateMillis,
+                scheduledTime = millisInDay,
+                isScheduleLocked = true,
+                updatedAt = System.currentTimeMillis()
             )
+            taskRepository.update(updatedTask)
+            val startMillis = uiState.value.selectedDateMillis + millisInDay
+            calendarSyncRepository?.upsertTaskEvent(updatedTask, startMillis = startMillis)
         }
     }
 
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
+            calendarSyncRepository?.handleTaskStateChanged(
+                task.copy(status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED)
+            )
         }
     }
 
     fun uncompleteTask(task: TaskEntity) {
         viewModelScope.launch {
-            taskRepository.update(
-                task.copy(
-                    status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
-                    completedAt = null,
-                    updatedAt = System.currentTimeMillis()
-                )
+            val updated = task.copy(
+                status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+                completedAt = null,
+                updatedAt = System.currentTimeMillis()
             )
+            taskRepository.update(updated)
+            calendarSyncRepository?.handleTaskStateChanged(updated)
         }
     }
 
