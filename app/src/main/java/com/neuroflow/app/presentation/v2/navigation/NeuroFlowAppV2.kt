@@ -37,8 +37,15 @@ import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
 import com.neuroflow.app.presentation.v2.focus.FocusScreenV2
 import com.neuroflow.app.presentation.v2.insights.InsightsScreenV2
 import com.neuroflow.app.presentation.v2.plan.PlanScreenV2
+import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.presentation.v2.focus.service.FocusService
+import com.neuroflow.app.presentation.v2.theme.MiniFocusSessionBar
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2
-import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+import com.neuroflow.app.presentation.v2.theme.PhaseAmbientScreenContainer
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,48 +73,77 @@ fun NeuroFlowAppV2(
     }
 
     val isAmoled = darkTheme && (amoledDark || MaterialTheme.colorScheme.background == Color.Black)
+    val activeFocusSessionState by FocusService.activeSession.collectAsState()
+    val session = activeFocusSessionState
+    val showMiniFocusBar = session != null && !currentRoute.startsWith("focus_v2") && !currentRoute.startsWith("focus/")
+
     NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled) {
+        val flowViewModel: FlowViewModelV2 = hiltViewModel()
+        val flowState by flowViewModel.uiState.collectAsState()
+        val now = System.currentTimeMillis()
+        val livePhase = flowState.energyTimeline.minByOrNull {
+            kotlin.math.abs(it.timestampMillis - now)
+        }?.phase ?: flowState.circadianSummary?.currentSnapshot?.phase ?: EnergyPhase.PEAK
+
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (showBottomBar) {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ) {
-                        NavHubsV2.items.forEach { hub ->
-                            val selected = currentDestination?.hierarchy?.any { it.route == hub.route } == true
-                            NavigationBarItem(
-                                icon = { Icon(hub.icon, contentDescription = hub.title) },
-                                label = { Text(hub.title) },
-                                selected = selected,
-                                onClick = {
-                                    navController.navigate(hub.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
+                androidx.compose.foundation.layout.Column {
+                    if (showMiniFocusBar && session != null) {
+                        MiniFocusSessionBar(
+                            remainingSeconds = session.remainingSeconds,
+                            totalSeconds = session.totalSeconds,
+                            taskTitle = session.taskTitle,
+                            onTap = {
+                                navController.navigate("focus_v2/${session.taskId}")
+                            }
+                        )
+                    }
+                    if (showBottomBar) {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ) {
+                            NavHubsV2.items.forEach { hub ->
+                                val selected = currentDestination?.hierarchy?.any { it.route == hub.route } == true
+                                NavigationBarItem(
+                                    icon = { Icon(hub.icon, contentDescription = hub.title) },
+                                    label = { Text(hub.title) },
+                                    selected = selected,
+                                    onClick = {
+                                        navController.navigate(hub.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
             }
         ) { innerPadding ->
-            NavHost(
-                navController = navController,
-                startDestination = NavHubsV2.Flow.route,
-                modifier = Modifier.padding(innerPadding)
+            PhaseAmbientScreenContainer(
+                phase = livePhase,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
             ) {
+                NavHost(
+                    navController = navController,
+                    startDestination = NavHubsV2.Flow.route,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 composable(NavHubsV2.Flow.route) {
                     FlowScreenV2(
                         initialOpenComposer = initialOpenComposer,
@@ -309,5 +345,6 @@ fun NeuroFlowAppV2(
             }
         }
     }
+}
 }
 

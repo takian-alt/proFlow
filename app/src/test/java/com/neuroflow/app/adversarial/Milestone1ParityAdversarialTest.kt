@@ -174,8 +174,8 @@ class Milestone1ParityAdversarialTest {
         val allItems = NoteColors.items
         assertTrue("NoteColors palette must not be empty", allItems.isNotEmpty())
 
-        val textPrimary = NeuroFlowThemeV2Colors.TextPrimary // #F8FAFC
-        val textSecondary = NeuroFlowThemeV2Colors.TextSecondary // #94A3B8
+        val textPrimary = NeuroFlowThemeV2Colors.StaticTextPrimary // #F8FAFC
+        val textSecondary = NeuroFlowThemeV2Colors.StaticTextSecondary // #94A3B8
 
         for (item in allItems) {
             val darkColor = NoteColors.getColor(item.id, isDark = true)
@@ -215,7 +215,7 @@ class Milestone1ParityAdversarialTest {
     fun testAntiStressLightColorsExhibitHighPastelGlareAndFailDarkThemeContrast() {
         // Empirically demonstrates why isDark=true is strictly required in NeuroFlowThemeV2:
         // Light pastel colors have excessive luminance and cause washed-out unreadable text if accidentally used.
-        val textPrimary = NeuroFlowThemeV2Colors.TextPrimary // #F8FAFC (white-ish)
+        val textPrimary = NeuroFlowThemeV2Colors.StaticTextPrimary // #F8FAFC (white-ish)
 
         for (item in NoteColors.items) {
             val lightColor = NoteColors.getColor(item.id, isDark = false)

@@ -163,51 +163,39 @@ fun BlockingOverlayScreen(
                 .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // ============ LOCK ICON & HEADING ============
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .scale(lockScale.value)
-                        .background(
-                            color = if (isMessengerApp) Color(0xFF2D1F1F) else Color(0xFF1A1A2E),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .border(
-                            width = 2.dp,
-                            color = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
-                            shape = RoundedCornerShape(20.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Locked",
-                        tint = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
-                        modifier = Modifier.size(48.dp)
-                    )
-                }
-
-                Text(
-                    text = "HYPER FOCUS ACTIVE",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Text(
-                    text = appName,
-                    color = if (isMessengerApp) Color(0xFFFF6B6B) else Color(0xFF4A90E2),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
+            // Dopamine-Safe HyperFocus Gate Card
+            val nextReward = when (progress.currentTier) {
+                com.neuroflow.app.domain.model.RewardTier.NONE -> com.neuroflow.app.domain.model.RewardTier.MICRO
+                com.neuroflow.app.domain.model.RewardTier.MICRO -> com.neuroflow.app.domain.model.RewardTier.PARTIAL
+                com.neuroflow.app.domain.model.RewardTier.PARTIAL -> com.neuroflow.app.domain.model.RewardTier.EARNED
+                else -> com.neuroflow.app.domain.model.RewardTier.FULL
             }
+            val activeTask = activeTasks.firstOrNull()
+            com.neuroflow.app.presentation.v2.settings.DopamineSafeBlockingGateCard(
+                blockedAppName = appName,
+                completedTasksInSession = progress.completedSinceActivation,
+                nextRewardTier = nextReward,
+                topTaskTitle = activeTask?.title ?: "Current Focus Goal",
+                topTaskFirstStep = "Work on 1 micro-step for just 2 minutes",
+                onStartTwoMinuteStepClick = {
+                    val preferredTaskId = prefs.lockedTaskIds.firstOrNull { lockedId ->
+                        activeTasks.any { it.id == lockedId }
+                    } ?: activeTask?.id
+
+                    val focusIntent = Intent(context, MainActivity::class.java).apply {
+                        if (!preferredTaskId.isNullOrBlank()) {
+                            action = "com.procus.ACTION_OPEN_FOCUS"
+                            putExtra("task_id", preferredTaskId)
+                        }
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    }
+                    context.startActivity(focusIntent)
+                    (context as? Activity)?.finish()
+                }
+            )
+
 
             // ============ LARGE MOTIVATIONAL QUOTE (MAIN FOCUS) ============
             Surface(

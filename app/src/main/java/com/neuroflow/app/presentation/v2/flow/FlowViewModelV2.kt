@@ -2,30 +2,40 @@ package com.neuroflow.app.presentation.v2.flow
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyLevel
-import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.domain.model.TaskStatus
-import com.neuroflow.app.domain.model.buildEnergyUiModel
-import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
-import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
-import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.model.buildBehavioralObservations
+import com.neuroflow.app.domain.model.buildDailyCognitiveBlocks
+import com.neuroflow.app.domain.model.computeEnergyUiState
+import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.service.AdaptiveCircadianLearner
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DailyCircadianSummary
+import com.neuroflow.app.domain.service.DaytimeNapBout
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
@@ -38,6 +48,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 data class FlowUiStateV2(
     val activeTasks: List<TaskEntity> = emptyList(),
@@ -45,6 +56,12 @@ data class FlowUiStateV2(
     val completedTasks: List<TaskEntity> = emptyList(),
     val energyUi: EnergyUiModel? = null,
     val circadianSummary: DailyCircadianSummary? = null,
+    val dayTimeline: List<CircadianSnapshot> = emptyList(),
+    val energyTimeline: List<CircadianSnapshot> = emptyList(),
+    val dailyCognitiveBlocks: List<CognitiveBlockWindow> = emptyList(),
+    val daytimeNaps: List<DaytimeNapBout> = emptyList(),
+    val isFallbackSleep: Boolean = false,
+    val learnedSampleCount: Double = 0.0,
     val recommendedTask: TaskEntity? = null,
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = false,
@@ -86,8 +103,9 @@ class FlowViewModelV2 @Inject constructor(
             taskRepository.observeCompletedTasks(),
             preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
                 old.wakeUpHour == new.wakeUpHour &&
-                old.sleepPressurePoints == new.sleepPressurePoints &&
-                old.onboardingCompleted == new.onboardingCompleted
+                    old.sleepPressurePoints == new.sleepPressurePoints &&
+                    old.onboardingCompleted == new.onboardingCompleted &&
+                    old.tagCatalog == new.tagCatalog
             },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { active, completed, prefs, sleepLogs ->
@@ -110,11 +128,52 @@ class FlowViewModelV2 @Inject constructor(
     ) { (activeTasks, completedTasks, prefs, sleepLogs), (dismissedGuilt, tag, shutdownDismissed, lastCompleted), (lastDeferred, actionMsg) ->
         val now = System.currentTimeMillis()
         val currentHour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
+        val systemZone = java.time.ZoneId.systemDefault()
+        val zonedDateTime = java.time.Instant.ofEpochMilli(now).atZone(systemZone)
+        var anchor = zonedDateTime.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(systemZone)
+        if (anchor.toInstant().toEpochMilli() > now) {
+            anchor = anchor.minusDays(1)
+        }
+        val baseWakeMillis = anchor.toInstant().toEpochMilli()
+
+        val signal = sleepTelemetryRepository?.normalizeLogs(
+            logs = sleepLogs,
+            baseWakeMillis = baseWakeMillis,
+            baseSleepMinutes = 480.0
+        )
+
+        val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
+        val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
+        val naps = signal?.daytimeNaps ?: emptyList()
+        val isFallback = sleepLogs.isEmpty() || (signal != null && signal.consolidatedSessions.isEmpty())
+
+        val sevenDaysAgo = now - 7 * 86_400_000L
+        val recentSleepLogs = sleepLogs.filter { it.startAt >= sevenDaysAgo || it.endAt >= sevenDaysAgo }
+        val rollingAverageSleepMinutes = if (recentSleepLogs.isNotEmpty()) {
+            recentSleepLogs.map { if (it.durationMinutes > 0) it.durationMinutes.toDouble() else (it.endAt - it.startAt) / 60_000.0 }.average()
+        } else {
+            480.0
+        }
+
+        val dailyBlocks = buildDailyCognitiveBlocks(
+            slots = prefs.protectedTimeSlots,
+            date = zonedDateTime.toLocalDate(),
+            zoneId = systemZone
+        )
+
+        val behavioralObservations = buildBehavioralObservations(completedTasks = completedTasks, zoneId = systemZone)
+        val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
+        val learnedProfile = if (behavioralObservations.isNotEmpty()) {
+            AdaptiveCircadianLearner.learnProfile(behavioralObservations, initialPeakHour = initialPeak)
+        } else null
+        val sampleCount = learnedProfile?.sampleCount ?: 0.0
+
         val (snapshot, energyUi) = computeEnergyUiState(
             circadianEnergyService = circadianEnergyService,
             sleepTelemetryRepository = sleepTelemetryRepository,
             prefs = prefs,
             sleepLogs = sleepLogs,
+            completedTasks = completedTasks,
             nowMillis = now
         )
         val battery = snapshot.usableEnergy
@@ -124,15 +183,21 @@ class FlowViewModelV2 @Inject constructor(
             else -> EnergyLevel.LOW
         }
 
-        // Overdue check for ADHD Zero-Guilt Safety Net
         val overdueTasks = activeTasks.filter { task ->
             task.postponeCount >= 3 ||
-                    (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
-                    (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
+                (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
+                (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
         }
         val showZeroGuilt = overdueTasks.size >= 3 && !dismissedGuilt
 
-        // Recommend highest leverage task matching current biological zone
+        // Dynamic Tag Catalog Merge
+        val defaultTags = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin")
+        val dynamicTags = (prefs.tagCatalog + activeTasks.flatMap { it.tags.split(",") })
+            .map { it.trim().removePrefix("#") }
+            .filter { it.isNotBlank() }
+            .map { "#$it" }
+        val mergedTags = (defaultTags + dynamicTags).distinctBy { it.lowercase() }
+
         val matchingTasks = activeTasks.filter { it.energyLevel == currentEnergyZone }
         val candidatePool = if (matchingTasks.isNotEmpty()) matchingTasks else activeTasks
         val effectiveSnapshot = snapshot.copy(usableEnergy = battery)
@@ -160,41 +225,80 @@ class FlowViewModelV2 @Inject constructor(
                     else -> EnergyDemand.LOW
                 },
                 isFrog = task.isFrog,
-                scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: now) + it },
-                deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
-                isLocked = task.isScheduleLocked
+                scheduledStartMillis = task.resolveScheduledEpochMillis(),
+                deadlineMillis = task.resolveDeadlineEpochMillis(),
+                isLocked = task.isScheduleLocked,
+                parentTaskId = task.parentTaskId,
+                prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
+                impactScore = task.impactScore,
+                estimatedEnjoyment = task.enjoymentScore / 10,
+                postponeCount = task.postponeCount
             )
             val baseLeverage = (if (task.isFrog) 1000 else 0) + task.impactScore
             baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
         }
 
-        // Filter tasks by selected tag
         val filtered = if (tag.isNullOrBlank() || tag.equals("All", ignoreCase = true)) {
             activeTasks
         } else {
             val query = tag.removePrefix("#").trim()
             activeTasks.filter { task ->
                 task.tags.contains(query, ignoreCase = true) ||
-                        task.title.contains(query, ignoreCase = true)
+                    task.title.contains(query, ignoreCase = true)
             }
         }
 
-        // Evening shutdown after 19:00 (7 PM)
         val isEvening = currentHour >= 19
 
         val manualPeakHour = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
+        val chronotype = if (!prefs.quizChronotype.isNullOrBlank()) {
+            ChronotypeProfile.fromString(prefs.quizChronotype)
+        } else if (!prefs.manualChronotype.isNullOrBlank()) {
+            ChronotypeProfile.fromString(prefs.manualChronotype)
+        } else if (prefs.meqScore > 0) {
+            when {
+                prefs.meqScore >= 70 -> ChronotypeProfile.DEFINITE_MORNING
+                prefs.meqScore >= 59 -> ChronotypeProfile.MODERATE_MORNING
+                prefs.meqScore >= 42 -> ChronotypeProfile.INTERMEDIATE
+                prefs.meqScore >= 31 -> ChronotypeProfile.MODERATE_EVENING
+                else -> ChronotypeProfile.DEFINITE_EVENING
+            }
+        } else {
+            ChronotypeProfile.INTERMEDIATE
+        }
+
         val circadianSummary = runCatching {
             circadianEnergyService.computeDailySummary(
                 timestampMillis = now,
-                wakeTimeMillis = now - 6 * 3600_000L,
-                lastSleepDurationMinutes = 480,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
                 continuousActiveFocusMinutes = 0,
-                zoneId = java.time.ZoneId.systemDefault(),
-                naps = emptyList(),
-                chronotype = ChronotypeProfile.fromString(prefs.quizChronotype),
-                manualPeakStartHour = manualPeakHour
+                zoneId = systemZone,
+                naps = naps,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakHour,
+                cognitiveBlocks = dailyBlocks,
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes
             )
         }.getOrNull()
+
+        val dayStart = zonedDateTime.toLocalDate().atStartOfDay(systemZone).toInstant().toEpochMilli()
+        val dayTimeline: List<CircadianSnapshot> = runCatching {
+            circadianEnergyService.projectDayTimeline(
+                dayStartMillis = dayStart,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                stepMinutes = 15,
+                zoneId = systemZone,
+                naps = naps,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakHour,
+                cognitiveBlocks = dailyBlocks,
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes
+            )
+        }.getOrElse { emptyList() }
 
         FlowUiStateV2(
             activeTasks = activeTasks,
@@ -202,12 +306,19 @@ class FlowViewModelV2 @Inject constructor(
             completedTasks = completedTasks,
             energyUi = energyUi,
             circadianSummary = circadianSummary,
+            dayTimeline = dayTimeline,
+            energyTimeline = dayTimeline,
+            dailyCognitiveBlocks = dailyBlocks,
+            daytimeNaps = naps,
+            isFallbackSleep = isFallback,
+            learnedSampleCount = sampleCount,
             recommendedTask = recommended,
             preferences = prefs,
             isLoading = false,
             overdueTasksCount = overdueTasks.size,
             showZeroGuiltPrompt = showZeroGuilt,
             selectedTag = tag,
+            availableTags = mergedTags,
             isEveningShutdownTime = isEvening,
             eveningShutdownDismissed = shutdownDismissed,
             lastCompletedTask = lastCompleted,
@@ -292,17 +403,13 @@ class FlowViewModelV2 @Inject constructor(
         _lastActionMessage.value = null
     }
 
-    /**
-     * Zero-Guilt Fresh Start:
-     * Moves all overdue tasks to the Icebox (Quadrant.ELIMINATE) with zero shame and resets postpone counters.
-     */
     fun freshStartRollover() {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val overdue = uiState.value.activeTasks.filter { task ->
                 task.postponeCount >= 3 ||
-                        (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
-                        (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
+                    (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
+                    (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
             }
             overdue.forEach { task ->
                 taskRepository.update(
@@ -324,11 +431,6 @@ class FlowViewModelV2 @Inject constructor(
         _dismissedZeroGuilt.value = true
     }
 
-    /**
-     * "Break It Down" Magic Wand:
-     * Decomposes task into microscopic actionable steps via BehavioralSupportService
-     * and persists them into the normalized task_micro_steps table.
-     */
     fun breakDownTask(task: TaskEntity) {
         viewModelScope.launch {
             val cleanTitle = task.title.trim().take(30)
@@ -350,7 +452,6 @@ class FlowViewModelV2 @Inject constructor(
             taskRepository.deleteMicroStepsByTaskId(task.id)
             taskRepository.insertMicroSteps(microStepEntities)
 
-            // Keep ifThenPlan synced for backwards compatibility
             val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
             val serialized = StepByStepPlanCodec.serialize(planSteps)
             taskRepository.update(
@@ -418,5 +519,3 @@ class FlowViewModelV2 @Inject constructor(
 
     private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 }
-
-

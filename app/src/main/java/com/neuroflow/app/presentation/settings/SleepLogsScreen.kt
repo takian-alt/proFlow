@@ -125,9 +125,9 @@ fun SleepLogsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         }
@@ -140,39 +140,22 @@ fun SleepLogsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            SleepLogsSection("Sleep Pressure") {
-                val fatiguePercent = FatigueZone.fatiguePercent(prefs.sleepPressurePoints)
-                val fatigueZone = FatigueZone.fromPressurePoints(prefs.sleepPressurePoints)
-                val fatigueZoneLabel = FatigueZone.label(fatigueZone)
-                val fatigueColor = fatigueZoneColor(fatigueZone)
-
-                Text(
-                    "Current pressure: ${prefs.sleepPressurePoints} pts",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { fatiguePercent / 100f },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp),
-                    color = fatigueColor,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "Fatigue: $fatiguePercent% ($fatigueZoneLabel)",
-                    fontSize = 12.sp,
-                    color = fatigueColor
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Recovery happens only from saved sleep logs.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            val fatigueZone = FatigueZone.fromPressurePoints(prefs.sleepPressurePoints)
+            val sleepSnapshot = remember(prefs.sleepPressurePoints) {
+                com.neuroflow.app.domain.repository.SleepPressureRepository.Snapshot(
+                    pressurePoints = prefs.sleepPressurePoints,
+                    fatiguePercent = FatigueZone.fatiguePercent(prefs.sleepPressurePoints),
+                    fatigueZone = fatigueZone,
+                    refreshedAtMillis = System.currentTimeMillis()
                 )
             }
+            com.neuroflow.app.presentation.v2.settings.UpgradedSleepPressureOverviewCard(
+                snapshot = sleepSnapshot,
+                hasHealthConnectSync = false,
+                onSyncHealthConnectClick = { /* No-op / degraded */ }
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             SleepLogsSection("Add Sleep Log") {
                 Row(

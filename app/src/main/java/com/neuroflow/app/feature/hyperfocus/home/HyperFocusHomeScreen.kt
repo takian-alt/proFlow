@@ -143,22 +143,19 @@ private fun Header(
     modifier: Modifier = Modifier
 ) {
     val seconds = state.passSecondsRemaining
+    val remainingLabel = when {
+        seconds == null -> "Essentials Only"
+        state.passPackage == null -> "${seconds / 60}m ${seconds % 60}s pass"
+        else -> "${seconds / 60}m ${seconds % 60}s (${state.passPackage})"
+    }
     Column(modifier = modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-        Text(
-            text = "HyperFocus is on",
-            color = Color.White,
-            style = MaterialTheme.typography.titleLarge
+        com.neuroflow.app.presentation.v2.settings.HyperFocusLauncherStatusHeader(
+            sessionModeLabel = "HyperFocus Active",
+            remainingTasksOrMinutesLabel = remainingLabel,
+            earnedUnlockMinutes = ((seconds ?: 0L) / 60L).toInt(),
+            cloudBackupSynced = true
         )
-        Text(
-            text = when {
-                seconds == null -> "Nothing open. Essentials only."
-                state.passPackage == null -> "A window is open: ${seconds / 60}m ${seconds % 60}s"
-                else -> "Open: ${state.passPackage} for ${seconds / 60}m ${seconds % 60}s"
-            },
-            color = Color(0xFFAAAAAA),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = if (hiddenCount == 0) "No app is hidden right now."
             else "$hiddenCount app${if (hiddenCount == 1) "" else "s"} behind the gate.",

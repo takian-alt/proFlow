@@ -3,7 +3,9 @@ package com.neuroflow.app.presentation.notes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuroflow.app.data.local.entity.NoteEntity
+import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.NoteRepository
+import com.neuroflow.app.data.repository.TaskRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -22,7 +24,8 @@ data class NotesUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class NotesViewModel @Inject constructor(
-    private val noteRepository: NoteRepository
+    private val noteRepository: NoteRepository,
+    private val taskRepository: TaskRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -120,6 +123,22 @@ class NotesViewModel @Inject constructor(
     fun updateColor(note: NoteEntity, colorHex: String) {
         viewModelScope.launch {
             noteRepository.updateColor(note, colorHex)
+        }
+    }
+
+    fun createTaskFromNote(note: NoteEntity) {
+        viewModelScope.launch {
+            val taskTitle = note.title.ifBlank { note.content.take(40).trim() }.ifBlank { "Task from Note" }
+            val taskDescription = note.content.trim()
+            val newTask = TaskEntity(
+                id = UUID.randomUUID().toString(),
+                title = taskTitle,
+                description = taskDescription,
+                estimatedDurationMinutes = 25,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            taskRepository.insert(newTask)
         }
     }
 }

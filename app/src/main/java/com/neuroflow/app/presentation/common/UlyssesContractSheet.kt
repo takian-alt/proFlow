@@ -107,17 +107,18 @@ fun UlyssesContractSheet(
                 minLines = 2
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            val formattedDeadline = remember(deadlineMillis) {
+                SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault()).format(Date(deadlineMillis))
+            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        if (selectedTaskId.isBlank() || consequence.isBlank() || !deadlineIsValid) return@Button
+            if (selectedTaskId.isNotBlank() && consequence.isNotBlank() && deadlineIsValid) {
+                Spacer(modifier = Modifier.height(16.dp))
+                com.neuroflow.app.presentation.v2.common.UpgradedUlyssesContractCard(
+                    taskTitle = selectedTaskTitle,
+                    commitmentStatement = "I commit unconditionally to finishing this task before the deadline.",
+                    deadlineFormatted = formattedDeadline,
+                    consequenceText = consequence,
+                    onSignContractClick = {
                         scope.launch {
                             val contract = UlyssesContractEntity(
                                 taskId = selectedTaskId,
@@ -134,10 +135,40 @@ fun UlyssesContractSheet(
                             workManager.enqueue(request)
                             onDismiss()
                         }
-                    },
-                    enabled = selectedTaskId.isNotBlank() && consequence.isNotBlank() && deadlineIsValid
+                    }
+                )
+            } else {
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Text("Commit")
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (selectedTaskId.isBlank() || consequence.isBlank() || !deadlineIsValid) return@Button
+                            scope.launch {
+                                val contract = UlyssesContractEntity(
+                                    taskId = selectedTaskId,
+                                    deadlineAt = deadlineMillis,
+                                    consequence = consequence
+                                )
+                                contractRepository.insert(contract)
+                                val delay = (deadlineMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+                                val request = OneTimeWorkRequestBuilder<UlyssesEvaluatorWorker>()
+                                    .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+                                    .setInputData(workDataOf("contractId" to contract.id))
+                                    .addTag("ulysses_eval_${contract.id}")
+                                    .build()
+                                workManager.enqueue(request)
+                                onDismiss()
+                            }
+                        },
+                        enabled = selectedTaskId.isNotBlank() && consequence.isNotBlank() && deadlineIsValid
+                    ) {
+                        Text("Commit")
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))

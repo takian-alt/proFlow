@@ -52,6 +52,12 @@ abstract class DomainServiceModule {
 
     @Binds
     @Singleton
+    abstract fun bindGeminiAiOnlineService(
+        impl: com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService
+    ): com.neuroflow.app.domain.service.GeminiAiOnlineService
+
+    @Binds
+    @Singleton
     abstract fun bindCalendarSyncRepository(
         impl: com.neuroflow.app.data.calendar.CalendarSyncDataSource
     ): com.neuroflow.app.data.calendar.CalendarSyncRepository

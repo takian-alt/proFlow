@@ -141,8 +141,9 @@ object AppModule {
     @Provides
     @Singleton
     fun provideUserPreferencesDataStore(
-        @ApplicationContext context: Context
-    ): UserPreferencesDataStore = UserPreferencesDataStore(context)
+        @ApplicationContext context: Context,
+        protectedSlotDao: ProtectedSlotDao
+    ): UserPreferencesDataStore = UserPreferencesDataStore(context, protectedSlotDao)
 
     @Provides
     @Singleton

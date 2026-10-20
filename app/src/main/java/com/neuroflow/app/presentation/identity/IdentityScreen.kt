@@ -55,31 +55,40 @@ fun IdentityScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (affirmations.isEmpty()) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("🧠", style = MaterialTheme.typography.displayMedium)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "No affirmations yet",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Tap + to add your first subliminal message",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    Spacer(modifier = Modifier.height(8.dp))
+            val prefs by viewModel.preferences.collectAsState()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Spacer(modifier = Modifier.height(12.dp))
+                com.neuroflow.app.presentation.v2.common.UpgradedIdentityAndGoalsCard(
+                    identityStatement = prefs.identityLabel,
+                    activeGoals = prefs.weeklyGoals,
+                    onEditIdentityClick = { showDialog = true },
+                    onRefillGoalsClick = { showDialog = true }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (affirmations.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("🧠", style = MaterialTheme.typography.displayMedium)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "No affirmations yet",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Tap + to add your first subliminal message",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
                     Text(
                         "One of these will appear each time you complete a task.",
                         style = MaterialTheme.typography.bodySmall,

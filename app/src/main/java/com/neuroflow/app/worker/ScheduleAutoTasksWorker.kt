@@ -10,6 +10,9 @@ import androidx.work.WorkerParameters
 import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.buildNormalizedScheduleTimestamps
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -20,6 +23,7 @@ import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.domain.scheduler.PlacementStability
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.service.BehavioralSupportService
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.EnergyDemand
 import com.neuroflow.app.domain.service.ProtectedLocalSlot
@@ -155,11 +159,11 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds }
 
             val replanCandidates = allTasks.filter { task ->
+                val scheduledMillis = task.resolveScheduledEpochMillis()
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
-                    task.scheduledDate != null &&
-                    task.scheduledTime != null &&
-                    (task.scheduledDate + task.scheduledTime) >= nowMillis &&
+                    scheduledMillis != null &&
+                    scheduledMillis >= nowMillis &&
                     PlacementStability.verdict(task, nowMillis, prefs, forceReplan).allowsReplan
             }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds }
 
@@ -177,9 +181,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             // Fixed tasks are active tasks NOT being rescheduled (locked or manual future tasks)
             val fixedTasks = allTasks.filterNot { targetTasksMap.containsKey(it.id) }
             val fixedWindows = fixedTasks.mapNotNull { task ->
-                val sDate = task.scheduledDate ?: return@mapNotNull null
-                val sTime = task.scheduledTime ?: return@mapNotNull null
-                val start = sDate + sTime
+                val start = task.resolveScheduledEpochMillis() ?: return@mapNotNull null
                 val duration = TaskBlockPlan.plannedMinutes(task)
                 val end = start + duration * 60_000L
                 if (end > nowMillis) TimeSlotWindow(start, end) else null
@@ -219,16 +221,21 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                         else -> 0
                     },
                     estimatedMinutes = task.estimatedDurationMinutes,
+                    isDurationExplicit = false,
                     energyDemand = when (task.energyLevel) {
                         EnergyLevel.HIGH -> EnergyDemand.HIGH
                         EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
                         else -> EnergyDemand.LOW
                     },
                     isFrog = task.isFrog,
-                    scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: dayStart) + it },
-                    deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
+                    scheduledStartMillis = task.resolveScheduledEpochMillis(),
+                    deadlineMillis = task.resolveDeadlineEpochMillis(),
                     isLocked = task.isScheduleLocked,
-                    parentTaskId = task.parentTaskId
+                    parentTaskId = task.parentTaskId,
+                    prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
+                    impactScore = task.impactScore,
+                    estimatedEnjoyment = task.enjoymentScore / 10,
+                    postponeCount = task.postponeCount
                 )
             }
 
@@ -240,6 +247,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             // Wake time calculation
             val wakeTimeMillis = calculateWakeTimeMillis(nowMillis, prefs.wakeUpHour)
+            val chronotype = ChronotypeProfile.fromString(prefs.manualChronotype ?: prefs.quizChronotype)
+            val manualPeakStartHour = if (prefs.manualPeakProfileEnabled) prefs.manualPeakAnchorMinuteOfDay / 60 else null
 
             val placements = taskSchedulerService.scheduleDay(
                 tasks = preparedTasks,
@@ -251,7 +260,9 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 protectedSlots = protectedSlots,
                 calibrationRatio = 1.20,
                 forceReplan = forceReplan,
-                zoneId = zoneId
+                zoneId = zoneId,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakStartHour
             )
 
             if (placements.isNotEmpty()) {
@@ -290,7 +301,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             }
 
             val (scheduledDate, scheduledTime) = splitMillisToDateAndTime(placement.window.startMillis)
-            val previousStartMillis = freshTask.scheduledDate?.let { it + (freshTask.scheduledTime ?: 0L) }
+            val previousStartMillis = freshTask.resolveScheduledEpochMillis()
             val blockLengthChanged = freshTask.plannedBlockMinutes != placement.window.durationMinutes
 
             if (!PlacementStability.isMoveWorthApplying(

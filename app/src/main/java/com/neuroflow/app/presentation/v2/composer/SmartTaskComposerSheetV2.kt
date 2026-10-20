@@ -44,6 +44,7 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowColors
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -255,6 +256,91 @@ fun SmartTaskComposerSheetV2(
                 )
             )
 
+            // Interactive Inferred & Override Chips
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+            ) {
+                // Duration Chip with Calibration Transparency
+                val durationLabel = if (inferred.isDurationExplicit) {
+                    "⏱ ${effectiveDuration}m"
+                } else {
+                    "⏱ ${effectiveDuration}m (${inferred.calibrationFactorApplied}x)"
+                }
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        val cycles = listOf(15, 25, 45, 60, 90, 120)
+                        val nextIdx = (cycles.indexOf(effectiveDuration) + 1) % cycles.size
+                        userDurationOverride = cycles[nextIdx]
+                    },
+                    label = { Text(durationLabel) },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                )
+
+                // Energy Chip
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        userEnergyOverride = when (effectiveEnergy) {
+                            EnergyLevel.HIGH -> EnergyLevel.MEDIUM
+                            EnergyLevel.MEDIUM -> EnergyLevel.LOW
+                            EnergyLevel.LOW -> EnergyLevel.HIGH
+                        }
+                    },
+                    label = {
+                        val label = when (effectiveEnergy) {
+                            EnergyLevel.HIGH -> "⚡ High Energy"
+                            EnergyLevel.MEDIUM -> "🔋 Med Energy"
+                            EnergyLevel.LOW -> "☕ Low Energy"
+                        }
+                        Text(label)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                )
+
+                // Priority Chip (Interactive cycle)
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        userPriorityOverride = when (effectivePriority) {
+                            Priority.HIGH -> Priority.MEDIUM
+                            Priority.MEDIUM -> Priority.LOW
+                            Priority.LOW -> Priority.HIGH
+                        }
+                    },
+                    label = {
+                        val pLabel = when (effectivePriority) {
+                            Priority.HIGH -> "🔴 High Priority"
+                            Priority.MEDIUM -> "🟡 Med Priority"
+                            Priority.LOW -> "🟢 Low Priority"
+                        }
+                        Text(pLabel)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                )
+
+                // Frog Chip
+                FilterChip(
+                    selected = effectiveFrog,
+                    onClick = { userFrogOverride = !effectiveFrog },
+                    label = { Text(if (effectiveFrog) "🐸 Frog (Crucial)" else "🐸 Normal") },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                )
+
+                // Context Tags Chips
+                inferred.contextTags.forEach { tag ->
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("#$tag") },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // AI Slot Placement Preview Banner
@@ -294,56 +380,6 @@ fun SmartTaskComposerSheetV2(
                         )
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Inferred Pills
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Duration Pill
-                FilterChip(
-                    selected = true,
-                    onClick = {
-                        val cycles = listOf(15, 25, 45, 60, 90, 120)
-                        val nextIdx = (cycles.indexOf(effectiveDuration) + 1) % cycles.size
-                        userDurationOverride = cycles[nextIdx]
-                    },
-                    label = { Text("⏱ ${effectiveDuration}m") },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
-
-                // Energy Pill
-                FilterChip(
-                    selected = true,
-                    onClick = {
-                        userEnergyOverride = when (effectiveEnergy) {
-                            EnergyLevel.HIGH -> EnergyLevel.MEDIUM
-                            EnergyLevel.MEDIUM -> EnergyLevel.LOW
-                            EnergyLevel.LOW -> EnergyLevel.HIGH
-                        }
-                    },
-                    label = {
-                        val label = when (effectiveEnergy) {
-                            EnergyLevel.HIGH -> "⚡ High Energy"
-                            EnergyLevel.MEDIUM -> "🔋 Med Energy"
-                            EnergyLevel.LOW -> "☕ Low Energy"
-                        }
-                        Text(label)
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
-
-                // Frog Pill
-                FilterChip(
-                    selected = effectiveFrog,
-                    onClick = { userFrogOverride = !effectiveFrog },
-                    label = { Text(if (effectiveFrog) "🐸 Frog (Crucial)" else "🐸 Normal") },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -552,6 +588,37 @@ fun SmartTaskComposerSheetV2(
                 dismissButton = {
                     TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+fun MetadataPill(
+    icon: String,
+    label: String,
+    tint: androidx.compose.ui.graphics.Color,
+    containerColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = containerColor,
+        border = BorderStroke(1.dp, tint.copy(alpha = 0.35f)),
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(text = icon, fontSize = 11.sp)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tint,
+                maxLines = 1,
             )
         }
     }

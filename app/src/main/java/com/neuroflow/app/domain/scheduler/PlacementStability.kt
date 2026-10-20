@@ -2,6 +2,8 @@ package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.model.Priority
 
 /**
@@ -40,7 +42,7 @@ object PlacementStability {
         prefs: UserPreferences,
         forceReplan: Boolean
     ): ReplanVerdict {
-        val scheduledMillis = task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
+        val scheduledMillis = task.resolveScheduledEpochMillis()
             ?: return ReplanVerdict.KEEP
         val hoursUntilScheduled = (scheduledMillis - nowMillis) / 3_600_000f
 
@@ -48,7 +50,7 @@ object PlacementStability {
 
         if (forceReplan) return ReplanVerdict.FORCED
 
-        val deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
+        val deadlineMillis = task.resolveDeadlineEpochMillis()
 
         val taskAge = nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt)
         val isUrgentDeadline = deadlineMillis?.let { (it - nowMillis) < 6 * 60 * 60 * 1000L } ?: false

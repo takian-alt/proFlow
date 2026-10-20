@@ -18,6 +18,9 @@ class IdentityViewModel @Inject constructor(
     private val preferencesDataStore: UserPreferencesDataStore
 ) : ViewModel() {
 
+    val preferences = preferencesDataStore.preferencesFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.neuroflow.app.data.local.UserPreferences())
+
     val affirmations = preferencesDataStore.preferencesFlow
         .map { it.affirmations }
         .distinctUntilChanged()

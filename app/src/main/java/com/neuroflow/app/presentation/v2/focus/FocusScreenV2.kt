@@ -40,9 +40,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.neuroflow.app.presentation.v2.focus.components.AffordanceRatingSheet
 import com.neuroflow.app.presentation.v2.focus.components.KeepScreenOnEffect
-import com.neuroflow.app.presentation.v2.focus.components.WoopPromptSheet
+import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.util.Locale
@@ -146,7 +146,13 @@ fun FocusScreenV2(
                 }
             }
 
-            // Bioluminescent Radial Timer Ring
+            // Hero Task Card: Full prominence for Task Title, Frog status, and Next Micro-Step
+            HeroTaskCard(
+                task = state.task,
+                nextStep = if (state.isRunning && !state.isPaused) null else state.microSteps.firstOrNull { !it.completed }
+            )
+
+            // Bioluminescent Radial Timer Ring (focused strictly on digits & flow status)
             RadialTimerGauge(
                 timerMode = state.timerMode,
                 remainingSeconds = state.remainingSeconds,
@@ -455,46 +461,63 @@ fun FocusScreenV2(
                 }
             }
 
-            // Micro-Steps Decomposition Checklist
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = NeuroFlowThemeV2Colors.SlateSurface,
-                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val completedCount = state.microSteps.count { it.completed }
-                    val totalSteps = state.microSteps.size
+            // Active Focus Mode: Zen Micro-Step Spotlight Card (or multi-step overview when paused/ready)
+            val activeMicroSteps = state.microSteps
+            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
+                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
+            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
+            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("🪜 Micro-Steps Checklist", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        if (totalSteps > 0) {
-                            Text("$completedCount/$totalSteps Done", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.Bold)
-                        }
-                    }
+            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
+                ZenMicroStepSpotlightCard(
+                    currentStepIndex = firstIncompleteIndex,
+                    totalSteps = activeMicroSteps.size,
+                    currentStepTitle = currentMicroStep.text,
+                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
+                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
+                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
+                )
+            } else {
+                // Micro-Steps Decomposition Checklist
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurface,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        val completedCount = state.microSteps.count { it.completed }
+                        val totalSteps = state.microSteps.size
 
-                    if (totalSteps > 0) {
-                        LinearProgressIndicator(
-                            progress = { completedCount.toFloat() / totalSteps },
-                            modifier = Modifier.fillMaxWidth().height(6.dp),
-                            color = NeuroFlowThemeV2Colors.SageGreen,
-                            trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
-                        )
-                    } else {
-                        OutlinedButton(
-                            onClick = { viewModel.autoBreakDownTask() },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
-                            shape = RoundedCornerShape(10.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Break It Down (Auto-Scaffold 3 Steps) 🪄", fontSize = 12.sp)
+                            Text("🪜 Micro-Steps Checklist", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            if (totalSteps > 0) {
+                                Text("$completedCount/$totalSteps Done", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.Bold)
+                            }
                         }
-                    }
+
+                        if (totalSteps > 0) {
+                            LinearProgressIndicator(
+                                progress = { completedCount.toFloat() / totalSteps },
+                                modifier = Modifier.fillMaxWidth().height(6.dp),
+                                color = NeuroFlowThemeV2Colors.SageGreen,
+                                trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                            )
+                        } else {
+                            OutlinedButton(
+                                onClick = { viewModel.autoBreakDownTask() },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Break It Down (Auto-Scaffold 3 Steps) 🪄", fontSize = 12.sp)
+                            }
+                        }
 
                     state.microSteps.forEachIndexed { index, step ->
                         Row(
@@ -548,6 +571,7 @@ fun FocusScreenV2(
                         }
                     }
                 }
+            }
             }
 
             Spacer(modifier = Modifier.height(60.dp))
@@ -741,24 +765,45 @@ fun FocusScreenV2(
     }
 
     if (showSighSheet) {
-        PhysiologicalSighGuideSheet(onDismiss = { showSighSheet = false })
+        ModalBottomSheet(
+            onDismissRequest = { showSighSheet = false },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            InteractivePhysiologicalSighSheet(
+                totalCycles = 3,
+                onCompleted = { showSighSheet = false }
+            )
+        }
     }
 
     if (state.showAffordanceRating && !state.affordanceRatingSubmitted) {
-        AffordanceRatingSheet(
-            onSubmit = { rating -> viewModel.submitAffordanceRating(rating) },
-            onSkip = { viewModel.dismissAffordanceRating() }
-        )
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.dismissAffordanceRating() },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            UpgradedAffordanceRatingSheet(
+                taskTitle = state.task?.title ?: "Focus Session",
+                onRatingSelected = { rating -> viewModel.submitAffordanceRating(rating) },
+                onSkip = { viewModel.dismissAffordanceRating() }
+            )
+        }
     }
 
     if (showWoopPromptSheet) {
-        WoopPromptSheet(
-            onSubmit = { wish, outcome, obstacle, plan ->
-                viewModel.saveWoop(wish, outcome, obstacle, plan)
-                showWoopPromptSheet = false
-            },
-            onSkip = { showWoopPromptSheet = false }
-        )
+        ModalBottomSheet(
+            onDismissRequest = { showWoopPromptSheet = false },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            UpgradedWoopPromptSheet(
+                taskTitle = state.task?.title ?: "Focus Session",
+                dreadedTaskInsight = null,
+                onSaveWoopPlan = { wish, outcome, obstacle, ifThenPlan ->
+                    viewModel.saveWoop(wish, outcome, obstacle, ifThenPlan)
+                    showWoopPromptSheet = false
+                },
+                onDismiss = { showWoopPromptSheet = false }
+            )
+        }
     }
 }
 
@@ -891,6 +936,93 @@ fun ActiveAudioIndicator(isActive: Boolean) {
                     .height(height.dp)
                     .background(barColor, RoundedCornerShape(1.5.dp))
             )
+        }
+    }
+}
+
+@Composable
+fun HeroTaskCard(
+    task: TaskEntity?,
+    nextStep: StepByStepPlanStep?,
+    modifier: Modifier = Modifier
+) {
+    if (task == null) return
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = NeuroFlowThemeV2Colors.SlateSurface,
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (task.isFrog) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.35f),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen)
+                    ) {
+                        Text(
+                            "🐸 Daily Frog",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.SageGreen
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                ) {
+                    Text(
+                        "${task.estimatedDurationMinutes}m",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.TextSecondary
+                    )
+                }
+            }
+
+            Text(
+                text = task.title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary,
+                maxLines = 3
+            )
+
+            if (nextStep != null) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("🎯", fontSize = 12.sp)
+                        Text(
+                            text = "Next: ${nextStep.text}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            maxLines = 2
+                        )
+                    }
+                }
+            }
         }
     }
 }

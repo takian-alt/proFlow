@@ -54,6 +54,8 @@ fun SettingsScreen(
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
     val circadianSummary by viewModel.circadianSummary.collectAsStateWithLifecycle()
+    val aiTestStatus by viewModel.aiTestStatus.collectAsStateWithLifecycle()
+    val isTestingAi by viewModel.isTestingAi.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearTelemetryDialog by remember { mutableStateOf(false) }
     var showDistractingAppsDialog by remember { mutableStateOf(false) }
@@ -68,9 +70,9 @@ fun SettingsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         }
@@ -83,24 +85,19 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Account & Cloud Sync (top-level nav row)
-            Card(
-                onClick = onNavigateToAccountSync,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(Icons.Filled.Cloud, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Account & Cloud Sync", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                        Text("Sign in with Google · Back up & restore", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            // Categorized Settings Hub (Chronobiology, Schedulers, HyperFocus, AI & Cloud Sync)
+            com.neuroflow.app.presentation.v2.settings.CategorizedSettingsHubV2(
+                chronotypeSummary = prefs.quizChronotype ?: "Anchor: ${prefs.wakeUpHour}:00 AM",
+                schedulerSummary = "Auto-Schedule & Prioritization Weights",
+                hyperFocusSummary = "App blocking, emergency exits, rewards",
+                aiAndSyncSummary = if (prefs.geminiApiKey.isNotBlank()) "Gemini Flash BYOK Active" else "Offline Heuristics Active",
+                onOpenChronobiologyAndSleep = onNavigateToSleepLogs,
+                onOpenSchedulerAndWeights = onNavigateToPriorityWeights,
+                onOpenHyperFocusAndPermissions = onNavigateToHyperFocusAllowlist,
+                onOpenAiAndCloudSync = onNavigateToAccountSync
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Appearance & Theming
             SettingsSection("Appearance") {
@@ -153,15 +150,36 @@ fun SettingsScreen(
             }
 
             // AI & Task Decomposition
-            SettingsSection("AI & Task Decomposition") {
+            SettingsSection("Gemini Flash AI Engine") {
                 SettingsToggleRow(
-                    label = "Gemini Flash AI Breakdown",
-                    description = "Use Google Gemini 1.5 Flash to intelligently break down complex tasks into micro-steps",
+                    label = "Gemini Flash AI Services",
+                    description = "Uses gemini-flash-latest for task enrichment, circadian slot matching, and weekly avoidance audits",
                     checked = prefs.geminiAiEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(geminiAiEnabled = it) } }
                 )
                 if (prefs.geminiAiEnabled) {
                     Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Engine status badge
+                    val isKeyConfigured = prefs.geminiApiKey.isNotBlank()
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isKeyConfigured) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isKeyConfigured) "● Active: gemini-flash-latest (Personal BYOK Key)" else "○ Offline Mode: Built-in Neuroscience Heuristics Active",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isKeyConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     var apiKey by rememberSaveable(prefs.geminiApiKey) { mutableStateOf(prefs.geminiApiKey) }
                     OutlinedTextField(
                         value = apiKey,
@@ -170,17 +188,85 @@ fun SettingsScreen(
                             viewModel.updatePreferences { p -> p.copy(geminiApiKey = it.trim()) }
                         },
                         label = { Text("Gemini API Key (BYOK)") },
-                        placeholder = { Text("AIzaSy...") },
+                        placeholder = { Text("Enter your Gemini API key") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         supportingText = {
                             Text(
-                                "Uses your personal free Gemini API key from Google AI Studio. Stored privately on-device.",
+                                "Stored 100% privately on-device. Uses gemini-flash-latest with single-call enrichment and 20-min TTL caching to conserve quota.",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.testGeminiConnection() },
+                            enabled = !isTestingAi && prefs.geminiApiKey.isNotBlank(),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            if (isTestingAi) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Testing...", fontSize = 11.sp)
+                            } else {
+                                Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Test AI Connection", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    if (!aiTestStatus.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val isSuccess = aiTestStatus?.startsWith("✅") == true
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSuccess) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = aiTestStatus ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    if (prefs.adaptiveSystemDirective.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "🧠 Calibrated Adaptive Directive",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = prefs.adaptiveSystemDirective,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -783,92 +869,6 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Clear Energy Telemetry")
                     }
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                onClick = onNavigateToMEQQuiz
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Energy", fontWeight = FontWeight.Bold)
-                        Text("Chronotype assessment & peak energy tracking", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.Filled.ChevronRight, "Navigate")
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                onClick = onNavigateToSleepLogs
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Sleep Logs", fontWeight = FontWeight.Bold)
-                        Text("Track sleep sessions and fatigue", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.Filled.ChevronRight, "Navigate")
-                }
-            }
-
-            // Priority Weights
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                onClick = onNavigateToPriorityWeights
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Priority Weights & Strategy", fontWeight = FontWeight.Bold)
-                        Text("Customize scoring weights & 1-click strategy presets", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.Filled.ChevronRight, "Navigate")
-                }
-            }
-
-            // HyperFocus
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                onClick = onNavigateToHyperFocusAllowlist
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("HyperFocus", fontWeight = FontWeight.Bold)
-                        Text(
-                            "Allowlist, gate & kiosk mode",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(Icons.Filled.ChevronRight, "Navigate")
                 }
             }
 

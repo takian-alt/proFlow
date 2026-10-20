@@ -2,10 +2,19 @@ package com.neuroflow.app.domain.model
 
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.SleepLogEntity
+import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
+import com.neuroflow.app.domain.service.AdaptiveCircadianLearner
+import com.neuroflow.app.domain.service.BehavioralObservation
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.CognitiveBlockCategory
+import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
@@ -102,12 +111,112 @@ fun buildEnergyUiModel(
     )
 }
 
+fun buildDailyCognitiveBlocks(
+    slots: List<ProtectedTimeSlot>,
+    date: LocalDate = LocalDate.now(),
+    zoneId: ZoneId = ZoneId.systemDefault()
+): List<CognitiveBlockWindow> {
+    val dayMillis = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
+    return slots
+        .filter { it.isEnabled && ProtectedSlotClock.occursOnDay(it, dayMillis) }
+        .map { slot ->
+            val category = when (slot.category) {
+                PtsCategory.MEAL -> CognitiveBlockCategory.MEAL
+                PtsCategory.EXERCISE -> CognitiveBlockCategory.EXERCISE
+                PtsCategory.WORK, PtsCategory.STUDY -> CognitiveBlockCategory.FOCUS_WORK
+                PtsCategory.BREAK, PtsCategory.MINDFULNESS -> CognitiveBlockCategory.WIND_DOWN
+                else -> CognitiveBlockCategory.WIND_DOWN
+            }
+            val startMin = slot.startMinuteOfDay
+            val endMin = (startMin + slot.durationMinutes) % 1440
+            CognitiveBlockWindow(
+                startMinuteOfDay = startMin,
+                endMinuteOfDay = endMin,
+                category = category,
+                intensity = 1.0,
+                label = slot.label
+            )
+        }
+}
+
+fun buildDailyCognitiveBlocks(
+    slots: List<ProtectedTimeSlot>,
+    dayMillis: Long,
+    zoneId: ZoneId = ZoneId.systemDefault()
+): List<CognitiveBlockWindow> = buildDailyCognitiveBlocks(
+    slots = slots,
+    date = Instant.ofEpochMilli(dayMillis).atZone(zoneId).toLocalDate(),
+    zoneId = zoneId
+)
+
+fun buildBehavioralObservations(
+    completedTasks: List<TaskEntity> = emptyList(),
+    sessions: List<TimeSessionEntity> = emptyList(),
+    zoneId: ZoneId = ZoneId.systemDefault()
+): List<BehavioralObservation> {
+    val observations = mutableListOf<BehavioralObservation>()
+
+    for (session in sessions) {
+        if (session.startedAt > 0L) {
+            val zdt = Instant.ofEpochMilli(session.startedAt).atZone(zoneId)
+            val minuteOfDay = zdt.hour * 60 + zdt.minute
+            val durationMins = if (session.endedAt != null && session.endedAt > session.startedAt) {
+                ((session.endedAt - session.startedAt) / 60_000L).toDouble()
+            } else if (session.durationMinutes > 0f) {
+                session.durationMinutes.toDouble()
+            } else {
+                25.0
+            }
+            val weight = (durationMins / 30.0).coerceIn(0.5, 3.0)
+            observations.add(
+                BehavioralObservation(
+                    minuteOfDay = minuteOfDay,
+                    productivityRating = 0.85,
+                    weight = weight
+                )
+            )
+        }
+    }
+
+    for (task in completedTasks) {
+        val completedAt = task.completedAt ?: task.updatedAt
+        if (completedAt > 0L) {
+            val zdt = Instant.ofEpochMilli(completedAt).atZone(zoneId)
+            val minuteOfDay = zdt.hour * 60 + zdt.minute
+            val weight = when (task.energyLevel) {
+                EnergyLevel.HIGH -> 1.5
+                EnergyLevel.MEDIUM -> 1.0
+                EnergyLevel.LOW -> 0.6
+                else -> 1.0
+            }
+            val rating = when (task.energyLevel) {
+                EnergyLevel.HIGH -> 0.95
+                EnergyLevel.MEDIUM -> 0.80
+                EnergyLevel.LOW -> 0.65
+                else -> 0.80
+            }
+            observations.add(
+                BehavioralObservation(
+                    minuteOfDay = minuteOfDay,
+                    productivityRating = rating,
+                    weight = weight
+                )
+            )
+        }
+    }
+
+    return observations
+}
+
 fun computeEnergyUiState(
     circadianEnergyService: CircadianEnergyService,
     sleepTelemetryRepository: SleepTelemetryRepository?,
     prefs: UserPreferences,
     sleepLogs: List<SleepLogEntity> = emptyList(),
-    nowMillis: Long = System.currentTimeMillis()
+    continuousActiveFocusMinutes: Int = 0,
+    nowMillis: Long = System.currentTimeMillis(),
+    completedTasks: List<TaskEntity> = emptyList(),
+    sessions: List<TimeSessionEntity> = emptyList()
 ): Pair<CircadianSnapshot, EnergyUiModel> {
     val zoneId = ZoneId.systemDefault()
     val zonedDateTime = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
@@ -125,23 +234,90 @@ fun computeEnergyUiState(
 
     val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
     val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
-
     val naps = signal?.daytimeNaps ?: emptyList()
-    val snapshot = if (naps.isNotEmpty()) {
-        circadianEnergyService.evaluateSnapshot(
-            timestampMillis = nowMillis,
-            wakeTimeMillis = wakeTimeMillis,
-            lastSleepDurationMinutes = sleepDurationMinutes,
-            continuousActiveFocusMinutes = 0,
-            zoneId = zoneId,
-            naps = naps
-        )
+
+    // 7-day rolling average sleep minutes for allostatic debt
+    val sevenDaysAgo = nowMillis - 7 * 86_400_000L
+    val recentSleepLogs = sleepLogs.filter { it.startAt >= sevenDaysAgo || it.endAt >= sevenDaysAgo }
+    val rollingAverageSleepMinutes = if (recentSleepLogs.isNotEmpty()) {
+        recentSleepLogs.map { if (it.durationMinutes > 0) it.durationMinutes.toDouble() else (it.endAt - it.startAt) / 60_000.0 }.average()
+    } else {
+        480.0
+    }
+
+    // Chronotype from preferences (quizChronotype or manualChronotype or derived from MEQ score)
+    val chronotype = if (!prefs.quizChronotype.isNullOrBlank()) {
+        ChronotypeProfile.fromString(prefs.quizChronotype)
+    } else if (!prefs.manualChronotype.isNullOrBlank()) {
+        ChronotypeProfile.fromString(prefs.manualChronotype)
+    } else if (prefs.meqScore > 0) {
+        when {
+            prefs.meqScore >= 70 -> ChronotypeProfile.DEFINITE_MORNING
+            prefs.meqScore >= 59 -> ChronotypeProfile.MODERATE_MORNING
+            prefs.meqScore >= 42 -> ChronotypeProfile.INTERMEDIATE
+            prefs.meqScore >= 31 -> ChronotypeProfile.MODERATE_EVENING
+            else -> ChronotypeProfile.DEFINITE_EVENING
+        }
+    } else {
+        ChronotypeProfile.INTERMEDIATE
+    }
+
+    val manualPeakHour = if (prefs.manualPeakProfileEnabled) {
+        (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
+    } else null
+
+    // Cognitive blocks for today
+    val cognitiveBlocks = buildDailyCognitiveBlocks(
+        slots = prefs.protectedTimeSlots,
+        date = zonedDateTime.toLocalDate(),
+        zoneId = zoneId
+    )
+
+    // Behavioral observations and learned profile
+    val observations = buildBehavioralObservations(completedTasks, sessions, zoneId)
+    val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
+    val learnedProfile = if (observations.isNotEmpty()) {
+        AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
+    } else null
+
+    val hasAdvancedParameters = naps.isNotEmpty() ||
+            cognitiveBlocks.isNotEmpty() ||
+            learnedProfile != null ||
+            (rollingAverageSleepMinutes != 480.0) ||
+            manualPeakHour != null ||
+            chronotype != ChronotypeProfile.INTERMEDIATE
+
+    val snapshot = if (hasAdvancedParameters) {
+        if (cognitiveBlocks.isEmpty() && learnedProfile == null && rollingAverageSleepMinutes == 480.0 && manualPeakHour == null && chronotype == ChronotypeProfile.INTERMEDIATE) {
+            circadianEnergyService.evaluateSnapshot(
+                timestampMillis = nowMillis,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+                zoneId = zoneId,
+                naps = naps
+            )
+        } else {
+            circadianEnergyService.evaluateSnapshot(
+                timestampMillis = nowMillis,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakHour,
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                cognitiveBlocks = cognitiveBlocks
+            )
+        }
     } else {
         circadianEnergyService.evaluateSnapshot(
             timestampMillis = nowMillis,
             wakeTimeMillis = wakeTimeMillis,
             lastSleepDurationMinutes = sleepDurationMinutes,
-            continuousActiveFocusMinutes = 0,
+            continuousActiveFocusMinutes = continuousActiveFocusMinutes,
             zoneId = zoneId
         )
     }

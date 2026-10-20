@@ -36,7 +36,11 @@ enum class TaskArchetype {
 }
 
 @Singleton
-class DefaultSmartTaskDecompositionService @Inject constructor() : SmartTaskDecompositionService {
+class DefaultSmartTaskDecompositionService @Inject constructor(
+    private val geminiAiOnlineService: GeminiAiOnlineService
+) : SmartTaskDecompositionService {
+
+    constructor() : this(DefaultGeminiAiOnlineService())
 
     override suspend fun decomposeTask(
         title: String,
@@ -49,80 +53,13 @@ class DefaultSmartTaskDecompositionService @Inject constructor() : SmartTaskDeco
             return decomposeTaskLocally(title, durationMinutes)
         }
 
-        return try {
-            fetchGeminiDecomposition(title, durationMinutes, trimmedKey)
-        } catch (_: Exception) {
-            decomposeTaskLocally(title, durationMinutes)
-        }
-    }
-
-    private suspend fun fetchGeminiDecomposition(
-        title: String,
-        durationMinutes: Int,
-        apiKey: String
-    ): List<MicroStepSuggestion> = withContext(Dispatchers.IO) {
-        val cleanTitle = title.trim().take(60)
-        val prompt = """
-            You are an executive function and ADHD productivity coach. Decompose the following task into 3 to 5 concrete, actionable, low-friction micro-steps.
-            Task: "$cleanTitle"
-            Total duration: $durationMinutes minutes.
-
-            Requirements:
-            1. The first step MUST be a micro-activation step (5-10 minutes) with near-zero friction.
-            2. Return ONLY a valid JSON array of objects with keys "title" (string) and "estimatedMinutes" (integer).
-            Example:
-            [
-              {"title": "Open workspace and review requirements for $cleanTitle", "estimatedMinutes": 5},
-              {"title": "Implement core initial segment", "estimatedMinutes": 15},
-              {"title": "Verify and test outcome", "estimatedMinutes": 10}
-            ]
-        """.trimIndent()
-
-        val reqObj = JSONObject().apply {
-            val contentsArr = JSONArray().apply {
-                val contentObj = JSONObject().apply {
-                    val partsArr = JSONArray().apply {
-                        put(JSONObject().apply { put("text", prompt) })
-                    }
-                    put("parts", partsArr)
-                }
-                put(contentObj)
-            }
-            put("contents", contentsArr)
-
-            val genConfig = JSONObject().apply {
-                put("temperature", 0.2)
-                put("maxOutputTokens", 800)
-                put("responseMimeType", "application/json")
-            }
-            put("generationConfig", genConfig)
-        }
-
-        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
-        val connection = (URL(endpoint).openConnection() as HttpsURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connectTimeout = 4000
-            readTimeout = 4000
-            doOutput = true
-        }
-
-        try {
-            connection.outputStream.use { os ->
-                os.write(reqObj.toString().toByteArray(Charsets.UTF_8))
-                os.flush()
-            }
-
-            if (connection.responseCode == 200) {
-                val respText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val steps = parseGeminiResponse(respText)
-                if (steps.isNotEmpty()) return@withContext steps
-            }
-        } finally {
-            connection.disconnect()
-        }
-
-        decomposeTaskLocally(title, durationMinutes)
+        return geminiAiOnlineService.decomposeTask(
+            title = title,
+            durationMinutes = durationMinutes,
+            userDirective = "",
+            apiKey = trimmedKey,
+            useAi = useAi
+        )
     }
 
     override fun decomposeTaskLocally(title: String, durationMinutes: Int): List<MicroStepSuggestion> {

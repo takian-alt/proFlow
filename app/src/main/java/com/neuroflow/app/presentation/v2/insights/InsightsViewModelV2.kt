@@ -2,19 +2,18 @@ package com.neuroflow.app.presentation.v2.insights
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.EnergyUiModel
-import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.FatigueZone
-import com.neuroflow.app.domain.model.buildEnergyUiModel
 import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.scheduler.BehavioralInsightsEngine
 import com.neuroflow.app.domain.service.CircadianEnergyService
@@ -22,10 +21,9 @@ import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import javax.inject.Inject
-
-import androidx.work.WorkManager
 
 data class InsightsMetricsUiModel(
     val velocity7d: Int = 0,
@@ -39,6 +37,8 @@ data class InsightsMetricsUiModel(
 
 data class InsightsUiStateV2(
     val energyUi: EnergyUiModel? = null,
+    val analyticsSummary: AnalyticsEngine.AnalyticsSummary? = null,
+    val planningCalibrationFactor: Float = 1.0f,
     val preferences: UserPreferences = UserPreferences(),
     val circadianAlignmentRate: Int = 85,
     val interruptionPauseResumeCount: Int = 0,
@@ -63,27 +63,77 @@ class InsightsViewModelV2 @Inject constructor(
     val contractRepository: UlyssesContractRepository,
     val workManager: WorkManager? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
-    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
+    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService = com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService()
 ) : ViewModel() {
+
+    private val _isCalibratingCoach = MutableStateFlow(false)
+    val isCalibratingCoach: StateFlow<Boolean> = _isCalibratingCoach.asStateFlow()
+
+    fun calibrateAiCoach() {
+        viewModelScope.launch {
+            _isCalibratingCoach.value = true
+            try {
+                val prefs = preferencesDataStore.preferencesFlow.first()
+                val allTasks = taskRepository.getAllTasks()
+                val metrics = computeSmapeAndCircadianDensity(allTasks, prefs)
+
+                val telemetryJson = org.json.JSONObject().apply {
+                    put("completionRatePercent", if (allTasks.isNotEmpty()) (allTasks.count { it.completedAt != null } * 100 / allTasks.size) else 0)
+                    put("weightedSmape", metrics.weightedSmape)
+                    put("velocity7d", metrics.velocity7d)
+                    put("focusHours7d", metrics.focusHours7d)
+                    put("circadianPeakStart", prefs.peakEnergyStart)
+                    put("circadianPeakEnd", prefs.peakEnergyEnd)
+                }.toString()
+
+                val deletedJson = prefs.recentlyDeletedTasksJson.ifBlank { "[]" }
+                val postponedTasks = allTasks.filter { it.postponeCount >= 2 && it.status.name == "ACTIVE" }.take(10)
+                val postponedJson = org.json.JSONArray().apply {
+                    postponedTasks.forEach { t ->
+                        put(org.json.JSONObject().apply {
+                            put("title", t.title)
+                            put("estimatedMinutes", t.estimatedDurationMinutes)
+                            put("category", t.taskType.name)
+                            put("postponeCount", t.postponeCount)
+                        })
+                    }
+                }.toString()
+
+                val result = geminiAiOnlineService.conductWeeklyAuditAndDirective(
+                    weeklyTelemetryJson = telemetryJson,
+                    recentlyDeletedTasksJson = deletedJson,
+                    chronicallyPostponedTasksJson = postponedJson,
+                    apiKey = prefs.geminiApiKey,
+                    useAi = prefs.geminiAiEnabled
+                )
+
+                preferencesDataStore.updateAdaptiveSystemDirective(
+                    directive = result.newSystemDirective,
+                    auditJson = result.avoidanceAuditJson
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("InsightsViewModelV2", "Failed to calibrate AI coach", e)
+            } finally {
+                _isCalibratingCoach.value = false
+            }
+        }
+    }
 
     val uiState: StateFlow<InsightsUiStateV2> = combine(
         taskRepository.observeAll(),
         sessionRepository.observeAll(),
-        preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
-            old.peakEnergyStart == new.peakEnergyStart &&
-            old.peakEnergyEnd == new.peakEnergyEnd &&
-            old.wakeUpHour == new.wakeUpHour &&
-            old.sleepPressurePoints == new.sleepPressurePoints
-        },
+        preferencesDataStore.preferencesFlow,
         contractRepository.observeActive(),
         sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
     ) { allTasks, allSessions, prefs, activeContracts, sleepLogs ->
         val now = System.currentTimeMillis()
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
         val startOfToday = cal.timeInMillis
         val startOfWeek = startOfToday - 6 * 86400_000L
 
@@ -129,6 +179,14 @@ class InsightsViewModelV2 @Inject constructor(
             nowMillis = now
         )
 
+        // Compute full AnalyticsSummary with real sessions off the main thread
+        val analyticsSummary = AnalyticsEngine.buildSummary(
+            allTasks = allTasks,
+            allSessions = allSessions,
+            prefs = prefs
+        )
+        val planningCalibrationFactor = AnalyticsEngine.PlanningCalibration.from(allTasks).globalFactor
+
         // Behavioral interventions
         val interventions = mutableListOf<String>()
         val pressure = energyUi.sleepPressurePoints
@@ -156,6 +214,8 @@ class InsightsViewModelV2 @Inject constructor(
 
         InsightsUiStateV2(
             energyUi = energyUi,
+            analyticsSummary = analyticsSummary,
+            planningCalibrationFactor = planningCalibrationFactor,
             preferences = prefs,
             circadianAlignmentRate = alignmentRate,
             interruptionPauseResumeCount = pauses,
@@ -171,17 +231,19 @@ class InsightsViewModelV2 @Inject constructor(
             neuroscienceInterventions = interventions,
             isLoading = false
         )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        InsightsUiStateV2()
-    )
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            InsightsUiStateV2()
+        )
 
     val insightsMetricsFlow: StateFlow<InsightsMetricsUiModel> = combine(
         taskRepository.observeAll(),
         preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
             old.peakEnergyStart == new.peakEnergyStart &&
-            old.peakEnergyEnd == new.peakEnergyEnd
+                old.peakEnergyEnd == new.peakEnergyEnd
         }
     ) { allTasks, prefs ->
         computeSmapeAndCircadianDensity(allTasks, prefs)

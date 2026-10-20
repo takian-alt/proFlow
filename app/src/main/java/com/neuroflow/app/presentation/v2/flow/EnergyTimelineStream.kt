@@ -30,6 +30,8 @@ import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
+import com.neuroflow.app.domain.service.CircadianSnapshot
+
 @Composable
 fun EnergyTimelineStream(
     scheduledTasks: List<TaskEntity>,
@@ -38,6 +40,7 @@ fun EnergyTimelineStream(
     onDeferTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {},
+    timeline: List<CircadianSnapshot> = emptyList(),
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
@@ -95,7 +98,8 @@ fun EnergyTimelineStream(
                         onDefer = { onDeferTask(task) },
                         onBreakDown = { onBreakDownTask(task) },
                         onEdit = { onEditTask(task) },
-                        onLogPastTime = { taskToLogTime = task }
+                        onLogPastTime = { taskToLogTime = task },
+                        timeline = timeline
                     )
                 }
             }
@@ -124,7 +128,8 @@ fun TimelineTaskCard(
     onDefer: () -> Unit,
     onBreakDown: () -> Unit = {},
     onEdit: () -> Unit = {},
-    onLogPastTime: () -> Unit = {}
+    onLogPastTime: () -> Unit = {},
+    timeline: List<CircadianSnapshot> = emptyList()
 ) {
     val energyBadgeColor = when (task.energyLevel) {
         EnergyLevel.HIGH -> NeuroFlowThemeV2Colors.WarmAmber
@@ -137,6 +142,7 @@ fun TimelineTaskCard(
     var showDetailSheet by remember { mutableStateOf(false) }
 
     val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { it * 0.55f },
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
@@ -285,6 +291,16 @@ fun TimelineTaskCard(
                                 )
                             }
                         }
+                    }
+
+                    val scheduledMillis = task.scheduledTime ?: task.scheduledDate
+                    if (scheduledMillis != null && timeline.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        TaskSlotEnergyFitBadge(
+                            taskScheduledMillis = scheduledMillis,
+                            taskEnergyDemand = task.energyLevel,
+                            timeline = timeline
+                        )
                     }
                 }
 

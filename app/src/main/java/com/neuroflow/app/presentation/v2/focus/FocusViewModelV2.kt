@@ -30,8 +30,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.neuroflow.app.data.local.entity.startOfLocalDay
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.math.max
 
 enum class FocusTimerModeV2(val durationSeconds: Long, val title: String) {
     JUST_5_MIN(300L, "5m Micro-Start"),
@@ -67,7 +69,8 @@ data class FocusUiStateV2(
     val decompressionRemainingSeconds: Int = 180,
     val isDecompressionSighActive: Boolean = false,
     val decompressionSighRemainingSeconds: Int = 0,
-    val isDecompressionBypassed: Boolean = false
+    val isDecompressionBypassed: Boolean = false,
+    val skippedMicroStepIndices: Set<Int> = emptySet()
 ) {
     val isSessionActive: Boolean get() = isRunning
 }
@@ -471,6 +474,7 @@ class FocusViewModelV2 @Inject constructor(
 
         val now = System.currentTimeMillis()
         val durationSec = _uiState.value.elapsedSeconds
+        val actualMinutes = max(1, (durationSec / 60).toInt())
 
         viewModelScope.launch {
             val session = sessionRepository.getOpenSessionForTask(taskId)
@@ -485,13 +489,38 @@ class FocusViewModelV2 @Inject constructor(
                     )
                 )
             }
-        }
 
-        val task = _uiState.value.task ?: return
-        val points = 50 + if (task.isFrog) 50 else 0 + (task.impactScore / 2)
+            val currentTask = _uiState.value.task ?: return@launch
+            val updatedTask = currentTask.copy(
+                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+            )
+            taskRepository.update(updatedTask)
 
-        viewModelScope.launch {
-            taskRepository.completeAndRecur(task, now)
+            val points = 50 + if (updatedTask.isFrog) 50 else 0 + (updatedTask.impactScore / 2)
+            taskRepository.completeAndRecur(updatedTask, now)
+
+            preferencesDataStore.updatePreferences { prefs ->
+                val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
+                val newCompleted = prefs.totalTasksCompleted + 1
+                val lastActive = prefs.lastActiveDate
+                val todayStart = startOfLocalDay(now)
+                val isNewDay = lastActive < todayStart
+                val isConsecutive = lastActive >= todayStart - 86_400_000L && isNewDay
+                val newStreak = when {
+                    isConsecutive -> prefs.dailyStreak + 1
+                    isNewDay -> 1
+                    else -> prefs.dailyStreak
+                }
+                val longest = maxOf(prefs.longestStreak, newStreak)
+                prefs.copy(
+                    totalFocusMinutes = newFocusMinutes,
+                    totalTasksCompleted = newCompleted,
+                    dailyStreak = newStreak,
+                    longestStreak = longest,
+                    lastActiveDate = now
+                )
+            }
+
             _uiState.update {
                 it.copy(
                     isRunning = false,
@@ -658,11 +687,23 @@ class FocusViewModelV2 @Inject constructor(
         updated[index] = step.copy(completed = !step.completed)
 
         val serialized = StepByStepPlanCodec.serialize(updated)
-        _uiState.update { it.copy(microSteps = updated) }
+        _uiState.update { it.copy(microSteps = updated, skippedMicroStepIndices = it.skippedMicroStepIndices - index) }
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun skipCurrentMicroStep(index: Int) {
+        _uiState.update { current ->
+            val nextSkipped = current.skippedMicroStepIndices + index
+            val remainingIncomplete = current.microSteps.indices.filter { !current.microSteps[it].completed }
+            if (remainingIncomplete.all { it in nextSkipped }) {
+                current.copy(skippedMicroStepIndices = setOf(index))
+            } else {
+                current.copy(skippedMicroStepIndices = nextSkipped)
+            }
         }
     }
 

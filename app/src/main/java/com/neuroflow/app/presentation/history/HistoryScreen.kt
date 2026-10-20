@@ -431,24 +431,18 @@ private fun HistoryDetailSheet(
                 Text("Session Details", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Spacer(Modifier.height(8.dp))
                 sessions.forEachIndexed { index, session ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("Session ${index + 1}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Duration: ${formatDurationFloat(session.durationMinutes)}", fontSize = 13.sp)
-                            session.startedAt.let {
-                                Text("Started: ${sdf.format(Date(it))}", fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            session.endedAt?.let {
-                                Text("Ended: ${sdf.format(Date(it))}", fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                    val dateFormatted = remember(session.startedAt) {
+                        sdf.format(Date(session.startedAt))
                     }
+                    com.neuroflow.app.presentation.v2.common.UpgradedHistorySessionRow(
+                        taskTitle = "Session ${index + 1} • ${task.title}",
+                        dateAndTimeText = dateFormatted,
+                        durationMinutes = session.durationMinutes,
+                        estimatedMinutes = task.estimatedDurationMinutes,
+                        interruptionCount = session.interruptionBurstCount + session.appSwitchCount,
+                        affectiveForecastError = task.affectiveForecastError,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
                 }
             }
 

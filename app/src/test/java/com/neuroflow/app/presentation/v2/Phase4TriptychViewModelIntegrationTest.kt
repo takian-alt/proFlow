@@ -236,10 +236,10 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
     }
 
     "NeuroFlowThemeV2 token palette provides high WCAG AA contrast against pure black" {
-        NeuroFlowThemeV2Colors.Obsidian shouldBe androidx.compose.ui.graphics.Color(0xFF0A0B0E)
-        NeuroFlowThemeV2Colors.TextPrimary shouldBe androidx.compose.ui.graphics.Color(0xFFF8FAFC)
-        NeuroFlowThemeV2Colors.TextSecondary shouldBe androidx.compose.ui.graphics.Color(0xFF94A3B8)
-        NeuroFlowThemeV2Colors.ElectricIndigo shouldBe androidx.compose.ui.graphics.Color(0xFF6366F1)
-        NeuroFlowThemeV2Colors.SlateSurface shouldBe androidx.compose.ui.graphics.Color(0xFF13151B)
+        NeuroFlowThemeV2Colors.StaticObsidian shouldBe androidx.compose.ui.graphics.Color(0xFF0A0B0E)
+        NeuroFlowThemeV2Colors.StaticTextPrimary shouldBe androidx.compose.ui.graphics.Color(0xFFF8FAFC)
+        NeuroFlowThemeV2Colors.StaticTextSecondary shouldBe androidx.compose.ui.graphics.Color(0xFF94A3B8)
+        NeuroFlowThemeV2Colors.StaticElectricIndigo shouldBe androidx.compose.ui.graphics.Color(0xFF6366F1)
+        NeuroFlowThemeV2Colors.StaticSlateSurface shouldBe androidx.compose.ui.graphics.Color(0xFF13151B)
     }
 })

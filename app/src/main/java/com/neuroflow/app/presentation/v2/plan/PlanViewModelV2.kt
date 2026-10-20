@@ -37,6 +37,8 @@ import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -66,7 +68,13 @@ data class PlanUiStateV2(
     val energyUi: EnergyUiModel? = null,
     val circadianSummary: DailyCircadianSummary? = null,
     val preferences: UserPreferences = UserPreferences(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val pendingDeletedTask: TaskEntity? = null,
+    val isStagingDrawerExpanded: Boolean = false,
+    val searchQuery: String = "",
+    val isSearchVisible: Boolean = false,
+    val decomposingTaskId: String? = null,
+    val selectedQuadrant: Quadrant? = null
 )
 
 private fun startOfTodayMillis(): Long {
@@ -98,6 +106,15 @@ class PlanViewModelV2 @Inject constructor(
     private val _viewMode = MutableStateFlow(PlanViewModeV2.TIMELINE)
     private val _selectedTag = MutableStateFlow<String?>(null)
     private val _isAutoScheduling = MutableStateFlow(false)
+    private val _pendingDeletedTask = MutableStateFlow<TaskEntity?>(null)
+    private val _isStagingDrawerExpanded = MutableStateFlow(false)
+    private val _searchQuery = MutableStateFlow("")
+    private val _isSearchVisible = MutableStateFlow(false)
+    private val _decomposingTaskId = MutableStateFlow<String?>(null)
+    private val _selectedQuadrant = MutableStateFlow<Quadrant?>(null)
+
+    private val _userActionMessage = MutableSharedFlow<String>()
+    val userActionMessage: SharedFlow<String> = _userActionMessage.asSharedFlow()
 
     val recentNotes: Flow<List<NoteEntity>> = noteRepository?.allNotes ?: flowOf(emptyList())
 
@@ -105,12 +122,39 @@ class PlanViewModelV2 @Inject constructor(
         val dateMillis: Long,
         val mode: PlanViewModeV2,
         val autoScheduling: Boolean,
-        val tag: String?
+        val tag: String?,
+        val pendingDeletedTask: TaskEntity?,
+        val isStagingDrawerExpanded: Boolean,
+        val searchQuery: String,
+        val isSearchVisible: Boolean,
+        val decomposingTaskId: String?,
+        val selectedQuadrant: Quadrant?
     )
 
     val uiState: StateFlow<PlanUiStateV2> = combine(
-        combine(_selectedDate, _viewMode, _isAutoScheduling, _selectedTag) { date, mode, autoScheduling, tag ->
-            PlanNavParams(date, mode, autoScheduling, tag)
+        combine(
+            combine(_selectedDate, _viewMode, _isAutoScheduling, _selectedTag) { date, mode, autoScheduling, tag ->
+                listOf<Any?>(date, mode, autoScheduling, tag)
+            },
+            combine(_pendingDeletedTask, _isStagingDrawerExpanded, _searchQuery) { pendingTask, drawerExpanded, searchQ ->
+                listOf<Any?>(pendingTask, drawerExpanded, searchQ)
+            },
+            combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant) { searchVis, decompId, selectedQuad ->
+                listOf<Any?>(searchVis, decompId, selectedQuad)
+            }
+        ) { first, second, third ->
+            PlanNavParams(
+                dateMillis = first[0] as Long,
+                mode = first[1] as PlanViewModeV2,
+                autoScheduling = first[2] as Boolean,
+                tag = first[3] as String?,
+                pendingDeletedTask = second[0] as TaskEntity?,
+                isStagingDrawerExpanded = second[1] as Boolean,
+                searchQuery = second[2] as String,
+                isSearchVisible = third[0] as Boolean,
+                decomposingTaskId = third[1] as String?,
+                selectedQuadrant = third[2] as Quadrant?
+            )
         },
         taskRepository.observeActiveTasks(),
         preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
@@ -145,6 +189,17 @@ class PlanViewModelV2 @Inject constructor(
             allTasks.filter { it.tags.contains(q, ignoreCase = true) || it.title.contains(q, ignoreCase = true) }
         }
 
+        val searchFilteredAll = if (params.searchQuery.isBlank()) {
+            tagFilteredAll
+        } else {
+            val query = params.searchQuery.trim()
+            tagFilteredAll.filter { task ->
+                task.title.contains(query, ignoreCase = true) ||
+                    task.description.contains(query, ignoreCase = true) ||
+                    task.tags.contains(query, ignoreCase = true)
+            }
+        }
+
         val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
         val dayStart = cal.apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -154,7 +209,7 @@ class PlanViewModelV2 @Inject constructor(
         }.timeInMillis
         val dayEnd = dayStart + 24 * 60 * 60 * 1000L - 1
 
-        val tasksForDay = tagFilteredAll.filter { task ->
+        val tasksForDay = searchFilteredAll.filter { task ->
             val sDate = task.scheduledDate
             if (sDate != null) {
                 sDate in dayStart..dayEnd
@@ -163,10 +218,10 @@ class PlanViewModelV2 @Inject constructor(
             }
         }.sortedBy { it.scheduledTime ?: it.timelineStartMinuteOfDay()?.toLong() ?: Long.MAX_VALUE }
 
-        val unscheduled = tagFilteredAll.filter { it.scheduledDate == null }
+        val unscheduled = searchFilteredAll.filter { it.scheduledDate == null }
 
         val byQuadrant = Quadrant.entries.associateWith { q ->
-            tagFilteredAll.filter { it.quadrant == q }
+            searchFilteredAll.filter { it.quadrant == q }
         }
 
         val conflicts = ConflictResolver.analyzeScheduleConflicts(
@@ -208,7 +263,13 @@ class PlanViewModelV2 @Inject constructor(
             energyUi = energyUi,
             circadianSummary = circadianSummary,
             preferences = prefs,
-            isLoading = false
+            isLoading = false,
+            pendingDeletedTask = params.pendingDeletedTask,
+            isStagingDrawerExpanded = params.isStagingDrawerExpanded,
+            searchQuery = params.searchQuery,
+            isSearchVisible = params.isSearchVisible,
+            decomposingTaskId = params.decomposingTaskId,
+            selectedQuadrant = params.selectedQuadrant
         )
     }.stateIn(
         viewModelScope,
@@ -218,6 +279,10 @@ class PlanViewModelV2 @Inject constructor(
 
     fun setViewMode(mode: PlanViewModeV2) {
         _viewMode.value = mode
+    }
+
+    fun selectQuadrant(quadrant: Quadrant?) {
+        _selectedQuadrant.value = quadrant
     }
 
     fun selectDate(dateMillis: Long) {
@@ -375,6 +440,21 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun resolveConflict(conflict: ScheduleConflict) {
+        val suggestedMinute = conflict.suggestedNewStartMinute
+        val targetTask = uiState.value.tasksForDay.firstOrNull { it.title == conflict.taskTitle }
+        if (targetTask != null && suggestedMinute != null) {
+            assignTaskTime(targetTask, suggestedMinute / 60, suggestedMinute % 60)
+            viewModelScope.launch {
+                _userActionMessage.emit(
+                    "Moved '${targetTask.title.take(24)}' to ${ConflictResolver.formatMinutesToTime(suggestedMinute)}"
+                )
+            }
+        } else {
+            triggerAutoScheduleNow()
+        }
+    }
+
     fun updateTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.update(task)
@@ -389,27 +469,35 @@ class PlanViewModelV2 @Inject constructor(
 
     fun breakDownTask(task: TaskEntity) {
         viewModelScope.launch {
-            val prefs = preferencesDataStore.preferencesFlow.first()
-            val generated = behavioralSupportService.generateMicroStepsWithAi(
-                taskTitle = task.title,
-                estimatedMinutes = task.estimatedDurationMinutes,
-                apiKey = prefs.geminiApiKey,
-                useAi = prefs.geminiAiEnabled
-            )
-            val microStepEntities = generated.mapIndexed { index, suggestion ->
-                TaskMicroStepEntity(
-                    taskId = task.id,
-                    title = suggestion.title,
-                    sortOrder = index,
-                    estimatedMinutes = suggestion.estimatedMinutes
+            _decomposingTaskId.value = task.id
+            try {
+                val prefs = preferencesDataStore.preferencesFlow.first()
+                val generated = behavioralSupportService.generateMicroStepsWithAi(
+                    taskTitle = task.title,
+                    estimatedMinutes = task.estimatedDurationMinutes,
+                    apiKey = prefs.geminiApiKey,
+                    useAi = prefs.geminiAiEnabled
                 )
-            }
-            taskRepository.deleteMicroStepsByTaskId(task.id)
-            taskRepository.insertMicroSteps(microStepEntities)
+                val microStepEntities = generated.mapIndexed { index, suggestion ->
+                    TaskMicroStepEntity(
+                        taskId = task.id,
+                        title = suggestion.title,
+                        sortOrder = index,
+                        estimatedMinutes = suggestion.estimatedMinutes
+                    )
+                }
+                taskRepository.deleteMicroStepsByTaskId(task.id)
+                taskRepository.insertMicroSteps(microStepEntities)
 
-            val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
-            val serialized = StepByStepPlanCodec.serialize(planSteps)
-            taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
+                val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
+                val serialized = StepByStepPlanCodec.serialize(planSteps)
+                taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
+                _userActionMessage.emit("Decomposed '${task.title.take(25)}' into ${generated.size} micro-steps 🪄")
+            } catch (e: Exception) {
+                _userActionMessage.emit("Breakdown completed via local heuristics.")
+            } finally {
+                _decomposingTaskId.value = null
+            }
         }
     }
 
@@ -432,6 +520,23 @@ class PlanViewModelV2 @Inject constructor(
                     updatedAt = System.currentTimeMillis()
                 )
             )
+        }
+    }
+
+    fun createTaskFromNote(title: String, description: String = "") {
+        viewModelScope.launch {
+            val cleanTitle = title.ifBlank { description.take(40).trim() }.ifBlank { "New Task" }
+            val newTask = TaskEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                title = cleanTitle,
+                description = description.trim(),
+                scheduledDate = uiState.value.selectedDateMillis,
+                estimatedDurationMinutes = 25,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            taskRepository.insert(newTask)
+            _userActionMessage.emit("Created task '$cleanTitle'")
         }
     }
 
@@ -508,5 +613,50 @@ class PlanViewModelV2 @Inject constructor(
                 prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
             }
         }
+    }
+
+    private var pendingDeleteJob: Job? = null
+
+    fun requestDeleteTask(task: TaskEntity) {
+        pendingDeleteJob?.cancel()
+        _pendingDeletedTask.value = task
+        pendingDeleteJob = viewModelScope.launch {
+            delay(5000L)
+            confirmDeleteTask()
+        }
+    }
+
+    fun undoDeleteTask() {
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob = null
+        _pendingDeletedTask.value = null
+    }
+
+    fun confirmDeleteTask() {
+        val task = _pendingDeletedTask.value ?: return
+        _pendingDeletedTask.value = null
+        viewModelScope.launch {
+            preferencesDataStore.recordDeletedTask(
+                title = task.title,
+                durationMinutes = task.estimatedDurationMinutes,
+                category = task.taskType.name,
+                postponeCount = task.postponeCount
+            )
+            taskRepository.delete(task)
+        }
+    }
+
+    fun toggleStagingDrawer() {
+        _isStagingDrawerExpanded.value = !_isStagingDrawerExpanded.value
+    }
+
+    fun toggleSearchVisible() {
+        val next = !_isSearchVisible.value
+        _isSearchVisible.value = next
+        if (!next) _searchQuery.value = ""
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
     }
 }

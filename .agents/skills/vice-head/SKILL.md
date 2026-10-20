@@ -315,6 +315,187 @@ When the user returns with the Vice Head's recommendations:
      - Maintained 6.8 MB APK footprint and bounded host RAM consumption.
      - Cut tag `v2.2.0-GM` at commit `5364da0`.
 
+### ADR-008: Jetpack Compose V2 UX Elevation, Chronotype-Aware Scheduling & DST Date Boundary Normalization
+- **Status**: RECEIVED FROM VICE LEADER & RATIFIED FOR EXECUTION (October 19, 2026)
+- **Decisions & Implementation Tracks**:
+  1. **DataStore Recomposition Storm & Room v22 Bridge (Bug 1 / ADR-004 Enforcement)**:
+     - Memoized JSON array parsing for `affirmations`, `tagCatalog`, `yearlyGoals`, `weeklyGoals`, and `protectedTimeSlots` in `UserPreferencesDataStore.kt`. When scalar fields (e.g. `sleepPressurePoints`) update, existing parsed collections are returned immediately without allocating `JSONArray` or re-parsing string tokens.
+     - Bridged `ProtectedSlotDao` into `updateProtectedTimeSlots` to mirror slot updates to Room table `protected_slots`, eliminating split-brain divergence.
+  2. **Chronotype-Aware Circadian Task Scheduling (Bug 2)**:
+     - Propagated `chronotype: ChronotypeProfile` and `manualPeakStartHour: Int?` through `TaskSchedulerService.scheduleDay` and `findBestCircadianWindow`.
+     - High-energy tasks and Daily Frogs are aligned to the user's evaluated biological peak (e.g. evening peak for `DEFINITE_EVENING` MEQ profile).
+  3. **DST-Safe Midnight Boundary Anchoring (Bug 3)**:
+     - Replaced mutable `Calendar` and fixed `86_400_000L` addition in `TaskInferenceEngine.kt` with `java.time.LocalDate.now(zoneId)` and `plusDays(1).atStartOfDay(zoneId)`.
+     - Guarantees DST transitions do not offset midnight boundaries to `23:00` or `01:00`.
+  4. **Gemini 2.5 Flash Endpoint & 6-Archetype Offline Decomposer (Bug 4)**:
+     - Upgraded BYOK AI endpoint to `gemini-2.5-flash:generateContent`.
+     - Connected `classifyArchetype(title)` into `decomposeTaskLocally`, generating customized micro-activation and completion step cadences for Coding, Writing, Study, Chores, Admin, and General tasks.
+  5. **Jetpack Compose Material 3 UI/UX Elevation (Upgrades 1-3)**:
+     - `NeuroFlowThemeV2.kt`: Integrated `NeuroFlowExtendedColors`, `LocalNeuroFlowColors`, `ObsidianDarkScheme`, `AmoledDarkScheme`, and `NeuroFlowTypographyV2`, maintaining complete backward compatibility with `NeuroFlowThemeV2Colors`.
+     - `CircadianHeroBarometer.kt`: Replaced static barometer with an interactive 24-hour cubic-bezier energy wave canvas featuring pointer touch/drag scrubbing, haptic handle feedback, live "NOW" pulsating indicator, and phase guidance cards.
+     - `FlowViewModelV2.kt` & `FlowScreenV2.kt`: Projected and exposed 24-hour `dayTimeline` in `FlowUiStateV2` via `circadianService.projectDayTimeline(...)`.
+
+
+### ADR-009: Accidental Deletion Protection, Viewport Modernization, Focus Ergonomics & Chronobiology DAG Hardening
+- **Status**: RATIFIED & EXECUTED (October 19, 2026)
+- **Decisions & Implementation Tracks**:
+  1. **Accidental Deletion Protection & 5-Second Undo Window (Track 1)**:
+     - Replaced fragile unconstrained swipe thresholds with `positionalThreshold = { it * 0.55f }` and `EndToStart` deletion across `PlanScreenV2` and `EnergyTimelineStream`.
+     - Staged task deletions in `PlanViewModelV2` via `_pendingDeletedTask: MutableStateFlow<TaskEntity?>` with a 5-second `SnackbarHostState` window supporting immediate `Undo` rollback prior to permanent Room deletion.
+  2. **PlanScreen Viewport Elevation & Collapsible Staging Drawer (Track 2)**:
+     - Reclaimed 85%+ viewport space for the continuous energy timeline by collapsing unscheduled tasks into a compact 42dp Staging Drawer Pill (`Unscheduled Tray (N) ▾`).
+     - Added toggleable top search bar with animated expand/collapse transitions and automatic timeline auto-scroll targeting `(currentHour - 1)` on initial load.
+  3. **FocusScreen Hero Task Card & AMOLED Visual Hierarchy (Track 3)**:
+     - Extracted full-width `HeroTaskCard` above the dial displaying task title, quadrant, priority badge, and micro-step progress.
+     - Preserved the 228dp radial dial exclusively for crisp countdown digits, flow state badges, and dynamic pulsating halo.
+     - Enforced `KeepScreenOnEffect` ensuring deep work sessions never sleep the display.
+  4. **Dual-Format Timestamp Resolution & Placement Stability (Track 4)**:
+     - Resolved split-brain scheduling bug between millisecond intra-day offsets (`< 86_400_000L`) and epoch millisecond timestamps (`>= 86_400_000L`) via `task.resolveScheduledEpochMillis()` and `task.resolveDeadlineEpochMillis()` in `TaskTimeExtensions.kt`.
+     - Integrated across `PlacementStability.kt`, `PlanScreenV2.kt`, `FlowViewModelV2.kt`, and `ScheduleAutoTasksWorker.kt`.
+  5. **Focus Completion, Recurrence & Streaks (Track 5)**:
+     - Wired `FocusViewModelV2.completeTask()` to compute actual elapsed session minutes, invoke `completeAndRecur()`, update user preference daily focus minutes and habit streaks, and synchronize completion state to external calendars.
+  6. **Chronobiology & Topological DAG Scheduler Hardening (Track 6)**:
+     - Implemented trigonometric 2D circular clock averaging (`blendClockHoursCircular`) over polar coordinates $(\cos \theta, \sin \theta)$, eliminating discontinuity at midnight (e.g. blending 23:00 and 01:00 yields 00:00 instead of 12:00 noon).
+     - Clamped scheduling horizon wake-time boundary via $\max(\text{06:00}, t_{\text{wake}} + 15\text{m})$.
+     - Upgraded `TaskSchedulerService` to resolve multi-prerequisite DAG dependencies (`prerequisiteIds: Set<String>`) via topological sorting.
+     - Implemented cumulative simulated focus load tracking (`computeSimulatedFocusLoadAt`) and dynamic 15-minute ultradian recovery buffers for consecutive deep work $\ge 90\text{m}$.
+
+---
+
+### ADR-010: Pure Manual BYOK, Quota-Optimized Gemini Flash Engine (`gemini-flash-latest`), Adaptive Meta-Prompting & Weekly Avoidance Audit
+- **Status**: RATIFIED & EXECUTED (October 19, 2026)
+- **Decisions & Implementation**:
+  1. **Pure Manual BYOK (Zero Hard-Coded Keys)**:
+     - All online AI features use pure BYOK. No API keys are hard-coded in the source code or git repository.
+     - Keys are stored privately on-device in `UserPreferencesDataStore.geminiApiKey`.
+     - When no key is entered or when offline, the app seamlessly falls back to local heuristic engines with zero exceptions, error popups, or UI interruptions.
+  2. **Model Standardization on `gemini-flash-latest`**:
+     - Standardized all AI requests (`GeminiAiOnlineService` and `SmartTaskDecompositionService`) to `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`.
+  3. **High-Yield Single-Call Task Enrichment (`enrichTaskWithAi`)**:
+     - Eliminates quota burn by returning 3-5 micro-steps, optimal circadian start time, ADHD starter doorway tip, and cognitive friction warning in 1 single API call.
+  4. **Two-Tier In-Memory TTL Cache & 429 Rate-Limit Backoff**:
+     - 20-minute in-memory TTL caching prevents duplicate network requests on re-opened tasks.
+     - Automatic 60-second backoff and local heuristic fallback on HTTP 429 (rate-limited).
+  5. **Weekly Avoidance & Friction Audit**:
+     - Collects deleted task telemetry (logged via `PlanViewModelV2.confirmDeleteTask` and `recordDeletedTask`) and chronically postponed tasks (`postponeCount >= 2`).
+     - Conducts forensic executive dysfunction audit diagnosing root causes (e.g., affective forecasting error, initiation threshold deficit, circadian dip collision).
+     - Returns concrete 120-second actionable behavioral prescriptions and an updated, personalized `Adaptive System Directive`.
+  6. **Closed-Loop Adaptive Meta-Prompting**:
+     - Persists `adaptiveSystemDirective` in DataStore and auto-injects it into all future task decomposition, slot suggestion, and energy coaching calls.
+
+---
+
+### ADR-011: Multi-Model Upstream Cascade, Diagnostic Test Ping & UI Reactivity Recovery
+- **Status**: RATIFIED & EXECUTED (October 19, 2026)
+- **Decisions & Implementation**:
+  1. **Multi-Model Upstream Cascade (`GeminiAiOnlineService`)**:
+     - Upstream endpoints for `gemini-flash-latest` and `gemini-3.8-flash` periodically trigger `HTTP 503 ("spikes in demand are usually temporary")`.
+     - Implemented candidate model cascade: `["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-3.8-flash"]`.
+     - If the primary model encounters HTTP 503 or 429, the service seamlessly cascades to `gemini-flash-lite-latest` without prematurely aborting to local heuristic fallback.
+     - Raised OkHttpClient connect timeout to 10,000ms and read timeout to 15,000ms to comfortably accommodate deep inference latency under load.
+  2. **SmartTaskDecompositionService Network Unification**:
+     - Refactored `SmartTaskDecompositionService` to delegate directly to `geminiAiOnlineService.decomposeTask(...)`, eliminating redundant un-cached network calls and ensuring decomposition inherits model cascading and TTL caching.
+     - Retained secondary constructor for pure unit testing without Hilt multi-injected constructor errors.
+  3. **Insights Reactivity Recovery**:
+     - Removed restrictive `distinctUntilChanged` on `preferencesFlow` in `InsightsViewModelV2`, guaranteeing that forensic audit updates (`adaptiveSystemDirective`, `weeklyAiAuditJson`) immediately trigger recomposition and update `WeeklyAiFrictionAuditCard`.
+  4. **Plan Screen Micro-Step Visibility & Progress Feedback**:
+     - Added `decomposingTaskId: String?` in `PlanViewModelV2` with an inline `CircularProgressIndicator` on the wand button during generation.
+     - Emits `userActionMessage` snackbars upon completion (e.g., `"Decomposed '...' into 3 micro-steps 🪄"`).
+     - Renders an interactive collapsible micro-steps pill (`🪜 X micro-steps`) in both `TimelineScheduleView` and `MatrixPlanView`, displaying step check-off progress and `ifThenPlan` implementation intentions.
+  5. **Settings Diagnostic Ping & Validation**:
+     - Added `"Test AI Connection"` button in `SettingsScreen` and `SettingsViewModel.testAiConnection()`, providing instant diagnostic feedback on API key validity, latency, and active model status (`✅ Connected successfully to gemini-flash-lite-latest (HTTP 200)`).
+
+---
+
+### ADR-012: Fast Circadian Learner (1D Circular Kalman + Von Mises), Acute Physiological Impulses & Allostatic Sleep Debt Modeling
+- **Status**: RATIFIED & EXECUTED (October 20, 2026)
+- **Decisions & Implementation**:
+  1. **Empirical Fast Circadian Learning (`AdaptiveCircadianLearner`)**:
+     - Fast 2–3 session empirical peak adaptation combining a 1D circular Kalman filter state update on peak hour with a Von Mises circular smoother ($\kappa = 4.5$).
+     - Utilizes zero-allocation Abramowitz & Stegun polynomial approximation of modified Bessel function $I_0(x)$ for robust circular density normalization.
+     - Resolves circular midnight wrap-around: shortest signed angular difference $\Delta \theta = \text{atan2}(\sin \delta, \cos \delta)$ guarantees seamless learning across the 23:00–01:00 boundary.
+  2. **Multi-Day Allostatic Sleep Debt Modeling**:
+     - Implemented allostatic sleep debt carryover over a 7-day rolling window: $\Delta_{\text{debt}} = \max(0, 480 - \text{rollingAvgSleepMinutes})$.
+     - Scales baseline homeostatic sleep pressure $S_0$ by $(1 + \alpha_{\text{allostatic}})$ and accelerates wake decay $(\tau_{\text{wake}}^* = \tau_{\text{wake}} / (1 + \alpha_{\text{allostatic}}))$.
+     - Preserves morning wake anchor and circadian Process $C(t)$ phase strictly invariant to prevent clock drift.
+  3. **Acute Physiological Impulse Modeling (`PhysiologicalImpulseCalculator`)**:
+     - Post-prandial meal dip: Gaussian-modulated attenuation peaking at $-12.0$ points at $t = 60\text{m}$ post-meal ($t_{\text{peak}} = 60\text{m}, \sigma = 35\text{m}$).
+     - Post-exercise endorphin boost: $+10.0$ point boost decaying exponentially with $\tau_{\text{decay}} = 45\text{m}$ after workout completion; $-15.0$ exertion penalty during workout.
+  4. **Task Scheduler & ViewModel Integration**:
+     - Upgraded `TaskSchedulerService.scheduleDay` and `findBestCircadianWindow` to accept `learnedProfile`, `rollingAverageSleepMinutes`, and `physiologicalBlocks`. Protected meal and workout windows from cognitive task placement.
+     - Upgraded `FlowViewModelV2` and `EnergyUiModel` to expose `energyTimeline` with 15-minute load-adjusted projection, daily cognitive blocks, and learned profile parameters.
+  5. **Verification & Greenness**:
+     - Verified with dedicated unit test suite `FastCircadianLearnerTest` (7 test cases covering 2-3 session empirical convergence, midnight wrap-around, sleep debt scaling, meal dips, workout boosts, synaptic focus depletion, and scheduler block protection).
+     - 100% test pass rate across all 839 unit tests in `./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`.
+
+---
+
+### ADR-013: Full Four-Phase Seamless Integration: Fast Circadian Engine, V2 Global Shell & UI Modernization
+- **Status**: RATIFIED & EXECUTED (October 20, 2026)
+- **Decisions & Implementation**:
+  1. **Phase 1: Domain & ViewModel Plumbing**:
+     - Embedded `AdaptiveCircadianLearner` (1D circular Kalman filter + Von Mises kernel $\kappa = 4.5$), `PolyphasicNapCalculator`, and `PhysiologicalImpulseCalculator` inside `CircadianEnergyService`.
+     - `EnergyUiModel` passes MEQ score, effective peak, 7-day sleep logs, and cognitive blocks into `CircadianEnergyService`.
+     - `TaskSchedulerService` schedules tasks accounting for learned profile, allostatic sleep debt carryover, and physiological meal/workout blocks.
+     - `FlowViewModelV2` exposes `energyTimeline` (15-min load-adjusted projection), `dailyCognitiveBlocks`, and circadian state.
+  2. **Phase 2: Global Shell, Theme & Widgets**:
+     - `PhaseAmbientScreenContainer` wraps the root Scaffold, providing subtle circadian aura tinting across phases (`PEAK`, `MODERATE`, `RECOVERY`, `WIND_DOWN`).
+     - Persistent `MiniFocusSessionBar` conditionally floats above the `NavigationBar` during active background focus sessions when navigating secondary routes.
+     - Primary FAB combines short-press (quick `SmartTaskComposerSheetV2`) and long-press (instant `QuickNotesBottomSheet`).
+     - Home screen widget (`widget_focus.xml`) styled in Obsidian `#1E1E2E` with `#7C4DFF` accents, preserving all remote view IDs for `FocusWidgetProvider` and `FocusWidgetUpdateWorker`.
+  3. **Phase 3: Screen-by-Screen UI Wiring & Pruning**:
+     - `CircadianHeroBarometer` upgraded with `EnhancedCircadianEnergyGraph` rendering Monotone Cubic Hermite Splines, dual curves (biological potential vs. load-adjusted usable energy), uncertainty ribbons, and haptic scrub bar.
+     - `FlowScreenV2` wired with `FlowSpotlightHeroCard` (active `ProtectedSlotClock` takeover or Daily Frog) and `FreshStartRecoveryBanner`.
+     - `PlanScreenV2` wired with `CognitiveBudgetMeterCard` (scheduled vs. capacity minutes), `ScheduleConflictResolverStrip`, and `CompactEisenhowerMatrixFilter`.
+     - `SmartTaskComposerSheetV2` wired with `LiveNlpInferenceStrip` and `ComposerAiEnrichmentPreviewCard`.
+     - `FocusScreenV2` wired with `ZenMicroStepSpotlightCard` during active countdown, plus `InteractivePhysiologicalSighSheet`, `UpgradedAffordanceRatingSheet`, and `UpgradedWoopPromptSheet`.
+     - `InsightsScreenV2` wired with `UpgradedInsightsHubV2` (3 sub-tabs: Rhythm & Sleep, Time Calibration, AI Audit).
+     - Settings & secondary screens wired with `CategorizedSettingsHubV2`, `UpgradedSleepPressureOverviewCard`, `UpgradedPriorityWeightsTunerCard`, `DopamineSafeBlockingGateCard`, and `QuickNoteAiSynthesizerCard`.
+  4. **Phase 4: Test Tag Preservation, Verification & Baseline Profile**:
+     - Preserved all root container test tags across updated UI components.
+     - Ahead-of-time (AOT) paths in `baseline-prof.txt` updated for spline renderers and V2 upgrade components.
+     - 100% test pass rate: 846/846 unit tests passing with 0 failures under memory-safe execution (`./gradlew testDebugUnitTest --no-daemon -Dorg.gradle.workers.max=1`).
+
+---
+
+### ADR-014: Complete V1-to-V2 UI/UX Cutover, Unified Dynamic Color System & Screen De-duplication
+- **Status**: RATIFIED & EXECUTED (October 20, 2026)
+- **Decisions & Implementation**:
+  1. **Dynamic Theme & Color System Unification**:
+     - Converted hardcoded static colors in `NeuroFlowThemeV2Colors` and `NeuroFlowPaletteV2` (`Obsidian`, `SlateSurface`, `BackgroundDeep`, `SurfaceCard`, `BorderSubtle`, etc.) to `@Composable @ReadOnlyComposable get()` delegates backed dynamically by `LocalNeuroFlowPalette.current` and `LocalNeuroFlowColors.current`.
+     - Preserves complete backward compatibility across existing call sites while dynamically reacting to Light, Dark, and Pure Black AMOLED system theme switches.
+     - Updated legacy `TopAppBar` containers in `SettingsScreen`, `SleepLogsScreen`, and `PriorityWeightsScreen` to use `surface` / `onSurface`, eliminating purple flash in Light Mode.
+     - Bound `PhaseAmbientScreenContainer` in `NeuroFlowAppV2` to the live active circadian phase calculated from the nearest projected timeline snapshot instead of hardcoded `PEAK`.
+  2. **Screen De-duplication & Viewport Scoping**:
+     - `FlowScreenV2`, `FlowViewModelV2` & `CircadianHeroBarometer`: Removed duplicate `Optimal Next Action` card from `CircadianHeroBarometer` so `FlowSpotlightHeroCard` serves as the single hero action card. Bound `FlowSpotlightHeroCard` to live circadian phase from the nearest timeline snapshot. Integrated 4-second non-destructive undo snackbars for task completions and deferrals (+2h), dynamic tag catalogue filtering, and evening shutdown rituals.
+     - `PlanScreenV2` & `PlanViewModelV2`: Anchored `SingleChoiceSegmentedButtonRow` (`Timeline` / `Matrix` / `AI Autopilot`) directly below the top bar to eliminate viewport shift. Scoped toolbars strictly by `viewMode`: `TIMELINE` exclusively renders `DateCarouselStrip`, `CognitiveBudgetMeterCard`, `ScheduleConflictResolverStrip`, and compact `Unscheduled Tray` & `Active Objectives` pills; `MATRIX` exclusively renders `CompactEisenhowerMatrixFilter` using accurate live counts from `tasksByQuadrant` with dynamic filtering; `AUTOPILOT` hides all date, tag, budget, and quadrant controls. Fixed timeline auto-scroll with index mapping and wired conflict resolution directly via `assignTaskTime`. Retained `createTaskFromNote` for note-to-task compatibility.
+     - `SmartTaskComposerSheetV2`: Cleaned duplicate metadata and inference strips; merged calibration and cycling Priority chip directly into the interactive filter strip.
+     - `FocusScreenV2`: Implemented `skipCurrentMicroStep` in `FocusViewModelV2` to cycle spotlight without false completions; concealed `"Next: ..."` banner inside `HeroTaskCard` during active runs; deleted orphaned sheet files (`PhysiologicalSighGuideSheet`, `AffordanceRatingSheet`, `WoopPromptSheet`).
+     - `InsightsScreenV2`, `InsightsViewModelV2` & `InsightsTabbedUpgradesV2`: Promoted 3 sub-tabs (`Rhythm & Energy`, `Velocity & Time`, `AI Coach & Mindset`) to full-screen views, completely eliminating duplicate scroll card feeds. Resolved `0m` focus bug by computing `AnalyticsSummary` and `PlanningCalibration` off the main thread in `InsightsViewModelV2` using real `allSessions` and `energyUi.effectivePeakProfile`. Theme-adaptive `Scaffold` background (`MaterialTheme.colorScheme.background`) ensures flawless Light, Dark, and AMOLED rendering.
+     - `SettingsScreen`, `SleepLogsScreen`, `PriorityWeightsScreen`: Removed duplicate setting categories, redundant bottom navigation cards, duplicate sleep pressure progress bar, and 4 duplicate weight sliders.
+     - `MEQQuizScreen`: Replaced `Icons.Filled.Close` with `Icons.Filled.CheckCircle` on selected answers.
+     - `NotesScreen` & `QuickNotesBottomSheet`: Ensured high-contrast accent colors and wired `"To Task"` / `onConvertToTaskClick` to real `TaskEntity` insertion in Room.
+     - `BlockingOverlayScreen` & `HyperFocusHomeScreen`: Removed duplicate lock headers and redundant status text below `DopamineSafeBlockingGateCard` and `HyperFocusLauncherStatusHeader`.
+
+---
+
+### ADR-015 / Handoff Bundle: Complete UI/UX Codebase Export & Partitioned Package
+- **Status**: PREPARED FOR VICE HEAD REVIEW (October 20, 2026)
+- **Decisions & Implementation**:
+  1. **Comprehensive UI Codebase Consolidation**:
+     - Scanned and consolidated all 96 UI Kotlin files (~28,900 lines of code, ~1.2 MB uncompressed) spanning presentation surfaces, feature launchers, ViewModels, Compose screens, themes, procedural audio engines, and widgets.
+     - Created dedicated export directory `ui_code/` containing both a master markdown bundle (`ALL_UI_CODE.md`) and 7 layer-partitioned bundles (`PART_1_THEME_NAVIGATION.md` through `PART_7_HYPERFOCUS_WIDGETS.md`), optimized for varying LLM context window capacities.
+     - Mirrored complete Kotlin source files in `ui_code/raw/` preserving relative package paths.
+  2. **Architectural Partitioning Schema**:
+     - `PART_1_THEME_NAVIGATION.md` (7 files, 1,369 lines): Theme engine, semantic palettes, typography, and root navigation topology.
+     - `PART_2_FLOW_SCREEN.md` (6 files, 2,821 lines): Flow cockpit, circadian barometer, Hermite spline energy graph, and timeline stream.
+     - `PART_3_PLAN_COMPOSER.md` (7 files, 4,652 lines): Plan screen, scheduling timeline, Eisenhower matrix, and polymorphic smart task composer.
+     - `PART_4_FOCUS_REGULATION.md` (10 files, 3,478 lines): Deep work focus timer, foreground service, neural soundscapes, Solfeggio 528Hz bell, and nervous system regulation sheets.
+     - `PART_5_INSIGHTS_ANALYTICS.md` (7 files, 4,385 lines): 3-tabbed insights hub, chronobiology analytics, weekly AI friction audit, and history.
+     - `PART_6_SETTINGS_NOTES.md` (33 files, 8,289 lines): Settings hub, sleep logs, MEQ quiz, priority weights, notes workspace, and quick notes bottom sheet.
+     - `PART_7_HYPERFOCUS_WIDGETS.md` (26 files, 4,560 lines): HyperFocus lock engine, dopamine-safe gateway, app blocking overlay, and interactive glance home widgets.
+  3. **Verification**: 100% test greenness maintained across all 819 unit tests with strict bounded single-worker Gradle daemon execution.
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
@@ -412,8 +593,108 @@ $$\lambda(\tau) = \begin{cases}
 \end{cases}$$
 
 ### 6.10 Scarcity-Aware Queue Prioritization Key
-$$\text{QueueKey}(\tau) = \text{Score}(\tau, t_{\text{now}}) + 12.0 \cdot \mathbb{I}(\tau.\text{energyDemand} = \text{HIGH}) + 15.0 \cdot \mathbb{I}(\tau.\text{isFrog})$$
+$$\text{QueueKey}(\tau) = \text{Score}(\tau, t_{\text{now}}) + 12.0 \cdot \mathbb{I}(\tau.\text{energyDemand} = \text{HIGH})$$
+*(Note: Duplicate frog bonus eliminated in ADR-008; frog bonus is incorporated directly into the Impact vector $I(\tau)$ with multiplier).*
 
+### 6.11 Post-Awakening Morning Sleep Inertia Envelope (`CircadianEnergyService`)
+$$I_{\text{morning}}(t) = \begin{cases}
+0.14 \cdot \left(1.0 - \frac{t - t_{\text{wake}}}{30\text{m}}\right) & \text{if } 0 \le t - t_{\text{wake}} \le 30\text{m} \\
+0.0 & \text{otherwise}
+\end{cases}$$
+Composite inertia penalty combines morning wake and polyphasic nap dissipation:
+$$I_{\text{inertia}}(t) = \max(I_{\text{morning}}(t), \; I_{\text{nap}}(t))$$
 
+### 6.12 Normalized User Priority Weight Profile (`TaskSchedulerService`)
+$$\text{Score}(\tau, t) = \frac{w_u \cdot U(\tau, t) + w_i \cdot I(\tau) + w_e \cdot E(\tau, t) + w_m \cdot M(\tau, t)}{w_u + w_i + w_e + w_m} \in [0.0, 100.0]$$
+where:
+$$w_u = W_{\text{base\_urgency}} \cdot \text{clamp}_{[0.1, 3.0]}(\text{weight}_{\text{user\_urgency}})$$
+$$w_i = W_{\text{base\_impact}} \cdot \text{clamp}_{[0.1, 3.0]}(\text{weight}_{\text{user\_impact}})$$
+$$w_e = W_{\text{base\_energy}} \cdot \text{clamp}_{[0.1, 3.0]}(\text{weight}_{\text{user\_energy}})$$
+$$w_m = W_{\text{base\_momentum}} \cdot \text{clamp}_{[0.1, 3.0]}(\text{weight}_{\text{user\_momentum}})$$
+and Frog Bonus inside Impact vector $I(\tau)$ is modulated by user preference:
+$$\text{FrogBonus}(\tau) = \mathbb{I}(\tau.\text{isFrog}) \cdot 25.0 \cdot \text{clamp}_{[0.5, 2.0]}(\text{multiplier}_{\text{frog}})$$
+
+### 6.13 Ultradian Cognitive Load Buffer & Peak-Slot Reservation
+1. **Ultradian 90-Minute Recovery Buffer**:
+   $$\text{BufferAfterTask}(\tau) = \begin{cases}
+   15\text{m} & \text{if } \sum \text{Duration}(\text{ConsecutiveCognitiveTasks}) \ge 90\text{m} \\
+   5\text{m} & \text{otherwise (Standard Transition)}
+   \end{cases}$$
+   where cognitive tasks are those with $\tau.\text{energyDemand} = \text{HIGH}$ or $\tau.\text{category} \in \{\text{DEEP\_WORK}, \text{CREATIVE}\}$.
+2. **Biological Peak Window Reservation Penalty**:
+   $$\text{Penalty}_{\text{peak}}(\tau, t_{\text{cand}}) = \begin{cases}
+   16.0 & \text{if } \text{Snapshot}(t_{\text{cand}}).\text{phase} = \text{PEAK} \text{ and } (\tau.\text{energyDemand} = \text{LOW} \text{ or } \tau.\text{category} = \text{ADMIN}) \\
+   0.0 & \text{otherwise}
+   \end{cases}$$
+   $$\text{Utility}(\tau, t_{\text{cand}}) = \text{Score}(\tau, t_{\text{cand}}) - \lambda(\tau) \cdot \left(\frac{t_{\text{cand}} - t_{\text{earliest}}}{3,600,000\text{ ms}}\right) - \text{Penalty}_{\text{peak}}(\tau, t_{\text{cand}})$$
+
+### 6.14 Trigonometric Circular Clock Averaging (`blendClockHoursCircular`)
+$$\theta_i = \frac{2\pi \cdot h_i}{24}, \quad \bar{x} = \sum_{i=1}^n w_i \cos(\theta_i), \quad \bar{y} = \sum_{i=1}^n w_i \sin(\theta_i)$$
+$$\bar{h} = \left(\frac{\text{atan2}(\bar{y}, \bar{x}) \cdot 24}{2\pi} + 24\right) \bmod 24$$
+*(Eliminates arithmetic averaging wrap-around error across midnight, guaranteeing accurate chronotype and peak-hour synthesis).*
+### 6.15 Adaptive Cognitive Directive & Forensic Avoidance Scoring
+$$\text{AvoidanceScore}(\tau) = \text{postponeCount}(\tau) \cdot 2.5 + \mathbb{I}(\tau \in \text{Deleted}) \cdot 5.0 + \mathbb{I}(d_{\text{est}} \ge 60\text{m}) \cdot 2.0$$
+$$\text{InitiationThreshold}(\tau) = \min(120\text{s}, \; \text{Duration}(\text{Step}_1))$$
+*(Guarantees that forensic audit isolates high-friction tasks and enforces sub-2-minute initiation doorway micro-steps).*
+
+### 6.16 Multi-Model Upstream Cascade Routing (`GeminiAiOnlineService`)
+$$\mathcal{M} = \langle m_1, m_2, m_3, m_4 \rangle = \langle \text{"gemini-flash-latest"}, \; \text{"gemini-flash-lite-latest"}, \; \text{"gemini-3.5-flash"}, \; \text{"gemini-3.8-flash"} \rangle$$
+$$\text{Response}(R) = \text{TryQuery}(m_k, R) \quad \text{for } k=1 \dots |\mathcal{M}|$$
+$$\text{FallbackCondition}(m_k) = \begin{cases} \text{Cascade to } m_{k+1} & \text{if } \text{status}(m_k) \in \{503, 429\} \text{ and } k < |\mathcal{M}| \\ \text{LocalHeuristicFallback}(R) & \text{if } \forall k, \, \text{failed or no network / key} \end{cases}$$
+*(Eliminates single-point-of-failure upstream capacity outages on Google's generative endpoints, preserving offline-first non-blocking contract).*
+
+### 6.17 Fast Circadian Learner 1D Circular Kalman Filter & Von Mises Smoother (`AdaptiveCircadianLearner`)
+1. **Shortest Circular Angular Difference**:
+   $$\delta = \frac{2\pi \cdot (t_{\text{obs\_hour}} - \mu_{\text{peak}})}{24}$$
+   $$\Delta\theta = \text{atan2}(\sin\delta, \cos\delta) \in [-\pi, \pi]$$
+2. **Dynamic Observation Noise & Kalman Gain**:
+   $$R_k = \frac{\sigma^2_{\text{obs\_base}}}{\max(0.1, \; \text{weight} \cdot \text{productivityRating})}$$
+   $$K_k = \frac{P_{k-1}}{P_{k-1} + R_k}$$
+   $$\mu_k = \left(\mu_{k-1} + \frac{24}{2\pi} \cdot K_k \cdot \Delta\theta + 24\right) \bmod 24$$
+   $$P_k = (1 - K_k) \cdot P_{k-1}$$
+3. **Von Mises Circular Hourly Multiplier ($\kappa = 4.5$)**:
+   $$M(h) = \frac{\exp\left(\kappa \cdot \cos\left(\frac{2\pi \cdot (h - \mu_k)}{24}\right)\right)}{\exp(\kappa)}$$
+   where modified Bessel function $I_0(x)$ is evaluated via Abramowitz & Stegun polynomial approximation.
+
+### 6.18 Multi-Day Allostatic Sleep Debt Dynamics
+1. **Sleep Debt Accumulation**:
+   $$\Delta_{\text{debt\_mins}} = \max(0.0, \; S_{\text{target\_mins}} - S_{\text{rolling\_avg\_mins}})$$
+   $$\alpha_{\text{allostatic}} = \frac{\Delta_{\text{debt\_mins}}}{480.0} \cdot 0.25$$
+2. **Homeostatic Pressure Scaling & Decay Acceleration**:
+   $$S_0^* = \min\left(0.40, \; S_0 \cdot (1.0 + \alpha_{\text{allostatic}})\right)$$
+   $$\tau_{\text{wake}}^* = \frac{\tau_{\text{wake}}}{1.0 + \alpha_{\text{allostatic}}}$$
+   $$S(t) = 1.0 - (1.0 - S_0^*) \cdot \exp\left(-\frac{t_{\text{awake}}}{\tau_{\text{wake}}^*}\right)$$
+   *(Note: Circadian Process $C(t)$ and morning wake anchor $t_{\text{wake}}$ remain invariant).*
+
+### 6.19 Acute Physiological Impulse Dynamics (`PhysiologicalImpulseCalculator`)
+1. **Post-Prandial Meal Dip Impulse ($I_{\text{meal}}$)**:
+   $$\Delta t = t - t_{\text{meal\_start}}$$
+   $$I_{\text{meal}}(\Delta t) = \begin{cases}
+   -12.0 \cdot \text{intensity} \cdot \exp\left(-\frac{(\Delta t - 60)^2}{2 \cdot 35^2}\right) & \text{if } 0 \le \Delta t \le 180\text{m} \\
+   0.0 & \text{otherwise}
+   \end{cases}$$
+2. **Post-Exercise Endorphin Boost & In-Workout Exertion ($I_{\text{exercise}}$)**:
+   $$I_{\text{exercise}}(t) = \begin{cases}
+   -15.0 \cdot \text{intensity} & \text{if } t_{\text{start}} \le t < t_{\text{end}} \text{ (In-workout exertion)} \\
+   +10.0 \cdot \text{intensity} \cdot \exp\left(-\frac{t - t_{\text{end}}}{45.0}\right) & \text{if } t \ge t_{\text{end}} \text{ and } t - t_{\text{end}} \le 180\text{m} \\
+   0.0 & \text{otherwise}
+   \end{cases}$$
+3. **Usable Energy Integration**:
+   $$E_{\text{usable}}(t) = \text{clamp}_{[0, 100]}\left(100 \cdot \left[ 0.55 \cdot C(t_{\text{clock}}) + 0.45 \cdot (1.0 - S(t)) - D_{\text{focus}} - I_{\text{inertia}}(t) \right] + I_{\text{physiological}}(t)\right)$$
+
+### 6.20 Monotone Cubic Hermite Spline Interpolation (`EnhancedCircadianEnergyGraph`)
+To prevent Runge phenomenon oscillation, unphysical overshoot (>100%), or undershoot (<0%) when plotting circadian curves:
+1. **Secant Slopes**:
+   $$\Delta_k = \frac{y_{k+1} - y_k}{x_{k+1} - x_k}$$
+2. **Initial Tangents**:
+   $$d_k = \frac{\Delta_{k-1} + \Delta_k}{2}$$
+3. **Fritsch-Carlson Monotonicity Condition**:
+   $$\text{If } \Delta_k = 0 \implies d_k = d_{k+1} = 0$$
+   $$\alpha_k = \frac{d_k}{\Delta_k}, \quad \beta_k = \frac{d_{k+1}}{\Delta_k}$$
+   $$\text{If } \alpha_k^2 + \beta_k^2 > 9 \implies \tau_k = \frac{3}{\sqrt{\alpha_k^2 + \beta_k^2}}, \quad d_k = \tau_k \cdot \alpha_k \cdot \Delta_k, \quad d_{k+1} = \tau_k \cdot \beta_k \cdot \Delta_k$$
+4. **Hermite Basis Cubic Evaluation ($t \in [0, 1]$)**:
+   $$h_{00}(t) = 2t^3 - 3t^2 + 1, \quad h_{10}(t) = t^3 - 2t^2 + t$$
+   $$h_{01}(t) = -2t^3 + 3t^2, \quad h_{11}(t) = t^3 - t^2$$
+   $$P(t) = h_{00}(t)y_k + h_{10}(t)(x_{k+1} - x_k)d_k + h_{01}(t)y_{k+1} + h_{11}(t)(x_{k+1} - x_k)d_{k+1}$$
 
 

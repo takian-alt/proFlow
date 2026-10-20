@@ -355,6 +355,11 @@ fun ProtectedSlotBottomSheet(
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        com.neuroflow.app.presentation.v2.settings.ProtectedSlotPhysiologicalPreviewBar(
+                            selectedCategory = category,
+                            onSelectCategory = { category = it }
+                        )
                     }
 
                     // Calendar Date selection (if SPECIFIC_DATE)

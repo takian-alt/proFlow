@@ -1,7 +1,9 @@
 package com.neuroflow.app.presentation.v2.flow
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -17,19 +19,22 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FlowScreenV2(
     onNavigateToSettings: () -> Unit,
@@ -77,7 +82,7 @@ fun FlowScreenV2(
     }
 
     Scaffold(
-        containerColor = NeuroFlowThemeV2Colors.Obsidian,
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -93,21 +98,30 @@ fun FlowScreenV2(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showComposer = true },
-                containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                contentColor = Color.White,
-                shape = CircleShape,
-                modifier = Modifier.size(56.dp)
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(NeuroFlowThemeV2Colors.ElectricIndigo)
+                    .combinedClickable(
+                        onClick = { showComposer = true },
+                        onLongClick = { showNotesSheet = true }
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Quick Add Task", modifier = Modifier.size(28.dp))
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Quick Add Task (Long-press for Notes)",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
-    ) { innerPadding ->
+    ) { innerPanelPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPanelPadding)
                 .verticalScroll(rememberScrollState())
         ) {
             // Top App Bar
@@ -133,7 +147,10 @@ fun FlowScreenV2(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     IconButton(
                         onClick = { showNotesSheet = true },
                         modifier = Modifier.size(48.dp)
@@ -177,58 +194,61 @@ fun FlowScreenV2(
                 recommendedTask = state.recommendedTask,
                 onStartRecommendedTask = { taskId -> onStartFocus(taskId) },
                 onNavigateToMEQ = onNavigateToMEQ,
-                onNavigateToSleepLogs = onNavigateToSleepLogs
+                onNavigateToSleepLogs = onNavigateToSleepLogs,
+                dayTimeline = state.energyTimeline,
+                cognitiveBlocks = state.dailyCognitiveBlocks,
+                naps = state.daytimeNaps,
+                isFallbackSleep = state.isFallbackSleep,
+                learnedSampleCount = state.learnedSampleCount
             )
 
-            // Zero-Guilt Fresh Start Card (ADHD Safety Net)
-            if (state.showZeroGuiltPrompt) {
+            // Flow Spotlight Hero Card (Takeover or Top Action)
+            val topTask = state.recommendedTask ?: state.activeTasks.firstOrNull { it.isFrog } ?: state.activeTasks.firstOrNull()
+            if (topTask != null) {
+                val nowMillis = System.currentTimeMillis()
+                val currentPhase = state.energyTimeline.minByOrNull {
+                    kotlin.math.abs(it.timestampMillis - nowMillis)
+                }?.phase ?: EnergyPhase.PEAK
+
                 Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.5f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("🌱", fontSize = 18.sp)
-                            Text(
-                                text = "Zero-Guilt Fresh Start",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = NeuroFlowThemeV2Colors.SageGreen
-                            )
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    FlowSpotlightHeroCard(
+                        activeTakeoverSlot = null,
+                        topTaskId = topTask.id,
+                        topTaskTitle = topTask.title,
+                        topTaskFirstMicroStep = topTask.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it).firstOrNull()?.text },
+                        topTaskDurationMinutes = topTask.estimatedDurationMinutes,
+                        topTaskEnergyLevel = topTask.energyLevel,
+                        isTopTaskFrog = topTask.isFrog,
+                        currentPhase = currentPhase,
+                        onStartFocusClick = { taskId -> onStartFocus(taskId) },
+                        onCompleteQuickClick = { taskId ->
+                            val taskToComplete = state.activeTasks.find { it.id == taskId } ?: topTask
+                            viewModel.completeTask(taskToComplete)
                         }
-                        Text(
-                            text = "You have ${state.overdueTasksCount} stale tasks. Life happens, and shame doesn't help you execute. 1-tap rollover moves them safely into your Icebox so you can start fresh today.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NeuroFlowThemeV2Colors.TextSecondary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { viewModel.freshStartRollover() },
-                                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.heightIn(min = 44.dp)
-                            ) {
-                                Text("Reset My Day (Move to Icebox)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                            TextButton(
-                                onClick = { viewModel.dismissZeroGuiltPrompt() },
-                                modifier = Modifier.heightIn(min = 44.dp)
-                            ) {
-                                Text("Keep for Today", color = NeuroFlowThemeV2Colors.TextSecondary, fontSize = 12.sp)
-                            }
-                        }
-                    }
+                    )
+                }
+            }
+
+            // Fresh Start Recovery Banner (ADHD Safety Net)
+            val resetPlan = remember(state.activeTasks) {
+                val overdue = state.activeTasks.filter { it.postponeCount >= 2 }
+                if (overdue.isNotEmpty()) {
+                    FreshStartEngine.buildEmergencyResetPlan(
+                        activeTasks = state.activeTasks,
+                        nowMillis = System.currentTimeMillis()
+                    )
+                } else null
+            }
+
+            if (state.showZeroGuiltPrompt || (resetPlan != null && resetPlan.tasksPushedToBacklog.isNotEmpty())) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    FreshStartRecoveryBanner(
+                        visible = true,
+                        resetPlan = resetPlan,
+                        onApplyEmergencyReset = { viewModel.freshStartRollover() }
+                    )
                 }
             }
 
@@ -295,7 +315,13 @@ fun FlowScreenV2(
                     FilterChip(
                         selected = isSelected,
                         onClick = { viewModel.selectTag(if (tag == "All") null else tag) },
-                        label = { Text(tag, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                tag,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
                             selectedLabelColor = Color.White,
@@ -317,7 +343,8 @@ fun FlowScreenV2(
                 onCompleteTask = { task -> viewModel.completeTask(task) },
                 onDeferTask = { task -> viewModel.deferTask(task) },
                 onBreakDownTask = { task -> viewModel.breakDownTask(task) },
-                onEditTask = { task -> editingTask = task }
+                onEditTask = { task -> editingTask = task },
+                timeline = state.energyTimeline
             )
 
             Spacer(modifier = Modifier.height(80.dp))
@@ -359,4 +386,3 @@ fun FlowScreenV2(
         )
     }
 }
-

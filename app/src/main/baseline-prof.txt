@@ -86,3 +86,16 @@ Lcom/neuroflow/app/worker/DailyPlanWorker;
 Lcom/neuroflow/app/worker/StreakCheckWorker;
 Lcom/neuroflow/app/worker/DeadlineEscalationWorker;
 Lcom/neuroflow/app/worker/TaskReminderWorker;
+
+# Upgraded Fast Circadian Learner & Spline Renderers
+Lcom/neuroflow/app/domain/service/AdaptiveCircadianLearner;
+Lcom/neuroflow/app/domain/service/LearnedCircadianProfile;
+Lcom/neuroflow/app/domain/service/PhysiologicalImpulseCalculator;
+Lcom/neuroflow/app/presentation/v2/flow/EnhancedCircadianEnergyGraphKt;
+Lcom/neuroflow/app/presentation/v2/theme/NeuroFlowComponentsV2Kt;
+Lcom/neuroflow/app/presentation/v2/flow/FlowHubUpgradesV2Kt;
+Lcom/neuroflow/app/presentation/v2/plan/PlanAndComposerUpgradesV2Kt;
+Lcom/neuroflow/app/presentation/v2/focus/FocusAndRegulationUpgradesV2Kt;
+Lcom/neuroflow/app/presentation/v2/insights/InsightsTabbedUpgradesV2Kt;
+Lcom/neuroflow/app/presentation/v2/settings/HyperFocusNotesAndSettingsUpgradesV2Kt;
+Lcom/neuroflow/app/presentation/v2/settings/SubScreensAndHyperFocusUpgradesV2Kt;

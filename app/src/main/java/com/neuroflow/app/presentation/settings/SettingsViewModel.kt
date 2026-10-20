@@ -45,10 +45,60 @@ class SettingsViewModel @Inject constructor(
     private val energyMetricsRepository: EnergyMetricsRepository,
     private val databaseCleaner: DatabaseCleaner,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
-    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
+    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService
 ) : ViewModel() {
 
+    // Test convenience constructor
+    constructor(
+        context: Context,
+        preferencesDataStore: UserPreferencesDataStore,
+        sleepPressureRepository: SleepPressureRepository,
+        energyMetricsRepository: EnergyMetricsRepository,
+        databaseCleaner: DatabaseCleaner,
+        circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+        sleepTelemetryRepository: SleepTelemetryRepository? = null
+    ) : this(
+        context,
+        preferencesDataStore,
+        sleepPressureRepository,
+        energyMetricsRepository,
+        databaseCleaner,
+        circadianEnergyService,
+        sleepTelemetryRepository,
+        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService()
+    )
+
     data class LaunchableApp(val packageName: String, val label: String)
+
+    private val _aiTestStatus = MutableStateFlow<String?>(null)
+    val aiTestStatus: StateFlow<String?> = _aiTestStatus.asStateFlow()
+
+    private val _isTestingAi = MutableStateFlow(false)
+    val isTestingAi: StateFlow<Boolean> = _isTestingAi.asStateFlow()
+
+    fun testGeminiConnection() {
+        val key = preferences.value.geminiApiKey
+        if (key.isBlank()) {
+            _aiTestStatus.value = "⚠️ Please enter an API key first."
+            return
+        }
+        viewModelScope.launch {
+            _isTestingAi.value = true
+            _aiTestStatus.value = "Testing connection to Gemini API..."
+            try {
+                val res = geminiAiOnlineService.testConnection(key)
+                _aiTestStatus.value = res.fold(
+                    onSuccess = { "✅ $it" },
+                    onFailure = { "❌ ${it.message ?: "Connection failed"}" }
+                )
+            } catch (e: Exception) {
+                _aiTestStatus.value = "❌ ${e.message}"
+            } finally {
+                _isTestingAi.value = false
+            }
+        }
+    }
 
     private val _launchableApps = MutableStateFlow<List<LaunchableApp>>(emptyList())
     val launchableApps: StateFlow<List<LaunchableApp>> = _launchableApps.asStateFlow()

@@ -176,16 +176,24 @@ data class UserPreferences(
     val dndEnabled: Boolean = true,
     val useV2Ui: Boolean = true,
     val geminiApiKey: String = "",
-    val geminiAiEnabled: Boolean = false
+    val geminiAiEnabled: Boolean = true,
+    val adaptiveSystemDirective: String = "",
+    val weeklyAiAuditJson: String = "",
+    val recentlyDeletedTasksJson: String = "[]",
+    val meqScore: Int = 0
 )
 
 @Singleton
 class UserPreferencesDataStore @Inject constructor(
-    private val context: Context
+    private val context: Context,
+    private val protectedSlotDao: com.neuroflow.app.data.local.dao.ProtectedSlotDao? = null
 ) {
     private object Keys {
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         val GEMINI_AI_ENABLED = booleanPreferencesKey("gemini_ai_enabled")
+        val ADAPTIVE_SYSTEM_DIRECTIVE = stringPreferencesKey("adaptive_system_directive")
+        val WEEKLY_AI_AUDIT_JSON = stringPreferencesKey("weekly_ai_audit_json")
+        val RECENTLY_DELETED_TASKS_JSON = stringPreferencesKey("recently_deleted_tasks_json")
         val WAKE_UP_HOUR = intPreferencesKey("wake_up_hour")
         val SLEEP_HOUR = intPreferencesKey("sleep_hour")
         val PEAK_ENERGY_START = intPreferencesKey("peak_energy_start")
@@ -259,6 +267,7 @@ class UserPreferencesDataStore @Inject constructor(
         val MANUAL_CHRONOTYPE = stringPreferencesKey("manual_chronotype")
         val QUIZ_CHRONOTYPE = stringPreferencesKey("quiz_chronotype")
         val QUIZ_PROGRESS = stringPreferencesKey("quiz_progress")
+        val MEQ_SCORE = intPreferencesKey("meq_score")
         val SLEEP_PRESSURE_POINTS = intPreferencesKey("sleep_pressure_points")
         val SLEEP_PRESSURE_TRACKING_STARTED_AT = longPreferencesKey("sleep_pressure_tracking_started_at")
         val SLEEP_PRESSURE_LAST_COMPUTED_AT = longPreferencesKey("sleep_pressure_last_computed_at")
@@ -386,6 +395,7 @@ class UserPreferencesDataStore @Inject constructor(
             manualChronotype = prefs[Keys.MANUAL_CHRONOTYPE],
             quizChronotype = prefs[Keys.QUIZ_CHRONOTYPE],
             quizProgress = prefs[Keys.QUIZ_PROGRESS] ?: "{}",
+            meqScore = prefs[Keys.MEQ_SCORE] ?: 0,
             sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
             sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
             sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
@@ -435,16 +445,24 @@ class UserPreferencesDataStore @Inject constructor(
             dndEnabled = prefs[Keys.DND_ENABLED] ?: true,
             useV2Ui = prefs[Keys.USE_V2_UI] ?: true,
             geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
-            geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: false
+            geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: true,
+            adaptiveSystemDirective = prefs[Keys.ADAPTIVE_SYSTEM_DIRECTIVE] ?: "",
+            weeklyAiAuditJson = prefs[Keys.WEEKLY_AI_AUDIT_JSON] ?: "",
+            recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]"
         )
     }
 
+    private val jsonStringListCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+    private val protectedSlotsCache = java.util.concurrent.ConcurrentHashMap<String, List<ProtectedTimeSlot>>()
+
     private fun parseAffirmations(json: String?): List<String> {
         if (json.isNullOrBlank()) return emptyList()
-        return try {
-            val arr = JSONArray(json)
-            List(arr.length()) { arr.getString(it) }
-        } catch (_: Exception) { emptyList() }
+        return jsonStringListCache.computeIfAbsent(json) { raw ->
+            try {
+                val arr = JSONArray(raw)
+                List(arr.length()) { arr.getString(it) }
+            } catch (_: Exception) { emptyList() }
+        }
     }
 
     private fun encodeAffirmations(list: List<String>): String {
@@ -455,29 +473,31 @@ class UserPreferencesDataStore @Inject constructor(
 
     private fun parseProtectedTimeSlots(json: String?): List<ProtectedTimeSlot> {
         if (json.isNullOrBlank()) return emptyList()
-        return try {
-            val arr = JSONArray(json)
-            val list = mutableListOf<ProtectedTimeSlot>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                list.add(
-                    ProtectedTimeSlot(
-                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
-                        label = obj.optString("label", "Protected Block"),
-                        startMinuteOfDay = obj.optInt("startMinuteOfDay", 480).coerceIn(0, 1439),
-                        durationMinutes = obj.optInt("durationMinutes", 60).coerceIn(15, 360),
-                        recurrence = runCatching { PtsRecurrence.valueOf(obj.optString("recurrence", "DAILY")) }.getOrDefault(PtsRecurrence.DAILY),
-                        weekdayBitmask = obj.optInt("weekdayBitmask", 0b1111111),
-                        category = runCatching { PtsCategory.valueOf(obj.optString("category", "BREAK")) }.getOrDefault(PtsCategory.BREAK),
-                        recoveryBufferMinutes = obj.optInt("recoveryBufferMinutes", 0).coerceIn(0, 120),
-                        isEnabled = obj.optBoolean("isEnabled", true),
-                        dateMillis = if (obj.has("dateMillis") && !obj.isNull("dateMillis")) obj.optLong("dateMillis") else null
+        return protectedSlotsCache.computeIfAbsent(json) { raw ->
+            try {
+                val arr = JSONArray(raw)
+                val list = mutableListOf<ProtectedTimeSlot>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(
+                        ProtectedTimeSlot(
+                            id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                            label = obj.optString("label", "Protected Block"),
+                            startMinuteOfDay = obj.optInt("startMinuteOfDay", 480).coerceIn(0, 1439),
+                            durationMinutes = obj.optInt("durationMinutes", 60).coerceIn(15, 360),
+                            recurrence = runCatching { PtsRecurrence.valueOf(obj.optString("recurrence", "DAILY")) }.getOrDefault(PtsRecurrence.DAILY),
+                            weekdayBitmask = obj.optInt("weekdayBitmask", 0b1111111),
+                            category = runCatching { PtsCategory.valueOf(obj.optString("category", "BREAK")) }.getOrDefault(PtsCategory.BREAK),
+                            recoveryBufferMinutes = obj.optInt("recoveryBufferMinutes", 0).coerceIn(0, 120),
+                            isEnabled = obj.optBoolean("isEnabled", true),
+                            dateMillis = if (obj.has("dateMillis") && !obj.isNull("dateMillis")) obj.optLong("dateMillis") else null
+                        )
                     )
-                )
+                }
+                list
+            } catch (_: Exception) {
+                emptyList()
             }
-            list
-        } catch (_: Exception) {
-            emptyList()
         }
     }
 
@@ -581,6 +601,7 @@ class UserPreferencesDataStore @Inject constructor(
                 manualChronotype = prefs[Keys.MANUAL_CHRONOTYPE],
                 quizChronotype = prefs[Keys.QUIZ_CHRONOTYPE],
                 quizProgress = prefs[Keys.QUIZ_PROGRESS] ?: "{}",
+                meqScore = prefs[Keys.MEQ_SCORE] ?: 0,
                 sleepPressurePoints = prefs[Keys.SLEEP_PRESSURE_POINTS] ?: 0,
                 sleepPressureTrackingStartedAtMillis = prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] ?: 0L,
                 sleepPressureLastComputedAtMillis = prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] ?: 0L,
@@ -630,7 +651,10 @@ class UserPreferencesDataStore @Inject constructor(
                 dndEnabled = prefs[Keys.DND_ENABLED] ?: true,
                 useV2Ui = prefs[Keys.USE_V2_UI] ?: true,
                 geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
-                geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: false
+                geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: true,
+                adaptiveSystemDirective = prefs[Keys.ADAPTIVE_SYSTEM_DIRECTIVE] ?: "",
+                weeklyAiAuditJson = prefs[Keys.WEEKLY_AI_AUDIT_JSON] ?: "",
+                recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]"
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -714,6 +738,7 @@ class UserPreferencesDataStore @Inject constructor(
                 prefs.remove(Keys.QUIZ_CHRONOTYPE)
             }
             prefs[Keys.QUIZ_PROGRESS] = updated.quizProgress
+            prefs[Keys.MEQ_SCORE] = updated.meqScore
             prefs[Keys.SLEEP_PRESSURE_POINTS] = updated.sleepPressurePoints
             prefs[Keys.SLEEP_PRESSURE_TRACKING_STARTED_AT] = updated.sleepPressureTrackingStartedAtMillis
             prefs[Keys.SLEEP_PRESSURE_LAST_COMPUTED_AT] = updated.sleepPressureLastComputedAtMillis
@@ -764,6 +789,9 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.USE_V2_UI] = updated.useV2Ui
             prefs[Keys.GEMINI_API_KEY] = updated.geminiApiKey
             prefs[Keys.GEMINI_AI_ENABLED] = updated.geminiAiEnabled
+            prefs[Keys.ADAPTIVE_SYSTEM_DIRECTIVE] = updated.adaptiveSystemDirective
+            prefs[Keys.WEEKLY_AI_AUDIT_JSON] = updated.weeklyAiAuditJson
+            prefs[Keys.RECENTLY_DELETED_TASKS_JSON] = updated.recentlyDeletedTasksJson
         }
     }
 
@@ -811,6 +839,21 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun updateProtectedTimeSlots(slots: List<ProtectedTimeSlot>) {
         updatePreferences { prefs ->
             prefs.copy(protectedTimeSlots = slots)
+        }
+        protectedSlotDao?.let { dao ->
+            runCatching {
+                dao.insertAll(slots.map { slot ->
+                    com.neuroflow.app.data.local.entity.ProtectedSlotEntity(
+                        id = slot.id,
+                        title = slot.label,
+                        startHour = slot.startMinuteOfDay / 60,
+                        startMinute = slot.startMinuteOfDay % 60,
+                        durationMinutes = slot.durationMinutes,
+                        daysOfWeekMask = slot.weekdayBitmask,
+                        isEnabled = slot.isEnabled
+                    )
+                })
+            }
         }
     }
 
@@ -864,6 +907,42 @@ class UserPreferencesDataStore @Inject constructor(
         existing.forEach(::addTag)
         TaskTagSchedulingProfile.starterTags.forEach(::addTag)
         return merged.sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+
+    suspend fun recordDeletedTask(title: String, durationMinutes: Int, category: String, postponeCount: Int) {
+        val trimmedTitle = title.trim().take(60)
+        if (trimmedTitle.isBlank()) return
+        updatePreferences { prefs ->
+            val list = try {
+                val arr = JSONArray(prefs.recentlyDeletedTasksJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            val newItem = JSONObject().apply {
+                put("title", trimmedTitle)
+                put("durationMinutes", durationMinutes)
+                put("category", category)
+                put("postponeCount", postponeCount)
+                put("deletedAt", System.currentTimeMillis())
+            }
+            list.add(0, newItem)
+            val trimmedList = list.take(15)
+            val jsonArr = JSONArray()
+            trimmedList.forEach { jsonArr.put(it) }
+            prefs.copy(recentlyDeletedTasksJson = jsonArr.toString())
+        }
+    }
+
+    suspend fun updateAdaptiveSystemDirective(directive: String, auditJson: String) {
+        updatePreferences { prefs ->
+            prefs.copy(
+                adaptiveSystemDirective = directive.trim(),
+                weeklyAiAuditJson = auditJson.trim()
+            )
+        }
     }
 
     suspend fun clearAll() {

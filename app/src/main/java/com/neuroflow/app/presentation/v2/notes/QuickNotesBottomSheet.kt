@@ -31,7 +31,8 @@ fun QuickNotesBottomSheet(
     notes: List<NoteEntity>,
     onSaveNote: (title: String, content: String) -> Unit,
     onDismiss: () -> Unit,
-    onOpenFullNotes: () -> Unit = {}
+    onOpenFullNotes: () -> Unit = {},
+    onCreateTask: ((title: String, description: String) -> Unit)? = null
 ) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
@@ -144,6 +145,32 @@ fun QuickNotesBottomSheet(
                         }
                     }
                 }
+            }
+
+            // Quick Note AI Task Extraction Preview
+            if (content.isNotBlank()) {
+                val synthesis = remember(content, title) {
+                    com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                        extractedTaskTitle = title.ifBlank { content.take(35) },
+                        suggestedCategory = "DEEP_WORK",
+                        estimatedMinutes = 25,
+                        tags = emptyList(),
+                        firstActionStep = "Review note: ${content.take(20)}..."
+                    )
+                }
+                com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
+                    synthesis = synthesis,
+                    onConvertToTaskClick = { syn ->
+                        if (onCreateTask != null) {
+                            onCreateTask(syn.extractedTaskTitle, content)
+                            onSaveNote(syn.extractedTaskTitle, content)
+                        } else {
+                            onSaveNote(syn.extractedTaskTitle, content)
+                        }
+                        title = ""
+                        content = ""
+                    }
+                )
             }
 
             // Recent Notes List

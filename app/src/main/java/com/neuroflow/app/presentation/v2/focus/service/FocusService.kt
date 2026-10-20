@@ -75,6 +75,13 @@ class FocusService : Service() {
                 accumulatedPauseMillis = 0L
                 pausedAtMillis = null
                 isPaused = false
+                _activeSession.value = ActiveFocusSession(
+                    taskId = taskId,
+                    taskTitle = taskTitle,
+                    remainingSeconds = durationSeconds,
+                    totalSeconds = durationSeconds,
+                    isPaused = false
+                )
                 updateNotification()
                 startTicker()
             }
@@ -83,6 +90,7 @@ class FocusService : Service() {
                     val now = System.currentTimeMillis()
                     pausedAtMillis = FocusTimingCalculator.onPause(pausedAtMillis, now)
                     isPaused = true
+                    _activeSession.value = _activeSession.value?.copy(isPaused = true)
                     updateNotification()
                 }
             }
@@ -94,6 +102,7 @@ class FocusService : Service() {
                     accumulatedPauseMillis = newAcc
                     pausedAtMillis = null
                     isPaused = false
+                    _activeSession.value = _activeSession.value?.copy(isPaused = false)
                     updateNotification()
                     startTicker()
                 }
@@ -117,6 +126,21 @@ class FocusService : Service() {
             while (isActive) {
                 delay(1000L)
                 if (!isActive) break
+                val now = System.currentTimeMillis()
+                val timing = FocusTimingCalculator.calculate(
+                    startedAtMillis = startedAtMillis,
+                    accumulatedPauseMillis = accumulatedPauseMillis,
+                    pausedAtMillis = pausedAtMillis,
+                    nowMillis = now,
+                    targetDurationSeconds = durationSeconds
+                )
+                _activeSession.value = ActiveFocusSession(
+                    taskId = taskId,
+                    taskTitle = taskTitle,
+                    remainingSeconds = timing.remainingSeconds,
+                    totalSeconds = durationSeconds,
+                    isPaused = isPaused
+                )
                 if (!isPaused) {
                     updateNotification()
                 }
@@ -261,6 +285,7 @@ class FocusService : Service() {
     private fun stopForegroundAndSelf() {
         tickerJob?.cancel()
         tickerJob = null
+        _activeSession.value = null
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -278,6 +303,7 @@ class FocusService : Service() {
         super.onDestroy()
         tickerJob?.cancel()
         serviceScope.cancel()
+        _activeSession.value = null
         try {
             val nm = getSystemService(NotificationManager::class.java)
             nm?.cancel(NOTIFICATION_ID)
@@ -287,6 +313,17 @@ class FocusService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        data class ActiveFocusSession(
+            val taskId: String,
+            val taskTitle: String,
+            val remainingSeconds: Long,
+            val totalSeconds: Long,
+            val isPaused: Boolean
+        )
+
+        private val _activeSession = kotlinx.coroutines.flow.MutableStateFlow<ActiveFocusSession?>(null)
+        val activeSession: kotlinx.coroutines.flow.StateFlow<ActiveFocusSession?> = _activeSession
+
         const val CHANNEL_ID = "focus_live"
         const val CHANNEL_NAME = "Active Focus Session"
         const val NOTIFICATION_ID = 3001

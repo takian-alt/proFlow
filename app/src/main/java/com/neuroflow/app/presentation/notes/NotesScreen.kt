@@ -202,7 +202,8 @@ fun NotesScreen(
                         NoteCard(
                             note = note,
                             isDark = isDark,
-                            onClick = { viewModel.openEditNote(note) }
+                            onClick = { viewModel.openEditNote(note) },
+                            onExtractTask = { viewModel.createTaskFromNote(note) }
                         )
                     }
                 }
@@ -225,7 +226,8 @@ fun NotesScreen(
                         NoteCard(
                             note = note,
                             isDark = isDark,
-                            onClick = { viewModel.openEditNote(note) }
+                            onClick = { viewModel.openEditNote(note) },
+                            onExtractTask = { viewModel.createTaskFromNote(note) }
                         )
                     }
                 }
@@ -239,9 +241,15 @@ fun NoteCard(
     note: NoteEntity,
     isDark: Boolean,
     onClick: () -> Unit,
+    onExtractTask: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cardBg = NoteColors.getColor(note.colorHex, isDark)
+    val rawCardBg = NoteColors.getColor(note.colorHex, isDark)
+    val accentColor = if (note.colorHex == "DEFAULT" || isDark) {
+        com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2.ReboundCyan
+    } else {
+        rawCardBg
+    }
     val formattedDate = remember(note.updatedAt) {
         val nowCal = java.util.Calendar.getInstance()
         val noteCal = java.util.Calendar.getInstance().apply { timeInMillis = note.updatedAt }
@@ -258,73 +266,13 @@ fun NoteCard(
         }
     }
 
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBg),
+    com.neuroflow.app.presentation.v2.common.UpgradedNoteCardV2(
+        title = note.title,
+        contentPreview = note.content,
+        noteAccentColor = accentColor,
+        updatedAtFormatted = formattedDate,
+        onNoteClick = onClick,
+        onExtractTaskWithAiClick = onExtractTask,
         modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(16.dp)
-            )
-            .clickable(onClick = onClick)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                if (note.title.isNotBlank()) {
-                    Text(
-                        text = note.title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                if (note.isPinned) {
-                    Icon(
-                        Icons.Filled.PushPin,
-                        contentDescription = "Pinned",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .padding(start = 4.dp)
-                    )
-                }
-            }
-
-            if (note.content.isNotBlank()) {
-                if (note.title.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                Text(
-                    text = note.content,
-                    style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                    maxLines = 8,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = formattedDate,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-        }
-    }
+    )
 }

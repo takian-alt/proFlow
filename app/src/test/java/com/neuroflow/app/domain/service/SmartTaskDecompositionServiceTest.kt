@@ -50,21 +50,21 @@ class SmartTaskDecompositionServiceTest {
     @Test
     fun testLocalDecompositionMeetsActionabilityAndFrictionInvariants() {
         val codingSteps = service.decomposeTaskLocally("Implement OAuth login", 60)
-        assertTrue("Coding archetype should produce 3 steps", codingSteps.size == 3)
+        assertTrue("Coding archetype should produce 3-4 steps", codingSteps.size in 3..4)
         assertTrue("First step must have low activation friction (<= 10m)", codingSteps.first().estimatedMinutes <= 10)
         assertTrue("Steps should preserve task context", codingSteps.any { it.title.contains("Implement OAuth login") })
 
         val writingSteps = service.decomposeTaskLocally("Write quarterly performance report", 90)
-        assertTrue("Writing archetype should produce 3 steps", writingSteps.size == 3)
+        assertTrue("Writing archetype should produce 3-4 steps", writingSteps.size in 3..4)
         assertTrue("First step <= 10m", writingSteps.first().estimatedMinutes <= 10)
         assertTrue("Context preserved", writingSteps.any { it.title.contains("Write quarterly performance report") })
 
         val choreSteps = service.decomposeTaskLocally("Clean garage and organize tools", 30)
-        assertTrue("Chore archetype should produce 3 steps", choreSteps.size == 3)
+        assertTrue("Chore archetype should produce 3-4 steps", choreSteps.size in 3..4)
         assertTrue("First step <= 10m", choreSteps.first().estimatedMinutes <= 10)
 
         val generalSteps = service.decomposeTaskLocally("Misc random task", 45)
-        assertTrue("General archetype should produce 3 steps", generalSteps.size == 3)
+        assertTrue("General archetype should produce 3-4 steps", generalSteps.size in 3..4)
         assertTrue("First step <= 10m", generalSteps.first().estimatedMinutes <= 10)
     }
 

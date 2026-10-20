@@ -17,6 +17,51 @@ fun TaskEntity.dependencyIds(): List<String> =
 fun TaskEntity.isRecurringWithAnchor(): Boolean =
     recurrence != Recurrence.NONE && habitDate != null
 
+const val ONE_DAY_MILLIS = 86_400_000L
+
+/**
+ * Resolves the scheduled epoch millis handling dual representation:
+ * - scheduledTime as an intraday offset (< 86_400_000L)
+ * - scheduledTime as an absolute epoch timestamp (>= 86_400_000L)
+ */
+fun TaskEntity.resolveScheduledEpochMillis(referenceDateMillis: Long = System.currentTimeMillis()): Long? {
+    if (isRecurringWithAnchor()) {
+        val baseDate = habitDate ?: return null
+        val timeOffset = scheduledTime ?: deadlineTime ?: 0L
+        return if (timeOffset >= ONE_DAY_MILLIS) timeOffset else startOfLocalDay(baseDate) + timeOffset
+    }
+    val rawTime = scheduledTime
+    if (rawTime != null && rawTime >= ONE_DAY_MILLIS) {
+        return rawTime
+    }
+    if (scheduledDate != null) {
+        return scheduledDate + (rawTime ?: 0L)
+    }
+    if (rawTime != null && rawTime >= 0L) {
+        return startOfLocalDay(referenceDateMillis) + rawTime
+    }
+    return habitDate?.let { startOfLocalDay(it) }
+}
+
+/**
+ * Resolves the deadline epoch millis handling dual representation:
+ * - deadlineTime as intraday offset vs absolute epoch millis
+ */
+fun TaskEntity.resolveDeadlineEpochMillis(): Long? {
+    val rawTime = deadlineTime
+    if (rawTime != null && rawTime >= ONE_DAY_MILLIS) return rawTime
+    return deadlineDate?.let { it + (rawTime ?: 0L) }
+}
+
+/**
+ * Normalizes an epoch timestamp into standard date (start of day) and time offset pair.
+ */
+fun buildNormalizedScheduleTimestamps(startEpochMillis: Long): Pair<Long, Long> {
+    val dayStart = startOfLocalDay(startEpochMillis)
+    val timeOffset = localTimeOfDayOffset(startEpochMillis)
+    return dayStart to timeOffset
+}
+
 /**
  * Target used by reminder/notification flows.
  */
@@ -24,34 +69,39 @@ fun TaskEntity.effectiveReminderTargetMillis(): Long? {
     if (isRecurringWithAnchor()) {
         val baseDate = habitDate ?: return null
         val timeOffset = scheduledTime ?: deadlineTime ?: (9 * 3600_000L)
-        return startOfLocalDay(baseDate) + timeOffset
+        return if (timeOffset >= ONE_DAY_MILLIS) timeOffset else startOfLocalDay(baseDate) + timeOffset
     }
-    return deadlineDate?.let { it + (deadlineTime ?: 0L) }
-        ?: scheduledDate?.let { it + (scheduledTime ?: 0L) }
-        ?: habitDate?.let { startOfLocalDay(it) + (scheduledTime ?: deadlineTime ?: (9 * 3600_000L)) }
+    val deadline = resolveDeadlineEpochMillis()
+    if (deadline != null) return deadline
+    val scheduled = resolveScheduledEpochMillis()
+    if (scheduled != null) return scheduled
+    return habitDate?.let { startOfLocalDay(it) + (scheduledTime ?: deadlineTime ?: (9 * 3600_000L)) }
 }
 
 /**
  * Anchor used by schedule/time-block style flows.
  */
 fun TaskEntity.effectiveScheduleAnchorMillis(): Long? {
-    if (isRecurringWithAnchor()) {
-        val baseDate = habitDate ?: return null
-        val timeOffset = scheduledTime ?: deadlineTime ?: 0L
-        return startOfLocalDay(baseDate) + timeOffset
-    }
-    return scheduledDate?.let { it + (scheduledTime ?: 0L) }
-        ?: habitDate
+    return resolveScheduledEpochMillis()
 }
 
 /**
  * Local minute-of-day for timeline placement.
  */
 fun TaskEntity.timelineStartMinuteOfDay(): Int {
-    val anchorMillis = effectiveScheduleAnchorMillis() ?: return 0
+    val anchorMillis = resolveScheduledEpochMillis() ?: return 0
     val cal = Calendar.getInstance().apply { timeInMillis = anchorMillis }
     return (cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE))
         .coerceIn(0, MINUTES_PER_DAY - 1)
+}
+
+/**
+ * Local minute-of-day with explicit ZoneId for timeline placement.
+ */
+fun TaskEntity.timelineStartMinuteOfDay(zoneId: java.time.ZoneId): Int {
+    val anchorMillis = resolveScheduledEpochMillis() ?: return 0
+    val zdt = java.time.Instant.ofEpochMilli(anchorMillis).atZone(zoneId)
+    return (zdt.hour * 60 + zdt.minute).coerceIn(0, MINUTES_PER_DAY - 1)
 }
 
 fun startOfLocalDay(millis: Long): Long {
