@@ -1,30 +1,72 @@
-# Gradle
+# ==============================================================================
+# Gradle & Build Caches
+# ==============================================================================
 .gradle/
 build/
 **/build/
+captures/
+.externalNativeBuild/
+.cxx/
 
-# Release binaries (use GitHub Releases instead)
+# Ensure Gradle Wrapper jar is never ignored
+!gradle/wrapper/gradle-wrapper.jar
+
+# ==============================================================================
+# Release Binaries & Build Outputs (Use GitHub Releases instead)
+# ==============================================================================
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
 app/release/
+**/release/
 
-# Local config (contains SDK path, never commit this)
+# ==============================================================================
+# Local Machine Configurations & SDK Paths
+# ==============================================================================
 local.properties
 
-# Android signing keys
+# ==============================================================================
+# Keystores, Passwords & Secrets
+# ==============================================================================
 *.jks
 *.keystore
 keystore.properties
+secrets.properties
+private.properties
+*.key
+*.pem
+# app/google-services.json # Uncomment if your repository is public and you manage Firebase configs via CI secrets
 
-# IDE
+# ==============================================================================
+# IDEs & Editors
+# ==============================================================================
 .idea/
 *.iml
 .vscode/
 
-# Kotlin
+# ==============================================================================
+# Kotlin & JVM
+# ==============================================================================
 .kotlin/
+hs_err_pid*
+replay_pid*
 
-# OS
+# ==============================================================================
+# OS Generated Files & Temporary Files
+# ==============================================================================
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
+*~
+*.swp
+*.swo
 
-# Isolated git worktrees for agent-executed plans
+# ==============================================================================
+# Agent Workspaces & Scratch Files
+# ==============================================================================
 .worktrees/
+scratch/
