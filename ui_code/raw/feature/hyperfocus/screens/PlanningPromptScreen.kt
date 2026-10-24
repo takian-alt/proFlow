@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
 
@@ -57,22 +59,22 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                 Text(
                     text = "🎉 All Tasks Complete!",
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-
-                IconButton(onClick = {
-                    viewModel.completePlanning(emptyList())
-                    onDismiss()
-                }) {
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close and Unlock"
+                        contentDescription = "Close"
                     )
                 }
             }
 
             Text(
-                text = "Plan tasks for tomorrow (optional), or finish now to unlock all your apps.",
+                text = "Plan at least 1 task for tomorrow to complete your session and unlock apps.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -83,7 +85,7 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                 OutlinedTextField(
                     value = value,
                     onValueChange = { taskTitles[index] = it },
-                    label = { Text("Task ${index + 1} (optional)") },
+                    label = { Text("Task ${index + 1}") },
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -107,32 +109,23 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.completePlanning((taskTitles + extraTitles).filter { it.isNotBlank() })
                     onDismiss()
                 },
+                enabled = hasAnyTask,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
                 Text(
-                    text = if (hasAnyTask) "Save Tasks & Unlock Apps" else "Unlock Apps & Finish",
+                    text = "Save Tasks & Unlock Apps",
                     fontWeight = FontWeight.SemiBold
                 )
-            }
-
-            TextButton(
-                onClick = {
-                    viewModel.completePlanning(emptyList())
-                    onDismiss()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Skip & Unlock Apps Now", color = MaterialTheme.colorScheme.primary)
             }
         }
     }

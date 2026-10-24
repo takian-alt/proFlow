@@ -1,5 +1,6 @@
 package com.neuroflow.app.presentation.v2.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -8,6 +9,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -285,8 +287,12 @@ object NeuroFlowThemeV2Colors {
 fun NeuroFlowThemeV2(
     darkTheme: Boolean = isSystemInDarkTheme(),
     amoledDark: Boolean = false,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val dynamicSupported = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
     val palette = when {
         !darkTheme -> LightSemanticPalette
         amoledDark -> AmoledSemanticPalette
@@ -299,54 +305,59 @@ fun NeuroFlowThemeV2(
         else -> DarkExtendedColors
     }
 
-    val colorScheme = if (darkTheme) {
-        darkColorScheme(
-            primary = palette.primaryIndigo,
-            onPrimary = Color.White,
-            primaryContainer = palette.surfaceElevated,
-            onPrimaryContainer = palette.textPrimary,
-            secondary = palette.energyPeakMint,
-            onSecondary = Color.Black,
-            secondaryContainer = if (amoledDark) Color(0xFF042F2E) else Color(0xFF064E3B),
-            onSecondaryContainer = Color(0xFF6EE7B7),
-            tertiary = palette.energyModerateAmber,
-            onTertiary = Color.Black,
-            tertiaryContainer = Color(0xFF78350F),
-            onTertiaryContainer = Color(0xFFFDE68A),
-            background = palette.background,
-            onBackground = palette.textPrimary,
-            surface = palette.surface,
-            onSurface = palette.textPrimary,
-            surfaceVariant = palette.surfaceElevated,
-            onSurfaceVariant = palette.textSecondary,
-            outline = palette.border,
-            error = palette.energyLowCoral,
-            onError = Color.White
-        )
-    } else {
-        lightColorScheme(
-            primary = palette.primaryIndigo,
-            onPrimary = Color.White,
-            primaryContainer = palette.surfaceElevated,
-            onPrimaryContainer = palette.primaryIndigo,
-            secondary = palette.energyPeakMint,
-            onSecondary = Color.White,
-            secondaryContainer = Color(0xFFD1FAE5),
-            onSecondaryContainer = Color(0xFF065F46),
-            tertiary = palette.energyModerateAmber,
-            onTertiary = Color.White,
-            tertiaryContainer = Color(0xFFFEF3C7),
-            onTertiaryContainer = Color(0xFF92400E),
-            background = palette.background,
-            onBackground = palette.textPrimary,
-            surface = palette.surface,
-            onSurface = palette.textPrimary,
-            surfaceVariant = palette.surfaceElevated,
-            onSurfaceVariant = palette.textSecondary,
-            outline = palette.border,
-            error = palette.energyLowCoral,
-            onError = Color.White
-        )
+    val defaultDark = darkColorScheme(
+        primary = palette.primaryIndigo,
+        onPrimary = Color.White,
+        primaryContainer = palette.surfaceElevated,
+        onPrimaryContainer = palette.textPrimary,
+        secondary = palette.energyPeakMint,
+        onSecondary = Color.Black,
+        secondaryContainer = if (amoledDark) Color(0xFF042F2E) else Color(0xFF064E3B),
+        onSecondaryContainer = Color(0xFF6EE7B7),
+        tertiary = palette.energyModerateAmber,
+        onTertiary = Color.Black,
+        tertiaryContainer = Color(0xFF78350F),
+        onTertiaryContainer = Color(0xFFFDE68A),
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.surface,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.surfaceElevated,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.border,
+        error = palette.energyLowCoral,
+        onError = Color.White
+    )
+
+    val defaultLight = lightColorScheme(
+        primary = palette.primaryIndigo,
+        onPrimary = Color.White,
+        primaryContainer = palette.surfaceElevated,
+        onPrimaryContainer = palette.primaryIndigo,
+        secondary = palette.energyPeakMint,
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFD1FAE5),
+        onSecondaryContainer = Color(0xFF065F46),
+        tertiary = palette.energyModerateAmber,
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFFEF3C7),
+        onTertiaryContainer = Color(0xFF92400E),
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.surface,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.surfaceElevated,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.border,
+        error = palette.energyLowCoral,
+        onError = Color.White
+    )
+
+    val colorScheme = when {
+        dynamicSupported && darkTheme -> dynamicDarkColorScheme(context)
+        dynamicSupported && !darkTheme -> dynamicLightColorScheme(context)
+        darkTheme -> defaultDark
+        else -> defaultLight
     }
 
     CompositionLocalProvider(

@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
@@ -66,7 +68,8 @@ fun HomeRoleSetupScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 32.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 32.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -81,7 +84,7 @@ fun HomeRoleSetupScreen(
                     tint = if (holdsRole) Color(0xFF69F0AE) else Color.Gray,
                     modifier = Modifier.size(20.dp)
                 )
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "Home app",
                         color = Color.White,

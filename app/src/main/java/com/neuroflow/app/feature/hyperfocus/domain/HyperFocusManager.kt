@@ -206,6 +206,8 @@ class HyperFocusManagerImpl @Inject constructor(
         unlockCodeRepository.deleteExpiredCodes()
         unlockCodeRepository.generateCodePool(sessionId)
 
+        val baselineCompleted = taskRepository.getAllTasks().count { it.status == TaskStatus.COMPLETED }
+
         hyperFocusDataStore.update {
             // afterSession() gives the same clean slate the old fresh object did, without taking the
             // user's global tiers down with it.
@@ -214,6 +216,8 @@ class HyperFocusManagerImpl @Inject constructor(
                 sessionId = sessionId,
                 state = HyperFocusState.ACTIVE,
                 dailyTaskTarget = dailyTaskTarget,
+                lockedTaskIds = lockedTaskIds,
+                tasksCompletedAtActivation = baselineCompleted,
                 sessionMode = sessionMode,
                 sessionDurationMinutes = sessionDurationMinutes,
                 sessionEndsAtMillis = sessionEndsAtMillis,

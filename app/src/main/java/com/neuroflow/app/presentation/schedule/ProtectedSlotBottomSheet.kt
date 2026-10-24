@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
@@ -210,7 +211,10 @@ fun ProtectedSlotBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Lock,
                         contentDescription = null,
@@ -225,7 +229,9 @@ fun ProtectedSlotBottomSheet(
                             else -> "Protected Time Slots"
                         },
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 IconButton(onClick = onDismiss) {
@@ -846,43 +852,51 @@ private fun ProtectedSlotItem(
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = slot.label,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (slot.isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                        color = if (slot.isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "$timeRangeStr • ${slot.durationMinutes}m",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
-                        color = if (slot.isEnabled) categoryColor else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (slot.isEnabled) categoryColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = recurrenceStr + if (slot.recoveryBufferMinutes > 0) " • +${slot.recoveryBufferMinutes}m buffer" else "",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
+            Spacer(modifier = Modifier.width(6.dp))
+
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onEdit, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Filled.Edit,
                         contentDescription = "Edit",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Filled.Delete,
                         contentDescription = "Delete",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
                 Switch(

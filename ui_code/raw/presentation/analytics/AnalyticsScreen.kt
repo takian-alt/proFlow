@@ -613,8 +613,12 @@ private fun MapeCard(s: AnalyticsEngine.AnalyticsSummary, onReset: () -> Unit) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.DeadlineCard)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("Time Estimation Accuracy (MAPE)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -638,7 +642,7 @@ private fun MapeCard(s: AnalyticsEngine.AnalyticsSummary, onReset: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                     Text("Weighted MAPE:", fontSize = 13.sp)
-                    Text("${String.format("%.1f", s.weightedMape)}%", color = Color(0xFF1565C0), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("${String.format("%.1f", s.weightedMape)}%", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("Estimation Breakdown", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -667,8 +671,12 @@ private fun SmapeCard(s: AnalyticsEngine.AnalyticsSummary) {
     val hasData = s.overallSmape != 0f || s.weightedSmape != 0f
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.ScheduledCard)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("Symmetric Estimation (SMAPE)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -701,11 +709,6 @@ private fun SmapeCard(s: AnalyticsEngine.AnalyticsSummary) {
                 Text(
                     "SMAPE is more balanced for small tasks that significantly overrun.",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "To reset estimation data, use the button in the MAPE card above.",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

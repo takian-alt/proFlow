@@ -180,6 +180,8 @@ data class UserPreferences(
     val adaptiveSystemDirective: String = "",
     val weeklyAiAuditJson: String = "",
     val recentlyDeletedTasksJson: String = "[]",
+    val stimulantLogsJson: String = "[]",
+    val quickPhysiologicalLogsJson: String = "[]",
     val meqScore: Int = 0
 )
 
@@ -194,6 +196,8 @@ class UserPreferencesDataStore @Inject constructor(
         val ADAPTIVE_SYSTEM_DIRECTIVE = stringPreferencesKey("adaptive_system_directive")
         val WEEKLY_AI_AUDIT_JSON = stringPreferencesKey("weekly_ai_audit_json")
         val RECENTLY_DELETED_TASKS_JSON = stringPreferencesKey("recently_deleted_tasks_json")
+        val STIMULANT_LOGS_JSON = stringPreferencesKey("stimulant_logs_json")
+        val QUICK_PHYSIOLOGICAL_LOGS_JSON = stringPreferencesKey("quick_physiological_logs_json")
         val WAKE_UP_HOUR = intPreferencesKey("wake_up_hour")
         val SLEEP_HOUR = intPreferencesKey("sleep_hour")
         val PEAK_ENERGY_START = intPreferencesKey("peak_energy_start")
@@ -448,79 +452,83 @@ class UserPreferencesDataStore @Inject constructor(
             geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: true,
             adaptiveSystemDirective = prefs[Keys.ADAPTIVE_SYSTEM_DIRECTIVE] ?: "",
             weeklyAiAuditJson = prefs[Keys.WEEKLY_AI_AUDIT_JSON] ?: "",
-            recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]"
+            recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]",
+            stimulantLogsJson = prefs[Keys.STIMULANT_LOGS_JSON] ?: "[]",
+            quickPhysiologicalLogsJson = prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] ?: "[]"
         )
     }
 
-    private val jsonStringListCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
-    private val protectedSlotsCache = java.util.concurrent.ConcurrentHashMap<String, List<ProtectedTimeSlot>>()
+    companion object {
+        private val jsonStringListCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+        private val protectedSlotsCache = java.util.concurrent.ConcurrentHashMap<String, List<ProtectedTimeSlot>>()
 
-    private fun parseAffirmations(json: String?): List<String> {
-        if (json.isNullOrBlank()) return emptyList()
-        return jsonStringListCache.computeIfAbsent(json) { raw ->
-            try {
-                val arr = JSONArray(raw)
-                List(arr.length()) { arr.getString(it) }
-            } catch (_: Exception) { emptyList() }
+        internal fun parseAffirmations(json: String?): List<String> {
+            if (json.isNullOrBlank()) return emptyList()
+            return jsonStringListCache.computeIfAbsent(json) { raw ->
+                try {
+                    val arr = JSONArray(raw)
+                    List(arr.length()) { arr.getString(it) }
+                } catch (_: Exception) { emptyList() }
+            }
         }
-    }
 
-    private fun encodeAffirmations(list: List<String>): String {
-        val arr = JSONArray()
-        list.forEach { arr.put(it) }
-        return arr.toString()
-    }
+        internal fun encodeAffirmations(list: List<String>): String {
+            val arr = JSONArray()
+            list.forEach { arr.put(it) }
+            return arr.toString()
+        }
 
-    private fun parseProtectedTimeSlots(json: String?): List<ProtectedTimeSlot> {
-        if (json.isNullOrBlank()) return emptyList()
-        return protectedSlotsCache.computeIfAbsent(json) { raw ->
-            try {
-                val arr = JSONArray(raw)
-                val list = mutableListOf<ProtectedTimeSlot>()
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    list.add(
-                        ProtectedTimeSlot(
-                            id = obj.optString("id", java.util.UUID.randomUUID().toString()),
-                            label = obj.optString("label", "Protected Block"),
-                            startMinuteOfDay = obj.optInt("startMinuteOfDay", 480).coerceIn(0, 1439),
-                            durationMinutes = obj.optInt("durationMinutes", 60).coerceIn(15, 360),
-                            recurrence = runCatching { PtsRecurrence.valueOf(obj.optString("recurrence", "DAILY")) }.getOrDefault(PtsRecurrence.DAILY),
-                            weekdayBitmask = obj.optInt("weekdayBitmask", 0b1111111),
-                            category = runCatching { PtsCategory.valueOf(obj.optString("category", "BREAK")) }.getOrDefault(PtsCategory.BREAK),
-                            recoveryBufferMinutes = obj.optInt("recoveryBufferMinutes", 0).coerceIn(0, 120),
-                            isEnabled = obj.optBoolean("isEnabled", true),
-                            dateMillis = if (obj.has("dateMillis") && !obj.isNull("dateMillis")) obj.optLong("dateMillis") else null
+        internal fun parseProtectedTimeSlots(json: String?): List<ProtectedTimeSlot> {
+            if (json.isNullOrBlank()) return emptyList()
+            return protectedSlotsCache.computeIfAbsent(json) { raw ->
+                try {
+                    val arr = JSONArray(raw)
+                    val list = mutableListOf<ProtectedTimeSlot>()
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            ProtectedTimeSlot(
+                                id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                                label = obj.optString("label", "Protected Block"),
+                                startMinuteOfDay = obj.optInt("startMinuteOfDay", 480).coerceIn(0, 1439),
+                                durationMinutes = obj.optInt("durationMinutes", 60).coerceIn(15, 360),
+                                recurrence = runCatching { PtsRecurrence.valueOf(obj.optString("recurrence", "DAILY")) }.getOrDefault(PtsRecurrence.DAILY),
+                                weekdayBitmask = obj.optInt("weekdayBitmask", 0b1111111),
+                                category = runCatching { PtsCategory.valueOf(obj.optString("category", "BREAK")) }.getOrDefault(PtsCategory.BREAK),
+                                recoveryBufferMinutes = obj.optInt("recoveryBufferMinutes", 0).coerceIn(0, 120),
+                                isEnabled = obj.optBoolean("isEnabled", true),
+                                dateMillis = if (obj.has("dateMillis") && !obj.isNull("dateMillis")) obj.optLong("dateMillis") else null
+                            )
                         )
-                    )
+                    }
+                    list
+                } catch (_: Exception) {
+                    emptyList()
                 }
-                list
-            } catch (_: Exception) {
-                emptyList()
             }
         }
-    }
 
-    private fun encodeProtectedTimeSlots(list: List<ProtectedTimeSlot>): String {
-        val arr = JSONArray()
-        list.forEach { slot ->
-            val obj = JSONObject().apply {
-                put("id", slot.id)
-                put("label", slot.label)
-                put("startMinuteOfDay", slot.startMinuteOfDay)
-                put("durationMinutes", slot.durationMinutes)
-                put("recurrence", slot.recurrence.name)
-                put("weekdayBitmask", slot.weekdayBitmask)
-                put("category", slot.category.name)
-                put("recoveryBufferMinutes", slot.recoveryBufferMinutes)
-                put("isEnabled", slot.isEnabled)
-                if (slot.dateMillis != null) {
-                    put("dateMillis", slot.dateMillis)
+        internal fun encodeProtectedTimeSlots(list: List<ProtectedTimeSlot>): String {
+            val arr = JSONArray()
+            list.forEach { slot ->
+                val obj = JSONObject().apply {
+                    put("id", slot.id)
+                    put("label", slot.label)
+                    put("startMinuteOfDay", slot.startMinuteOfDay)
+                    put("durationMinutes", slot.durationMinutes)
+                    put("recurrence", slot.recurrence.name)
+                    put("weekdayBitmask", slot.weekdayBitmask)
+                    put("category", slot.category.name)
+                    put("recoveryBufferMinutes", slot.recoveryBufferMinutes)
+                    put("isEnabled", slot.isEnabled)
+                    if (slot.dateMillis != null) {
+                        put("dateMillis", slot.dateMillis)
+                    }
                 }
+                arr.put(obj)
             }
-            arr.put(obj)
+            return arr.toString()
         }
-        return arr.toString()
     }
 
     suspend fun updatePreferences(update: (UserPreferences) -> UserPreferences) {
@@ -654,11 +662,13 @@ class UserPreferencesDataStore @Inject constructor(
                 geminiAiEnabled = prefs[Keys.GEMINI_AI_ENABLED] ?: true,
                 adaptiveSystemDirective = prefs[Keys.ADAPTIVE_SYSTEM_DIRECTIVE] ?: "",
                 weeklyAiAuditJson = prefs[Keys.WEEKLY_AI_AUDIT_JSON] ?: "",
-                recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]"
+                recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]",
+                stimulantLogsJson = prefs[Keys.STIMULANT_LOGS_JSON] ?: "[]",
+                quickPhysiologicalLogsJson = prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] ?: "[]"
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
-            prefs[Keys.SLEEP_HOUR] = updated.sleepHour.coerceIn(0, 23)
+            prefs[Keys.SLEEP_HOUR] = (if (updated.sleepHour >= 24) updated.sleepHour % 24 else updated.sleepHour).coerceIn(0, 23)
             prefs[Keys.PEAK_ENERGY_START] = updated.peakEnergyStart
             prefs[Keys.PEAK_ENERGY_END] = updated.peakEnergyEnd
             prefs[Keys.WORK_DAY_START] = updated.workDayStart
@@ -792,6 +802,8 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.ADAPTIVE_SYSTEM_DIRECTIVE] = updated.adaptiveSystemDirective
             prefs[Keys.WEEKLY_AI_AUDIT_JSON] = updated.weeklyAiAuditJson
             prefs[Keys.RECENTLY_DELETED_TASKS_JSON] = updated.recentlyDeletedTasksJson
+            prefs[Keys.STIMULANT_LOGS_JSON] = updated.stimulantLogsJson
+            prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] = updated.quickPhysiologicalLogsJson
         }
     }
 
@@ -945,8 +957,223 @@ class UserPreferencesDataStore @Inject constructor(
         }
     }
 
+    suspend fun recordStimulantDose(
+        type: com.neuroflow.app.domain.service.StimulantType,
+        doseMg: Double = when (type) {
+            com.neuroflow.app.domain.service.StimulantType.CAFFEINE -> 100.0
+            com.neuroflow.app.domain.service.StimulantType.GREEN_TEA_L_THEANINE -> 50.0
+            com.neuroflow.app.domain.service.StimulantType.PRESCRIPTION_STIMULANT_IR -> 10.0
+            com.neuroflow.app.domain.service.StimulantType.PRESCRIPTION_STIMULANT_XR -> 20.0
+        },
+        timestampMillis: Long = System.currentTimeMillis()
+    ) {
+        updatePreferences { prefs ->
+            val list = try {
+                val arr = JSONArray(prefs.stimulantLogsJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            val newItem = JSONObject().apply {
+                put("type", type.name)
+                put("doseMg", doseMg)
+                put("timestampMillis", timestampMillis)
+            }
+            list.add(0, newItem)
+            val trimmedList = list.take(30)
+            val jsonArr = JSONArray()
+            trimmedList.forEach { jsonArr.put(it) }
+            prefs.copy(stimulantLogsJson = jsonArr.toString())
+        }
+    }
+
+    suspend fun undoLastStimulantDose(): Boolean {
+        var removed = false
+        updatePreferences { prefs ->
+            val list = try {
+                val arr = JSONArray(prefs.stimulantLogsJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            if (list.isNotEmpty()) {
+                list.removeAt(0)
+                removed = true
+                val jsonArr = JSONArray()
+                list.forEach { jsonArr.put(it) }
+                prefs.copy(stimulantLogsJson = jsonArr.toString())
+            } else {
+                prefs
+            }
+        }
+        return removed
+    }
+
+    suspend fun removeStimulantDose(timestampMillis: Long, type: String? = null): Boolean {
+        var removed = false
+        updatePreferences { prefs ->
+            val list = try {
+                val arr = JSONArray(prefs.stimulantLogsJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            val index = list.indexOfFirst { obj ->
+                val ts = obj.optLong("timestampMillis")
+                val t = obj.optString("type")
+                ts == timestampMillis && (type == null || t == type)
+            }
+            if (index >= 0) {
+                list.removeAt(index)
+                removed = true
+                val jsonArr = JSONArray()
+                list.forEach { jsonArr.put(it) }
+                prefs.copy(stimulantLogsJson = jsonArr.toString())
+            } else {
+                prefs
+            }
+        }
+        return removed
+    }
+
+    suspend fun clearStimulantLogs() {
+        updatePreferences { prefs ->
+            prefs.copy(stimulantLogsJson = "[]")
+        }
+    }
+
+    suspend fun recordPhysiologicalEvent(
+        type: PhysiologicalEventType,
+        timestampMillis: Long = System.currentTimeMillis(),
+        durationMinutes: Int = when (type) {
+            PhysiologicalEventType.MEAL -> 30
+            PhysiologicalEventType.WORKOUT -> 45
+            PhysiologicalEventType.NAP -> 20
+        },
+        intensity: Double = 1.0
+    ) {
+        updatePreferences { prefs ->
+            val list = try {
+                val arr = JSONArray(prefs.quickPhysiologicalLogsJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            val newItem = JSONObject().apply {
+                put("type", type.name)
+                put("timestampMillis", timestampMillis)
+                put("durationMinutes", durationMinutes)
+                put("intensity", intensity)
+            }
+            list.add(0, newItem)
+            val trimmedList = list.take(30)
+            val jsonArr = JSONArray()
+            trimmedList.forEach { jsonArr.put(it) }
+            prefs.copy(quickPhysiologicalLogsJson = jsonArr.toString())
+        }
+    }
+
+    suspend fun undoLastPhysiologicalEvent(): Boolean {
+        var removed = false
+        updatePreferences { prefs ->
+            val list = try {
+                val arr = JSONArray(prefs.quickPhysiologicalLogsJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            if (list.isNotEmpty()) {
+                list.removeAt(0)
+                removed = true
+                val jsonArr = JSONArray()
+                list.forEach { jsonArr.put(it) }
+                prefs.copy(quickPhysiologicalLogsJson = jsonArr.toString())
+            } else {
+                prefs
+            }
+        }
+        return removed
+    }
+
+    suspend fun clearPhysiologicalLogs() {
+        updatePreferences { prefs ->
+            prefs.copy(quickPhysiologicalLogsJson = "[]")
+        }
+    }
+
     suspend fun clearAll() {
         context.dataStore.edit { it.clear() }
+    }
+}
+
+enum class PhysiologicalEventType {
+    MEAL, WORKOUT, NAP
+}
+
+data class PhysiologicalEventLog(
+    val type: PhysiologicalEventType,
+    val timestampMillis: Long,
+    val durationMinutes: Int = 0,
+    val intensity: Double = 1.0
+)
+
+fun parsePhysiologicalLogs(json: String?): List<PhysiologicalEventLog> {
+    if (json.isNullOrBlank() || json == "[]") return emptyList()
+    return try {
+        val arr = JSONArray(json)
+        val list = mutableListOf<PhysiologicalEventLog>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val typeStr = obj.optString("type", "MEAL")
+            val type = try {
+                PhysiologicalEventType.valueOf(typeStr.uppercase())
+            } catch (_: Exception) {
+                PhysiologicalEventType.MEAL
+            }
+            val ts = obj.optLong("timestampMillis", 0L)
+            val dur = obj.optInt("durationMinutes", 0)
+            val intensity = obj.optDouble("intensity", 1.0)
+            if (ts > 0L) {
+                list.add(PhysiologicalEventLog(type = type, timestampMillis = ts, durationMinutes = dur, intensity = intensity))
+            }
+        }
+        list
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+fun parseStimulantLogs(json: String?): List<com.neuroflow.app.domain.service.StimulantDoseBout> {
+    if (json.isNullOrBlank()) return emptyList()
+    return try {
+        val arr = JSONArray(json)
+        val list = mutableListOf<com.neuroflow.app.domain.service.StimulantDoseBout>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val typeStr = obj.optString("type", "CAFFEINE")
+            val type = com.neuroflow.app.domain.service.StimulantType.values().firstOrNull { it.name.equals(typeStr, ignoreCase = true) }
+                ?: com.neuroflow.app.domain.service.StimulantType.CAFFEINE
+            list.add(
+                com.neuroflow.app.domain.service.StimulantDoseBout(
+                    timestampMillis = obj.optLong("timestampMillis", System.currentTimeMillis()),
+                    doseMg = obj.optDouble("doseMg", 100.0),
+                    type = type
+                )
+            )
+        }
+        list
+    } catch (_: Exception) {
+        emptyList()
     }
 }
 

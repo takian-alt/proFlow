@@ -68,22 +68,29 @@ class FocusService : Service() {
 
         when (intent.action) {
             ACTION_START -> {
-                taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
+                val newTaskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
+                val newStartedAt = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
+                val isSameTaskAndSession = (newTaskId == taskId && startedAtMillis == newStartedAt && startedAtMillis > 0L)
+                taskId = newTaskId
                 taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: taskTitle
                 durationSeconds = intent.getLongExtra(EXTRA_DURATION_SECONDS, durationSeconds)
-                startedAtMillis = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
-                accumulatedPauseMillis = 0L
-                pausedAtMillis = null
-                isPaused = false
+                startedAtMillis = newStartedAt
+                if (!isSameTaskAndSession) {
+                    accumulatedPauseMillis = 0L
+                    pausedAtMillis = null
+                    isPaused = false
+                }
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
                     remainingSeconds = durationSeconds,
                     totalSeconds = durationSeconds,
-                    isPaused = false
+                    isPaused = isPaused
                 )
                 updateNotification()
-                startTicker()
+                if (!isPaused) {
+                    startTicker()
+                }
             }
             ACTION_PAUSE -> {
                 if (!isPaused) {
@@ -92,6 +99,21 @@ class FocusService : Service() {
                     isPaused = true
                     _activeSession.value = _activeSession.value?.copy(isPaused = true)
                     updateNotification()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            if (::sessionRepository.isInitialized && taskId.isNotBlank()) {
+                                val open = sessionRepository.getOpenSessionForTask(taskId)
+                                if (open != null) {
+                                    sessionRepository.update(
+                                        open.copy(
+                                            pausedAt = pausedAtMillis,
+                                            pauseResumeCount = open.pauseResumeCount + 1
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
             ACTION_RESUME -> {
@@ -105,6 +127,21 @@ class FocusService : Service() {
                     _activeSession.value = _activeSession.value?.copy(isPaused = false)
                     updateNotification()
                     startTicker()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            if (::sessionRepository.isInitialized && taskId.isNotBlank()) {
+                                val open = sessionRepository.getOpenSessionForTask(taskId)
+                                if (open != null) {
+                                    sessionRepository.update(
+                                        open.copy(
+                                            pausedAt = null,
+                                            totalPausedMs = newAcc
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
             ACTION_COMPLETE -> {
@@ -134,6 +171,18 @@ class FocusService : Service() {
                     nowMillis = now,
                     targetDurationSeconds = durationSeconds
                 )
+                val isExpired = durationSeconds > 0L && timing.isExpired
+                if (isExpired) {
+                    _activeSession.value = ActiveFocusSession(
+                        taskId = taskId,
+                        taskTitle = taskTitle,
+                        remainingSeconds = 0L,
+                        totalSeconds = durationSeconds,
+                        isPaused = false
+                    )
+                    showSprintCompletedNotification()
+                    break
+                }
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
@@ -145,6 +194,39 @@ class FocusService : Service() {
                     updateNotification()
                 }
             }
+        }
+    }
+
+    private fun showSprintCompletedNotification() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java) ?: return
+            val contentIntent = Intent(this, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_FOCUS"
+                putExtra("taskId", taskId)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val title = if (taskTitle.isNotBlank()) taskTitle else "Deep Focus"
+            val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("🎯 Sprint Complete: $title")
+                .setContentText("Great job completing your sprint! Tap to keep going or take a rest.")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(contentPendingIntent)
+                .build()
+
+            nm.notify(NOTIFICATION_ID, notif)
+        } catch (_: Throwable) {
+            // Defensive: headless / unit test
         }
     }
 
@@ -265,13 +347,43 @@ class FocusService : Service() {
                     if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && activeTaskId.isNotBlank()) {
                         val now = System.currentTimeMillis()
                         val openSession = sessionRepository.getOpenSessionForTask(activeTaskId)
+                        val currentPause = if (isPaused) (now - (pausedAtMillis ?: now)) else 0L
+                        val totalPause = (accumulatedPauseMillis + currentPause).coerceAtLeast(0L)
+                        val rawDurationMs = if (openSession != null) (now - openSession.startedAt) else (now - startedAtMillis)
+                        val netDurationMs = (rawDurationMs - totalPause).coerceAtLeast(0L)
+                        val durationMins = (netDurationMs / 60000f).coerceAtLeast(1f)
+
                         if (openSession != null) {
-                            val durationMins = ((now - openSession.startedAt) / 60000f).coerceAtLeast(1f)
-                            sessionRepository.update(openSession.copy(endedAt = now, durationMinutes = durationMins))
+                            sessionRepository.update(
+                                openSession.copy(
+                                    endedAt = now,
+                                    pausedAt = null,
+                                    totalPausedMs = totalPause,
+                                    durationMinutes = durationMins
+                                )
+                            )
                         }
                         val task = taskRepository.getById(activeTaskId)
                         if (task != null) {
-                            taskRepository.completeAndRecur(task, now)
+                            val finalTracked = task.totalTimeTrackedMinutes + durationMins
+                            val est = task.estimatedDurationMinutes.toFloat()
+                            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+                            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+                            val points = 50 + (if (task.isFrog) 50 else 0) + (task.impactScore / 2)
+                            val updatedTask = task.copy(
+                                totalTimeTrackedMinutes = finalTracked,
+                                actualDurationMinutes = finalTracked,
+                                sessionCount = task.sessionCount + 1,
+                                lastSessionDurationMinutes = durationMins,
+                                estimationErrorMape = mape,
+                                estimationErrorSmape = smape,
+                                focusModePoints = points,
+                                status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED,
+                                completedAt = now,
+                                updatedAt = now
+                            )
+                            taskRepository.update(updatedTask)
+                            taskRepository.completeAndRecur(updatedTask, now)
                         }
                     }
                 } catch (_: Throwable) {

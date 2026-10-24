@@ -130,12 +130,13 @@ class ScheduleConflictResolverTest : StringSpec({
             tasks = listOf(task),
             protectedSlots = listOf(protectedSlot),
             workDayStart = 9,
-            workDayEnd = 17 // workDayEnd * 60 = 1020m. With duration 60m, max start = 1020 - 60 = 960m
+            workDayEnd = 17 // workDayEnd * 60 = 1020m. With slot ending at 17:00, 0 minutes left before workDayEnd
         )
 
         conflicts.size shouldBe 1
         val conflict = conflicts.first()
-        conflict.suggestedNewStartMinute shouldBe 960 // clamped to fit in workday
+        // ADR-024 Bug 4: Must return null instead of clamping backward into the conflicting interval
+        conflict.suggestedNewStartMinute shouldBe null
     }
 
     "analyzeScheduleConflicts: filters out protected slots that do not occur on the selected day" {

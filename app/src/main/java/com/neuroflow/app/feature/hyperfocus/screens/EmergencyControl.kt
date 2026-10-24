@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
@@ -150,7 +151,8 @@ fun EmergencyControl(
                         onConfirm(packageName)
                     }
                 ) {
-                    Text(if (targetLabel.isBlank()) "Use Emergency" else "Use on $targetLabel")
+                    val label = if (targetLabel.isBlank()) "Use Emergency" else "Use on ${if (targetLabel.length > 16) targetLabel.take(16) + "…" else targetLabel}"
+                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             },
             dismissButton = {
@@ -175,7 +177,13 @@ private fun PickerRow(label: String, selected: Boolean, onSelect: () -> Unit) {
             .clickable(onClick = onSelect)
     ) {
         RadioButton(selected = selected, onClick = onSelect)
-        Text(label, fontSize = 14.sp)
+        Text(
+            label,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f, fill = false),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

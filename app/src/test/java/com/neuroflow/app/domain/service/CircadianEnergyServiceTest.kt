@@ -359,4 +359,110 @@ class CircadianEnergyServiceTest {
             assertEquals(0.0, legacy5ArgSnap.sleepInertiaPenalty, 0.0)
         }
     }
+
+    @Test
+    fun testVonMisesHourlyModulationShiftsLearnedAdjustmentPoints() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val afternoon = today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val learnedProfile = LearnedCircadianProfile(
+            peakHourMean = 14.0,
+            sampleCount = 15.0,
+            hourlyMultipliers = AdaptiveCircadianLearner.computeVonMisesHourlyMultipliers(14.0)
+        )
+
+        val snapshot = service.evaluateSnapshot(
+            timestampMillis = afternoon,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId,
+            naps = emptyList(),
+            chronotype = ChronotypeProfile.INTERMEDIATE,
+            manualPeakStartHour = null,
+            learnedProfile = learnedProfile,
+            rollingAverageSleepMinutes = null,
+            cognitiveBlocks = emptyList()
+        )
+
+        assertTrue(
+            "Learned adjustment points should not be zero when Von Mises modulation is active (was ${snapshot.learnedAdjustmentPoints})",
+            snapshot.learnedAdjustmentPoints != 0.0
+        )
+    }
+
+    @Test
+    fun testProjectDayTimelineWithStimulantsModulatesCurve() {
+        val today = LocalDate.of(2026, 10, 18)
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val doseTime = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val baselineTimeline = service.projectDayTimeline(
+            dayStartMillis = dayStart,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            stepMinutes = 15,
+            zoneId = zoneId,
+            stimulantDoses = emptyList()
+        )
+
+        val caffeineDose = listOf(
+            StimulantDoseBout(
+                timestampMillis = doseTime,
+                doseMg = 100.0,
+                type = StimulantType.CAFFEINE
+            )
+        )
+
+        val stimulantTimeline = service.projectDayTimeline(
+            dayStartMillis = dayStart,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            stepMinutes = 15,
+            zoneId = zoneId,
+            stimulantDoses = caffeineDose
+        )
+
+        val peakAbsorptionTime = today.atTime(LocalTime.of(8, 45)).atZone(zoneId).toInstant().toEpochMilli()
+        val baseAtPeak = baselineTimeline.minByOrNull { kotlin.math.abs(it.timestampMillis - peakAbsorptionTime) }!!
+        val stimAtPeak = stimulantTimeline.minByOrNull { kotlin.math.abs(it.timestampMillis - peakAbsorptionTime) }!!
+
+        assertTrue(
+            "Energy with caffeine ($stimAtPeak) should be strictly higher than baseline ($baseAtPeak) at peak plasma concentration",
+            stimAtPeak.usableEnergy >= baseAtPeak.usableEnergy
+        )
+    }
+
+    @Test
+    fun testExtractStimulantDosesFromSlots() {
+        val today = LocalDate.of(2026, 10, 18)
+        val slots = listOf(
+            com.neuroflow.app.domain.model.ProtectedTimeSlot(
+                id = "slot-1",
+                label = "Morning Espresso",
+                startMinuteOfDay = 480, // 08:00
+                durationMinutes = 20
+            ),
+            com.neuroflow.app.domain.model.ProtectedTimeSlot(
+                id = "slot-2",
+                label = "Afternoon Vyvanse Meds XR",
+                startMinuteOfDay = 780, // 13:00
+                durationMinutes = 15
+            ),
+            com.neuroflow.app.domain.model.ProtectedTimeSlot(
+                id = "slot-3",
+                label = "Deep Work Block",
+                startMinuteOfDay = 540,
+                durationMinutes = 90
+            )
+        )
+
+        val extracted = com.neuroflow.app.domain.model.extractStimulantDosesFromSlots(slots, today, zoneId)
+        // ADR-024 Bug 3: Evaluates across both yesterday and today to capture full 24h PK tail (2 per day * 2 days = 4)
+        assertEquals(4, extracted.size)
+        assertEquals(StimulantType.CAFFEINE, extracted[0].type)
+        assertEquals(StimulantType.PRESCRIPTION_STIMULANT_XR, extracted[1].type)
+    }
 }

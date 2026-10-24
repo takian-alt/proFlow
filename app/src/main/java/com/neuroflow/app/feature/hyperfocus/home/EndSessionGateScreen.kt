@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.feature.hyperfocus.gate.GateTask
@@ -142,8 +144,11 @@ fun EndSessionGateScreen(
             Text(
                 text = "Mismatches: $mismatches/${GateTaskEngine.MAX_MISMATCHES}",
                 color = if (mismatches >= GateTaskEngine.MAX_MISMATCHES) Color(0xFFFFB74D) else Color(0xFFAAAAAA),
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = when {
                     holdSeconds > 0 -> "Hold for $holdSeconds more second${if (holdSeconds == 1L) "" else "s"}"
@@ -151,7 +156,10 @@ fun EndSessionGateScreen(
                     else -> "Ready"
                 },
                 color = Color(0xFFAAAAAA),
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 

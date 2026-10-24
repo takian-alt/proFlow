@@ -6,8 +6,10 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.NoteDao
+import com.neuroflow.app.data.local.dao.ProtectedSlotDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
+import com.neuroflow.app.data.local.dao.TaskMicroStepDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
@@ -43,7 +45,9 @@ class CloudBackupManager @Inject constructor(
     private val firestoreRepo: FirestoreBackupRepository,
     private val signInManager: GoogleSignInManager,
     private val preferencesDataStore: UserPreferencesDataStore,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val protectedSlotDao: ProtectedSlotDao? = null,
+    private val taskMicroStepDao: TaskMicroStepDao? = null
 ) {
 
     // -------------------------------------------------------------------------
@@ -70,6 +74,8 @@ class CloudBackupManager @Inject constructor(
                 val sleepLogs = sleepLogDao.getAll()
                 val energyPredictions = energyPredictionDao.getRecent(limit = 500)
                 val notes = noteDao.getAllNotes()
+                val protectedSlots = protectedSlotDao?.getAll() ?: emptyList()
+                val taskMicroSteps = taskMicroStepDao?.getAll() ?: emptyList()
 
                 val prefs = preferencesDataStore.preferencesFlow.first()
                 val prefsMap = prefs.toBackupMap()
@@ -82,9 +88,11 @@ class CloudBackupManager @Inject constructor(
                     ulyssesContracts = ulyssesContracts,
                     sleepLogs = sleepLogs,
                     energyPredictions = energyPredictions,
-                    hyperFocusSessions = emptyList(),
+                    hyperFocusSessions = hyperFocusSessionDao.getAll(),
                     preferences = prefsMap,
-                    notes = notes
+                    notes = notes,
+                    protectedSlots = protectedSlots,
+                    taskMicroSteps = taskMicroSteps
                 )
 
                 firestoreRepo.uploadBackup(uid, payload).fold(
@@ -194,6 +202,12 @@ class CloudBackupManager @Inject constructor(
         payload.notes.forEach { note ->
             runCatching { noteDao.insert(note); itemCount++ }
         }
+        payload.protectedSlots.forEach { slot ->
+            runCatching { protectedSlotDao?.insert(slot); itemCount++ }
+        }
+        payload.taskMicroSteps.forEach { step ->
+            runCatching { taskMicroStepDao?.insert(step); itemCount++ }
+        }
 
         if (payload.preferences.isNotEmpty()) {
             preferencesDataStore.updatePreferences { current ->
@@ -250,6 +264,18 @@ internal fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
     put("lastFreshStartShownWeek", lastFreshStartShownWeek.toString())
     put("lastFreshStartShownYear", lastFreshStartShownYear.toString())
     put("lastAppOpenMillis", lastAppOpenMillis.toString())
+    put("adaptiveSystemDirective", adaptiveSystemDirective)
+    put("weeklyAiAuditJson", weeklyAiAuditJson)
+    put("stimulantLogsJson", stimulantLogsJson)
+    put("quickPhysiologicalLogsJson", quickPhysiologicalLogsJson)
+    put("quizChronotype", quizChronotype.orEmpty())
+    put("manualChronotype", manualChronotype.orEmpty())
+    put("meqScore", meqScore.toString())
+    put("affirmations", UserPreferencesDataStore.encodeAffirmations(affirmations))
+    put("tagCatalog", UserPreferencesDataStore.encodeAffirmations(tagCatalog))
+    put("yearlyGoals", UserPreferencesDataStore.encodeAffirmations(yearlyGoals))
+    put("weeklyGoals", UserPreferencesDataStore.encodeAffirmations(weeklyGoals))
+    put("protectedTimeSlots", UserPreferencesDataStore.encodeProtectedTimeSlots(protectedTimeSlots))
 }
 
 // =============================================================================
@@ -305,6 +331,18 @@ internal fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPrefer
         weeklyIntentIsoYear     = int("weeklyIntentIsoYear", weeklyIntentIsoYear),
         lastFreshStartShownWeek = int("lastFreshStartShownWeek", lastFreshStartShownWeek),
         lastFreshStartShownYear = int("lastFreshStartShownYear", lastFreshStartShownYear),
-        lastAppOpenMillis       = long("lastAppOpenMillis", lastAppOpenMillis)
+        lastAppOpenMillis       = long("lastAppOpenMillis", lastAppOpenMillis),
+        adaptiveSystemDirective    = str("adaptiveSystemDirective") ?: adaptiveSystemDirective,
+        weeklyAiAuditJson          = str("weeklyAiAuditJson") ?: weeklyAiAuditJson,
+        stimulantLogsJson          = str("stimulantLogsJson") ?: stimulantLogsJson,
+        quickPhysiologicalLogsJson = str("quickPhysiologicalLogsJson") ?: quickPhysiologicalLogsJson,
+        quizChronotype             = str("quizChronotype")?.takeIf { it.isNotBlank() } ?: quizChronotype,
+        manualChronotype           = str("manualChronotype")?.takeIf { it.isNotBlank() } ?: manualChronotype,
+        meqScore                   = int("meqScore", meqScore),
+        affirmations               = str("affirmations")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: affirmations,
+        tagCatalog                 = str("tagCatalog")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: tagCatalog,
+        yearlyGoals                = str("yearlyGoals")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: yearlyGoals,
+        weeklyGoals                = str("weeklyGoals")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: weeklyGoals,
+        protectedTimeSlots         = str("protectedTimeSlots")?.let { UserPreferencesDataStore.parseProtectedTimeSlots(it) } ?: protectedTimeSlots
     )
 }

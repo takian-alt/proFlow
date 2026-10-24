@@ -5,6 +5,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.domain.service.BehavioralSupportService
@@ -12,6 +13,7 @@ import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.EnergyPhase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 import kotlin.math.ln
 
@@ -28,7 +30,8 @@ class DistractionSyncWorker @AssistedInject constructor(
     private val taskDao: TaskDao,
     private val sessionDao: TimeSessionDao,
     private val behavioralSupportService: BehavioralSupportService,
-    private val circadianEnergyService: CircadianEnergyService
+    private val circadianEnergyService: CircadianEnergyService,
+    private val preferencesDataStore: UserPreferencesDataStore
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -42,7 +45,8 @@ class DistractionSyncWorker @AssistedInject constructor(
 
             val nowMillis = System.currentTimeMillis()
             val lookbackStart = nowMillis - (30L * 24 * 60 * 60 * 1000L) // 30 days
-            val distractingPackages = BehavioralSupportService.DEFAULT_DISTRACTING_PACKAGES
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val distractingPackages = prefs.distractingPackages.ifEmpty { BehavioralSupportService.DEFAULT_DISTRACTING_PACKAGES }
 
             tasks.forEach { task ->
                 val taskSessions = sessions.filter {

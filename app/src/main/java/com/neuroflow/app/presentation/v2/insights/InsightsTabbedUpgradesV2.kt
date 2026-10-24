@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.engine.AnalyticsEngine
@@ -78,7 +80,7 @@ fun UpgradedInsightsHubV2(
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium
                         ),
-                        color = if (active) Color.White else NeuroFlowThemeV2Colors.TextSecondary
+                        color = if (active) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextSecondary
                     )
                 }
             }
@@ -298,8 +300,12 @@ private fun ForensicAvoidanceAuditDigest(
                     Text(
                         text = "FORENSIC AVOIDANCE AUDIT",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        color = NeuroFlowPaletteV2.ReboundCyan
+                        color = NeuroFlowPaletteV2.ReboundCyan,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Surface(
                         color = NeuroFlowPaletteV2.DipIndigo,
                         shape = RoundedCornerShape(8.dp),
@@ -308,7 +314,7 @@ private fun ForensicAvoidanceAuditDigest(
                         Text(
                             text = "Refresh Audit",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White,
+                            color = NeuroFlowThemeV2Colors.TextPrimary,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }

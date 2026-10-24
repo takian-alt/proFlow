@@ -30,6 +30,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -45,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -70,6 +72,8 @@ fun SleepLogsScreen(
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
     val sleepLogs by viewModel.sleepLogs.collectAsStateWithLifecycle()
+    val passiveSyncStatus by viewModel.passiveSyncStatus.collectAsStateWithLifecycle()
+    val isPassiveSyncing by viewModel.isPassiveSyncing.collectAsStateWithLifecycle()
     val sleepLogInputError by viewModel.sleepLogInputError.collectAsStateWithLifecycle()
 
     var logDateMillis by rememberSaveable { mutableStateOf(todayUtcDateMillis()) }
@@ -151,9 +155,39 @@ fun SleepLogsScreen(
             }
             com.neuroflow.app.presentation.v2.settings.UpgradedSleepPressureOverviewCard(
                 snapshot = sleepSnapshot,
-                hasHealthConnectSync = false,
-                onSyncHealthConnectClick = { /* No-op / degraded */ }
+                hasHealthConnectSync = viewModel.passiveSleepSyncRepository != null,
+                onSyncHealthConnectClick = { viewModel.syncWearableSleep() }
             )
+
+            val currentStatus = passiveSyncStatus
+            if (currentStatus != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = currentStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { viewModel.clearPassiveSyncStatus() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -165,7 +199,14 @@ fun SleepLogsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Sleep date", fontSize = 14.sp)
+                    Text(
+                        text = "Sleep date",
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(onClick = { showDatePicker = true }) {
                         Text(formatDateOnly(logDateMillis))
                     }
@@ -280,7 +321,14 @@ private fun SleepNumberRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 14.sp)
+        Text(
+            label,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f, fill = false),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { if (value > min) onValueChange(value - 1) }, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.Remove, "Decrease", modifier = Modifier.size(18.dp))
@@ -312,18 +360,23 @@ private fun SleepLogRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f, fill = false)) {
             Text(
                 text = "${formatDateTime(log.startAt)} (${log.durationMinutes}m)",
                 fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = "Recovery: $recovery pts",
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
+        Spacer(modifier = Modifier.width(8.dp))
         IconButton(onClick = onDelete) {
             Icon(Icons.Filled.Delete, contentDescription = "Delete sleep log")
         }

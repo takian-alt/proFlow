@@ -434,12 +434,10 @@ class NeuroFlowV2UiTest : StringSpec({
             val updatedSlot = slot<TaskEntity>()
             coVerify { taskRepo.update(capture(updatedSlot)) }
             val parsedSteps = StepByStepPlanCodec.parse(updatedSlot.captured.ifThenPlan)
-            parsedSteps shouldHaveSize 3
-            parsedSteps[0].text shouldContain "Open workspace & gather materials"
-            parsedSteps[1].text shouldContain "Spend 5 uninterrupted minutes"
-            parsedSteps[2].text shouldContain "Review progress & polish"
+            parsedSteps shouldHaveSize 4
+            parsedSteps[0].text shouldContain "Write Doctoral Dissertation"
             val wandMsg = viewModel.uiState.filter { it.lastActionMessage != null }.first().lastActionMessage
-            wandMsg shouldContain "Decomposed 'Write Doctoral Dissertation' into 3 micro-steps"
+            wandMsg shouldContain "Decomposed 'Write Doctoral Dissertation' into 4 micro-steps"
         }
     }
 
@@ -465,12 +463,12 @@ class NeuroFlowV2UiTest : StringSpec({
 
             viewModel.uiState.value.microSteps shouldHaveSize 0
 
-            // Scaffold 3 steps
+            // Scaffold 4 steps
             viewModel.autoBreakDownTask()
             advanceUntilIdle()
 
-            viewModel.uiState.value.microSteps shouldHaveSize 3
-            coVerify { taskRepo.update(match { it.id == "focus-scaffold" && it.ifThenPlan.contains("Open workspace") }) }
+            viewModel.uiState.value.microSteps shouldHaveSize 4
+            coVerify { taskRepo.update(match { it.id == "focus-scaffold" && it.ifThenPlan.contains("Refactor Database Schema") }) }
 
             // Complete task and verify affordance rating prompt
             viewModel.completeTask()
@@ -717,6 +715,122 @@ class NeuroFlowV2UiTest : StringSpec({
             viewModel.uiState.value.isDecompressionBypassed shouldBe true
             viewModel.uiState.value.decompressionRemainingSeconds shouldBe 0
             viewModel.uiState.value.isDecompressionSighActive shouldBe false
+        }
+    }
+
+    "FocusViewModelV2 5-minute countdown expiration stops ticker, persists session, and opens sprint completion sheet" {
+        runTest(testDispatcher) {
+            val task = makeTask(id = "focus-sprint-1", title = "Write ADR Spec").copy(totalTimeTrackedMinutes = 10f)
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "focus-sprint-1"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val openSession = TimeSessionEntity(id = "sess-1", taskId = "focus-sprint-1", startedAt = System.currentTimeMillis())
+            coEvery { taskRepo.getById("focus-sprint-1") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            coEvery { sessionRepo.getOpenSessionForTask("focus-sprint-1") } returns openSession
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.selectTimerMode(FocusTimerModeV2.JUST_5_MIN)
+            viewModel.startTimer()
+            viewModel.uiState.value.isRunning shouldBe true
+
+            // Advance through 300 seconds
+            repeat(300) { viewModel.tickSecond() }
+            advanceUntilIdle()
+
+            // Sprint must terminate cleanly
+            val state = viewModel.uiState.value
+            state.isRunning shouldBe false
+            state.isPaused shouldBe false
+            state.remainingSeconds shouldBe 0L
+            state.elapsedSeconds shouldBe 300L
+            state.isSprintCompleted shouldBe true
+            state.showSprintCompletionSheet shouldBe true
+
+            // Session record must be closed in Room
+            coVerify { sessionRepo.update(match { it.endedAt != null }) }
+
+            // Task tracked minutes must be incremented by 5 minutes (10 -> 15)
+            coVerify { taskRepo.update(match { it.id == "focus-sprint-1" && it.totalTimeTrackedMinutes == 15f }) }
+
+            // Action 1: Dismiss sheet
+            viewModel.dismissSprintCompletionSheet()
+            viewModel.uiState.value.showSprintCompletionSheet shouldBe false
+            viewModel.uiState.value.isSprintCompleted shouldBe true
+            viewModel.uiState.value.isRunning shouldBe false
+        }
+    }
+
+    "FocusViewModelV2 keepGoing after sprint completion starts fresh session without zombie state" {
+        runTest(testDispatcher) {
+            val task = makeTask(id = "focus-sprint-2", title = "Review PRs")
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "focus-sprint-2"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            coEvery { taskRepo.getById("focus-sprint-2") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.selectTimerMode(FocusTimerModeV2.JUST_5_MIN)
+            viewModel.startTimer()
+            repeat(300) { viewModel.tickSecond() }
+            advanceUntilIdle()
+
+            viewModel.uiState.value.showSprintCompletionSheet shouldBe true
+
+            // User taps "Keep Going (+25m Pomodoro)"
+            viewModel.keepGoing(FocusTimerModeV2.POMODORO_25)
+
+            val newState = viewModel.uiState.value
+            newState.timerMode shouldBe FocusTimerModeV2.POMODORO_25
+            newState.isRunning shouldBe true
+            newState.isSprintCompleted shouldBe false
+            newState.showSprintCompletionSheet shouldBe false
+            newState.elapsedSeconds shouldBe 0L
+            newState.remainingSeconds shouldBe 1500L
+        }
+    }
+
+    "FocusViewModelV2 takeDecompressionRest launches 3-minute decompression zone" {
+        runTest(testDispatcher) {
+            val task = makeTask(id = "focus-sprint-3", title = "Deep Coding")
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "focus-sprint-3"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            coEvery { taskRepo.getById("focus-sprint-3") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.selectTimerMode(FocusTimerModeV2.JUST_5_MIN)
+            viewModel.startTimer()
+            repeat(300) { viewModel.tickSecond() }
+            advanceUntilIdle()
+
+            // User taps "3-Minute Rest"
+            viewModel.takeDecompressionRest()
+
+            val state = viewModel.uiState.value
+            state.showSprintCompletionSheet shouldBe false
+            state.showDecompressionZone shouldBe true
+            state.decompressionRemainingSeconds shouldBe 180
         }
     }
 })

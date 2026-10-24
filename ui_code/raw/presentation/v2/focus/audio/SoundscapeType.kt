@@ -21,6 +21,18 @@ enum class SoundscapeType(
         emoji = "🧠",
         shortChipLabel = "40Hz Gamma 🧠"
     ),
+    MONAURAL_GAMMA_40HZ(
+        displayName = "40 Hz Monaural Gamma",
+        subtitle = "Acoustic Interference + Pink Cushion",
+        emoji = "⚡",
+        shortChipLabel = "40Hz Monaural ⚡"
+    ),
+    BETA_16HZ(
+        displayName = "16 Hz SMR Beta",
+        subtitle = "Monaural Low-Fatigue Focus",
+        emoji = "🎯",
+        shortChipLabel = "16Hz Beta 🎯"
+    ),
     BROWN_NOISE(
         displayName = "Deep Brown Noise",
         subtitle = "1/f² Stochastic Acoustic Masking",

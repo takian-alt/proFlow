@@ -31,12 +31,12 @@ import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.presentation.common.GoalPeriod
 import com.neuroflow.app.presentation.common.TopGoalsRefillCard
 import com.neuroflow.app.presentation.v2.navigation.NeuroFlowAppV2
 import com.neuroflow.app.presentation.common.NewChapterCard
-import com.neuroflow.app.presentation.common.theme.NeuroFlowTheme
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2
 import com.neuroflow.app.presentation.onboarding.OnboardingScreen
 import com.neuroflow.app.worker.AutonomyNudgeWorker
@@ -74,29 +74,40 @@ class MainActivity : ComponentActivity() {
         if (notificationId != Int.MIN_VALUE) {
             NotificationManagerCompat.from(this).cancel(notificationId)
         }
-        when (intent.action) {
-            "com.procus.ACTION_OPEN_NEW_TASK" -> {
+        val action = intent.action
+        intent.action = null
+        when (action) {
+            "com.procus.ACTION_OPEN_NEW_TASK", "com.neuroflow.app.ACTION_OPEN_NEW_TASK" -> {
                 initialNewTaskOpen = true
                 return
             }
-            "com.procus.ACTION_OPEN_FOCUS" -> {
+            "com.procus.ACTION_OPEN_FOCUS", "com.neuroflow.app.ACTION_OPEN_FOCUS" -> {
                 if (!taskId.isNullOrBlank()) {
                     initialFocusTaskId = taskId
                 } else {
                     lifecycleScope.launch {
-                        val firstTask = taskRepository.getActiveTasks().firstOrNull()
+                        val firstTask = taskRepository.getActiveTasks()
+                            .filter { it.status == TaskStatus.ACTIVE && it.quadrant != Quadrant.ELIMINATE }
+                            .sortedWith(
+                                compareByDescending<TaskEntity> { it.isFrog }
+                                    .thenBy { it.quadrant != Quadrant.DO_FIRST }
+                                    .thenBy { it.priority.ordinal }
+                            )
+                            .firstOrNull()
                         if (firstTask != null) {
                             initialFocusTaskId = firstTask.id
+                        } else {
+                            initialFocusTaskId = "tab_focus"
                         }
                     }
                 }
                 return
             }
-            "com.procus.ACTION_OPEN_GUIDE" -> {
+            "com.procus.ACTION_OPEN_GUIDE", "com.neuroflow.app.ACTION_OPEN_GUIDE" -> {
                 initialGuideOpen = true
                 return
             }
-            "com.procus.ACTION_OPEN_SCHEDULE" -> {
+            "com.procus.ACTION_OPEN_SCHEDULE", "com.neuroflow.app.ACTION_OPEN_SCHEDULE" -> {
                 initialScheduleOpen = true
                 return
             }
@@ -122,10 +133,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("saved_focus_task_id", initialFocusTaskId)
+        outState.putString("saved_woop_task_id", initialWoopTaskId)
+        outState.putBoolean("saved_guide_open", initialGuideOpen)
+        outState.putBoolean("saved_schedule_open", initialScheduleOpen)
+        outState.putBoolean("saved_new_task_open", initialNewTaskOpen)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         lifecycleScope.launch {
-            sleepPressureRepository.refreshCurrentPressure()
             goalRepository.checkAndMigrateLegacyGoals()
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -133,8 +152,16 @@ class MainActivity : ComponentActivity() {
         }
         enableEdgeToEdge()
 
-        // Handle ACTION_OPEN_FOCUS intent
-        handleIntent(intent)
+        if (savedInstanceState != null) {
+            initialFocusTaskId = savedInstanceState.getString("saved_focus_task_id")
+            initialWoopTaskId = savedInstanceState.getString("saved_woop_task_id")
+            initialGuideOpen = savedInstanceState.getBoolean("saved_guide_open", false)
+            initialScheduleOpen = savedInstanceState.getBoolean("saved_schedule_open", false)
+            initialNewTaskOpen = savedInstanceState.getBoolean("saved_new_task_open", false)
+        } else {
+            // Handle ACTION_OPEN_FOCUS intent
+            handleIntent(intent)
+        }
 
         setContent {
             val preferencesFlow = remember(preferencesDataStore) {
@@ -150,9 +177,6 @@ class MainActivity : ComponentActivity() {
                     old.lastFreshStartShownYear == new.lastFreshStartShownYear &&
                     old.yearlyGoals == new.yearlyGoals &&
                     old.weeklyGoals == new.weeklyGoals &&
-                    old.lastYearlyGoalShownYear == new.lastYearlyGoalShownYear &&
-                    old.lastWeeklyGoalShownWeek == new.lastWeeklyGoalShownWeek &&
-                    old.lastWeeklyGoalShownYear == new.lastWeeklyGoalShownYear &&
                     old.lastYearlyGoalHandledYear == new.lastYearlyGoalHandledYear &&
                     old.lastWeeklyGoalHandledWeek == new.lastWeeklyGoalHandledWeek &&
                     old.firstAppOpenMillis == new.firstAppOpenMillis
@@ -173,7 +197,8 @@ class MainActivity : ComponentActivity() {
             }
             NeuroFlowThemeV2(
                 darkTheme = isDark,
-                amoledDark = preferences?.amoledDarkEnabled ?: false
+                amoledDark = preferences?.amoledDarkEnabled ?: false,
+                dynamicColor = preferences?.dynamicColorEnabled ?: false
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -187,18 +212,18 @@ class MainActivity : ComponentActivity() {
                         !prefs.onboardingCompleted -> OnboardingScreen(
                             onComplete = { data ->
                                 scope.launch {
-                                    // Map chronotype to peak hour range for UI display
-                                    val (peakStart, peakEnd) = when (data.manualChronotype) {
-                                        "MODERATE_MORNING", "DEFINITE_MORNING" -> 9 to 12
-                                        "INTERMEDIATE" -> 12 to 17
-                                        "MODERATE_EVENING", "DEFINITE_EVENING" -> 17 to 21
-                                        else -> 9 to 12  // default
+                                    // Bug 6 Fix (ADR-025): Delegate directly to MEQChronotypeDetector to prevent peak window contradiction
+                                    val chronotype = try {
+                                        com.neuroflow.app.domain.engine.MEQChronotypeDetector.Chronotype.valueOf(data.manualChronotype)
+                                    } catch (e: Exception) {
+                                        com.neuroflow.app.domain.engine.MEQChronotypeDetector.Chronotype.INTERMEDIATE
                                     }
+                                    val (peakStart, peakEnd) = com.neuroflow.app.domain.engine.MEQChronotypeDetector.baselinePeakWindow(chronotype)
                                     preferencesDataStore.updatePreferences { it.copy(
                                         identityLabel      = data.identityLabel,
                                         topGoal            = data.topGoal,
                                         wakeUpHour         = data.wakeUpHour,
-                                        sleepHour          = data.sleepHour,
+                                        sleepHour          = if (data.sleepHour >= 24) data.sleepHour % 24 else data.sleepHour,
                                         peakEnergyStart    = peakStart,
                                         peakEnergyEnd      = peakEnd,
                                         manualChronotype   = data.manualChronotype,
@@ -215,6 +240,9 @@ class MainActivity : ComponentActivity() {
                                                 energyLevel             = inferred.energyDemand,
                                                 taskType                = inferred.taskType,
                                                 tags                    = inferred.contextTags.joinToString(","),
+                                                priority                = inferred.priority,
+                                                deadlineDate            = inferred.deadlineDate ?: inferred.scheduledDate,
+                                                deadlineTime            = inferred.deadlineTime ?: inferred.scheduledTime,
                                                 quadrant                = Quadrant.DO_FIRST,
                                                 impactScore             = 70,
                                                 isFrog                  = true
@@ -224,15 +252,22 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
-                        // Fresh-start check — show NewChapterCard if applicable
-                        !freshStartHandled && FreshStartEngine.isFreshStart(
-                            nowMillis = System.currentTimeMillis(),
-                            lastOpenMillis = prefs.lastAppOpenMillis,
-                            dailyStreak = prefs.dailyStreak,
-                            lastActiveDate = prefs.lastActiveDate,
-                            lastFreshStartShownWeek = prefs.lastFreshStartShownWeek,
-                            lastFreshStartShownYear = prefs.lastFreshStartShownYear
-                        ) -> NewChapterCard(
+                        // Fresh-start check — show NewChapterCard if applicable and no direct intent action pending
+                        run {
+                            val hasDirectIntent = initialFocusTaskId != null ||
+                                initialWoopTaskId != null ||
+                                initialGuideOpen ||
+                                initialScheduleOpen ||
+                                initialNewTaskOpen
+                            !hasDirectIntent && !freshStartHandled && FreshStartEngine.isFreshStart(
+                                nowMillis = System.currentTimeMillis(),
+                                lastOpenMillis = prefs.lastAppOpenMillis,
+                                dailyStreak = prefs.dailyStreak,
+                                lastActiveDate = prefs.lastActiveDate,
+                                lastFreshStartShownWeek = prefs.lastFreshStartShownWeek,
+                                lastFreshStartShownYear = prefs.lastFreshStartShownYear
+                            )
+                        } -> NewChapterCard(
                             onConfirm = { intent ->
                                 freshStartHandled = true
                                 scope.launch {
@@ -291,9 +326,14 @@ class MainActivity : ComponentActivity() {
                             val currentYear = remember(nowMillis) { FreshStartEngine.isoYear(nowMillis) }
                             val currentWeek = remember(nowMillis) { FreshStartEngine.isoWeekNumber(nowMillis) }
                             val yearWeekKey = currentYear * 100 + currentWeek
-                            val needsYearlyRefill = !yearlyGoalHandled &&
+                            val hasDirectIntent = initialFocusTaskId != null ||
+                                initialWoopTaskId != null ||
+                                initialGuideOpen ||
+                                initialScheduleOpen ||
+                                initialNewTaskOpen
+                            val needsYearlyRefill = !hasDirectIntent && !yearlyGoalHandled &&
                                 (prefs.lastYearlyGoalHandledYear != currentYear)
-                            val needsWeeklyRefill = !weeklyGoalHandled && !needsYearlyRefill &&
+                            val needsWeeklyRefill = !hasDirectIntent && !weeklyGoalHandled && !needsYearlyRefill &&
                                 (prefs.lastWeeklyGoalHandledWeek != yearWeekKey)
 
                             when {
@@ -303,13 +343,25 @@ class MainActivity : ComponentActivity() {
                                     onConfirm = { goals ->
                                         yearlyGoalHandled = true
                                         scope.launch {
-                                            goals.filter { it.isNotBlank() }.forEach { title ->
-                                                goalRepository.insert(
-                                                    com.neuroflow.app.data.local.entity.GoalEntity(
-                                                        title = title,
-                                                        description = "Yearly Objective"
+                                            val existingTitles = goalRepository.getActiveGoals()
+                                                .map { it.title.trim().lowercase() }
+                                                .toMutableSet()
+                                            val validGoals = goals.filter { it.isNotBlank() }
+                                                .distinctBy { it.trim().lowercase() }
+                                            validGoals.forEach { title ->
+                                                val lower = title.trim().lowercase()
+                                                if (lower !in existingTitles) {
+                                                    existingTitles.add(lower)
+                                                    goalRepository.insert(
+                                                        com.neuroflow.app.data.local.entity.GoalEntity(
+                                                            title = title.trim(),
+                                                            description = "Yearly Objective"
+                                                        )
                                                     )
-                                                )
+                                                }
+                                            }
+                                            preferencesDataStore.updatePreferences {
+                                                it.copy(yearlyGoals = validGoals)
                                             }
                                             preferencesDataStore.setLastYearlyGoalHandledYear(currentYear)
                                         }
@@ -327,13 +379,25 @@ class MainActivity : ComponentActivity() {
                                     onConfirm = { goals ->
                                         weeklyGoalHandled = true
                                         scope.launch {
-                                            goals.filter { it.isNotBlank() }.forEach { title ->
-                                                goalRepository.insert(
-                                                    com.neuroflow.app.data.local.entity.GoalEntity(
-                                                        title = title,
-                                                        description = "Weekly Objective"
+                                            val existingTitles = goalRepository.getActiveGoals()
+                                                .map { it.title.trim().lowercase() }
+                                                .toMutableSet()
+                                            val validGoals = goals.filter { it.isNotBlank() }
+                                                .distinctBy { it.trim().lowercase() }
+                                            validGoals.forEach { title ->
+                                                val lower = title.trim().lowercase()
+                                                if (lower !in existingTitles) {
+                                                    existingTitles.add(lower)
+                                                    goalRepository.insert(
+                                                        com.neuroflow.app.data.local.entity.GoalEntity(
+                                                            title = title.trim(),
+                                                            description = "Weekly Objective"
+                                                        )
                                                     )
-                                                )
+                                                }
+                                            }
+                                            preferencesDataStore.updatePreferences {
+                                                it.copy(weeklyGoals = validGoals)
                                             }
                                             preferencesDataStore.setLastWeeklyGoalHandledWeek(yearWeekKey)
                                         }
@@ -351,6 +415,12 @@ class MainActivity : ComponentActivity() {
                                         onInitialTaskConsumed = { initialFocusTaskId = null },
                                         initialOpenComposer = initialNewTaskOpen,
                                         onInitialComposerConsumed = { initialNewTaskOpen = false },
+                                        initialWoopTaskId = initialWoopTaskId,
+                                        onInitialWoopConsumed = { initialWoopTaskId = null },
+                                        initialGuideOpen = initialGuideOpen,
+                                        onInitialGuideConsumed = { initialGuideOpen = false },
+                                        initialScheduleOpen = initialScheduleOpen,
+                                        onInitialScheduleConsumed = { initialScheduleOpen = false },
                                         darkTheme = isDark,
                                         amoledDark = prefs.amoledDarkEnabled
                                     )

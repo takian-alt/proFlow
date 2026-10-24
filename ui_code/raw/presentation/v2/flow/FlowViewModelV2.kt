@@ -1,23 +1,31 @@
 package com.neuroflow.app.presentation.v2.flow
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
-import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.local.entity.buildNormalizedScheduleTimestamps
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.parseStimulantLogs
+import com.neuroflow.app.data.local.PhysiologicalEventType
+import com.neuroflow.app.data.local.parsePhysiologicalLogs
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.inference.TaskInferenceEngine
+import com.neuroflow.app.domain.service.CognitiveBlockCategory
+import java.time.Instant
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
-import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
-import com.neuroflow.app.domain.inference.TaskInferenceEngine
+import com.neuroflow.app.domain.repository.EnergyMetricsRepository
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.EnergyUiModel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
@@ -27,11 +35,15 @@ import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.model.buildBehavioralObservations
 import com.neuroflow.app.domain.model.buildDailyCognitiveBlocks
 import com.neuroflow.app.domain.model.computeEnergyUiState
-import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.computeRollingDailySleepAverage
+import com.neuroflow.app.domain.model.extractStimulantDosesFromSlots
 import com.neuroflow.app.domain.service.AdaptiveCircadianLearner
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.GeminiAiOnlineService
+import com.neuroflow.app.domain.service.QuickNoteSynthesis
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DailyCircadianSummary
@@ -40,13 +52,28 @@ import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
 import com.neuroflow.app.domain.service.EnergyDemand
+import com.neuroflow.app.domain.service.PharmacokineticStimulantCalculator
 import com.neuroflow.app.domain.service.SchedulableTask
+import com.neuroflow.app.domain.service.SocialJetlagCalculator
+import com.neuroflow.app.domain.service.StimulantDoseBout
+import com.neuroflow.app.domain.service.StimulantType
 import com.neuroflow.app.domain.service.TaskCategory
 import com.neuroflow.app.domain.service.TaskSchedulerService
+import com.neuroflow.app.domain.service.TimeSlotWindow
+import com.neuroflow.app.domain.service.computeLatestSafeStimulantCutoffMinute
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -67,13 +94,20 @@ data class FlowUiStateV2(
     val isLoading: Boolean = false,
     val overdueTasksCount: Int = 0,
     val showZeroGuiltPrompt: Boolean = false,
+    val zeroGuiltDismissed: Boolean = false,
     val selectedTag: String? = null,
     val availableTags: List<String> = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin"),
     val isEveningShutdownTime: Boolean = false,
     val eveningShutdownDismissed: Boolean = false,
     val lastCompletedTask: TaskEntity? = null,
     val lastDeferredTask: Pair<TaskEntity, Long>? = null,
-    val lastActionMessage: String? = null
+    val lastActionMessage: String? = null,
+    val stimulantDoses: List<StimulantDoseBout> = emptyList(),
+    val isCrashWindow: Boolean = false,
+    val activePlasmaMg: Double = 0.0,
+    val socialJetlagLagHours: Double = 0.0,
+    val predictedSwsSuppressionPercent: Int = 0,
+    val latestSafeStimulantCutoffFormatted: String = "16:11"
 )
 
 @HiltViewModel
@@ -85,7 +119,10 @@ class FlowViewModelV2 @Inject constructor(
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
-    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
+    @ApplicationContext private val context: Context? = null,
+    private val geminiAiOnlineService: GeminiAiOnlineService? = null,
+    private val energyMetricsRepository: EnergyMetricsRepository? = null
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
@@ -103,9 +140,18 @@ class FlowViewModelV2 @Inject constructor(
             taskRepository.observeCompletedTasks(),
             preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
                 old.wakeUpHour == new.wakeUpHour &&
+                    old.sleepHour == new.sleepHour &&
                     old.sleepPressurePoints == new.sleepPressurePoints &&
                     old.onboardingCompleted == new.onboardingCompleted &&
-                    old.tagCatalog == new.tagCatalog
+                    old.tagCatalog == new.tagCatalog &&
+                    old.stimulantLogsJson == new.stimulantLogsJson &&
+                    old.quickPhysiologicalLogsJson == new.quickPhysiologicalLogsJson &&
+                    old.protectedTimeSlots == new.protectedTimeSlots &&
+                    old.quizChronotype == new.quizChronotype &&
+                    old.manualChronotype == new.manualChronotype &&
+                    old.meqScore == new.meqScore &&
+                    old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
+                    old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay
             },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { active, completed, prefs, sleepLogs ->
@@ -144,22 +190,90 @@ class FlowViewModelV2 @Inject constructor(
 
         val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
         val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
-        val naps = signal?.daytimeNaps ?: emptyList()
+        val baseNaps = signal?.daytimeNaps ?: emptyList()
         val isFallback = sleepLogs.isEmpty() || (signal != null && signal.consolidatedSessions.isEmpty())
 
-        val sevenDaysAgo = now - 7 * 86_400_000L
-        val recentSleepLogs = sleepLogs.filter { it.startAt >= sevenDaysAgo || it.endAt >= sevenDaysAgo }
-        val rollingAverageSleepMinutes = if (recentSleepLogs.isNotEmpty()) {
-            recentSleepLogs.map { if (it.durationMinutes > 0) it.durationMinutes.toDouble() else (it.endAt - it.startAt) / 60_000.0 }.average()
-        } else {
-            480.0
-        }
+        val rollingAverageSleepMinutes = computeRollingDailySleepAverage(sleepLogs, now, systemZone)
 
-        val dailyBlocks = buildDailyCognitiveBlocks(
+        val dayStart = zonedDateTime.toLocalDate().atStartOfDay(systemZone).toInstant().toEpochMilli()
+        val slotBlocks = buildDailyCognitiveBlocks(
             slots = prefs.protectedTimeSlots,
             date = zonedDateTime.toLocalDate(),
             zoneId = systemZone
         )
+
+        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
+
+        val physBlocks = physLogs.mapNotNull { log ->
+            val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(systemZone)
+            val minOfDay = logZdt.hour * 60 + logZdt.minute
+            val duration = log.durationMinutes.coerceIn(5, 240)
+            when (log.type) {
+                PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
+                    startMinuteOfDay = minOfDay,
+                    endMinuteOfDay = (minOfDay + duration) % 1440,
+                    category = CognitiveBlockCategory.MEAL,
+                    intensity = log.intensity,
+                    label = "Quick Logged Meal #${log.timestampMillis}",
+                    explicitStartMillis = log.timestampMillis,
+                    explicitEndMillis = log.timestampMillis + duration * 60_000L
+                )
+                PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
+                    startMinuteOfDay = minOfDay,
+                    endMinuteOfDay = (minOfDay + duration) % 1440,
+                    category = CognitiveBlockCategory.EXERCISE,
+                    intensity = log.intensity,
+                    label = "Quick Logged Workout #${log.timestampMillis}",
+                    explicitStartMillis = log.timestampMillis,
+                    explicitEndMillis = log.timestampMillis + duration * 60_000L
+                )
+                PhysiologicalEventType.NAP -> null
+            }
+        }
+
+        val physNaps = physLogs.filter { it.type == PhysiologicalEventType.NAP }.map { log ->
+            val napDuration = log.durationMinutes.coerceIn(5, 180)
+            DaytimeNapBout(
+                startMillis = log.timestampMillis,
+                endMillis = log.timestampMillis + napDuration * 60_000L
+            )
+        }
+
+        val dailyBlocks = slotBlocks + physBlocks
+        val naps = baseNaps + physNaps
+
+        val loggedStimulants = parseStimulantLogs(prefs.stimulantLogsJson)
+        val slotStimulants = extractStimulantDosesFromSlots(
+            slots = prefs.protectedTimeSlots,
+            date = zonedDateTime.toLocalDate(),
+            zoneId = systemZone
+        )
+        val allStimulants = (loggedStimulants + slotStimulants)
+            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
+            .distinctBy { "${it.timestampMillis}_${it.type}" }
+
+        val stimEffect = PharmacokineticStimulantCalculator.evaluateAt(now, allStimulants)
+        val isCrashWindow = allStimulants.any { bout ->
+            val elapsed = (now - bout.timestampMillis) / 3_600_000.0
+            elapsed in (bout.type.halfLifeHours)..(bout.type.halfLifeHours + 3.5) && bout.type.crashSeverityFactor >= 0.05
+        } || (allStimulants.isNotEmpty() && stimEffect.acuteAlertnessBoostPoints < -1.0)
+
+        // Bedtime Slow-Wave Sleep (SWS) Suppression & Safe Stimulant Cutoff
+        val plannedBedtimeZdt = zonedDateTime.toLocalDate()
+            .atTime(prefs.sleepHour.coerceIn(0, 23), 0)
+            .atZone(systemZone)
+            .let { if (it.toInstant().toEpochMilli() <= now) it.plusDays(1) else it }
+        val swsSuppressionPercent = (PharmacokineticStimulantCalculator.predictBedtimeSwsSuppression(
+            plannedSleepMillis = plannedBedtimeZdt.toInstant().toEpochMilli(),
+            doses = allStimulants
+        ) * 100.0).roundToInt().coerceIn(0, 35)
+
+        val cutoffMin = computeLatestSafeStimulantCutoffMinute(sleepHour = prefs.sleepHour)
+        val cutoffFormatted = String.format(Locale.US, "%02d:%02d", cutoffMin / 60, cutoffMin % 60)
+
+        val sleepWindows = sleepLogs.map { TimeSlotWindow(it.startAt, it.endAt) }
+        val socialJetlagReport = SocialJetlagCalculator.evaluateFromSleepWindows(sleepWindows, now, systemZone)
 
         val behavioralObservations = buildBehavioralObservations(completedTasks = completedTasks, zoneId = systemZone)
         val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
@@ -174,8 +288,35 @@ class FlowViewModelV2 @Inject constructor(
             prefs = prefs,
             sleepLogs = sleepLogs,
             completedTasks = completedTasks,
-            nowMillis = now
+            nowMillis = now,
+            stimulantDoses = allStimulants
         )
+
+        if (prefs.energyTelemetryEnabled && energyMetricsRepository != null) {
+            viewModelScope.launch {
+                runCatching {
+                    energyMetricsRepository.recordEnergyPrediction(
+                        predictedAtMillis = now,
+                        baselineRawEnergy = snapshot.baselineBiologicalEnergy.toFloat(),
+                        peakScore = snapshot.usableEnergy.toFloat(),
+                        fatiguePenalty = (snapshot.homeostaticSleepPressure * 100).toFloat(),
+                        sleepPressurePoints = prefs.sleepPressurePoints,
+                        fatiguePercent = (snapshot.homeostaticSleepPressure * 100).toInt().coerceIn(0, 100),
+                        momentAdjustment = (snapshot.physiologicalImpulse + snapshot.learnedAdjustmentPoints).toFloat(),
+                        momentConfidence = snapshot.predictionConfidence.toFloat(),
+                        momentSupportScore = 50f,
+                        momentPressureScore = 50f,
+                        adjustedRawEnergy = snapshot.usableEnergy.toFloat(),
+                        usableEnergy = snapshot.usableEnergy,
+                        chronotype = prefs.quizChronotype ?: prefs.manualChronotype ?: "INTERMEDIATE",
+                        wakeUpHour = prefs.wakeUpHour,
+                        peakMinuteOfDay = prefs.detectedPeakMinuteOfDay.takeIf { it > 0 } ?: (prefs.peakEnergyStart * 60),
+                        peakConfidence = prefs.peakDetectionConfidence.takeIf { it > 0f } ?: 0.85f,
+                        activeTaskCount = activeTasks.size
+                    )
+                }
+            }
+        }
         val battery = snapshot.usableEnergy
         val currentEnergyZone = when {
             battery >= 65 -> EnergyLevel.HIGH
@@ -185,12 +326,11 @@ class FlowViewModelV2 @Inject constructor(
 
         val overdueTasks = activeTasks.filter { task ->
             task.postponeCount >= 3 ||
-                (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
+                (task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
                 (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
         }
         val showZeroGuilt = overdueTasks.size >= 3 && !dismissedGuilt
 
-        // Dynamic Tag Catalog Merge
         val defaultTags = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin")
         val dynamicTags = (prefs.tagCatalog + activeTasks.flatMap { it.tags.split(",") })
             .map { it.trim().removePrefix("#") }
@@ -232,7 +372,8 @@ class FlowViewModelV2 @Inject constructor(
                 prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
                 impactScore = task.impactScore,
                 estimatedEnjoyment = task.enjoymentScore / 10,
-                postponeCount = task.postponeCount
+                postponeCount = task.postponeCount,
+                distractionScore = task.distractionScore
             )
             val baseLeverage = (if (task.isFrog) 1000 else 0) + task.impactScore
             baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
@@ -279,11 +420,12 @@ class FlowViewModelV2 @Inject constructor(
                 manualPeakStartHour = manualPeakHour,
                 cognitiveBlocks = dailyBlocks,
                 learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAverageSleepMinutes
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                stimulantDoses = allStimulants,
+                socialJetlagLagHours = socialJetlagReport.mondayMorningPhaseLagHours
             )
         }.getOrNull()
 
-        val dayStart = zonedDateTime.toLocalDate().atStartOfDay(systemZone).toInstant().toEpochMilli()
         val dayTimeline: List<CircadianSnapshot> = runCatching {
             circadianEnergyService.projectDayTimeline(
                 dayStartMillis = dayStart,
@@ -296,7 +438,9 @@ class FlowViewModelV2 @Inject constructor(
                 manualPeakStartHour = manualPeakHour,
                 cognitiveBlocks = dailyBlocks,
                 learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAverageSleepMinutes
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                stimulantDoses = allStimulants,
+                socialJetlagLagHours = socialJetlagReport.mondayMorningPhaseLagHours
             )
         }.getOrElse { emptyList() }
 
@@ -317,13 +461,20 @@ class FlowViewModelV2 @Inject constructor(
             isLoading = false,
             overdueTasksCount = overdueTasks.size,
             showZeroGuiltPrompt = showZeroGuilt,
+            zeroGuiltDismissed = dismissedGuilt,
             selectedTag = tag,
             availableTags = mergedTags,
             isEveningShutdownTime = isEvening,
             eveningShutdownDismissed = shutdownDismissed,
             lastCompletedTask = lastCompleted,
             lastDeferredTask = lastDeferred,
-            lastActionMessage = actionMsg
+            lastActionMessage = actionMsg,
+            stimulantDoses = allStimulants,
+            isCrashWindow = isCrashWindow,
+            activePlasmaMg = stimEffect.activeEquivalentMg,
+            socialJetlagLagHours = socialJetlagReport.socialJetlagHours,
+            predictedSwsSuppressionPercent = swsSuppressionPercent,
+            latestSafeStimulantCutoffFormatted = cutoffFormatted
         )
     }.stateIn(
         viewModelScope,
@@ -334,6 +485,156 @@ class FlowViewModelV2 @Inject constructor(
     fun addTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.insert(task)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
+        }
+    }
+
+    fun logStimulant(type: StimulantType) {
+        viewModelScope.launch {
+            preferencesDataStore.recordStimulantDose(type)
+            val label = when (type) {
+                StimulantType.CAFFEINE -> "Caffeine ☕"
+                StimulantType.GREEN_TEA_L_THEANINE -> "Green Tea 🍵"
+                StimulantType.PRESCRIPTION_STIMULANT_IR -> "Meds IR 💊"
+                StimulantType.PRESCRIPTION_STIMULANT_XR -> "Meds XR 💊"
+            }
+            _lastActionMessage.value = "Stimulant logged: $label — Energy curve updated"
+        }
+    }
+
+    fun undoLogStimulant() {
+        viewModelScope.launch {
+            val undone = preferencesDataStore.undoLastStimulantDose()
+            if (undone) {
+                _lastActionMessage.value = "Undone: Removed last stimulant dose ↩️"
+            }
+        }
+    }
+
+    fun clearAllStimulants() {
+        viewModelScope.launch {
+            preferencesDataStore.clearStimulantLogs()
+            _lastActionMessage.value = "Cleared all logged stimulants 🧹"
+        }
+    }
+
+    fun removeStimulantDose(timestampMillis: Long, type: StimulantType? = null) {
+        viewModelScope.launch {
+            val typeStr = type?.name
+            val removed = preferencesDataStore.removeStimulantDose(timestampMillis, typeStr)
+            if (removed) {
+                _lastActionMessage.value = "Removed stimulant dose 🗑️"
+            }
+        }
+    }
+
+    fun logPhysiologicalEvent(type: PhysiologicalEventType) {
+        viewModelScope.launch {
+            preferencesDataStore.recordPhysiologicalEvent(type)
+            val label = when (type) {
+                PhysiologicalEventType.MEAL -> "Meal Dip 🍽️ (-12.0 pt nadir)"
+                PhysiologicalEventType.WORKOUT -> "Workout 🏃 (+10 pt endorphin window)"
+                PhysiologicalEventType.NAP -> "20m Power Nap 💤 (sleep pressure cleared)"
+            }
+            _lastActionMessage.value = "Bio-event logged: $label — Curve updated"
+        }
+    }
+
+    fun undoLogPhysiologicalEvent() {
+        viewModelScope.launch {
+            val undone = preferencesDataStore.undoLastPhysiologicalEvent()
+            if (undone) {
+                _lastActionMessage.value = "Undone: Removed last physiological event ↩️"
+            }
+        }
+    }
+
+    fun clearAllPhysiologicalEvents() {
+        viewModelScope.launch {
+            preferencesDataStore.clearPhysiologicalLogs()
+            _lastActionMessage.value = "Cleared all physiological events 🧹"
+        }
+    }
+
+    fun addTaskFromNote(title: String, content: String) {
+        viewModelScope.launch {
+            val fullText = if (title.isNotBlank()) "$title: $content" else content
+            val inferred = TaskInferenceEngine.inferFromInput(fullText)
+            val now = System.currentTimeMillis()
+            val newTask = TaskEntity(
+                title = inferred.sanitizedTitle.ifBlank { title.ifBlank { "Quick Task" } },
+                description = content,
+                estimatedDurationMinutes = inferred.durationMinutes,
+                priority = inferred.priority,
+                energyLevel = inferred.energyDemand,
+                taskType = inferred.taskType,
+                quadrant = inferred.quadrant,
+                tags = inferred.contextTags.joinToString(","),
+                scheduledDate = inferred.scheduledDate ?: now,
+                scheduledTime = inferred.scheduledTime,
+                deadlineDate = inferred.deadlineDate,
+                deadlineTime = inferred.deadlineTime,
+                isFrog = inferred.isFrog,
+                createdAt = now,
+                updatedAt = now
+            )
+            taskRepository.insert(newTask)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, newTask) }
+            _lastActionMessage.value = "Created task from note: ${newTask.title.take(24)} ⚡"
+        }
+    }
+
+    fun shiftTaskToPeak(task: TaskEntity) {
+        viewModelScope.launch {
+            val peakHour = uiState.value.circadianSummary?.peakWindowStartHour
+                ?: uiState.value.preferences.peakEnergyStart.takeIf { it > 0 } ?: 10
+            val peakEndHour = uiState.value.circadianSummary?.peakWindowEndHour ?: (peakHour + 3)
+            val dipEndHour = uiState.value.circadianSummary?.dipWindowEndHour ?: 16
+            val usableEnergy = uiState.value.circadianSummary?.currentSnapshot?.usableEnergy ?: 60
+
+            val now = System.currentTimeMillis()
+            val cal = Calendar.getInstance().apply { timeInMillis = now }
+            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+
+            val baseDate = task.scheduledDate ?: now
+            val baseCal = Calendar.getInstance().apply {
+                timeInMillis = baseDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val isToday = baseCal.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
+                baseCal.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR)
+
+            val targetDate: Long
+            val targetHour: Int
+            val messageLabel: String
+
+            if (!isToday || currentHour < peakEndHour) {
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Peak Window (${peakHour}:00)"
+            } else if (currentHour < 18 && usableEnergy >= 55) {
+                targetDate = baseCal.timeInMillis
+                targetHour = maxOf(currentHour + 1, dipEndHour).coerceAtMost(17)
+                messageLabel = "Afternoon Rebound (${targetHour}:00)"
+            } else {
+                baseCal.add(Calendar.DAY_OF_YEAR, 1)
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Tomorrow's Peak (${peakHour}:00)"
+            }
+
+            val millisInDay = targetHour * 3600_000L
+            val updated = task.copy(
+                scheduledDate = targetDate,
+                scheduledTime = millisInDay,
+                isScheduleLocked = true,
+                updatedAt = System.currentTimeMillis()
+            )
+            taskRepository.update(updated)
+            _lastActionMessage.value = "Shifted '${task.title.take(20)}' to $messageLabel ⚡"
         }
     }
 
@@ -346,7 +647,12 @@ class FlowViewModelV2 @Inject constructor(
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
             _lastCompletedTask.value = task
-            _lastActionMessage.value = "Completed: ${task.title}"
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {
+                " • \"${prefs.affirmations.random()}\""
+            } else ""
+            _lastActionMessage.value = "Completed: ${task.title}$affirmationSuffix"
+            context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
         }
     }
@@ -369,27 +675,31 @@ class FlowViewModelV2 @Inject constructor(
     fun deferTask(task: TaskEntity, hours: Int = 2) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            val previousTime = task.scheduledTime ?: now
-            _lastDeferredTask.value = Pair(task, previousTime)
-            val newScheduledTime = previousTime + hours * 3600_000L
+            val currentEpoch = task.resolveScheduledEpochMillis(now) ?: now
+            _lastDeferredTask.value = Pair(task, task.scheduledTime ?: 0L)
+            val newEpoch = currentEpoch + hours * 3600_000L
+            val (newDate, newTime) = buildNormalizedScheduleTimestamps(newEpoch)
             taskRepository.update(
                 task.copy(
-                    scheduledTime = newScheduledTime,
+                    scheduledDate = newDate,
+                    scheduledTime = newTime,
                     postponeCount = task.postponeCount + 1,
                     updatedAt = now
                 )
             )
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
             _lastActionMessage.value = "Deferred by ${hours}h: ${task.title}"
         }
     }
 
     fun undoDeferTask() {
         val pair = _lastDeferredTask.value ?: return
-        val (originalTask, prevTime) = pair
+        val (originalTask, _) = pair
         viewModelScope.launch {
             taskRepository.update(
                 originalTask.copy(
-                    scheduledTime = prevTime,
+                    scheduledDate = originalTask.scheduledDate,
+                    scheduledTime = originalTask.scheduledTime,
                     postponeCount = (originalTask.postponeCount - 1).coerceAtLeast(0),
                     updatedAt = System.currentTimeMillis()
                 )
@@ -408,7 +718,7 @@ class FlowViewModelV2 @Inject constructor(
             val now = System.currentTimeMillis()
             val overdue = uiState.value.activeTasks.filter { task ->
                 task.postponeCount >= 3 ||
-                    (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
+                    (task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
                     (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
             }
             overdue.forEach { task ->
@@ -488,32 +798,64 @@ class FlowViewModelV2 @Inject constructor(
         }
     }
 
+    suspend fun synthesizeQuickNote(content: String): QuickNoteSynthesis {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.synthesizeQuickNote(
+            rawContent = content,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        ) ?: run {
+            val inferred = TaskInferenceEngine.inferFromInput(content)
+            QuickNoteSynthesis(
+                extractedTaskTitle = inferred.sanitizedTitle.ifBlank { content.take(35) },
+                suggestedCategory = inferred.taskType.name,
+                estimatedMinutes = inferred.durationMinutes,
+                tags = inferred.contextTags,
+                firstActionStep = "Review scratchpad note and outline details"
+            )
+        }
+    }
+
+    suspend fun enrichTaskWithAi(taskTitle: String, durationMinutes: Int = 30): com.neuroflow.app.domain.service.TaskEnrichmentResult? {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.enrichTaskWithAi(
+            title = taskTitle,
+            durationMinutes = durationMinutes,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        )
+    }
+
     fun logPastTime(task: TaskEntity, minutes: Float) {
+        if (minutes.isNaN() || minutes.isInfinite()) return
+        val safeMinutes = minutes.coerceAtMost(1440f)
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val session = TimeSessionEntity(
                 taskId = task.id,
-                startedAt = now - (minutes * 60_000f).toLong(),
+                startedAt = now - (safeMinutes * 60_000f).toLong(),
                 endedAt = now,
-                durationMinutes = minutes,
+                durationMinutes = safeMinutes,
                 sessionType = "MANUAL_LOG"
             )
             sessionRepository?.insert(session)
-            val newTracked = task.totalTimeTrackedMinutes + minutes
+            val newTracked = task.totalTimeTrackedMinutes + safeMinutes
             val newCount = task.sessionCount + 1
             taskRepository.update(
                 task.copy(
                     totalTimeTrackedMinutes = newTracked,
                     sessionCount = newCount,
-                    lastSessionDurationMinutes = minutes,
+                    lastSessionDurationMinutes = safeMinutes,
                     actualDurationMinutes = newTracked,
                     updatedAt = now
                 )
             )
             preferencesDataStore.updatePreferences { prefs ->
-                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
+                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + safeMinutes.toInt())
             }
-            _lastActionMessage.value = "Logged ${minutes.toInt()}m past time for ${task.title}"
+            _lastActionMessage.value = "Logged ${safeMinutes.toInt()}m past time for ${task.title}"
         }
     }
 

@@ -1,12 +1,17 @@
 package com.neuroflow.app.presentation.common
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -48,7 +53,23 @@ fun UlyssesContractSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            Text("⚔️ Ulysses Contract", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "⚔️ Ulysses Contract",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close sheet")
+                }
+            }
             Text(
                 "Commit to completing a task by a deadline with a personal consequence.",
                 style = MaterialTheme.typography.bodySmall,
@@ -61,7 +82,11 @@ fun UlyssesContractSheet(
                 onClick = { showTaskPicker = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (selectedTaskTitle.isNotBlank()) selectedTaskTitle else "Select a task...")
+                Text(
+                    if (selectedTaskTitle.isNotBlank()) selectedTaskTitle else "Select a task...",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             if (showTaskPicker) {
@@ -74,7 +99,7 @@ fun UlyssesContractSheet(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(task.title, maxLines = 1)
+                        Text(task.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -91,7 +116,12 @@ fun UlyssesContractSheet(
                     fontSize = 12.sp
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(onClick = { deadlineMillis += 86_400_000L }) { Text("+1 day") }
                 OutlinedButton(onClick = { deadlineMillis += 7 * 86_400_000L }) { Text("+1 week") }
                 OutlinedButton(onClick = { if (deadlineMillis - 86_400_000L > System.currentTimeMillis()) deadlineMillis -= 86_400_000L }) { Text("-1 day") }

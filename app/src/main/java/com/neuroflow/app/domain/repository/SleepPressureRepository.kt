@@ -5,10 +5,13 @@ import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.repository.SleepLogRepository
 import com.neuroflow.app.domain.model.FatigueZone
+import com.neuroflow.app.domain.model.computeRollingDailySleepAverage
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +27,24 @@ class SleepPressureRepository @Inject constructor(
         const val MAX_SLEEP_LOG_DURATION_MILLIS = MAX_SLEEP_LOG_DURATION_MINUTES * 60_000L
         private const val AUTO_FALLBACK_AFTER_WAKE_MINUTES = 12 * 60
         private const val HOUR_MILLIS = 60 * 60_000L
+
+        fun coalesceSleepIntervals(sleepIntervals: List<SleepInterval>): List<SleepInterval> {
+            if (sleepIntervals.isEmpty()) return emptyList()
+            val sorted = sleepIntervals.sortedBy { it.startAt }
+            val merged = mutableListOf<SleepInterval>()
+            var current = sorted[0]
+            for (i in 1 until sorted.size) {
+                val next = sorted[i]
+                if (next.startAt <= current.endAt) {
+                    current = current.copy(endAt = maxOf(current.endAt, next.endAt))
+                } else {
+                    merged.add(current)
+                    current = next
+                }
+            }
+            merged.add(current)
+            return merged
+        }
     }
 
     sealed interface AddSleepLogResult {
@@ -45,12 +66,13 @@ class SleepPressureRepository @Inject constructor(
         val adjustedFatigueZone: FatigueZone = fatigueZone
     )
 
-    private data class SleepInterval(
+    data class SleepInterval(
         val startAt: Long,
         val endAt: Long
     )
 
     private val dismissedFallbackIntervals = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val refreshMutex = Mutex()
 
     fun observeSleepLogs(): Flow<List<SleepLogEntity>> = sleepLogRepository.observeAll()
 
@@ -65,8 +87,8 @@ class SleepPressureRepository @Inject constructor(
         }
 
         val overlapping = sleepLogRepository.getOverlapping(safeStart, normalizedEnd)
-        val manualOverlapping = overlapping.filter { it.source == "MANUAL" }
-        if (manualOverlapping.isNotEmpty()) {
+        val realOverlapping = overlapping.filter { it.source == "MANUAL" || it.source == "HEALTH_CONNECT" }
+        if (realOverlapping.isNotEmpty()) {
             return AddSleepLogResult.OverlapsExisting
         }
 
@@ -153,7 +175,7 @@ class SleepPressureRepository @Inject constructor(
         )
     }
 
-    suspend fun refreshCurrentPressure(nowMillis: Long = System.currentTimeMillis()): Snapshot {
+    suspend fun refreshCurrentPressure(nowMillis: Long = System.currentTimeMillis()): Snapshot = refreshMutex.withLock {
         val prefs = preferencesDataStore.preferencesFlow.first()
 
         // Phase 1 boundary fix: use the preference-stored tracking start when valid
@@ -161,7 +183,7 @@ class SleepPressureRepository @Inject constructor(
         val trackingStart = if (prefs.sleepPressureTrackingStartedAtMillis > 0L &&
             prefs.sleepPressureTrackingStartedAtMillis < nowMillis
         ) {
-            prefs.sleepPressureTrackingStartedAtMillis
+            maxOf(prefs.sleepPressureTrackingStartedAtMillis, nowMillis - 7 * 86_400_000L)
         } else {
             defaultTrackingStartMillis(nowMillis, prefs.wakeUpHour)
         }
@@ -189,7 +211,11 @@ class SleepPressureRepository @Inject constructor(
 
         sleepIntervals.sortBy { it.startAt }
 
-        sleepIntervals.forEach { interval ->
+        // Bug 4 Fix (ADR-030): Sweep-line merge overlapping or contiguous sleep intervals
+        // so that multi-record sleep sessions receive continuous non-linear 90m SWS cycle recovery bonuses
+        val coalescedIntervals = coalesceSleepIntervals(sleepIntervals)
+
+        coalescedIntervals.forEach { interval ->
             val boundedStart = maxOf(cursor, interval.startAt)
             val boundedEnd = minOf(nowMillis, interval.endAt)
             if (boundedEnd <= boundedStart) {
@@ -226,18 +252,13 @@ class SleepPressureRepository @Inject constructor(
             )
         }
 
-        val lastIntervalEnd = sleepIntervals.map { it.endAt }.filter { it <= nowMillis }.maxOrNull()
+        val lastIntervalEnd = coalescedIntervals.map { it.endAt }.filter { it <= nowMillis }.maxOrNull()
         val wakeAnchor = lastIntervalEnd ?: trackingStart
         val minutesSinceWake = minutesBetween(wakeAnchor, nowMillis)
 
         val sevenDaysAgo = nowMillis - 7 * 24 * 60 * 60_000L
         val rollingLogs = sleepLogRepository.getOverlapping(sevenDaysAgo, nowMillis)
-        val totalRollingSleepMinutes = rollingLogs.sumOf { log ->
-            val s = maxOf(sevenDaysAgo, log.startAt)
-            val e = minOf(nowMillis, log.endAt)
-            if (e > s) ((e - s) / 60_000L).toInt() else 0
-        }
-        val rollingAvgDailyMinutes = (totalRollingSleepMinutes.toFloat() / 7f)
+        val rollingAvgDailyMinutes = computeRollingDailySleepAverage(rollingLogs, nowMillis, ZoneId.systemDefault()).toFloat()
         val chronicMultiplier = FatigueZone.calculateChronicRestrictionMultiplier(rollingAvgDailyMinutes)
         val inertiaPenalty = FatigueZone.calculateSleepInertiaPenalty(minutesSinceWake)
         val inertiaActive = FatigueZone.isSleepInertiaActive(minutesSinceWake)
@@ -255,7 +276,7 @@ class SleepPressureRepository @Inject constructor(
             rollingAverageSleepMinutes = rollingAvgDailyMinutes
         )
 
-        return Snapshot(
+        Snapshot(
             pressurePoints = pressure,
             fatiguePercent = fatiguePercent,
             fatigueZone = zone,
@@ -315,14 +336,10 @@ class SleepPressureRepository @Inject constructor(
                 .toInstant()
                 .toEpochMilli()
 
-            var defaultWakeEnd = targetDate
-                .atTime(wakeHour, 0)
-                .atZone(zoneId)
-                .toInstant()
-                .toEpochMilli()
-
-            if (defaultWakeEnd <= defaultSleepStart) {
-                defaultWakeEnd += 24 * HOUR_MILLIS
+            val defaultWakeEnd = if (wakeHour <= sleepHour) {
+                targetDate.plusDays(1).atTime(wakeHour, 0).atZone(zoneId).toInstant().toEpochMilli()
+            } else {
+                targetDate.atTime(wakeHour, 0).atZone(zoneId).toInstant().toEpochMilli()
             }
 
             // 12-hour post-wake delay check relative to actual default wake time
@@ -330,13 +347,21 @@ class SleepPressureRepository @Inject constructor(
                 continue
             }
 
-            val logsInWindow = sleepLogRepository.getOverlapping(defaultSleepStart, nowMillis)
-            val hasManualLogSinceDefaultSleep = logsInWindow.any { it.source == "MANUAL" }
-            if (hasManualLogSinceDefaultSleep) {
+            if (defaultWakeEnd < trackingStart) {
                 continue
             }
 
-            val boundedStart = maxOf(trackingStart, defaultSleepStart)
+            // Bug 2 Fix (ADR-025): Scope query strictly to the target night's window
+            // to prevent newer manual logs from blocking fallback sleep for older unlogged nights.
+            val queryStart = defaultSleepStart - 4 * HOUR_MILLIS
+            val queryEnd = defaultWakeEnd + 4 * HOUR_MILLIS
+            val logsInWindow = sleepLogRepository.getOverlapping(queryStart, queryEnd)
+            val hasManualLogForNight = logsInWindow.any { it.source == "MANUAL" || it.source == "HEALTH_CONNECT" }
+            if (hasManualLogForNight) {
+                continue
+            }
+
+            val boundedStart = defaultSleepStart
             val boundedEnd = minOf(nowMillis, defaultWakeEnd)
             if (boundedEnd <= boundedStart) {
                 continue

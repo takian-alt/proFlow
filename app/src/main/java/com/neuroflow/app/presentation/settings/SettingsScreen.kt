@@ -36,10 +36,11 @@ import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.presentation.common.EnergyInsight
+import com.neuroflow.app.presentation.common.TaskTagViewModel
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -50,6 +51,7 @@ fun SettingsScreen(
     onNavigateToMEQQuiz: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
     onNavigateToAccountSync: () -> Unit = {},
+    onNavigateToLogTime: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -370,6 +372,13 @@ fun SettingsScreen(
                     checked = prefs.autoTrackerEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsToggleRow(
+                    label = "Do Not Disturb (DND) during focus",
+                    description = "Automatically mute notifications during active focus sprints",
+                    checked = prefs.dndEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(dndEnabled = it) } }
+                )
                 Spacer(modifier = Modifier.height(10.dp))
                 SettingsDeepWorkTargetRow(
                     minutes = prefs.dailyDeepWorkTargetMinutes,
@@ -377,6 +386,92 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(dailyDeepWorkTargetMinutes = target) }
                     }
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToLogTime() },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text("Manual Time Logging", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Log past offline sessions and deep work time", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open →", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            SettingsSection("Task Tags Catalog") {
+                val tagViewModel: TaskTagViewModel = hiltViewModel()
+                val tags by tagViewModel.tags.collectAsStateWithLifecycle()
+                var newTagInput by remember { mutableStateOf("") }
+
+                Text(
+                    "Manage your custom task tags and labels used across planning filters.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newTagInput,
+                        onValueChange = { newTagInput = it },
+                        placeholder = { Text("Add tag (e.g. #deepwork)", fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    Button(
+                        onClick = {
+                            if (newTagInput.isNotBlank()) {
+                                tagViewModel.addTags(listOf(newTagInput.trim()))
+                                newTagInput = ""
+                            }
+                        },
+                        enabled = newTagInput.isNotBlank(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Add")
+                    }
+                }
+
+                if (tags.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        tags.forEach { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = {},
+                                label = { Text(tag, fontSize = 12.sp) },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove tag",
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { tagViewModel.removeTag(tag) }
+                                    )
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             SettingsSection("Distraction Tracking") {
@@ -495,6 +590,16 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(quizPeakEnabled = enabled) }
                     }
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = onNavigateToMEQQuiz,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (prefs.quizChronotype != null) "Retake MEQ Chronotype Quiz" else "Take MEQ Chronotype Quiz")
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (prefs.quizPeakEnabled) {
@@ -885,14 +990,17 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("User Guide", fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text("neuroFlow V2 Operating Manual", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "Start here: quick setup and daily workflow",
+                            "Circadian biophysics, auto-scheduling & executive protocols",
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Icon(Icons.Filled.ChevronRight, "Navigate")
                 }
             }
@@ -910,14 +1018,17 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("Privacy & Permissions", fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text("Privacy & Permissions", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             "Why the app asks for powerful Android permissions",
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Icon(Icons.Filled.ChevronRight, "Navigate")
                 }
             }
@@ -1395,7 +1506,15 @@ private fun SettingsNumberRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 14.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f, fill = false),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { if (enabled && value > min) onValueChange(value - 1) }, enabled = enabled, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                 Icon(Icons.Filled.Remove, "Decrease", modifier = Modifier.size(18.dp))

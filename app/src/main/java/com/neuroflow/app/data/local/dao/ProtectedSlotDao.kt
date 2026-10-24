@@ -26,4 +26,7 @@ interface ProtectedSlotDao {
 
     @Query("SELECT * FROM protected_slots WHERE isEnabled = 1")
     suspend fun getActive(): List<ProtectedSlotEntity>
+
+    @Query("SELECT * FROM protected_slots")
+    suspend fun getAll(): List<ProtectedSlotEntity>
 }

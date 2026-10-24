@@ -7,8 +7,10 @@ import com.google.firebase.firestore.WriteBatch
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.NoteEntity
+import com.neuroflow.app.data.local.entity.ProtectedSlotEntity
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
 import com.neuroflow.app.data.local.entity.WoopEntity
@@ -39,7 +41,9 @@ data class BackupPayload(
     val energyPredictions: List<EnergyPredictionEntity>,
     val hyperFocusSessions: List<HyperFocusSessionEntity>,
     val preferences: Map<String, String>,  // DataStore key-value pairs
-    val notes: List<NoteEntity> = emptyList()
+    val notes: List<NoteEntity> = emptyList(),
+    val protectedSlots: List<ProtectedSlotEntity> = emptyList(),
+    val taskMicroSteps: List<TaskMicroStepEntity> = emptyList()
 )
 
 // ---------------------------------------------------------------------------
@@ -93,7 +97,9 @@ class FirestoreBackupRepository @Inject constructor(
                 "sleepLogCount" to payload.sleepLogs.size,
                 "energyPredictionCount" to payload.energyPredictions.size,
                 "hyperFocusCount" to payload.hyperFocusSessions.size,
-                "noteCount" to payload.notes.size
+                "noteCount" to payload.notes.size,
+                "protectedSlotCount" to payload.protectedSlots.size,
+                "taskMicroStepCount" to payload.taskMicroSteps.size
             )
 
             // 1. Write document directly at users/{uid}/backups/{backupId} so it is never a virtual document
@@ -129,6 +135,8 @@ class FirestoreBackupRepository @Inject constructor(
             uploadCollection(backupRef.collection("hyperFocusSessions"), payload.hyperFocusSessions.map { it.toMap() })
             uploadCollection(backupRef.collection("energyPredictions"), payload.energyPredictions.map { it.toMap() })
             uploadCollection(backupRef.collection("notes"), payload.notes.map { it.toMap() })
+            uploadCollection(backupRef.collection("protectedSlots"), payload.protectedSlots.map { it.toMap() })
+            uploadCollection(backupRef.collection("taskMicroSteps"), payload.taskMicroSteps.map { it.toMap() })
 
             // --- preferences (single document) ---------------------------
             if (payload.preferences.isNotEmpty()) {
@@ -248,7 +256,7 @@ class FirestoreBackupRepository @Inject constructor(
             val subCollections = listOf(
                 "meta", "tasks", "goals", "timeSessions", "woopData",
                 "ulyssesContracts", "sleepLogs", "hyperFocusSessions",
-                "energyPredictions", "notes", "preferences"
+                "energyPredictions", "notes", "protectedSlots", "taskMicroSteps", "preferences"
             )
             for (colName in subCollections) {
                 deleteCollection(backupRef.collection(colName))
@@ -371,6 +379,12 @@ class FirestoreBackupRepository @Inject constructor(
         val notes = backupRef.collection("notes").get().await()
             .documents.mapNotNull { it.data?.toNoteEntity() }
 
+        val protectedSlots = backupRef.collection("protectedSlots").get().await()
+            .documents.mapNotNull { it.data?.toProtectedSlotEntity() }
+
+        val taskMicroSteps = backupRef.collection("taskMicroSteps").get().await()
+            .documents.mapNotNull { it.data?.toTaskMicroStepEntity() }
+
         @Suppress("UNCHECKED_CAST")
         val preferences = backupRef.collection("preferences").document("data")
             .get().await().data?.mapValues { it.value?.toString() ?: "" }
@@ -386,7 +400,9 @@ class FirestoreBackupRepository @Inject constructor(
             energyPredictions = energyPredictions,
             hyperFocusSessions = hyperFocusSessions,
             preferences = preferences,
-            notes = notes
+            notes = notes,
+            protectedSlots = protectedSlots,
+            taskMicroSteps = taskMicroSteps
         )
     }
 }
@@ -777,6 +793,54 @@ private fun Map<String, Any?>.toNoteEntity(): NoteEntity? = runCatching {
         createdAt = long("createdAt") ?: System.currentTimeMillis(),
         updatedAt = long("updatedAt") ?: System.currentTimeMillis(),
         tags = str("tags") ?: ""
+    )
+}.getOrNull()
+
+// ---------------------------------------------------------------------------
+// ProtectedSlotEntity
+// ---------------------------------------------------------------------------
+private fun ProtectedSlotEntity.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "title" to title,
+    "startHour" to startHour,
+    "startMinute" to startMinute,
+    "durationMinutes" to durationMinutes,
+    "daysOfWeekMask" to daysOfWeekMask,
+    "isEnabled" to isEnabled
+)
+
+private fun Map<String, Any?>.toProtectedSlotEntity(): ProtectedSlotEntity? = runCatching {
+    ProtectedSlotEntity(
+        id = str("id") ?: return null,
+        title = str("title") ?: "",
+        startHour = int("startHour") ?: 9,
+        startMinute = int("startMinute") ?: 0,
+        durationMinutes = int("durationMinutes") ?: 60,
+        daysOfWeekMask = int("daysOfWeekMask") ?: 127,
+        isEnabled = bool("isEnabled") ?: true
+    )
+}.getOrNull()
+
+// ---------------------------------------------------------------------------
+// TaskMicroStepEntity
+// ---------------------------------------------------------------------------
+private fun TaskMicroStepEntity.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "taskId" to taskId,
+    "title" to title,
+    "sortOrder" to sortOrder,
+    "isCompleted" to isCompleted,
+    "estimatedMinutes" to estimatedMinutes
+)
+
+private fun Map<String, Any?>.toTaskMicroStepEntity(): TaskMicroStepEntity? = runCatching {
+    TaskMicroStepEntity(
+        id = str("id") ?: return null,
+        taskId = str("taskId") ?: return null,
+        title = str("title") ?: "",
+        sortOrder = int("sortOrder") ?: 0,
+        isCompleted = bool("isCompleted") ?: false,
+        estimatedMinutes = int("estimatedMinutes") ?: 5
     )
 }.getOrNull()
 

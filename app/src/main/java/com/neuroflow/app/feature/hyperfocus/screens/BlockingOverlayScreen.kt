@@ -193,6 +193,9 @@ fun BlockingOverlayScreen(
                     }
                     context.startActivity(focusIntent)
                     (context as? Activity)?.finish()
+                },
+                onRedeemEarnedPassClick = {
+                    navController.navigate(HyperFocusActivity.DESTINATION_REWARDS)
                 }
             )
 

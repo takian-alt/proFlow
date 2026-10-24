@@ -98,7 +98,7 @@ class HyperFocusHomeViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val emergencyAvailable: StateFlow<Boolean> = hyperFocusDataStore.flow
-        .map { it.isActive && !it.emergencyUsed }
+        .map { it.isActive && !it.emergencyUsed && it.sessionMode != com.neuroflow.app.domain.model.HyperFocusSessionMode.TIME_BASED }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Called from the activity's `onCreate` and `onResume`; cheap and idempotent. */

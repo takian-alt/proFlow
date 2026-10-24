@@ -55,3 +55,15 @@
 -keep class com.neuroflow.app.data.calendar.** { *; }
 -keep class com.neuroflow.app.presentation.v2.focus.audio.** { *; }
 -keep class com.neuroflow.app.data.sleep.** { *; }
+-keep class com.neuroflow.app.feature.hyperfocus.service.** { *; }
+-keep class com.neuroflow.app.feature.hyperfocus.data.** { *; }
+-keep class com.neuroflow.app.presentation.v2.focus.service.** { *; }
+-keep class com.neuroflow.app.data.badge.** { *; }
+-keep class com.neuroflow.app.domain.engine.** { *; }
+-keep class com.neuroflow.app.domain.scheduler.** { *; }
+
+# ---- Enums values() and valueOf() preservation ----
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}

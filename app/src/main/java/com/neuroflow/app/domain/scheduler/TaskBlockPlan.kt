@@ -21,8 +21,11 @@ object TaskBlockPlan {
     }
 
     /** The planner's own starting figure, before bias and energy inflate it. */
-    fun expectedMinutes(task: TaskEntity): Int =
-        if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else defaultMinutes(task)
+    fun expectedMinutes(task: TaskEntity): Int = when {
+        task.plannedBlockMinutes > 0 && (task.id.contains("#part") || task.id.contains("_part") || task.parentTaskId != null || task.title.contains("#part") || task.title.contains("_part") || task.title.contains("(Part ")) -> task.plannedBlockMinutes
+        task.estimatedDurationMinutes > 0 -> task.estimatedDurationMinutes
+        else -> defaultMinutes(task)
+    }
 
     /** What a task of this effort is worth when the user never gave it a length. */
     fun defaultMinutes(task: TaskEntity): Int = when {

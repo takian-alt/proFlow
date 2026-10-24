@@ -1,5 +1,7 @@
 package com.neuroflow.app.presentation.v2.focus
 
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -36,7 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -44,12 +48,14 @@ import com.neuroflow.app.presentation.v2.focus.components.KeepScreenOnEffect
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FocusScreenV2(
+    initialOpenWoop: Boolean = false,
     onNavigateBack: () -> Unit,
     onNavigateToNextTask: (String) -> Unit = {},
     viewModel: FocusViewModelV2 = hiltViewModel()
@@ -60,13 +66,29 @@ fun FocusScreenV2(
     var newThoughtText by remember { mutableStateOf("") }
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
-    var showWoopPromptSheet by remember { mutableStateOf(false) }
+    var showWoopPromptSheet by remember { mutableStateOf(initialOpenWoop) }
+    var showFrogConfetti by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.task, state.preferences, initialOpenWoop) {
+        val task = state.task
+        val prefs = state.preferences
+        if (task != null) {
+            if (initialOpenWoop || (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null)) {
+                showWoopPromptSheet = true
+                viewModel.markWoopPromptShown()
+            }
+        }
+    }
 
     KeepScreenOnEffect(enabled = state.isSessionActive && !state.isPaused)
 
+    val context = LocalContext.current
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.onScreenExit()
+            val activity = context as? Activity
+            if (activity?.isChangingConfigurations != true) {
+                viewModel.onScreenExit()
+            }
         }
     }
 
@@ -124,7 +146,7 @@ fun FocusScreenV2(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Mode Selector Chips
-            if (!state.isRunning && !state.isCompleted) {
+            if (!state.isRunning && !state.isPaused && !state.isCompleted) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -136,7 +158,7 @@ fun FocusScreenV2(
                             label = { Text(mode.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = Color.White,
+                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                 labelColor = NeuroFlowThemeV2Colors.TextSecondary
                             ),
@@ -185,7 +207,7 @@ fun FocusScreenV2(
                     Icon(
                         imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
-                        tint = Color.White,
+                        tint = NeuroFlowThemeV2Colors.TextPrimary,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -194,14 +216,17 @@ fun FocusScreenV2(
 
                 // Complete Task Button (touch target >= 48dp)
                 Button(
-                    onClick = { viewModel.completeTask() },
+                    onClick = {
+                        if (state.task?.isFrog == true) showFrogConfetti = true
+                        viewModel.completeTask()
+                    },
                     modifier = Modifier.heightIn(min = 52.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White)
+                    Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Complete", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Complete", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
                 }
 
                 Spacer(modifier = Modifier.width(10.dp))
@@ -215,6 +240,30 @@ fun FocusScreenV2(
                 ) {
                     Icon(Icons.Default.Lightbulb, contentDescription = "Park Thought", tint = NeuroFlowThemeV2Colors.WarmAmber)
                 }
+            }
+
+            // Bioluminescent Waveform Visualizer (Active during sprint with soundscape enabled)
+            val isAudioActive = state.selectedSoundscape != SoundscapeType.NONE && state.isRunning && !state.isPaused
+            if (isAudioActive) {
+                BioluminescentSoundscapeWaveformCard(soundscape = state.selectedSoundscape)
+            }
+
+            // Pinned Active Doorway Step Spotlight Card
+            val activeMicroSteps = state.microSteps
+            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
+                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
+            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
+            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
+
+            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
+                ZenMicroStepSpotlightCard(
+                    currentStepIndex = firstIncompleteIndex,
+                    totalSteps = activeMicroSteps.size,
+                    currentStepTitle = currentMicroStep.text,
+                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
+                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
+                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
+                )
             }
 
             // Neural Soundscapes Card
@@ -236,23 +285,29 @@ fun FocusScreenV2(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
                         ) {
                             Text(
                                 "🎧 Neural Soundscapes",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = NeuroFlowThemeV2Colors.TextPrimary
+                                color = NeuroFlowThemeV2Colors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             if (state.selectedSoundscape != SoundscapeType.NONE) {
                                 Text(
                                     state.selectedSoundscape.displayName,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         val isAudioActive = state.selectedSoundscape != SoundscapeType.NONE && state.isRunning && !state.isPaused
                         ActiveAudioIndicator(isActive = isAudioActive)
@@ -279,7 +334,7 @@ fun FocusScreenV2(
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                    selectedLabelColor = Color.White,
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                     labelColor = NeuroFlowThemeV2Colors.TextSecondary
                                 ),
@@ -461,30 +516,13 @@ fun FocusScreenV2(
                 }
             }
 
-            // Active Focus Mode: Zen Micro-Step Spotlight Card (or multi-step overview when paused/ready)
-            val activeMicroSteps = state.microSteps
-            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
-                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
-            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
-            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
-
-            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
-                ZenMicroStepSpotlightCard(
-                    currentStepIndex = firstIncompleteIndex,
-                    totalSteps = activeMicroSteps.size,
-                    currentStepTitle = currentMicroStep.text,
-                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
-                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
-                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
-                )
-            } else {
-                // Micro-Steps Decomposition Checklist
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurface,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
-                ) {
+            // Micro-Steps Decomposition Checklist
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+            ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         val completedCount = state.microSteps.count { it.completed }
                         val totalSteps = state.microSteps.size
@@ -494,8 +532,16 @@ fun FocusScreenV2(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("🪜 Micro-Steps Checklist", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text(
+                                "🪜 Micro-Steps Checklist",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f, fill = false),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                             if (totalSteps > 0) {
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text("$completedCount/$totalSteps Done", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -571,7 +617,6 @@ fun FocusScreenV2(
                         }
                     }
                 }
-            }
             }
 
             Spacer(modifier = Modifier.height(60.dp))
@@ -691,6 +736,10 @@ fun FocusScreenV2(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Outstanding focus. You conquered '${state.task?.title}' and earned +${state.pointsEarned} dopamine points.", style = MaterialTheme.typography.bodyMedium)
+                    if (!state.completionAffirmation.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("✨ \"${state.completionAffirmation}\"", style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                    }
                     if (state.nextTaskId != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Next in queue: ${state.nextTaskTitle}", fontWeight = FontWeight.SemiBold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
@@ -805,6 +854,33 @@ fun FocusScreenV2(
             )
         }
     }
+
+    if (state.showSprintCompletionSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.dismissSprintCompletionSheet() },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            SprintCompletionSheet(
+                taskTitle = state.task?.title ?: "Deep Focus",
+                timerMode = state.timerMode,
+                onKeepGoing = { viewModel.keepGoing(FocusTimerModeV2.POMODORO_25) },
+                onDecompress = { viewModel.takeDecompressionRest() },
+                onCompleteTask = {
+                    if (state.task?.isFrog == true) showFrogConfetti = true
+                    viewModel.completeTask()
+                },
+                onDismiss = { viewModel.dismissSprintCompletionSheet() }
+            )
+        }
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
+    }
 }
 
 @Composable
@@ -817,29 +893,63 @@ fun RadialTimerGauge(
 ) {
     val totalSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 3600L else timerMode.durationSeconds
     val currentSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) elapsedSeconds else remainingSeconds
-    val progress = (currentSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+    val rawProgress = (currentSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = rawProgress,
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "timer_progress"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "focus_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.10f,
+        targetValue = if (isRunning && !isPaused) 0.26f else 0.10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_alpha"
+    )
 
     val minutes = currentSeconds / 60
     val seconds = currentSeconds % 60
-    val timeDisplay = String.format("%02d:%02d", minutes, seconds)
+    val timeDisplay = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+
+    val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+    val ringColor = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigo
+    val ringGlow = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigoGlow
 
     Box(
         modifier = Modifier
-            .size(230.dp)
-            .padding(10.dp),
+            .size(248.dp)
+            .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
-        val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
-        val ringColor = NeuroFlowThemeV2Colors.ElectricIndigo
-        val ringGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 14.dp.toPx()
-            val diameter = size.minDimension - strokeWidth
+            val glowStrokeWidth = 24.dp.toPx()
+            val diameter = size.minDimension - glowStrokeWidth
             val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
             val arcSize = Size(diameter, diameter)
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = diameter / 2f
 
-            // Background track
+            // 1. Breathing radial core aura
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        ringGlow.copy(alpha = pulseAlpha),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = radius * 1.05f
+                ),
+                radius = radius * 1.05f,
+                center = center
+            )
+
+            // 2. Background track
             drawArc(
                 color = trackColor,
                 startAngle = -90f,
@@ -850,22 +960,45 @@ fun RadialTimerGauge(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
-            // Animated progress ring
-            drawArc(
-                brush = Brush.sweepGradient(
-                    listOf(
-                        ringColor,
-                        ringGlow,
-                        ringColor
-                    )
-                ),
-                startAngle = -90f,
-                sweepAngle = progress * 360f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
+            // 3. Soft outer bloom arc + crisp core ring + leading tip orb
+            val sweep = animatedProgress * 360f
+            if (sweep > 0.5f) {
+                drawArc(
+                    color = ringGlow.copy(alpha = 0.22f),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = glowStrokeWidth, cap = StrokeCap.Round)
+                )
+
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        listOf(ringColor, ringGlow, ringColor)
+                    ),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+
+                val angleRad = Math.toRadians((-90.0 + sweep.toDouble()))
+                val tipX = center.x + radius * kotlin.math.cos(angleRad).toFloat()
+                val tipY = center.y + radius * kotlin.math.sin(angleRad).toFloat()
+                drawCircle(
+                    color = ringGlow.copy(alpha = 0.45f),
+                    radius = 11.dp.toPx(),
+                    center = Offset(tipX, tipY)
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 4.5.dp.toPx(),
+                    center = Offset(tipX, tipY)
+                )
+            }
         }
 
         Column(
@@ -874,26 +1007,34 @@ fun RadialTimerGauge(
         ) {
             Text(
                 text = timeDisplay,
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Black,
-                color = NeuroFlowThemeV2Colors.TextPrimary,
-                letterSpacing = 1.sp
+                style = MaterialTheme.typography.displayMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    fontSize = 46.sp,
+                    letterSpacing = (-1).sp
+                ),
+                color = NeuroFlowThemeV2Colors.TextPrimary
             )
+            Spacer(modifier = Modifier.height(4.dp))
             val statusLabel = when {
-                !isRunning -> "READY"
-                isPaused -> "PAUSED"
-                else -> "FLOW IN PROGRESS"
+                !isRunning && !isPaused -> "READY FOR DEEP WORK"
+                isPaused -> "SESSION PAUSED"
+                else -> "FLOW STATE ACTIVE"
             }
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = when {
-                    !isRunning -> NeuroFlowThemeV2Colors.TextSecondary
-                    isPaused -> NeuroFlowThemeV2Colors.WarmAmber
-                    else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                }
-            )
+            Surface(
+                color = ringGlow.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, ringGlow.copy(alpha = 0.35f))
+            ) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.9.sp
+                    ),
+                    color = ringGlow,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
@@ -936,6 +1077,78 @@ fun ActiveAudioIndicator(isActive: Boolean) {
                     .height(height.dp)
                     .background(barColor, RoundedCornerShape(1.5.dp))
             )
+        }
+    }
+}
+
+@Composable
+fun BioluminescentSoundscapeWaveformCard(
+    soundscape: SoundscapeType,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
+        label = "phase"
+    )
+
+    Surface(
+        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.5f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "🎧 ${soundscape.displayName}",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Soundscape Stream",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Bioluminescent Waveform Bars
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.height(24.dp)
+            ) {
+                val barCount = 14
+                for (i in 0 until barCount) {
+                    val normalizedI = i.toFloat() / barCount
+                    val wave = kotlin.math.sin((normalizedI * 2 * Math.PI + phase * 2 * Math.PI).toFloat())
+                    val barHeight = (6f + 14f * (0.5f + 0.5f * wave)).coerceIn(4f, 20f)
+                    val barAlpha = 0.45f + 0.55f * (0.5f + 0.5f * wave)
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(barHeight.dp)
+                            .background(
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = barAlpha),
+                                shape = RoundedCornerShape(1.5.dp)
+                            )
+                    )
+                }
+            }
         }
     }
 }
@@ -1026,3 +1239,111 @@ fun HeroTaskCard(
         }
     }
 }
+
+@Composable
+fun SprintCompletionSheet(
+    taskTitle: String,
+    timerMode: FocusTimerModeV2,
+    onKeepGoing: () -> Unit,
+    onDecompress: () -> Unit,
+    onCompleteTask: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMicroStart = timerMode == FocusTimerModeV2.JUST_5_MIN
+    val title = if (isMicroStart) "⚡ Dopamine Micro-Start Complete!" else "🎯 Focus Sprint Complete!"
+    val subtitle = if (isMicroStart) {
+        "You successfully broke initial task paralysis on \"$taskTitle\". Momentum is active!"
+    } else {
+        "Solid work on \"$taskTitle\"! Decide your next cognitive step below."
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = NeuroFlowThemeV2Colors.WarmAmber,
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = NeuroFlowThemeV2Colors.TextSecondary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Action 1: Keep Going (Momentum)
+        Button(
+            onClick = onKeepGoing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "Keep Going (+25m Pomodoro)",
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+        }
+
+        // Action 2: Decompress (Rest)
+        Button(
+            onClick = onDecompress,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
+        ) {
+            Icon(Icons.Default.Psychology, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "3-Minute Rest (Decompression)",
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+        }
+
+        // Action 3: Complete Entire Task
+        OutlinedButton(
+            onClick = onCompleteTask,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f))
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "I'm Finished — Complete Task",
+                fontWeight = FontWeight.SemiBold,
+                color = NeuroFlowThemeV2Colors.SageGreen
+            )
+        }
+
+        // Dismiss
+        TextButton(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Stay on Focus Screen", color = NeuroFlowThemeV2Colors.TextSecondary)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+

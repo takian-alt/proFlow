@@ -7,8 +7,10 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.NoteDao
+import com.neuroflow.app.data.local.dao.ProtectedSlotDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
+import com.neuroflow.app.data.local.dao.TaskMicroStepDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
@@ -60,7 +62,9 @@ object SyncModule {
         firestoreRepo: FirestoreBackupRepository,
         signInManager: GoogleSignInManager,
         preferencesDataStore: UserPreferencesDataStore,
-        @ApplicationContext context: Context
+        @ApplicationContext context: Context,
+        protectedSlotDao: ProtectedSlotDao,
+        taskMicroStepDao: TaskMicroStepDao
     ): CloudBackupManager = CloudBackupManager(
         taskDao = taskDao,
         goalDao = goalDao,
@@ -74,6 +78,8 @@ object SyncModule {
         firestoreRepo = firestoreRepo,
         signInManager = signInManager,
         preferencesDataStore = preferencesDataStore,
-        context = context
+        context = context,
+        protectedSlotDao = protectedSlotDao,
+        taskMicroStepDao = taskMicroStepDao
     )
 }

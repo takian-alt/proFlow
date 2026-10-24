@@ -1,9 +1,9 @@
 # neuroFlow — Complete Unified UI Source Codebase
 
-**Generated for Vice Head Architecture Audit:** 2026-10-20 16:59:40  
+**Generated for Vice Head Architecture Audit:** 2026-10-23 22:05:10  
 **Total UI Source Files:** 96  
-**Total Lines of Code:** 29,554  
-**Total Uncompressed Size:** 1.21 MB (1,272,123 bytes)  
+**Total Lines of Code:** 33,459  
+**Total Uncompressed Size:** 1.41 MB (1,473,815 bytes)  
 
 ---
 
@@ -11,14 +11,14 @@
 
 | Part | Module Title | Files | Lines | Size (KB) |
 | :--- | :--- | :---: | :---: | :---: |
-| [`PART_1_THEME_NAVIGATION.md`](./PART_1_THEME_NAVIGATION.md) | Theme Engine, Design Tokens, Typography & Navigation Hubs | 7 | 1,369 | 53.6 KB |
-| [`PART_2_FLOW_SCREEN.md`](./PART_2_FLOW_SCREEN.md) | Flow Execution Cockpit & Circadian Barometer | 6 | 2,821 | 116.9 KB |
-| [`PART_3_PLAN_COMPOSER.md`](./PART_3_PLAN_COMPOSER.md) | Plan Screen, Scheduling Timeline & Smart Composer Sheet | 7 | 4,652 | 215.7 KB |
-| [`PART_4_FOCUS_REGULATION.md`](./PART_4_FOCUS_REGULATION.md) | Focus Deep Work Cockpit & Audio Soundscape Synthesizer | 10 | 3,478 | 139.4 KB |
-| [`PART_5_INSIGHTS_ANALYTICS.md`](./PART_5_INSIGHTS_ANALYTICS.md) | Insights Hub, Chronobiology Analytics & Velocity Reports | 7 | 4,385 | 189.4 KB |
-| [`PART_6_SETTINGS_NOTES.md`](./PART_6_SETTINGS_NOTES.md) | Settings Hub, Sleep Logs, MEQ Quiz & Notes Workspace | 33 | 8,289 | 342.4 KB |
-| [`PART_7_HYPERFOCUS_WIDGETS.md`](./PART_7_HYPERFOCUS_WIDGETS.md) | HyperFocus Lock Engine, Gateways & Home Screen Widgets | 26 | 4,560 | 184.9 KB |
-| **Total** | **All UI Components** | **96** | **29,554** | **1242.3 KB** |
+| [`PART_1_THEME_NAVIGATION.md`](./PART_1_THEME_NAVIGATION.md) | Theme Engine, Design Tokens, Typography & Navigation Hubs | 7 | 1,521 | 59.8 KB |
+| [`PART_2_FLOW_SCREEN.md`](./PART_2_FLOW_SCREEN.md) | Flow Execution Cockpit & Circadian Barometer | 6 | 4,197 | 184.2 KB |
+| [`PART_3_PLAN_COMPOSER.md`](./PART_3_PLAN_COMPOSER.md) | Plan Screen, Scheduling Timeline & Smart Composer Sheet | 7 | 5,690 | 270.9 KB |
+| [`PART_4_FOCUS_REGULATION.md`](./PART_4_FOCUS_REGULATION.md) | Focus Deep Work Cockpit & Audio Soundscape Synthesizer | 10 | 4,144 | 168.2 KB |
+| [`PART_5_INSIGHTS_ANALYTICS.md`](./PART_5_INSIGHTS_ANALYTICS.md) | Insights Hub, Chronobiology Analytics & Velocity Reports | 7 | 4,404 | 190.5 KB |
+| [`PART_6_SETTINGS_NOTES.md`](./PART_6_SETTINGS_NOTES.md) | Settings Hub, Sleep Logs, MEQ Quiz & Notes Workspace | 33 | 8,906 | 379.2 KB |
+| [`PART_7_HYPERFOCUS_WIDGETS.md`](./PART_7_HYPERFOCUS_WIDGETS.md) | HyperFocus Lock Engine, Gateways & Home Screen Widgets | 26 | 4,597 | 186.5 KB |
+| **Total** | **All UI Components** | **96** | **33,459** | **1439.3 KB** |
 
 ---
 
@@ -129,8 +129,8 @@
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/HyperFocusActivity.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/HyperFocusActivity.kt`
-- **Lines of Code:** 179
-- **Size:** 8,138 bytes (7.9 KB)
+- **Lines of Code:** 187
+- **Size:** 8,497 bytes (8.3 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus
@@ -159,6 +159,7 @@ import com.neuroflow.app.feature.hyperfocus.screens.AllowlistSettingsScreen
 import com.neuroflow.app.feature.hyperfocus.screens.BlockingOverlayScreen
 import com.neuroflow.app.feature.hyperfocus.screens.HyperFocusActivationSheet
 import com.neuroflow.app.feature.hyperfocus.screens.PlanningPromptScreen
+import com.neuroflow.app.feature.hyperfocus.screens.RewardsScreen
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -275,6 +276,12 @@ class HyperFocusActivity : ComponentActivity() {
                         onStartSession = { showActivationSheet = true }
                     )
                 }
+                composable(DESTINATION_REWARDS) {
+                    RewardsScreen(
+                        onNavigateBack = { controller.popBackStack() },
+                        viewModel = viewModel
+                    )
+                }
             }
             if (showActivationSheet) {
                 HyperFocusActivationSheet(
@@ -310,6 +317,7 @@ class HyperFocusActivity : ComponentActivity() {
         const val DESTINATION_GATEWAY = "gateway"
         const val DESTINATION_LAUNCH = "launch_app"
         const val DESTINATION_SETUP = "setup"
+        const val DESTINATION_REWARDS = "rewards"
     }
 }
 ```
@@ -1944,7 +1952,7 @@ private fun OffPlaceholder(
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/home/HyperFocusHomeViewModel.kt`
 - **Lines of Code:** 189
-- **Size:** 7,858 bytes (7.7 KB)
+- **Size:** 7,943 bytes (7.8 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.home
@@ -2047,7 +2055,7 @@ class HyperFocusHomeViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val emergencyAvailable: StateFlow<Boolean> = hyperFocusDataStore.flow
-        .map { it.isActive && !it.emergencyUsed }
+        .map { it.isActive && !it.emergencyUsed && it.sessionMode != com.neuroflow.app.domain.model.HyperFocusSessionMode.TIME_BASED }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Called from the activity's `onCreate` and `onResume`; cheap and idempotent. */
@@ -2398,8 +2406,8 @@ private fun AppTierRow(
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/BlockingOverlayScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/BlockingOverlayScreen.kt`
-- **Lines of Code:** 687
-- **Size:** 31,059 bytes (30.3 KB)
+- **Lines of Code:** 690
+- **Size:** 31,205 bytes (30.5 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -2597,6 +2605,9 @@ fun BlockingOverlayScreen(
                     }
                     context.startActivity(focusIntent)
                     (context as? Activity)?.finish()
+                },
+                onRedeemEarnedPassClick = {
+                    navController.navigate(HyperFocusActivity.DESTINATION_REWARDS)
                 }
             )
 
@@ -3506,8 +3517,8 @@ fun HomeRoleSetupScreen(
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/HyperFocusActivationSheet.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/HyperFocusActivationSheet.kt`
-- **Lines of Code:** 410
-- **Size:** 17,069 bytes (16.7 KB)
+- **Lines of Code:** 434
+- **Size:** 17,985 bytes (17.6 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -3541,6 +3552,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -3628,6 +3640,12 @@ private fun ActivationSheetContent(
             if (selectedTaskIds[task.id] == null) {
                 selectedTaskIds[task.id] = false
             }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearActivationMessage()
         }
     }
 
@@ -3866,29 +3884,46 @@ private fun ActivationSheetContent(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Button(
-            onClick = {
-                if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                    viewModel.activateTimed(selectedDurationMinutes)
-                } else {
+        if (prefs.isActive) {
+            Button(
+                onClick = {
                     val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
-                    viewModel.activate(selectedTasks)
-                }
-                onDismiss()
-            },
-            enabled = confirmText == "FOCUS" && essentialCount > 0 &&
-                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-        ) {
-            val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                "Activate ${selectedDurationMinutes}m Focus Lock"
-            } else {
-                "Activate Hyper Focus 🔒"
+                    viewModel.addTasksToActiveSession(selectedTasks)
+                    onDismiss()
+                },
+                enabled = selectedTaskCount > 0,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Text("Add $selectedTaskCount Task(s) to Focus Session 🔒", fontWeight = FontWeight.Bold)
             }
-            Text(label, fontWeight = FontWeight.Bold)
+        } else {
+            Button(
+                onClick = {
+                    if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                        viewModel.activateTimed(selectedDurationMinutes)
+                    } else {
+                        val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                        viewModel.activate(selectedTasks)
+                    }
+                    onDismiss()
+                },
+                enabled = confirmText == "FOCUS" && essentialCount > 0 &&
+                    (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    "Activate ${selectedDurationMinutes}m Focus Lock"
+                } else {
+                    "Activate Hyper Focus 🔒"
+                }
+                Text(label, fontWeight = FontWeight.Bold)
+            }
         }
 
 
@@ -4145,8 +4180,8 @@ private fun PermissionRow(label: String, description: String, granted: Boolean) 
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/PlanningPromptScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/PlanningPromptScreen.kt`
-- **Lines of Code:** 139
-- **Size:** 5,465 bytes (5.3 KB)
+- **Lines of Code:** 127
+- **Size:** 4,997 bytes (4.9 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -4211,19 +4246,16 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                     fontWeight = FontWeight.Bold
                 )
 
-                IconButton(onClick = {
-                    viewModel.completePlanning(emptyList())
-                    onDismiss()
-                }) {
+                IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close and Unlock"
+                        contentDescription = "Close"
                     )
                 }
             }
 
             Text(
-                text = "Plan tasks for tomorrow (optional), or finish now to unlock all your apps.",
+                text = "Plan at least 1 task for tomorrow to complete your session and unlock apps.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -4234,7 +4266,7 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                 OutlinedTextField(
                     value = value,
                     onValueChange = { taskTitles[index] = it },
-                    label = { Text("Task ${index + 1} (optional)") },
+                    label = { Text("Task ${index + 1}") },
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -4258,32 +4290,23 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.completePlanning((taskTitles + extraTitles).filter { it.isNotBlank() })
                     onDismiss()
                 },
+                enabled = hasAnyTask,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
                 Text(
-                    text = if (hasAnyTask) "Save Tasks & Unlock Apps" else "Unlock Apps & Finish",
+                    text = "Save Tasks & Unlock Apps",
                     fontWeight = FontWeight.SemiBold
                 )
-            }
-
-            TextButton(
-                onClick = {
-                    viewModel.completePlanning(emptyList())
-                    onDismiss()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Skip & Unlock Apps Now", color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -4296,8 +4319,8 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/RewardSection.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/RewardSection.kt`
-- **Lines of Code:** 197
-- **Size:** 8,928 bytes (8.7 KB)
+- **Lines of Code:** 211
+- **Size:** 9,543 bytes (9.3 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -4477,6 +4500,20 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                                 fontSize = 28.sp,
                                 letterSpacing = 4.sp
                             )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.submitCode(code)
+                                viewModel.dismissClaimedCode()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Redeem Pass Now")
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -4736,8 +4773,8 @@ class SystemExempt @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/analytics/AnalyticsScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/analytics/AnalyticsScreen.kt`
-- **Lines of Code:** 1,705
-- **Size:** 78,455 bytes (76.6 KB)
+- **Lines of Code:** 1,708
+- **Size:** 78,523 bytes (76.7 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.analytics
@@ -5355,8 +5392,12 @@ private fun MapeCard(s: AnalyticsEngine.AnalyticsSummary, onReset: () -> Unit) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.DeadlineCard)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("Time Estimation Accuracy (MAPE)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -5380,7 +5421,7 @@ private fun MapeCard(s: AnalyticsEngine.AnalyticsSummary, onReset: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                     Text("Weighted MAPE:", fontSize = 13.sp)
-                    Text("${String.format("%.1f", s.weightedMape)}%", color = Color(0xFF1565C0), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("${String.format("%.1f", s.weightedMape)}%", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("Estimation Breakdown", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -5409,8 +5450,12 @@ private fun SmapeCard(s: AnalyticsEngine.AnalyticsSummary) {
     val hasData = s.overallSmape != 0f || s.weightedSmape != 0f
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.ScheduledCard)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("Symmetric Estimation (SMAPE)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -5443,11 +5488,6 @@ private fun SmapeCard(s: AnalyticsEngine.AnalyticsSummary) {
                 Text(
                     "SMAPE is more balanced for small tasks that significantly overrun.",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "To reset estimation data, use the button in the MAPE card above.",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -8161,8 +8201,8 @@ val NeuroFlowTypography = Typography(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/history/HistoryScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/history/HistoryScreen.kt`
-- **Lines of Code:** 479
-- **Size:** 21,455 bytes (21.0 KB)
+- **Lines of Code:** 495
+- **Size:** 22,354 bytes (21.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.history
@@ -8176,6 +8216,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
@@ -8206,6 +8247,7 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     hideTopBar: Boolean = false,
+    onNavigateToLogTime: () -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -8220,9 +8262,15 @@ fun HistoryScreen(
             if (!hideTopBar) {
                 TopAppBar(
                     title = { Text("History") },
+                    actions = {
+                        IconButton(onClick = onNavigateToLogTime) {
+                            Icon(Icons.Default.Add, contentDescription = "Log Time Manually")
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
             }
@@ -8236,15 +8284,23 @@ fun HistoryScreen(
                 }
             }
             uiState.completedTasks.isEmpty() -> {
-                Box(
+                Column(
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         "No completed tasks yet.\nStart completing tasks to see them here!",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onNavigateToLogTime) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Log Past Focus Time")
+                    }
                 }
             }
             else -> {
@@ -10060,17 +10116,22 @@ class NotesViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/onboarding/AppGuideScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/onboarding/AppGuideScreen.kt`
-- **Lines of Code:** 388
-- **Size:** 19,552 bytes (19.1 KB)
+- **Lines of Code:** 790
+- **Size:** 45,867 bytes (44.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.onboarding
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -10078,38 +10139,276 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+
+enum class GuideCategory(val label: String, val emoji: String) {
+    ALL("All Topics", "🌐"),
+    QUICK_START("Quick Start", "🚀"),
+    CIRCADIAN_FLOW("Flow & Circadian", "⚡"),
+    PHARMACOKINETICS("Stimulants & PK", "☕"),
+    SCHEDULING_PLAN("Plan & Calendar", "🤖"),
+    EXECUTIVE_ADHD("ADHD & Executive", "🧠"),
+    FOCUS_DSP("Focus & Audio DSP", "🎯"),
+    AI_NLP("AI & Smart Tasks", "🪄"),
+    VAULT_CHRONO("Vault & Chronotype", "🗃️")
+}
+
+data class GuideSectionItem(
+    val id: String,
+    val category: GuideCategory,
+    val emoji: String,
+    val tag: String,
+    val title: String,
+    val summary: String,
+    val accentColor: Color,
+    val keyPoints: List<Pair<String, String>>,
+    val proTip: String? = null,
+    val scienceNote: String? = null
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppGuideScreen(onNavigateBack: () -> Unit) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(GuideCategory.ALL) }
+    var expandedIds by remember { mutableStateOf(setOf("quick_start")) }
+
+    val guideItems = remember {
+        listOf(
+            GuideSectionItem(
+                id = "quick_start",
+                category = GuideCategory.QUICK_START,
+                emoji = "🚀",
+                tag = "3-MINUTE PROTOCOL",
+                title = "Quick Start: Zero-Friction Setup",
+                summary = "The essential daily activation sequence to get productive in under 3 minutes.",
+                accentColor = Color(0xFF6366F1),
+                keyPoints = listOf(
+                    "1. The Rule of 3-5 Tasks" to "Limit your active queue to 3–5 items maximum. Overflowing backlogs trigger executive overwhelm and freeze responses. Park all other ideas in the Vault Icebox until today's queue is cleared.",
+                    "2. Mark Today's 🐸 Frog" to "Select one high-impact, high-resistance task as your daily Frog. Completing it early capitalizes on peak morning cognitive bandwidth before decision fatigue accumulates.",
+                    "3. Read Biological Weather" to "Glance at the Circadian Hero Barometer on the Flow Cockpit. If you're in a Peak window, dive straight into deep work. If in a Dip, switch to low-friction organizing or admin.",
+                    "4. Single-Task Sprint" to "Launch Focus Mode for 25–45 minutes with procedural background noise. The display is kept awake automatically so your micro-steps and timer remain in sight.",
+                    "5. Celebrate, Log & Decompress" to "Mark the task done or record offline minutes. Rest for 5–15 minutes before switching to the next item to allow neurochemical replenishment."
+                ),
+                proTip = "If a task triggers avoidance or dread, commit to working for just 5 minutes, or tap 'Break Down' to generate a 2-minute doorway step.",
+                scienceNote = "Overcoming the activation energy barrier (E_a) of the first micro-step is the single most effective intervention for executive dysfunction."
+            ),
+            GuideSectionItem(
+                id = "circadian_cockpit",
+                category = GuideCategory.CIRCADIAN_FLOW,
+                emoji = "⚡",
+                tag = "BORBÉLY TWO-PROCESS MODEL",
+                title = "Flow Cockpit & Circadian Energy Barometer",
+                summary = "Lab-grade biophysical energy modeling combining homeostatic sleep pressure and double-harmonic circadian rhythm.",
+                accentColor = Color(0xFF10B981),
+                keyPoints = listOf(
+                    "Process S (Sleep Pressure)" to "Tracks adenosine accumulation from waking (S_0 -> 1.0). Discharges logarithmically during nocturnal sleep and daytime power naps (S_nap).",
+                    "Process C (Circadian Wave)" to "Biological double-harmonic alertness wave (φ = t_wake + 4.5h) modeling your natural morning peak and afternoon post-prandial dip.",
+                    "⚡ PEAK (75–100%)" to "Maximum synaptic plasticity. Strictly reserved for deep analytical thinking, strategic architecture, and creative breakthroughs.",
+                    "📈 REBOUND (55–74%)" to "Secondary alertness wave in the late afternoon. Optimal for collaborative execution, meetings, and tactical progress.",
+                    "☕ DIP (35–54%)" to "Biological circadian trough (13:30–15:30). Switch to light admin, organization, or take a 15–20 minute restorative power nap.",
+                    "🧘 RECOVERY NEEDED (<35%)" to "Neural exhaustion detected. Take a 15m NSDR (Non-Sleep Deep Rest) session or a walk outside before resuming high-stakes work.",
+                    "🌙 WIND-DOWN (<20% or >21:30)" to "Melatonin secretion rising. Execute Evening Shutdown to close open loops, archive completed wins, and queue tomorrow's frog.",
+                    "Fast Kalman Circadian Learner" to "The app passively observes your actual completion timestamps to refine your personalized peak hours over time without manual quizzes."
+                ),
+                proTip = "Never schedule high-friction analytical tasks during your Dip (13:30–15:30). Protecting this window prevents chronic burnout.",
+                scienceNote = "Based on Borbély's Two-Process Model of Sleep Regulation. Continuous non-threshold modeling eliminates artificial hourly drop-offs."
+            ),
+            GuideSectionItem(
+                id = "stimulant_pk",
+                category = GuideCategory.PHARMACOKINETICS,
+                emoji = "☕",
+                tag = "BATEMAN TWO-COMPARTMENT PK",
+                title = "Stimulant Pharmacokinetics & Crash Guard",
+                summary = "Two-compartment differential equation modeling for caffeine and prescription ADHD medications with crash warnings.",
+                accentColor = Color(0xFFF59E0B),
+                keyPoints = listOf(
+                    "Bateman Differential Model" to "Computes absorption rate (k_a) and elimination half-life (t_half) to track real-time active plasma concentration and adenosine masking over 24 hours.",
+                    "+ ☕ Coffee (100mg)" to "Standard caffeine pharmacokinetic curve (t_half = 5.0h, k_a = 2.1). Reaches peak alertness at ~45 minutes.",
+                    "+ 🍵 Green Tea (50mg)" to "L-Theanine modulated caffeine (t_half = 3.5h, k_a = 1.6). Promotes relaxed alertness with smoother onset and reduced jitter.",
+                    "+ 💊 Meds IR (10mg)" to "Rapid-acting prescription stimulant (t_half = 4.0h, k_a = 2.5). Sharp alertness rise with pronounced wear-off boundary.",
+                    "+ 💊 Meds XR (20mg)" to "Extended-release dual-bead kinetic curve (t_half = 7.0h, k_a = 1.2). Sustained therapeutic plasma level across 8–10 hours.",
+                    "Live Plasma & 4-Second Undo" to "Displays active plasma concentration (~X mg active in plasma) on the Cockpit. A 4-second non-destructive Undo snackbar and [Clear doses] affordance ensure effortless error correction.",
+                    "⚡ Rebound Crash Guard" to "When wear-off and adenosine rebound coincide, an amber banner warns you against tackling high-friction tasks during neurochemical depletion.",
+                    "Protected Slot Keyword Auto-Detection" to "Calendar slots labeled 'Coffee', 'Caffeine', 'Meds', 'Vyvanse', or 'Adderall' are automatically converted into pharmacokinetic bouts."
+                ),
+                proTip = "Avoid high-dose stimulants after 14:00 to prevent Slow-Wave Sleep (SWS) suppression, even if you feel able to fall asleep on schedule.",
+                scienceNote = "Adenosine continues accumulating in the brain while caffeine blocks receptor sites. When caffeine detaches, rebound drowsiness occurs naturally."
+            ),
+            GuideSectionItem(
+                id = "social_jetlag",
+                category = GuideCategory.CIRCADIAN_FLOW,
+                emoji = "🌅",
+                tag = "CHRONOBIOLOGY & TELEMETRY",
+                title = "Social Jetlag & Wearable Sleep Telemetry",
+                summary = "Detecting weekend sleep schedule drift and normalizing wearable sleep metrics for circadian precision.",
+                accentColor = Color(0xFF818CF8),
+                keyPoints = listOf(
+                    "Social Jetlag (Δφ_SJL)" to "Measures the circular divergence between workday sleep midpoint (MSW) and weekend sleep midpoint (MSF).",
+                    "🌅 Weekend Drift Badge" to "When weekend sleep drift exceeds 1.0 hour, the Cockpit displays an amber Weekend Drift alert recommending 10–15 minutes of outdoor sunlight exposure upon waking.",
+                    "Stage-Weighted Telemetry" to "Processes wearable sleep logs with lab-grade stage efficiency (d_eff = 1.15 Deep + 1.05 REM + 0.85 Light) and automatically coalesces fragmented wake episodes (WASO <= 45m).",
+                    "Daytime Power Naps" to "Daytime naps between 10m and 180m discharge homeostatic pressure (ΔS) with an initial 20m sleep inertia envelope without corrupting nocturnal circadian anchors."
+                ),
+                proTip = "Morning sunlight within 30 minutes of waking triggers SCN photopigment melanopsin, resetting your master circadian clock and accelerating evening melatonin onset.",
+                scienceNote = "A 2-hour weekend sleep midpoint delay produces biological jetlag equivalent to flying across two time zones every single Monday."
+            ),
+            GuideSectionItem(
+                id = "math_scheduling",
+                category = GuideCategory.SCHEDULING_PLAN,
+                emoji = "🤖",
+                tag = "4-VECTOR OPTIMIZATION",
+                title = "Mathematical Auto-Scheduling & Calendar Sync",
+                summary = "Non-saturating algorithmic schedule generation with two-way Google Calendar synchronization and ultradian buffers.",
+                accentColor = Color(0xFF38BDF8),
+                keyPoints = listOf(
+                    "4-Vector Task Scoring Engine" to "Prioritization Formula: Score = 100 × [0.30 U + 0.30 I + 0.25 E + 0.15 M], balancing Urgency (U), Impact (I), Circadian Energy Match (E), and Momentum (M).",
+                    "Demand-Elastic Utility Damping λ(τ)" to "Logarithmically scales utility with duration, preventing huge 3-hour projects from starving shorter high-leverage tasks.",
+                    "Calendar Sync & Decompression Buffers" to "Two-way sync via Android CalendarContract. External meetings are imported as busy windows, and meetings ≥ 45m automatically receive a 5-minute cognitive decompression buffer.",
+                    "Ultradian Auto-Chunking" to "Tasks ≥ 60m placed into fragmented schedule slots are automatically split into linked sub-tasks ('🔗 Part 1/2' & '🔗 Part 2/2') chained by DAG dependencies.",
+                    "🔒 Schedule Locking" to "Tap 'Lock Schedule' on any task to pin it to an exact time slot. Auto-scheduling will route all other tasks around locked anchors.",
+                    "Protected Recurring Slots" to "Configure non-negotiable blocks for meals, gym, or family time in Settings that are guaranteed never to be booked over."
+                ),
+                proTip = "Tap 'Auto Schedule Day' in the Plan hub each morning. The engine will place your deep work during biological peaks and admin during dips.",
+                scienceNote = "Ultradian rhythm research shows human focus peaks in 90-minute waves, after which synaptic efficiency declines rapidly without restorative rest."
+            ),
+            GuideSectionItem(
+                id = "adhd_executive",
+                category = GuideCategory.EXECUTIVE_ADHD,
+                emoji = "🧠",
+                tag = "NEURODIVERGENT ERGONOMICS",
+                title = "ADHD Executive Hardening & Behavioral Science",
+                summary = "Science-backed tools to defeat task paralysis, time blindness, dread resistance, and hyperbolic discounting.",
+                accentColor = Color(0xFF8B5CF6),
+                keyPoints = listOf(
+                    "Implementation Intentions (WOOP)" to "Formulate Wish, Outcome, Obstacle, and If-Then Plan before starting work. Research demonstrates this doubles execution follow-through rates.",
+                    "Doorway Micro-Steps (≤ 4m)" to "Decomposes daunting tasks into a microscopic 2–4 minute first physical action (e.g. 'Open document and write title'), drastically lowering activation energy.",
+                    "⚡ Dopamine Warm-Up Badges" to "When a task has been postponed ≥ 3 times, a Dopamine Warm-Up / Paired Primer badge appears, granting momentum bonuses upon starting.",
+                    "Parkinson's Law Urgency Ignition" to "Non-linear priority scaling triggers when deadlines enter the [0.25h, 6.0h] window, overcoming ADHD time-blindness naturally.",
+                    "Zeigarnik Completion Pull" to "Leverages psychological closure inertia with sinusoidal pull peaking at 60–80% sub-task progress: M_Zeigarnik(p) = 30p + 10 sin(πp).",
+                    "Context-Switching Entropy Matrix" to "Awards +8.5 point bonuses for batching similar categories within 45m and penalizes jarring context jumps (-8.5 pts).",
+                    "Zero-Guilt Rollover" to "When ≥ 3 tasks become overdue, the Cockpit provides a zero-shame rollover card to batch-reschedule or archive without guilt."
+                ),
+                proTip = "When feeling stuck, do not force yourself to complete the entire project. Complete only Step 1 (the Doorway Step). Action generates momentum.",
+                scienceNote = "Hyperbolic discounting causes distant deadlines to be cognitively discounted. Nonlinear urgency ignition restores salience before crisis mode."
+            ),
+            GuideSectionItem(
+                id = "focus_audio_dsp",
+                category = GuideCategory.FOCUS_DSP,
+                emoji = "🎯",
+                tag = "DEEP WORK COCKPIT",
+                title = "Focus Mode, Soundscapes & Ergonomics",
+                summary = "Uninterrupted attention shielding with pure-Kotlin DSP soundscapes, display wake lock, and solfeggio chimes.",
+                accentColor = Color(0xFF6366F1),
+                keyPoints = listOf(
+                    "Display Wake Lock (FLAG_KEEP_SCREEN_ON)" to "The display remains awake throughout active focus sprints, keeping timers and micro-steps visible without needing to touch the phone.",
+                    "Pure Kotlin DSP Audio Synthesizer" to "Real-time streaming acoustic synthesis over AudioTrack (16-bit PCM, 44.1kHz stereo) with 400ms raised-cosine anti-click envelopes.",
+                    "🌊 Pink & Brown Noise" to "Attenuates environmental distractions, speech chatter, and office noise for seamless focus immersion.",
+                    "🧠 Alpha (10Hz) & Gamma (40Hz) Binaural Beats" to "Promotes neural entrainment and cognitive binding for sustained analytical depth.",
+                    "🌧️ Procedural Rain & Forest Soundscapes" to "Natural stochastic acoustic masks designed to calm sympathetic nervous system hyperactivity.",
+                    "Dual-Harmonic Solfeggio Chimes" to "Procedural 528Hz + 792Hz harmonic bell tone with double-pulse tactile vibration upon timer expiration.",
+                    "Interruption Shield" to "Gentle 3-second breathing interstitial when attempting to leave early, protecting your hyperfocus state.",
+                    "Manual Time Logging" to "Work performed away from your phone can be retroactively logged to maintain accurate XP, stats, and estimation calibration."
+                ),
+                proTip = "Pair Brown Noise with 40Hz Gamma binaural beats through stereo headphones for complex coding, math, or deep analytical writing.",
+                scienceNote = "40Hz gamma entrainment stimulates auditory cortex resonance and has been linked to enhanced working memory and cognitive binding."
+            ),
+            GuideSectionItem(
+                id = "smart_ai_nlp",
+                category = GuideCategory.AI_NLP,
+                emoji = "🪄",
+                tag = "PRIVACY-FIRST AI & NLP",
+                title = "Smart Task Creation & Gemini AI BYOK",
+                summary = "Natural language task syntax parsing and offline-resilient AI task decomposition.",
+                accentColor = Color(0xFF10B981),
+                keyPoints = listOf(
+                    "Natural Language Heuristic Parser" to "Type naturally: 'Draft budget tomorrow 3pm 45m #deepwork 🐸' — dates, times, durations, hashtags, and frog flags are extracted instantly.",
+                    "Archetype-Driven Decomposition" to "Classifies tasks into 6 core archetypes (Technical, Writing, Admin, Creative, Research, Everyday) and builds structured micro-step hierarchies.",
+                    "Pure BYOK (Bring Your Own Key)" to "Zero hardcoded keys or shared servers. Add your Gemini API key in Settings; it is encrypted locally in DataStore and never transmitted elsewhere.",
+                    "Resilient Cascade & TTL Caching" to "Features an in-memory 20-minute cache and 60s backoff guard. If network fails or no key is configured, neuroFlow degrades seamlessly to local heuristic decomposition with zero errors.",
+                    "Adaptive Behavioral Directives" to "Audits avoided or deleted tasks and synthesizes a concise coaching directive to refine future task decompositions."
+                ),
+                proTip = "Add hashtags like #deepwork, #offline, #admin, or #quickwin to automatically map tasks into dedicated energy zones and context profiles.",
+                scienceNote = "Closed-loop meta-prompting injects persistent coaching directives into task enrichment prompts to maintain alignment with minimal token footprint."
+            ),
+            GuideSectionItem(
+                id = "vault_chronotype",
+                category = GuideCategory.VAULT_CHRONO,
+                emoji = "🗃️",
+                tag = "KNOWLEDGE & CALIBRATION",
+                title = "The Vault, Scratchpad & Chronotype Profiles",
+                summary = "Icebox backlog, quick thought capture, and circadian chronotype tuning.",
+                accentColor = Color(0xFFF59E0B),
+                keyPoints = listOf(
+                    "Quick Scratchpad Notes" to "Long-press the floating action button (+) or tap the Notes icon in the top bar to record thoughts instantly without breaking focus.",
+                    "The Icebox (Zero-Distraction Backlog)" to "Park non-urgent ideas and someday/maybe tasks. Keeps your active Cockpit uncluttered until you are ready to pull them into Plan.",
+                    "MEQ Chronotype Assessment" to "Complete the validated Morningness-Eveningness Questionnaire (MEQ) to calibrate your biological phase anchors (Morning Lark, Intermediate, Night Owl).",
+                    "Manual Peak Energy Tuning" to "Prefer manual control? Enable manual peak anchor in Settings to lock your preferred cognitive focus hours.",
+                    "Evening Shutdown Ritual" to "Review completed tasks, log remaining thoughts into scratchpad, and trigger shutdown to transition smoothly into wind-down."
+                ),
+                proTip = "Review your Vault scratchpad at the end of the day during Evening Shutdown to convert fleeting notes into structured tasks.",
+                scienceNote = "Externalizing open loops into a trusted capture system reduces cognitive tension and prevents bedtime rumination."
+            )
+        )
+    }
+
+    val filteredItems = remember(searchQuery, selectedCategory, guideItems) {
+        guideItems.filter { item ->
+            val matchesCategory = selectedCategory == GuideCategory.ALL || item.category == selectedCategory
+            val matchesSearch = searchQuery.isBlank() ||
+                item.title.contains(searchQuery, ignoreCase = true) ||
+                item.tag.contains(searchQuery, ignoreCase = true) ||
+                item.summary.contains(searchQuery, ignoreCase = true) ||
+                item.keyPoints.any { it.first.contains(searchQuery, ignoreCase = true) || it.second.contains(searchQuery, ignoreCase = true) }
+            matchesCategory && matchesSearch
+        }
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("neuroFlow User Guide") },
+                title = {
+                    Column {
+                        Text(
+                            text = "neuroFlow V2 Manual",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Text(
+                            text = "Biological High Performance & Executive Guide",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    titleContentColor = NeuroFlowPaletteV2.TextPrimary
                 )
             )
         }
@@ -10119,330 +10418,491 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Hero
-            Card(
+            // Modern Hero Banner
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.Purple.copy(alpha = 0.1f))
+                shape = RoundedCornerShape(22.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(
+                    1.dp,
+                    NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigo, 0.85f)
+                ),
+                tonalElevation = 4.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("⚡", fontSize = 40.sp)
-                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🧬", fontSize = 26.sp)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        "Master your workflow with science-backed prioritization, auto-scheduling, and deep focus.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        text = "System Architecture & Biophysics",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Aligning task execution with Borbély circadian oscillations, Bateman stimulant pharmacokinetics, and neurodivergent executive ergonomics.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 18.sp
                     )
                 }
             }
 
-            // 1. Quick Start
-            GuideSection(
-                emoji = "🚀",
-                title = "Start in 3 Minutes",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.Purple,
-                summary = "Quick setup to get productive immediately.",
-                steps = listOf(
-                    "Add 3-5 tasks only. Keep titles specific and actionable.",
-                    "Set a deadline on at least one task that truly matters today.",
-                    "Mark one hard-but-crucial task as 🐸 Frog.",
-                    "Open Focus Mode and run one 25-minute sprint.",
-                    "Ignore everything else until that sprint is completed."
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                placeholder = {
+                    Text(
+                        "Search algorithms, biophysics, features...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextTertiary
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = NeuroFlowPaletteV2.TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = NeuroFlowPaletteV2.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    unfocusedContainerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    unfocusedBorderColor = NeuroFlowPaletteV2.BorderSubtle,
+                    focusedTextColor = NeuroFlowPaletteV2.TextPrimary,
+                    unfocusedTextColor = NeuroFlowPaletteV2.TextPrimary
                 )
             )
 
-            // 2. Daily Loop
-            GuideSection(
-                emoji = "🔁",
-                title = "The Daily Loop",
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                summary = "A repeatable 5-step daily routine.",
-                steps = listOf(
-                    "Morning: Check the Matrix and pick the top scored task in DO FIRST.",
-                    "Timeline: Review your auto-scheduled day or lock in key focus blocks.",
-                    "Sprint: Run Focus Mode for 25-45 minutes without switching apps.",
-                    "Post-Sprint: Mark done, log time, or split remaining work into the next session.",
-                    "Evening: Review completed wins and queue tomorrow's 🐸 Frog."
+            // Category Filter Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GuideCategory.values().forEach { category ->
+                    val isSelected = selectedCategory == category
+                    Surface(
+                        onClick = { selectedCategory = category },
+                        shape = RoundedCornerShape(50),
+                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f) else NeuroFlowPaletteV2.SurfaceCard,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo else NeuroFlowPaletteV2.BorderSubtle
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(category.emoji, fontSize = 13.sp)
+                            Text(
+                                text = category.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) NeuroFlowPaletteV2.TextPrimary else NeuroFlowPaletteV2.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Results count
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${filteredItems.size} Module${if (filteredItems.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowPaletteV2.TextTertiary,
+                    fontWeight = FontWeight.SemiBold
                 )
-            )
 
-            // 3. Auto-Scheduling
-            GuideSection(
-                emoji = "🤖",
-                title = "Auto-Scheduling & Smart Timeline",
-                color = NeuroFlowColors.ScheduledCard,
-                textColor = Color(0xFF1565C0),
-                summary = "How the intelligent scheduler places tasks automatically.",
-                steps = listOf(
-                    "Automatic Placement: When enabled, active tasks with estimated durations are automatically scheduled into your calendar timeline.",
-                    "Circadian & Energy Alignment: Analytical and high-effort tasks are placed during your peak energy hours; routine tasks during afternoon dips.",
-                    "Automatic Rest Breaks: A 15-minute restorative break is automatically inserted after every 90 minutes of continuous cognitive load.",
-                    "Protected Slots: Sleep hours and custom protected blocks (lunch, gym, winding down) are strictly respected.",
-                    "🔒 Schedule Locking: Tap 'Lock Schedule' on any task to pin it to an exact time slot. Auto-scheduling will never displace locked tasks."
+                if (expandedIds.size < filteredItems.size) {
+                    TextButton(
+                        onClick = { expandedIds = filteredItems.map { it.id }.toSet() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text(
+                            text = "Expand All",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else if (expandedIds.isNotEmpty()) {
+                    TextButton(
+                        onClick = { expandedIds = emptySet() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text(
+                            text = "Collapse All",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextTertiary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            // Empty search state
+            if (filteredItems.isEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = NeuroFlowPaletteV2.SurfaceCard,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("🔍", fontSize = 32.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No matching modules found",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Try clearing your search query or switching categories.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            // Guide Module Cards
+            filteredItems.forEach { item ->
+                val isExpanded = expandedIds.contains(item.id)
+                ModernGuideCard(
+                    item = item,
+                    isExpanded = isExpanded,
+                    onToggleExpand = {
+                        expandedIds = if (isExpanded) {
+                            expandedIds - item.id
+                        } else {
+                            expandedIds + item.id
+                        }
+                    }
                 )
-            )
+            }
 
-            // 4. Dependencies
-            GuideSection(
-                emoji = "🔗",
-                title = "Task Dependencies & Unblocking",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "Chaining tasks so work happens in the right order.",
-                steps = listOf(
-                    "Prerequisites: In the task editor, select 'Depends On' to link predecessor tasks.",
-                    "Blocked State: Blocked tasks score 0 and won't crowd your DO FIRST quadrant until their prerequisites are finished.",
-                    "Critical Path Multiplier: Tasks that unblock multiple other tasks receive an exponential priority boost (Critical Path Method).",
-                    "Auto-Unblocking: When you complete a prerequisite task, all dependent tasks are instantly unblocked and scheduled."
-                )
-            )
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 5. Multi-Session Task Splitting
-            GuideSection(
-                emoji = "✂️",
-                title = "Multi-Session Task Splitting",
-                color = NeuroFlowColors.DoFirstBg,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "Breaking huge 2hr+ projects into manageable 45-minute sprints.",
-                steps = listOf(
-                    "Overcome Procrastination: Large tasks often trigger avoidance. Splitting them transforms overwhelming projects into doable chunks.",
-                    "Chained Chunks: Splitting a 2-hour task creates sequential parts (e.g. Part 1/3, Part 2/3, Part 3/3), chained by dependencies.",
-                    "Seamless Scheduling: Part 1 schedules first. As soon as you complete Part 1, Part 2 automatically unlocks and schedules next.",
-                    "Progress Momentum: Each completed session earns XP and increases momentum scoring for subsequent sessions."
-                )
-            )
-
-            // 6. Eisenhower Matrix
-            GuideSection(
-                emoji = "🗂",
-                title = "Eisenhower Matrix Explained",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.PurpleDark,
-                summary = "The classic 4-quadrant decision framework.",
-                steps = listOf(
-                    "DO FIRST (Urgent & Important): High-impact tasks with pressing deadlines. Handle these first today.",
-                    "SCHEDULE (Important, Not Urgent): Long-term value, strategy, and skill building. Guard time on your calendar for these.",
-                    "DELEGATE (Urgent, Low Impact): Admin, quick emails, errands. Batch or handle quickly.",
-                    "ON HOLD / ELIMINATE: Parked ideas or low-value items. Kept out of sight until needed.",
-                    "The ✦ badge highlights the highest-scored task across your entire matrix."
-                )
-            )
-
-            // 7. Priority Scoring & Custom Weights
-            GuideSection(
-                emoji = "⚡",
-                title = "Priority Scoring & Strategy Tuning",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "How the 20+ signal scoring engine ranks your tasks.",
-                steps = listOf(
-                    "Continuous Mathematical Score: Recomputed dynamically based on deadlines, chronotype, time-of-day, habits, and momentum.",
-                    "Why This Score?: In Focus Mode, tap the score breakdown to see the exact point contributions for every heuristic.",
-                    "Custom Scoring Weights: Go to Settings → Priority Weights & Strategy to adjust sliders or pick a 1-click strategy preset.",
-                    "Presets: Switch between 'Balanced', 'Deadline Driven', 'Momentum / ADHD Friendly', or 'Pure Eisenhower' depending on your current mode."
-                )
-            )
-
-            // 8. Focus Mode & Time Tracking
-            GuideSection(
-                emoji = "🎯",
-                title = "Focus Mode & Deep Work",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "Stay in the flow and protect your attention.",
-                steps = listOf(
-                    "Live Timer: Track exact time spent per task. Pauses and resumes cleanly across app restarts.",
-                    "🍅 Pomodoro: Built-in 25-minute sprints with customizable break intervals.",
-                    "WOOP Method: Clarify your Wish, Outcome, Obstacle, and Plan before starting to double follow-through rates.",
-                    "Interruption Shield: Gentle 3-second breathing interstitial when attempting to leave an active focus sprint.",
-                    "Manual Logging: If you did work away from your phone, enter manual minutes on task completion to maintain accurate XP and estimation stats."
-                )
-            )
-
-            // 9. Time Blocking & Protected Slots
-            GuideSection(
-                emoji = "📅",
-                title = "Time Blocking & Protected Time",
-                color = NeuroFlowColors.ScheduledCard,
-                textColor = Color(0xFF1565C0),
-                summary = "Guard your calendar from overload.",
-                steps = listOf(
-                    "Timeline Drag & Tap: Tap any open hour slot in the Calendar view to assign a task.",
-                    "Protected Time Slots: Configure recurring gym, meal, or recovery blocks in Settings. The scheduler will route tasks around them.",
-                    "Chronotype Sync: Morning larks get peak morning slots; night owls get late afternoon/evening focus windows.",
-                    "Day Transitions: Easily navigate between days using the arrow buttons at the top of the Timeline."
-                )
-            )
-
-            // 10. Analytics & Insights
-            GuideSection(
-                emoji = "📊",
-                title = "Analytics & Performance Insights",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "Understand your working habits and estimation accuracy.",
-                steps = listOf(
-                    "XP & Impact Points: Earn points scaled by task impact and duration to gamify productivity.",
-                    "Estimation Accuracy (MAPE): Compares estimated vs. actual tracked minutes so you calibrate planning over time.",
-                    "Procrastination Radar: Highlights tasks that have been repeatedly postponed or rescheduled.",
-                    "Energy & Circadian Curves: Visualizes your daily energy rhythm and detected peak performance windows."
-                )
-            )
-
-            // 11. Cognitive Science
-            GuideSection(
-                emoji = "🧠",
-                title = "Science & Cognitive Frameworks",
-                color = MaterialTheme.colorScheme.surface,
-                textColor = MaterialTheme.colorScheme.onSurface,
-                summary = "The scientific principles powering neuroFlow.",
-                steps = listOf(
-                    "Temporal Motivation Theory (Steel): Hyperbolic discounting where urgency escalates exponentially near deadlines.",
-                    "Eat the Frog (Tracy): Morning-weighted willpower boosts for high-effort, dreaded tasks.",
-                    "Implementation Intentions (Gollwitzer): If-Then structured action plans dramatically boost completion rates.",
-                    "Zeigarnik Effect: Incomplete tasks create cognitive tension that resolves upon execution.",
-                    "Progress Principle (Amabile): Making small visible progress in meaningful work is the single strongest human motivator.",
-                    "Circadian Rhythm Matching (Anderson et al.): Harmonizing analytical tasks with biological temperature peaks."
-                )
-            )
-
-            // 12. Troubleshooting
-            GuideSection(
-                emoji = "💡",
-                title = "When You Feel Overwhelmed or Stuck",
-                color = NeuroFlowColors.PurpleLight,
-                textColor = NeuroFlowColors.PurpleDark,
-                summary = "Quick reset sequence for low-motivation days.",
-                steps = listOf(
-                    "1. Switch Preset: Go to Settings → Priority Weights and select 'Momentum / ADHD Friendly'.",
-                    "2. Chunk It: Split your biggest task into 30-min or 45-min sessions.",
-                    "3. 5-Minute Rule: Open Focus Mode and commit to working for just 5 minutes.",
-                    "4. If still blocked, do a low-effort administrative task first to build momentum.",
-                    "5. Remember: Consistency beats intensity. Doing one focused sprint per day builds unstoppable momentum."
-                )
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            // Footer tip
+            // Footer Mindset Card
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text("💡", fontSize = 24.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Do less, but do it daily. Consistency beats intensity.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NeuroFlowColors.Purple
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("💡", fontSize = 20.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "The Core Operating Law",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Consistency beats intensity. One focused sprint in biological sync per day creates compounding neurological momentum.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary,
+                            lineHeight = 17.sp
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 }
 
 @Composable
-private fun GuideSection(
-    emoji: String,
-    title: String,
-    color: Color,
-    textColor: Color,
-    summary: String,
-    steps: List<String>
+private fun ModernGuideCard(
+    item: GuideSectionItem,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val rotationState by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "expand_chevron_rotation"
+    )
 
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = color),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(20.dp),
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        border = BorderStroke(
+            1.dp,
+            if (isExpanded) {
+                NeuroFlowPaletteV2.specularBorderBrush(item.accentColor, 0.75f)
+            } else {
+                Brush.verticalGradient(listOf(NeuroFlowPaletteV2.BorderSubtle, NeuroFlowPaletteV2.BorderSubtle))
+            }
+        ),
+        tonalElevation = if (isExpanded) 3.dp else 1.dp
     ) {
-        Column {
-            // Header — always visible, tap to expand
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggleExpand() }
+                .padding(18.dp)
+        ) {
+            // Header Row
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(textColor.copy(alpha = 0.12f)),
+                        .background(item.accentColor.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(emoji, fontSize = 20.sp)
+                    Text(item.emoji, fontSize = 22.sp)
                 }
-                Spacer(Modifier.width(12.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textColor)
-                    Text(summary, fontSize = 13.sp, color = textColor.copy(alpha = 0.75f))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = item.accentColor.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = item.tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = item.accentColor,
+                            fontSize = 10.sp,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
                 }
-                Icon(
-                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    tint = textColor.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+
+                IconButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = if (isExpanded) item.accentColor else NeuroFlowPaletteV2.TextTertiary,
+                        modifier = Modifier.rotate(rotationState)
+                    )
+                }
             }
 
-            // Expandable steps
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = item.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowPaletteV2.TextSecondary,
+                lineHeight = 18.sp
+            )
+
+            // Expanded Content
             AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(),
-                exit = shrinkVertically()
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    HorizontalDivider(color = textColor.copy(alpha = 0.15f))
-                    Spacer(Modifier.height(4.dp))
-                    steps.forEachIndexed { index, step ->
-                        Row(verticalAlignment = Alignment.Top) {
+                    HorizontalDivider(
+                        color = item.accentColor.copy(alpha = 0.2f),
+                        thickness = 1.dp
+                    )
+
+                    // Key Points
+                    item.keyPoints.forEachIndexed { index, (pointTitle, pointDesc) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .padding(top = 3.dp)
-                                    .size(18.dp)
+                                    .padding(top = 2.dp)
+                                    .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(textColor.copy(alpha = 0.15f)),
+                                    .background(item.accentColor.copy(alpha = 0.18f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "${index + 1}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = textColor
+                                    text = "${index + 1}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = item.accentColor
                                 )
                             }
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                step,
-                                fontSize = 14.sp,
-                                color = textColor.copy(alpha = 0.9f),
-                                lineHeight = 20.sp
-                            )
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = pointTitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowPaletteV2.TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = pointDesc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowPaletteV2.TextSecondary,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Pro-Tip Callout
+                    item.proTip?.let { tip ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = item.accentColor.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, item.accentColor.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("💡", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "PRO-TIP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = item.accentColor,
+                                        letterSpacing = 0.6.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = tip,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NeuroFlowPaletteV2.TextPrimary,
+                                        lineHeight = 17.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Science / Mathematical Callout
+                    item.scienceNote?.let { science ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("🔬", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "BIOPHYSICAL BASIS",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = NeuroFlowPaletteV2.TextTertiary,
+                                        letterSpacing = 0.6.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = science,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NeuroFlowPaletteV2.TextSecondary,
+                                        lineHeight = 17.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -10450,8 +10910,6 @@ private fun GuideSection(
         }
     }
 }
-
-
 ```
 
 ---
@@ -13079,8 +13537,8 @@ class AccountSyncViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizScreen.kt`
-- **Lines of Code:** 288
-- **Size:** 10,580 bytes (10.3 KB)
+- **Lines of Code:** 302
+- **Size:** 11,046 bytes (10.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -13348,15 +13806,29 @@ private fun QuizCompletionScreen(
         Spacer(modifier = Modifier.weight(1f))
         
         // Action buttons
-        Button(
-            onClick = onBack,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
-            shape = RoundedCornerShape(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Done")
+            OutlinedButton(
+                onClick = onReset,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Retake Quiz")
+            }
+            Button(
+                onClick = onBack,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Done")
+            }
         }
     }
 }
@@ -13379,8 +13851,8 @@ private fun formatChronotypeName(chronotype: String): String {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizViewModel.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizViewModel.kt`
-- **Lines of Code:** 297
-- **Size:** 13,322 bytes (13.0 KB)
+- **Lines of Code:** 298
+- **Size:** 13,363 bytes (13.0 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -13649,6 +14121,7 @@ class MEQQuizViewModel @Inject constructor(
                     effectivePeakStart = peakHourOfDay,
                     effectivePeakEnd = peakWindowEndHourOfDay,
                     effectivePeakMinuteOfDay = peakMinuteOfDay,
+                    meqScore = meqScore,
                     quizProgress = "{}"  // Clear progress on completion
                 )
             }
@@ -14243,8 +14716,8 @@ private fun InfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsScreen.kt`
-- **Lines of Code:** 1,497
-- **Size:** 70,157 bytes (68.5 KB)
+- **Lines of Code:** 1,601
+- **Size:** 75,557 bytes (73.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -14285,10 +14758,11 @@ import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.presentation.common.EnergyInsight
+import com.neuroflow.app.presentation.common.TaskTagViewModel
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -14299,6 +14773,7 @@ fun SettingsScreen(
     onNavigateToMEQQuiz: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
     onNavigateToAccountSync: () -> Unit = {},
+    onNavigateToLogTime: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -14619,6 +15094,13 @@ fun SettingsScreen(
                     checked = prefs.autoTrackerEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsToggleRow(
+                    label = "Do Not Disturb (DND) during focus",
+                    description = "Automatically mute notifications during active focus sprints",
+                    checked = prefs.dndEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(dndEnabled = it) } }
+                )
                 Spacer(modifier = Modifier.height(10.dp))
                 SettingsDeepWorkTargetRow(
                     minutes = prefs.dailyDeepWorkTargetMinutes,
@@ -14626,6 +15108,91 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(dailyDeepWorkTargetMinutes = target) }
                     }
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToLogTime() },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Manual Time Logging", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Log past offline sessions and deep work time", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("Open →", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            SettingsSection("Task Tags Catalog") {
+                val tagViewModel: TaskTagViewModel = hiltViewModel()
+                val tags by tagViewModel.tags.collectAsStateWithLifecycle()
+                var newTagInput by remember { mutableStateOf("") }
+
+                Text(
+                    "Manage your custom task tags and labels used across planning filters.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newTagInput,
+                        onValueChange = { newTagInput = it },
+                        placeholder = { Text("Add tag (e.g. #deepwork)", fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    Button(
+                        onClick = {
+                            if (newTagInput.isNotBlank()) {
+                                tagViewModel.addTags(listOf(newTagInput.trim()))
+                                newTagInput = ""
+                            }
+                        },
+                        enabled = newTagInput.isNotBlank(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Add")
+                    }
+                }
+
+                if (tags.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        tags.forEach { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = {},
+                                label = { Text(tag, fontSize = 12.sp) },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove tag",
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { tagViewModel.removeTag(tag) }
+                                    )
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             SettingsSection("Distraction Tracking") {
@@ -14744,6 +15311,16 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(quizPeakEnabled = enabled) }
                     }
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = onNavigateToMEQQuiz,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (prefs.quizChronotype != null) "Retake MEQ Chronotype Quiz" else "Take MEQ Chronotype Quiz")
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (prefs.quizPeakEnabled) {
@@ -15135,9 +15712,9 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("User Guide", fontWeight = FontWeight.Bold)
+                        Text("neuroFlow V2 Operating Manual", fontWeight = FontWeight.Bold)
                         Text(
-                            "Start here: quick setup and daily workflow",
+                            "Circadian biophysics, auto-scheduling & executive protocols",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -15752,8 +16329,8 @@ private fun ProfileWindowPreviewRow(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsViewModel.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsViewModel.kt`
-- **Lines of Code:** 286
-- **Size:** 12,200 bytes (11.9 KB)
+- **Lines of Code:** 326
+- **Size:** 14,212 bytes (13.9 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -15804,7 +16381,8 @@ class SettingsViewModel @Inject constructor(
     private val databaseCleaner: DatabaseCleaner,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
-    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService
+    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService,
+    val passiveSleepSyncRepository: com.neuroflow.app.domain.repository.PassiveSleepSyncRepository? = null
 ) : ViewModel() {
 
     // Test convenience constructor
@@ -15824,8 +16402,47 @@ class SettingsViewModel @Inject constructor(
         databaseCleaner,
         circadianEnergyService,
         sleepTelemetryRepository,
-        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService()
+        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService(),
+        null
     )
+
+    val isPassiveSyncing = MutableStateFlow(false)
+    val passiveSyncStatus = MutableStateFlow<String?>(null)
+
+    fun syncWearableSleep() {
+        viewModelScope.launch {
+            val repo = passiveSleepSyncRepository
+            if (repo == null) {
+                passiveSyncStatus.value = "Health Connect integration not active on this device"
+                return@launch
+            }
+            isPassiveSyncing.value = true
+            try {
+                val now = System.currentTimeMillis()
+                val sevenDaysAgo = now - 7L * 24 * 60 * 60 * 1000L
+                val result = repo.syncPassiveSleep(sevenDaysAgo, now)
+                passiveSyncStatus.value = when (result) {
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.Success ->
+                        if (result.importedLogs.isNotEmpty()) "Imported ${result.importedLogs.size} wearable sleep logs"
+                        else "Wearable data is already synchronized"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.PermissionRequired ->
+                        "Permission required: ${result.missingPermissions.firstOrNull() ?: "READ_SLEEP"}"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.ProviderUnavailable ->
+                        "Health Provider: ${result.reason}"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.Failure ->
+                        "Sync failed: ${result.throwable.message}"
+                }
+            } catch (e: Exception) {
+                passiveSyncStatus.value = "Sync error: ${e.message}"
+            } finally {
+                isPassiveSyncing.value = false
+            }
+        }
+    }
+
+    fun clearPassiveSyncStatus() {
+        passiveSyncStatus.value = null
+    }
 
     data class LaunchableApp(val packageName: String, val label: String)
 
@@ -16050,8 +16667,8 @@ class SettingsViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/SleepLogsScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/SleepLogsScreen.kt`
-- **Lines of Code:** 390
-- **Size:** 14,988 bytes (14.6 KB)
+- **Lines of Code:** 423
+- **Size:** 16,649 bytes (16.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -16086,6 +16703,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -16126,6 +16744,8 @@ fun SleepLogsScreen(
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
     val sleepLogs by viewModel.sleepLogs.collectAsStateWithLifecycle()
+    val passiveSyncStatus by viewModel.passiveSyncStatus.collectAsStateWithLifecycle()
+    val isPassiveSyncing by viewModel.isPassiveSyncing.collectAsStateWithLifecycle()
     val sleepLogInputError by viewModel.sleepLogInputError.collectAsStateWithLifecycle()
 
     var logDateMillis by rememberSaveable { mutableStateOf(todayUtcDateMillis()) }
@@ -16207,9 +16827,39 @@ fun SleepLogsScreen(
             }
             com.neuroflow.app.presentation.v2.settings.UpgradedSleepPressureOverviewCard(
                 snapshot = sleepSnapshot,
-                hasHealthConnectSync = false,
-                onSyncHealthConnectClick = { /* No-op / degraded */ }
+                hasHealthConnectSync = viewModel.passiveSleepSyncRepository != null,
+                onSyncHealthConnectClick = { viewModel.syncWearableSleep() }
             )
+
+            val currentStatus = passiveSyncStatus
+            if (currentStatus != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = currentStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { viewModel.clearPassiveSyncStatus() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -16452,8 +17102,8 @@ private fun fatigueZoneColor(zone: FatigueZone) = when (zone) {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/common/SecondaryScreensUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/common/SecondaryScreensUpgradesV2.kt`
-- **Lines of Code:** 438
-- **Size:** 18,455 bytes (18.0 KB)
+- **Lines of Code:** 434
+- **Size:** 18,268 bytes (17.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.common
@@ -16497,10 +17147,6 @@ import androidx.compose.ui.unit.sp
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
-/**
- * 1. Ulysses Pre-Commitment Contract Card (For UlyssesContractSheet.kt)
- * Locks a high-priority task to a strict deadline with clear visual accountability.
- */
 @Composable
 fun UpgradedUlyssesContractCard(
     taskTitle: String,
@@ -16513,7 +17159,10 @@ fun UpgradedUlyssesContractCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.55f)),
+        border = BorderStroke(
+            1.5.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.PeakAmber, 1f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -16536,20 +17185,20 @@ fun UpgradedUlyssesContractCard(
             Text(
                 text = taskTitle,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "\"$commitmentStatement\"",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f)
+                color = NeuroFlowPaletteV2.TextSecondary
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
+                    .background(NeuroFlowPaletteV2.SurfaceElevated)
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -16558,7 +17207,7 @@ fun UpgradedUlyssesContractCard(
                     Text(
                         text = "LOCKED DEADLINE",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = NeuroFlowPaletteV2.TextTertiary
                     )
                     Text(
                         text = deadlineFormatted,
@@ -16570,7 +17219,7 @@ fun UpgradedUlyssesContractCard(
                     Text(
                         text = "IF MISSED",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = NeuroFlowPaletteV2.TextTertiary
                     )
                     Text(
                         text = consequenceText.ifBlank { "Mandatory schedule lock" },
@@ -16587,7 +17236,7 @@ fun UpgradedUlyssesContractCard(
                 onClick = onSignContractClick,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeuroFlowPaletteV2.PeakAmber,
-                    contentColor = Color.Black
+                    contentColor = Color(0xFF0A0B0E)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -16605,9 +17254,6 @@ fun UpgradedUlyssesContractCard(
     }
 }
 
-/**
- * 2. Identity & Top Goals Alignment Card (For IdentityScreen.kt & TopGoalsRefillCard.kt)
- */
 @Composable
 fun UpgradedIdentityAndGoalsCard(
     identityStatement: String,
@@ -16619,7 +17265,10 @@ fun UpgradedIdentityAndGoalsCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -16654,7 +17303,7 @@ fun UpgradedIdentityAndGoalsCard(
             Text(
                 text = identityStatement.ifBlank { "I am someone who protects my peak focus hours and finishes what matters." },
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Spacer(modifier = Modifier.height(12.dp))
             if (activeGoals.isEmpty()) {
@@ -16685,19 +17334,19 @@ fun UpgradedIdentityAndGoalsCard(
                             modifier = Modifier
                                 .size(20.dp)
                                 .clip(CircleShape)
-                                .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.28f))
+                                .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.22f))
                         ) {
                             Text(
                                 text = "${index + 1}",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                color = NeuroFlowPaletteV2.DipIndigo
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = goal,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 }
@@ -16706,9 +17355,6 @@ fun UpgradedIdentityAndGoalsCard(
     }
 }
 
-/**
- * 3. Session History & Telemetry Row (For HistoryScreen.kt, LogTimeScreen.kt & ManualTimeLogSheet.kt)
- */
 @Composable
 fun UpgradedHistorySessionRow(
     taskTitle: String,
@@ -16722,7 +17368,7 @@ fun UpgradedHistorySessionRow(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -16755,14 +17401,14 @@ fun UpgradedHistorySessionRow(
                     Text(
                         text = taskTitle,
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White,
+                        color = NeuroFlowPaletteV2.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "$dateAndTimeText · Est ${estimatedMinutes}m → Actual ${durationMinutes.roundToInt()}m",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = NeuroFlowPaletteV2.TextSecondary
                     )
                 }
             }
@@ -16799,7 +17445,7 @@ fun UpgradedHistorySessionRow(
                 if (affectiveForecastError != null) {
                     val sign = if (affectiveForecastError > 0f) "+" else ""
                     Surface(
-                        color = Color.White.copy(alpha = 0.07f),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
@@ -16815,9 +17461,6 @@ fun UpgradedHistorySessionRow(
     }
 }
 
-/**
- * 4. Glassmorphic Note Card with 1-Tap AI Task Extraction (For NotesScreen.kt & NoteEditorScreen.kt)
- */
 @Composable
 fun UpgradedNoteCardV2(
     title: String,
@@ -16831,7 +17474,10 @@ fun UpgradedNoteCardV2(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, noteAccentColor.copy(alpha = 0.38f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(noteAccentColor, 0.85f)
+        ),
         modifier = modifier
             .fillMaxWidth()
             .clickable { onNoteClick() }
@@ -16845,7 +17491,7 @@ fun UpgradedNoteCardV2(
                 Text(
                     text = title.ifBlank { "Untitled Note" },
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White,
+                    color = NeuroFlowPaletteV2.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -16879,7 +17525,7 @@ fun UpgradedNoteCardV2(
                 Text(
                     text = contentPreview,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = NeuroFlowPaletteV2.TextSecondary,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -16888,7 +17534,7 @@ fun UpgradedNoteCardV2(
             Text(
                 text = updatedAtFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.45f),
+                color = NeuroFlowPaletteV2.TextTertiary,
                 fontSize = 10.sp
             )
         }
@@ -16902,8 +17548,8 @@ fun UpgradedNoteCardV2(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/composer/SmartTaskComposerSheetV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/composer/SmartTaskComposerSheetV2.kt`
-- **Lines of Code:** 625
-- **Size:** 28,814 bytes (28.1 KB)
+- **Lines of Code:** 1,102
+- **Size:** 56,387 bytes (55.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.composer
@@ -16915,7 +17561,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -16923,11 +17572,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
@@ -16939,6 +17593,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -16951,6 +17606,7 @@ import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowColors
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
@@ -16963,6 +17619,31 @@ sealed interface SheetMode {
     data object Create : SheetMode
     data class Edit(val task: TaskEntity) : SheetMode
 }
+
+data class ComposerTagPreset(
+    val tag: String,
+    val emoji: String,
+    val shortBoost: String,
+    val category: String,
+    val energyDemand: String,
+    val biologicalWindow: String,
+    val boostDescription: String,
+    val fragmentationTolerance: String
+)
+
+val SMART_TAG_PRESETS: List<ComposerTagPreset> = listOf(
+    ComposerTagPreset("deepwork", "⚡", "+8.5pt Batching", "Analytical", "High (80)", "Peak Morning", "+8.5pt Attentional Batching, places in 90m peak focus window", "Low (0.20) — Protected from splits"),
+    ComposerTagPreset("coding", "💻", "+8.5pt Batching", "Analytical", "High (80)", "Peak Morning", "+8.5pt Same-Context Batching, shields deep focus state", "Low (0.25) — Protected from splits"),
+    ComposerTagPreset("study", "📚", "+8.5pt Batching", "Hard Work", "Medium (50)", "Morning Focus", "+8.5pt Batching, optimal memory encoding", "Moderate (0.35)"),
+    ComposerTagPreset("creative", "🎨", "+15pt Rebound", "Creative", "Medium (50)", "Evening Rebound Phase", "+15pt Divergent Thinking Rebound Bonus when inhibition lowers", "Moderate (0.40)"),
+    ComposerTagPreset("writing", "✍️", "+6pt Batching", "Creative", "Medium (50)", "Morning / Rebound", "+6.0pt Context Affinity, continuous narrative flow", "Moderate (0.40)"),
+    ComposerTagPreset("admin", "📋", "Protects Peak", "Routine", "Low (25)", "Afternoon Post-Lunch Dip", "Zero Peak Drain — slot-filled during low biological dip", "High (0.95) — Safe to interrupt"),
+    ComposerTagPreset("meetings", "🤝", "Midday Coalesce", "Routine", "Medium (50)", "Midday Plateau", "Coalesces meetings with 5m buffers, protects morning blocks", "High (0.80)"),
+    ComposerTagPreset("exercise", "🏃", "+12pt Endorphin", "Physical", "High (Exertion)", "Morning / Afternoon", "+10-12pt Alertness & BDNF boost for 45m post-workout", "Flexible (0.50)"),
+    ComposerTagPreset("mindfulness", "🧘", "+100pt Reset", "Mindfulness", "Low (Restorative)", "Recovery Needed / Night", "+100pt Affinity during high cognitive exhaustion / depletion", "High (0.85) — Non-split"),
+    ComposerTagPreset("chores", "🧹", "Active Rest", "Physical", "Low (25)", "Flexible / Dips", "Active Rest — physical movement during circadian dips", "High (0.90)"),
+    ComposerTagPreset("quickwin", "⏱️", "+15pt Momentum", "Low Friction", "Low (25)", "Immediate / Any", "+15pt Momentum Pull, low initiation barrier for ADHD activation", "High (1.00)")
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -16990,8 +17671,11 @@ fun SmartTaskComposerSheetV2(
     var userDeadlineDate by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineDate) }
     var userDeadlineTime by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineTime) }
     var isScheduleLocked by remember(existingTask) { mutableStateOf(existingTask?.isScheduleLocked ?: false) }
+    var recurrence by remember(existingTask) { mutableStateOf(existingTask?.recurrence ?: Recurrence.NONE) }
 
     var isExpanded by remember { mutableStateOf(existingTask != null) }
+    var showSyntaxGuide by remember { mutableStateOf(false) }
+    var showTagCatalogGuide by remember { mutableStateOf(false) }
     var description by remember(existingTask) { mutableStateOf(existingTask?.description ?: "") }
     var selectedQuadrant by remember(existingTask) { mutableStateOf(existingTask?.quadrant ?: Quadrant.DO_FIRST) }
 
@@ -17037,6 +17721,21 @@ fun SmartTaskComposerSheetV2(
         } catch (_: Exception) {}
     }
 
+    fun toggleTagInInput(tagName: String) {
+        val target = "#$tagName"
+        val regex = Regex("""(?i)\b#$tagName\b""")
+        rawInput = if (rawInput.contains(regex)) {
+            rawInput.replace(regex, "").replace(Regex("""\s{2,}"""), " ").trim()
+        } else {
+            if (rawInput.isBlank()) target else "${rawInput.trim()} $target"
+        }
+        userDurationOverride = null
+        userEnergyOverride = null
+        userTaskTypeOverride = null
+        userFrogOverride = null
+        userPriorityOverride = null
+    }
+
     fun handleSave() {
         val title = (if (mode is SheetMode.Edit) rawInput.trim() else inferred.sanitizedTitle.ifBlank { rawInput.trim() })
         if (title.isBlank()) return
@@ -17058,6 +17757,7 @@ fun SmartTaskComposerSheetV2(
                 scheduledDate = effectiveScheduledDate,
                 scheduledTime = userScheduledTime,
                 isScheduleLocked = isScheduleLocked,
+                recurrence = recurrence,
                 updatedAt = System.currentTimeMillis()
             )
         } else {
@@ -17077,7 +17777,8 @@ fun SmartTaskComposerSheetV2(
                 deadlineTime = userDeadlineTime,
                 scheduledDate = effectiveScheduledDate,
                 scheduledTime = userScheduledTime,
-                isScheduleLocked = isScheduleLocked
+                isScheduleLocked = isScheduleLocked,
+                recurrence = recurrence
             )
         }
         onSave(taskToSave)
@@ -17103,18 +17804,112 @@ fun SmartTaskComposerSheetV2(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (mode is SheetMode.Edit) "Edit Task" else "Smart Task Composer",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.TextPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (mode is SheetMode.Edit) "Edit Task" else "Smart Task Composer",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    IconButton(
+                        onClick = { showSyntaxGuide = !showSyntaxGuide },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = "Formatting Guide",
+                            tint = if (showSyntaxGuide) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextTertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = NeuroFlowThemeV2Colors.TextSecondary)
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Syntax Guide & Inspiration Examples (Expandable)
+            AnimatedVisibility(visible = showSyntaxGuide) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.Lightbulb, contentDescription = null, tint = NeuroFlowThemeV2Colors.WarmAmber, modifier = Modifier.size(16.dp))
+                            Text(
+                                "Natural Language Formatting Guide",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Type naturally! The engine automatically detects durations, deadlines, priorities, and tags:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("• ⏱️ Duration: '30m', '45m', '90m', '1h 30m'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                        Text("• 📅 Deadline: 'tomorrow', 'Friday 10am', 'today at 3pm'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                        Text("• 🐸 Crucial: '!frog' (sets daily frog), '#high', '!urgent'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                        Text("• 🏷️ Tags & Boosts: '#deepwork', '#coding', '#creative', '#admin'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                    }
+                }
+            }
+
+            // Quick Preset Starters (when input is empty)
+            if (rawInput.isBlank()) {
+                Text(
+                    "💡 Quick Starters (Tap to try):",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowThemeV2Colors.TextTertiary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "Ship core patch 45m #coding #deepwork",
+                        "Workout & cardio 30m #exercise tomorrow",
+                        "Inbox zero 15m #admin",
+                        "Roadmap brainstorm 60m #creative",
+                        "Mindful reset 10m #mindfulness"
+                    ).forEach { sample ->
+                        Surface(
+                            onClick = { rawInput = sample },
+                            shape = RoundedCornerShape(50),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                        ) {
+                            Text(
+                                text = sample,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.TextSecondary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            } else {
+                Spacer(modifier = Modifier.height(6.dp))
+            }
 
             // NLP Input Field
             OutlinedTextField(
@@ -17132,7 +17927,7 @@ fun SmartTaskComposerSheetV2(
                     .focusRequester(focusRequester),
                 placeholder = {
                     Text(
-                        "e.g. Design core mockups 90m #high !impact tomorrow",
+                        "e.g. Design core mockups 90m #high !frog tomorrow",
                         style = MaterialTheme.typography.bodyMedium,
                         color = NeuroFlowThemeV2Colors.TextTertiary
                     )
@@ -17242,14 +18037,191 @@ fun SmartTaskComposerSheetV2(
                 // Context Tags Chips
                 inferred.contextTags.forEach { tag ->
                     SuggestionChip(
-                        onClick = {},
-                        label = { Text("#$tag") },
+                        onClick = { toggleTagInInput(tag) },
+                        label = { Text("#$tag ✕") },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            // Available Tags & Boosts Section (User Guidance & 1-Tap Toggle)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        "🏷️ Available Tags & Boosts",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    Text(
+                        "(Tap to add)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.TextTertiary
+                    )
+                }
+
+                TextButton(
+                    onClick = { showTagCatalogGuide = !showTagCatalogGuide },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = if (showTagCatalogGuide) "Hide Details" else "View Boost Guide",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Horizontally Scrollable Tag Presets with Boost Pills
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SMART_TAG_PRESETS.forEach { preset ->
+                    val isSelected = rawInput.contains("#${preset.tag}", ignoreCase = true) ||
+                        inferred.contextTags.any { it.equals(preset.tag, ignoreCase = true) }
+
+                    Surface(
+                        onClick = { toggleTagInInput(preset.tag) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(preset.emoji, fontSize = 12.sp)
+                            Text(
+                                text = "#${preset.tag}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextPrimary
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f) else NeuroFlowThemeV2Colors.SlateSurface
+                            ) {
+                                Text(
+                                    text = preset.shortBoost,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Detailed Tag Catalog Guide Table (Expandable)
+            AnimatedVisibility(visible = showTagCatalogGuide) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "⚡ Biophysical Scheduling Boost Matrix",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        SMART_TAG_PRESETS.forEach { p ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("${p.emoji} #${p.tag}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.width(90.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${p.biologicalWindow} • ${p.energyDemand} Energy",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = NeuroFlowThemeV2Colors.TextPrimary
+                                    )
+                                    Text(
+                                        text = "${p.boostDescription} (${p.fragmentationTolerance})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextTertiary,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                            if (p != SMART_TAG_PRESETS.last()) {
+                                HorizontalDivider(color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 2.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Inferred Scheduling Strategy Preview Banner
+            val matchedPresets = SMART_TAG_PRESETS.filter { p ->
+                rawInput.contains("#${p.tag}", ignoreCase = true) || inferred.contextTags.any { it.equals(p.tag, ignoreCase = true) }
+            }
+            if (matchedPresets.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(15.dp))
+                            Text(
+                                "Active Scheduling Strategy:",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        matchedPresets.forEach { p ->
+                            Text(
+                                text = "• #${p.tag}: ${p.boostDescription} • ${p.biologicalWindow}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.TextPrimary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // AI Slot Placement Preview Banner
             Surface(
@@ -17381,6 +18353,157 @@ fun SmartTaskComposerSheetV2(
                                     modifier = Modifier.weight(1f)
                                 )
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Scheduled Slot & Calendar
+                    Text("⏰ Scheduled Slot Date & Time", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    datePickerTarget = "scheduled"
+                                    showDatePicker = true
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                Text(
+                                    text = if (effectiveScheduledDate != null) SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(effectiveScheduledDate)) else "Pick Slot Date",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    timePickerTarget = "scheduled"
+                                    showTimePicker = true
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                Text(
+                                    text = if (userScheduledTime != null) {
+                                        val h = (userScheduledTime!! / 3_600_000L).toInt()
+                                        val m = ((userScheduledTime!! % 3_600_000L) / 60_000L).toInt()
+                                        String.format("%02d:%02d", h, m)
+                                    } else "Pick Slot Time",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Recurrence / Habit
+                    Text("🔁 Recurrence / Habit", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            Recurrence.NONE to "None",
+                            Recurrence.DAILY to "Daily",
+                            Recurrence.WEEKLY to "Weekly",
+                            Recurrence.MONTHLY to "Monthly"
+                        ).forEach { (recOption, label) ->
+                            val isSelected = recurrence == recOption
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { recurrence = recOption },
+                                label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Lock Schedule Toggle (Pin to Slot)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        border = BorderStroke(1.dp, if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.5f) else NeuroFlowThemeV2Colors.SlateBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isScheduleLocked = !isScheduleLocked }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = if (isScheduleLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                    contentDescription = null,
+                                    tint = if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = if (isScheduleLocked) "🔒 Schedule Locked (Pinned)" else "Schedule Unlocked (Flexible)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isScheduleLocked) "Auto-scheduler will never displace this task" else "Auto-scheduler can optimize slot placement",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextSecondary
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = isScheduleLocked,
+                                onCheckedChange = { isScheduleLocked = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = NeuroFlowThemeV2Colors.WarmAmber
+                                )
+                            )
                         }
                     }
 
@@ -17539,15 +18662,18 @@ fun MetadataPill(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/flow/CircadianHeroBarometer.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/flow/CircadianHeroBarometer.kt`
-- **Lines of Code:** 313
-- **Size:** 11,614 bytes (11.3 KB)
+- **Lines of Code:** 949
+- **Size:** 43,511 bytes (42.5 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.flow
 
-import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -17555,10 +18681,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.CircadianEnergySummary
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -17567,19 +18696,21 @@ import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DaytimeNapBout
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.domain.service.StimulantDoseBout
+import com.neuroflow.app.data.local.PhysiologicalEventType
+import com.neuroflow.app.domain.service.StimulantType
+import com.neuroflow.app.domain.service.PharmacokineticStimulantCalculator
+import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowColors
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowExtendedColors
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import com.neuroflow.app.presentation.v2.theme.phaseAccentColor
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/**
- * 24-Hour Interactive Circadian Energy Hero Barometer (ADR-008).
- * Renders cubic-bezier curve of usable biological energy with touch-scrubbing,
- * tactile haptics, and ADHD-tailored behavioral guidance.
- */
 @Composable
 fun CircadianHeroBarometer(
     summary: CircadianEnergySummary,
@@ -17589,63 +18720,105 @@ fun CircadianHeroBarometer(
     naps: List<DaytimeNapBout> = emptyList(),
     isFallbackSleep: Boolean = false,
     learnedSampleCount: Double = 0.0,
+    stimulantDoses: List<StimulantDoseBout> = emptyList(),
+    isCrashWindow: Boolean = false,
+    activePlasmaMg: Double = 0.0,
+    socialJetlagLagHours: Double = 0.0,
+    predictedSwsSuppressionPercent: Int = 0,
+    latestSafeStimulantCutoffFormatted: String = "16:11",
+    onClearStimulants: () -> Unit = {},
+    onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
+    onLogStimulant: (StimulantType) -> Unit = {},
+    onLogPhysiologicalEvent: (PhysiologicalEventType) -> Unit = {},
+    onClearPhysiologicalEvents: () -> Unit = {}
 ) {
-    val colors = com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowColors.current
-
+    val colors = LocalNeuroFlowColors.current
     val activeSnapshot = dayTimeline.minByOrNull {
         kotlin.math.abs(it.timestampMillis - System.currentTimeMillis())
     }
-
-    val activeScore = activeSnapshot?.usableEnergy ?: summary.currentEnergyScore
     val activePhase = activeSnapshot?.phase ?: summary.currentPhase
     val accent = phaseAccentColor(activePhase, colors)
+    val cardShape = RoundedCornerShape(24.dp)
+    var isGraphExpanded by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp)),
-        color = colors.surfaceElevated,
-        tonalElevation = 2.dp,
+            .padding(horizontal = 16.dp)
+            .clip(cardShape)
+            .border(
+                width = 1.dp,
+                brush = NeuroFlowPaletteV2.specularBorderBrush(accent, alphaBoost = 0.85f),
+                shape = cardShape
+            ),
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        tonalElevation = 3.dp,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            accent.copy(alpha = 0.08f),
+                            Color.Transparent
+                        )
+                    )
+                )
+                .padding(18.dp),
         ) {
-            // Header: Current/Scrubbed Score + Phase Badge
+            // Header: Phase Badge + Battery Score + Collapsible 24h Curve Toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Row(verticalAlignment = Alignment.Bottom) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PhaseBadge(phase = activePhase, accent = accent)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = accent.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = 0.3f))
+                    ) {
                         Text(
-                            text = "$activeScore",
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.ExtraBold,
+                            text = "${summary.currentEnergyScore}% Battery",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
                             color = accent,
-                        )
-                        Text(
-                            text = "/100",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = colors.textTertiary,
-                            modifier = Modifier.padding(bottom = 3.dp, start = 2.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
-                    Text(
-                        text = "Current Biological Energy",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textSecondary,
-                    )
                 }
 
-                PhaseBadge(phase = activePhase, accent = accent)
+                if (dayTimeline.size >= 2) {
+                    Surface(
+                        onClick = { isGraphExpanded = !isGraphExpanded },
+                        shape = RoundedCornerShape(50),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = if (isGraphExpanded) "24h Curve ▲" else "24h Curve ▼",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NeuroFlowPaletteV2.TextSecondary
+                            )
+                        }
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            if (dayTimeline.size >= 2) {
+            if (isGraphExpanded && dayTimeline.size >= 2) {
                 EnhancedCircadianEnergyGraph(
                     timeline = dayTimeline,
                     currentMillis = System.currentTimeMillis(),
@@ -17653,13 +18826,39 @@ fun CircadianHeroBarometer(
                     naps = naps,
                     isFallbackSleep = isFallbackSleep,
                     learnedSampleCount = learnedSampleCount,
+                    embeddedInHeroCard = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+            } else {
+                // Compact 3-metric strip
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeuroFlowPaletteV2.SurfaceElevated.copy(alpha = 0.6f))
+                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val fmt = DateTimeFormatter.ofPattern("HH:mm")
+                    Column {
+                        Text("PEAK", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text("${summary.peakStart.format(fmt)}–${summary.peakEnd.format(fmt)}", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.SemiBold)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text("${summary.cognitiveBudgetMinutesRemaining}m", style = MaterialTheme.typography.labelSmall, color = accent, fontWeight = FontWeight.ExtraBold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("CUTOFF", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(latestSafeStimulantCutoffFormatted.ifBlank { "--:--" }, style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Behavioral Recommendation Footer
             PhaseGuidanceRow(
                 phase = activePhase,
                 cognitiveBudget = summary.cognitiveBudgetMinutesRemaining,
@@ -17669,13 +18868,50 @@ fun CircadianHeroBarometer(
                 dipEnd = summary.dipEnd,
                 colors = colors,
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            StimulantQuickLogRow(
+                stimulantDoses = stimulantDoses,
+                isCrashWindow = isCrashWindow,
+                activePlasmaMg = activePlasmaMg,
+                predictedSwsSuppressionPercent = predictedSwsSuppressionPercent,
+                latestSafeStimulantCutoffFormatted = latestSafeStimulantCutoffFormatted,
+                onClearStimulants = onClearStimulants,
+                onRemoveStimulantDose = onRemoveStimulantDose,
+                onLogStimulant = onLogStimulant,
+                onLogPhysiologicalEvent = onLogPhysiologicalEvent,
+                onClearPhysiologicalEvents = onClearPhysiologicalEvents,
+                colors = colors
+            )
+
+            if (kotlin.math.abs(socialJetlagLagHours) >= 1.0) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("🌅", fontSize = 13.sp)
+                        Text(
+                            text = "Weekend Drift: ${if (socialJetlagLagHours > 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", socialJetlagLagHours)}h phase shift. Morning light exposure recommended.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
-/**
- * Backward compatibility overload for CircadianHeroBarometer.
- */
 @Composable
 fun CircadianHeroBarometer(
     rawEnergyScore: Float,
@@ -17693,6 +18929,17 @@ fun CircadianHeroBarometer(
     naps: List<DaytimeNapBout> = emptyList(),
     isFallbackSleep: Boolean = false,
     learnedSampleCount: Double = 0.0,
+    stimulantDoses: List<StimulantDoseBout> = emptyList(),
+    isCrashWindow: Boolean = false,
+    activePlasmaMg: Double = 0.0,
+    socialJetlagLagHours: Double = 0.0,
+    predictedSwsSuppressionPercent: Int = 0,
+    latestSafeStimulantCutoffFormatted: String = "16:11",
+    onClearStimulants: () -> Unit = {},
+    onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
+    onLogStimulant: (StimulantType) -> Unit = {},
+    onLogPhysiologicalEvent: (PhysiologicalEventType) -> Unit = {},
+    onClearPhysiologicalEvents: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val phase = when {
@@ -17755,19 +19002,30 @@ fun CircadianHeroBarometer(
         cognitiveBlocks = cognitiveBlocks,
         naps = naps,
         isFallbackSleep = isFallbackSleep,
-        learnedSampleCount = learnedSampleCount
+        learnedSampleCount = learnedSampleCount,
+        stimulantDoses = stimulantDoses,
+        isCrashWindow = isCrashWindow,
+        activePlasmaMg = activePlasmaMg,
+        socialJetlagLagHours = socialJetlagLagHours,
+        predictedSwsSuppressionPercent = predictedSwsSuppressionPercent,
+        latestSafeStimulantCutoffFormatted = latestSafeStimulantCutoffFormatted,
+        onClearStimulants = onClearStimulants,
+        onRemoveStimulantDose = onRemoveStimulantDose,
+        onLogStimulant = onLogStimulant,
+        onLogPhysiologicalEvent = onLogPhysiologicalEvent,
+        onClearPhysiologicalEvents = onClearPhysiologicalEvents
     )
 }
 
 @Composable
 fun PhaseBadge(phase: EnergyPhase, accent: Color) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = accent.copy(alpha = 0.12f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(50),
+        color = accent.copy(alpha = 0.13f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -17779,8 +19037,9 @@ fun PhaseBadge(phase: EnergyPhase, accent: Color) {
             Text(
                 text = PhaseBadgeText(phase),
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 color = accent,
+                letterSpacing = 0.6.sp
             )
         }
     }
@@ -17797,38 +19056,55 @@ fun PhaseGuidanceRow(
     colors: NeuroFlowExtendedColors,
 ) {
     val guidance = PhaseRecommendation(phase, peakStart, peakEnd, dipStart, dipEnd)
+    val accent = phaseAccentColor(phase, colors)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(colors.surfaceSubtle, RoundedCornerShape(10.dp))
-            .padding(10.dp),
+            .clip(RoundedCornerShape(14.dp))
+            .background(NeuroFlowPaletteV2.SurfaceElevated.copy(alpha = 0.7f))
+            .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = when (phase) {
-                EnergyPhase.PEAK -> "⚡"
-                EnergyPhase.REBOUND -> "📈"
-                EnergyPhase.DIP -> "☕"
-                EnergyPhase.WIND_DOWN -> "🌙"
-                EnergyPhase.RECOVERY_NEEDED -> "🧘"
-            },
-            fontSize = 16.sp,
-        )
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = when (phase) {
+                    EnergyPhase.PEAK -> "⚡"
+                    EnergyPhase.REBOUND -> "📈"
+                    EnergyPhase.DIP -> "☕"
+                    EnergyPhase.WIND_DOWN -> "🌙"
+                    EnergyPhase.RECOVERY_NEEDED -> "🧘"
+                },
+                fontSize = 15.sp,
+            )
+        }
         Text(
             text = guidance,
             style = MaterialTheme.typography.bodySmall,
-            color = colors.textSecondary,
+            color = NeuroFlowPaletteV2.TextSecondary,
             modifier = Modifier.weight(1f),
-            lineHeight = 16.sp,
+            lineHeight = 17.sp,
         )
-        Text(
-            text = "${cognitiveBudget}m left",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = colors.textPrimary,
-        )
+        Surface(
+            color = accent.copy(alpha = 0.14f),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                text = "${cognitiveBudget}m left",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = accent,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
     }
 }
 
@@ -17850,10 +19126,493 @@ fun PhaseRecommendation(
     val fmt = DateTimeFormatter.ofPattern("HH:mm")
     return when (phase) {
         EnergyPhase.PEAK -> "Tackle highest-leverage deep work. Peak window active until ${peakEnd.format(fmt)}."
-        EnergyPhase.REBOUND -> "Secondary alertness peak. Great for collaborative work and execution."
-        EnergyPhase.DIP -> "Biological low (${dipStart.format(fmt)}-${dipEnd.format(fmt)}). Switch to administrative tasks or rest."
-        EnergyPhase.RECOVERY_NEEDED -> "Synaptic fatigue detected. Take a 15-min NSDR or walk before resuming."
-        EnergyPhase.WIND_DOWN -> "Melatonin rising. Avoid high-stress tasks; transition to shutdown mode."
+        EnergyPhase.REBOUND -> "Secondary alertness wave. Ideal for collaborative execution."
+        EnergyPhase.DIP -> "Biological trough (${dipStart.format(fmt)}–${dipEnd.format(fmt)}). Switch to light admin or rest."
+        EnergyPhase.RECOVERY_NEEDED -> "Synaptic fatigue detected. Take a 15m NSDR or walk before resuming."
+        EnergyPhase.WIND_DOWN -> "Melatonin rising. Close open loops and transition to shutdown mode."
+    }
+}
+
+@Composable
+fun ActiveDoseHistoryDialog(
+    stimulantDoses: List<StimulantDoseBout>,
+    onDismiss: () -> Unit,
+    onRemoveDose: (StimulantDoseBout) -> Unit,
+    zoneId: ZoneId = ZoneId.systemDefault()
+) {
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("h:mm a") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Active Stimulant Doses",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowPaletteV2.TextPrimary
+            )
+        },
+        text = {
+            if (stimulantDoses.isEmpty()) {
+                Text(
+                    text = "No active doses recorded in the last 24h.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NeuroFlowPaletteV2.TextSecondary
+                )
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Tap ✕ to remove any accidentally logged dose:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextSecondary
+                    )
+                    stimulantDoses.sortedByDescending { it.timestampMillis }.forEach { dose ->
+                        val timeStr = java.time.Instant.ofEpochMilli(dose.timestampMillis)
+                            .atZone(zoneId)
+                            .format(timeFormatter)
+                        val emoji = when (dose.type) {
+                            StimulantType.CAFFEINE -> "☕"
+                            StimulantType.GREEN_TEA_L_THEANINE -> "🍵"
+                            StimulantType.PRESCRIPTION_STIMULANT_IR, StimulantType.PRESCRIPTION_STIMULANT_XR -> "💊"
+                            else -> "⚡"
+                        }
+                        val typeName = when (dose.type) {
+                            StimulantType.CAFFEINE -> "Caffeine"
+                            StimulantType.GREEN_TEA_L_THEANINE -> "Green Tea"
+                            StimulantType.PRESCRIPTION_STIMULANT_IR -> "Meds IR"
+                            StimulantType.PRESCRIPTION_STIMULANT_XR -> "Meds XR"
+                            else -> dose.type.name
+                        }
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(emoji, fontSize = 16.sp)
+                                    Column {
+                                        Text(
+                                            text = "$typeName (~${dose.doseMg.roundToInt()}mg)",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = NeuroFlowPaletteV2.TextPrimary
+                                        )
+                                        Text(
+                                            text = "Logged at $timeStr",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowPaletteV2.TextSecondary
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = { onRemoveDose(dose) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove dose",
+                                        tint = NeuroFlowPaletteV2.RecoveryRose,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", color = NeuroFlowPaletteV2.OptimalEmerald, fontWeight = FontWeight.Bold)
+            }
+        },
+        containerColor = NeuroFlowPaletteV2.SurfaceCard,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun StimulantQuickLogRow(
+    stimulantDoses: List<StimulantDoseBout>,
+    isCrashWindow: Boolean,
+    activePlasmaMg: Double = 0.0,
+    predictedSwsSuppressionPercent: Int = 0,
+    latestSafeStimulantCutoffFormatted: String = "16:11",
+    onClearStimulants: () -> Unit = {},
+    onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
+    onLogStimulant: (StimulantType) -> Unit,
+    onLogPhysiologicalEvent: ((PhysiologicalEventType) -> Unit)? = null,
+    onClearPhysiologicalEvents: (() -> Unit)? = null,
+    colors: NeuroFlowExtendedColors,
+    modifier: Modifier = Modifier
+) {
+    var showDoseHistoryDialog by remember { mutableStateOf(false) }
+
+    if (showDoseHistoryDialog) {
+        ActiveDoseHistoryDialog(
+            stimulantDoses = stimulantDoses,
+            onDismiss = { showDoseHistoryDialog = false },
+            onRemoveDose = { dose ->
+                onRemoveStimulantDose(dose)
+            }
+        )
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (isCrashWindow) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.45f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("⚡", fontSize = 13.sp)
+                    Text(
+                        text = "Crash Guard active: Stimulant wear-off in progress — protecting you from high-friction tasks.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Active Plasma Status, SWS Suppression & Safe Cutoff
+        if (activePlasmaMg > 0.05 || stimulantDoses.isNotEmpty() || latestSafeStimulantCutoffFormatted.isNotBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (activePlasmaMg > 0.05 || stimulantDoses.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(NeuroFlowPaletteV2.OptimalEmerald, CircleShape)
+                                )
+                                Text(
+                                    text = if (activePlasmaMg >= 1.0) "~${activePlasmaMg.roundToInt()}mg active" else "<1mg active",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowPaletteV2.TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    // Safe Stimulant Cutoff Pill
+                    if (latestSafeStimulantCutoffFormatted.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("🛑", fontSize = 10.sp)
+                                Text(
+                                    text = "Cutoff: $latestSafeStimulantCutoffFormatted",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowPaletteV2.TextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    // Bedtime SWS Suppression Risk
+                    if (predictedSwsSuppressionPercent > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Text("🌙", fontSize = 10.sp)
+                                Text(
+                                    text = "SWS -$predictedSwsSuppressionPercent%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (activePlasmaMg > 0.05 || stimulantDoses.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (stimulantDoses.isNotEmpty()) {
+                            TextButton(
+                                onClick = { showDoseHistoryDialog = true },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Text(
+                                    text = "Doses (${stimulantDoses.size})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowPaletteV2.OptimalEmerald,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = onClearStimulants,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            modifier = Modifier.height(24.dp)
+                        ) {
+                            Text(
+                                text = "Clear",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowPaletteV2.TextTertiary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Horizontally scrollable quick-log chips (prevents screen overflow)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Quick Log:",
+                style = MaterialTheme.typography.labelSmall,
+                color = NeuroFlowPaletteV2.TextSecondary,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            // + Coffee (100mg)
+            Surface(
+                onClick = { onLogStimulant(StimulantType.CAFFEINE) },
+                shape = RoundedCornerShape(50),
+                color = NeuroFlowPaletteV2.SurfaceElevated,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("☕", fontSize = 12.sp)
+                    Text(
+                        text = "+ Coffee (100mg)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // + Green Tea (50mg)
+            Surface(
+                onClick = { onLogStimulant(StimulantType.GREEN_TEA_L_THEANINE) },
+                shape = RoundedCornerShape(50),
+                color = NeuroFlowPaletteV2.SurfaceElevated,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("🍵", fontSize = 12.sp)
+                    Text(
+                        text = "+ Green Tea (50mg)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // + Meds IR (10mg)
+            Surface(
+                onClick = { onLogStimulant(StimulantType.PRESCRIPTION_STIMULANT_IR) },
+                shape = RoundedCornerShape(50),
+                color = NeuroFlowPaletteV2.SurfaceElevated,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("💊", fontSize = 12.sp)
+                    Text(
+                        text = "+ Meds IR (10mg)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // + Meds XR (20mg)
+            Surface(
+                onClick = { onLogStimulant(StimulantType.PRESCRIPTION_STIMULANT_XR) },
+                shape = RoundedCornerShape(50),
+                color = NeuroFlowPaletteV2.SurfaceElevated,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("💊", fontSize = 12.sp)
+                    Text(
+                        text = "+ Meds XR (20mg)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            if (onLogPhysiologicalEvent != null) {
+                // + Meal Dip
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.MEAL) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("🍽️", fontSize = 12.sp)
+                        Text(
+                            text = "+ Meal Dip",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // + Workout
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.WORKOUT) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("🏃", fontSize = 12.sp)
+                        Text(
+                            text = "+ Workout",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // + 20m Power Nap
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.NAP) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("💤", fontSize = 12.sp)
+                        Text(
+                            text = "+ 20m Nap",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (onClearPhysiologicalEvents != null) {
+                    Surface(
+                        onClick = onClearPhysiologicalEvents,
+                        shape = RoundedCornerShape(50),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("🧹", fontSize = 12.sp)
+                            Text(
+                                text = "Clear Bio",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowPaletteV2.TextSecondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 ```
@@ -17864,8 +19623,8 @@ fun PhaseRecommendation(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/flow/EnergyTimelineStream.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/flow/EnergyTimelineStream.kt`
-- **Lines of Code:** 521
-- **Size:** 22,137 bytes (21.6 KB)
+- **Lines of Code:** 650
+- **Size:** 29,009 bytes (28.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.flow
@@ -17888,6 +19647,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -17895,12 +19655,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
-
 import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.EnergyPhase
 
 @Composable
 fun EnergyTimelineStream(
@@ -17910,6 +19672,7 @@ fun EnergyTimelineStream(
     onDeferTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {},
+    onShiftToPeak: ((TaskEntity) -> Unit)? = null,
     timeline: List<CircadianSnapshot> = emptyList(),
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
@@ -17959,18 +19722,109 @@ fun EnergyTimelineStream(
                 }
             }
         } else {
-            scheduledTasks.forEach { task ->
-                key(task.id) {
-                    TimelineTaskCard(
-                        task = task,
-                        onTaskClick = { onTaskClick(task) },
-                        onComplete = { onCompleteTask(task) },
-                        onDefer = { onDeferTask(task) },
-                        onBreakDown = { onBreakDownTask(task) },
-                        onEdit = { onEditTask(task) },
-                        onLogPastTime = { taskToLogTime = task },
-                        timeline = timeline
-                    )
+            val nowMillis = System.currentTimeMillis()
+            val activeOrNextIndex = scheduledTasks.indexOfFirst { task ->
+                val start = task.resolveScheduledEpochMillis() ?: task.scheduledDate ?: 0L
+                val end = start + task.estimatedDurationMinutes * 60_000L
+                end >= nowMillis
+            }
+            var cumulativeMinutes = 0
+
+            scheduledTasks.forEachIndexed { index, task ->
+                val scheduledMillis = task.resolveScheduledEpochMillis() ?: task.scheduledDate
+                val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
+                    timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - scheduledMillis) }?.phase ?: EnergyPhase.PEAK
+                } else EnergyPhase.PEAK
+                val phaseColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+
+                if (index == activeOrNextIndex) {
+                    // Pulsing "NOW" playhead indicator
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(NeuroFlowPaletteV2.ReboundCyan, CircleShape)
+                        )
+                        Text(
+                            text = "NOW",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = NeuroFlowPaletteV2.ReboundCyan,
+                            letterSpacing = 1.sp
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(1.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(NeuroFlowPaletteV2.ReboundCyan, Color.Transparent)
+                                    )
+                                )
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Phase-colored vertical time-rail node & track
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 18.dp)
+                                .size(10.dp)
+                                .background(phaseColor, CircleShape)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .weight(1f, fill = false)
+                                .heightIn(min = 40.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(phaseColor.copy(alpha = 0.5f), phaseColor.copy(alpha = 0.15f))
+                                    )
+                                )
+                        )
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        key(task.id) {
+                            TimelineTaskCard(
+                                task = task,
+                                onTaskClick = { onTaskClick(task) },
+                                onComplete = { onCompleteTask(task) },
+                                onDefer = { onDeferTask(task) },
+                                onBreakDown = { onBreakDownTask(task) },
+                                onEdit = { onEditTask(task) },
+                                onShiftToPeak = onShiftToPeak?.let { shift -> { shift(task) } },
+                                onLogPastTime = { taskToLogTime = task },
+                                timeline = timeline
+                            )
+                        }
+                    }
+                }
+
+                cumulativeMinutes += task.estimatedDurationMinutes
+                val hasNext = index < scheduledTasks.size - 1
+                if (hasNext) {
+                    val nextTask = scheduledTasks[index + 1]
+                    val isBetweenSplitParts = (task.id.contains("#part1") || task.id.contains("_part1") || task.title.contains("(Part 1/2)")) &&
+                            (nextTask.id.contains("#part2") || nextTask.id.contains("_part2") || nextTask.title.contains("(Part 2/2)"))
+                    if (isBetweenSplitParts || cumulativeMinutes >= 90) {
+                        UltradianRecoveryDivider()
+                        cumulativeMinutes = 0
+                    }
                 }
             }
         }
@@ -17998,6 +19852,7 @@ fun TimelineTaskCard(
     onDefer: () -> Unit,
     onBreakDown: () -> Unit = {},
     onEdit: () -> Unit = {},
+    onShiftToPeak: (() -> Unit)? = null,
     onLogPastTime: () -> Unit = {},
     timeline: List<CircadianSnapshot> = emptyList()
 ) {
@@ -18161,15 +20016,48 @@ fun TimelineTaskCard(
                                 )
                             }
                         }
+
+                        val isUltradianPart = task.id.contains("#part") || task.title.contains("(Part ")
+                        if (isUltradianPart) {
+                            val partLabel = if (task.id.contains("#part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                            Box(
+                                modifier = Modifier
+                                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = partLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        if (task.postponeCount >= 3) {
+                            Box(
+                                modifier = Modifier
+                                    .background(NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "⚡ Dopamine Warm-Up",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.WarmAmber,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
 
-                    val scheduledMillis = task.scheduledTime ?: task.scheduledDate
+                    val scheduledMillis = task.resolveScheduledEpochMillis() ?: task.scheduledDate
                     if (scheduledMillis != null && timeline.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         TaskSlotEnergyFitBadge(
                             taskScheduledMillis = scheduledMillis,
                             taskEnergyDemand = task.energyLevel,
-                            timeline = timeline
+                            timeline = timeline,
+                            onShiftToPeakClick = onShiftToPeak
                         )
                     }
                 }
@@ -18397,8 +20285,8 @@ fun TimelineTaskCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/flow/EnhancedCircadianEnergyGraph.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/flow/EnhancedCircadianEnergyGraph.kt`
-- **Lines of Code:** 653
-- **Size:** 27,317 bytes (26.7 KB)
+- **Lines of Code:** 650
+- **Size:** 26,939 bytes (26.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.flow
@@ -18412,27 +20300,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18462,6 +20336,8 @@ import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DaytimeNapBout
 import com.neuroflow.app.domain.service.EnergyDemand
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowPalette
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -18479,6 +20355,7 @@ fun EnhancedCircadianEnergyGraph(
     isFallbackSleep: Boolean = false,
     learnedSampleCount: Double = 0.0,
     zoneId: ZoneId = ZoneId.systemDefault(),
+    embeddedInHeroCard: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (timeline.size < 2) return
@@ -18486,6 +20363,9 @@ fun EnhancedCircadianEnergyGraph(
     val textMeasurer = rememberTextMeasurer()
     var scrubbedIndex by remember { mutableStateOf<Int?>(null) }
     var lastHapticPhase by remember { mutableStateOf<EnergyPhase?>(null) }
+
+    val palette = LocalNeuroFlowPalette.current
+    val isDark = palette.isDark
 
     val startMillis = timeline.first().timestampMillis
     val endMillis = timeline.last().timestampMillis
@@ -18495,78 +20375,93 @@ fun EnhancedCircadianEnergyGraph(
         ?: timeline.minByOrNull { abs(it.timestampMillis - currentMillis) }
         ?: timeline.first()
 
-    val PeakGold = Color(0xFFFFB300)
-    val ReboundCyan = Color(0xFF00E5FF)
-    val DipIndigo = Color(0xFF7C4DFF)
-    val RecoveryRose = Color(0xFFFF5252)
-    val SurfaceDark = Color(0xFF12131A)
-    val GridLineColor = Color(0xFF262938)
+    val PeakEmerald = palette.energyPeakMint
+    val ReboundIndigo = palette.primaryIndigo
+    val DipAmber = palette.energyModerateAmber
+    val RecoveryRose = palette.energyLowCoral
+    val WindDownViolet = palette.hyperFocusViolet
+    val GridLineColor = palette.border.copy(alpha = if (isDark) 0.4f else 0.55f)
+    val TextPrimary = palette.textPrimary
+    val TextSecondary = palette.textSecondary
 
-    Column(
-        modifier = modifier
+    fun resolvePhaseColor(phase: EnergyPhase): Color = when (phase) {
+        EnergyPhase.PEAK -> PeakEmerald
+        EnergyPhase.REBOUND -> ReboundIndigo
+        EnergyPhase.DIP -> DipAmber
+        EnergyPhase.RECOVERY_NEEDED -> RecoveryRose
+        EnergyPhase.WIND_DOWN -> WindDownViolet
+    }
+
+    val activeAccent = resolvePhaseColor(activeSnapshot.phase)
+
+    val containerModifier = if (embeddedInHeroCard) {
+        modifier.fillMaxWidth()
+    } else {
+        modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(SurfaceDark)
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .background(palette.surface)
+            .border(1.dp, NeuroFlowPaletteV2.specularBorderBrush(activeAccent), RoundedCornerShape(22.dp))
             .padding(16.dp)
-    ) {
-        // 1. Header & Calibration Status Badge
+    }
+
+    Column(modifier = containerModifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
             Column {
                 Text(
-                    text = if (scrubbedIndex != null) "INSPECTING TIMELINE" else "BIOLOGICAL & LOAD PACING",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.55f),
-                    letterSpacing = 1.1.sp
+                    text = if (scrubbedIndex != null) "SCRUBBING BIO-TIMELINE" else "CIRCADIAN ENERGY HORIZON",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (scrubbedIndex != null) activeAccent else TextSecondary,
+                    letterSpacing = 1.0.sp
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        text = "${activeSnapshot.usableEnergy}%",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                        color = phaseColor(activeSnapshot.phase)
+                        text = "${activeSnapshot.usableEnergy}",
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Black
+                        ),
+                        color = activeAccent
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = phaseLabel(activeSnapshot.phase),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(bottom = 3.dp)
+                        text = "%",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = activeAccent.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(bottom = 4.dp, start = 2.dp)
                     )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    PhaseBadge(phase = activeSnapshot.phase, accent = activeAccent)
                 }
             }
 
-            // Fast-Learner Calibration Pill
             val calibrationText = when {
-                isFallbackSleep -> "Est. Wake • Tap to Log"
+                isFallbackSleep -> "Est. Wake • Log Sleep"
                 learnedSampleCount >= 3.0 -> "AI Calibrated (${(activeSnapshot.predictionConfidence * 100).roundToInt()}%)"
-                learnedSampleCount > 0.0 -> "Learning Rhythm (${learnedSampleCount.roundToInt()}/3)"
-                else -> "Baseline Chronotype"
+                learnedSampleCount > 0.0 -> "Learning (${learnedSampleCount.roundToInt()}/3)"
+                else -> "Baseline Model"
             }
+            val pillAccent = if (isFallbackSleep) RecoveryRose else ReboundIndigo
             Surface(
-                color = if (isFallbackSleep) RecoveryRose.copy(alpha = 0.16f) else ReboundCyan.copy(alpha = 0.12f),
+                color = pillAccent.copy(alpha = 0.12f),
                 shape = RoundedCornerShape(50),
-                border = BorderStroke(
-                    1.dp,
-                    if (isFallbackSleep) RecoveryRose.copy(alpha = 0.4f) else ReboundCyan.copy(alpha = 0.35f)
-                )
+                border = BorderStroke(1.dp, pillAccent.copy(alpha = 0.35f))
             ) {
                 Text(
                     text = calibrationText,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (isFallbackSleep) RecoveryRose else ReboundCyan,
+                    color = pillAccent,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // 2. Interactive Factor Decomposition Callout
         AnimatedVisibility(
             visible = scrubbedIndex != null || activeSnapshot.focusDepletionPenalty > 0.01 || abs(activeSnapshot.learnedAdjustmentPoints) >= 1.5,
             enter = fadeIn(),
@@ -18574,17 +20469,19 @@ fun EnhancedCircadianEnergyGraph(
         ) {
             FactorDecompositionStrip(
                 snapshot = activeSnapshot,
-                zoneId = zoneId
+                zoneId = zoneId,
+                textPrimary = TextPrimary,
+                textSecondary = TextSecondary,
+                surfaceSubtle = palette.surfaceElevated
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // 3. Interactive Dual-Curve Canvas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(190.dp)
+                .height(196.dp)
                 .pointerInput(timeline) {
                     detectTapGestures(
                         onPress = { offset ->
@@ -18628,7 +20525,7 @@ fun EnhancedCircadianEnergyGraph(
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val padTop = 16.dp.toPx()
+                val padTop = 18.dp.toPx()
                 val padBottom = 26.dp.toPx()
                 val chartHeight = (size.height - padTop - padBottom).coerceAtLeast(1f)
                 val chartWidth = size.width
@@ -18639,7 +20536,6 @@ fun EnhancedCircadianEnergyGraph(
                 fun energyToY(score: Float): Float =
                     padTop + chartHeight * (1f - (score.coerceIn(0f, 100f) / 100f))
 
-                // A. Horizontal Reference Grid (25%, 50%, 75%)
                 listOf(25f, 50f, 75f).forEach { level ->
                     val y = energyToY(level)
                     drawLine(
@@ -18651,10 +20547,8 @@ fun EnhancedCircadianEnergyGraph(
                     )
                 }
 
-                // B. Peak & Dip Phase Background Bands
-                drawPhaseBands(timeline, chartWidth, padTop, chartHeight, PeakGold, DipIndigo)
+                drawPhaseBands(timeline, chartWidth, padTop, chartHeight, PeakEmerald, DipAmber)
 
-                // C. Scheduled Cognitive Task & Nap Blocks on Bottom Track
                 val blockTrackY = padTop + chartHeight - 6.dp.toPx()
                 val dayStartMillis = Instant.ofEpochMilli(startMillis).atZone(zoneId).toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
 
@@ -18667,17 +20561,17 @@ fun EnhancedCircadianEnergyGraph(
                         dayStartMillis + endMin * 60_000L
                     }
                     val x1 = timeToX(bStartMillis)
-                    val x2 = timeToX(bEndMillis).coerceAtLeast(x1 + 4.dp.toPx())
+                    val x2 = timeToX(bEndMillis).coerceAtLeast(x1 + 5.dp.toPx())
                     val blockEnergy = timeline.minByOrNull { abs(it.timestampMillis - bStartMillis) }?.usableEnergy ?: 60
                     val isMismatch = block.demand == EnergyDemand.HIGH && blockEnergy < 50
                     val blockColor = when {
                         isMismatch -> RecoveryRose
-                        block.isFrog -> PeakGold
-                        block.demand == EnergyDemand.HIGH -> ReboundCyan
-                        else -> DipIndigo
+                        block.isFrog -> DipAmber
+                        block.demand == EnergyDemand.HIGH -> ReboundIndigo
+                        else -> WindDownViolet
                     }
                     drawRoundRect(
-                        color = blockColor.copy(alpha = if (block.isCompleted) 0.45f else 0.85f),
+                        color = blockColor.copy(alpha = if (block.isCompleted) 0.45f else 0.9f),
                         topLeft = Offset(x1, blockTrackY),
                         size = Size(x2 - x1, 5.dp.toPx()),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
@@ -18686,16 +20580,15 @@ fun EnhancedCircadianEnergyGraph(
 
                 naps.forEach { nap ->
                     val x1 = timeToX(nap.startMillis)
-                    val x2 = timeToX(nap.endMillis).coerceAtLeast(x1 + 4.dp.toPx())
+                    val x2 = timeToX(nap.endMillis).coerceAtLeast(x1 + 5.dp.toPx())
                     drawRoundRect(
-                        color = Color(0xFF00E676).copy(alpha = 0.75f),
+                        color = PeakEmerald.copy(alpha = 0.8f),
                         topLeft = Offset(x1, blockTrackY),
                         size = Size(x2 - x1, 5.dp.toPx()),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                     )
                 }
 
-                // Build coordinates for Monotone Cubic Hermite Splines
                 val usablePoints = timeline.mapIndexed { i, snap ->
                     val x = (i.toFloat() / (timeline.size - 1)) * chartWidth
                     val y = energyToY(snap.usableEnergy.toFloat())
@@ -18707,14 +20600,13 @@ fun EnhancedCircadianEnergyGraph(
                     Offset(x, y)
                 }
 
-                // D. Uncertainty Confidence Ribbon around Usable Energy
                 val ribbonPath = Path().apply {
                     val upperPoints = timeline.mapIndexed { i, snap ->
-                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 16f
+                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 14f
                         Offset(usablePoints[i].x, energyToY((snap.usableEnergy + spread).coerceAtMost(100f)))
                     }
                     val lowerPoints = timeline.mapIndexed { i, snap ->
-                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 16f
+                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 14f
                         Offset(usablePoints[i].x, energyToY((snap.usableEnergy - spread).coerceAtLeast(0f)))
                     }.reversed()
 
@@ -18727,22 +20619,20 @@ fun EnhancedCircadianEnergyGraph(
                 }
                 drawPath(
                     path = ribbonPath,
-                    color = ReboundCyan.copy(alpha = 0.08f)
+                    color = ReboundIndigo.copy(alpha = if (isDark) 0.08f else 0.06f)
                 )
 
-                // E. Ghosted Biological Potential Curve (Dashed)
                 val baselinePath = buildMonotoneCubicPath(baselinePoints)
                 drawPath(
                     path = baselinePath,
-                    color = Color.White.copy(alpha = 0.28f),
+                    color = TextSecondary.copy(alpha = 0.35f),
                     style = Stroke(
                         width = 1.5.dp.toPx(),
                         cap = StrokeCap.Round,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f))
                     )
                 )
 
-                // F. Primary Load-Adjusted Usable Energy Curve & Area Gradient
                 val usablePath = buildMonotoneCubicPath(usablePoints)
                 val fillPath = Path().apply {
                     addPath(usablePath)
@@ -18751,19 +20641,32 @@ fun EnhancedCircadianEnergyGraph(
                     close()
                 }
                 val horizontalBrush = Brush.horizontalGradient(
-                    colors = timeline.map { phaseColor(it.phase) }
+                    colors = timeline.map { resolvePhaseColor(it.phase) }
                 )
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            phaseColor(activeSnapshot.phase).copy(alpha = 0.30f),
+                            activeAccent.copy(alpha = if (isDark) 0.28f else 0.18f),
+                            activeAccent.copy(alpha = 0.03f),
                             Color.Transparent
                         ),
                         startY = padTop,
                         endY = padTop + chartHeight
                     )
                 )
+
+                drawPath(
+                    path = usablePath,
+                    brush = horizontalBrush,
+                    alpha = if (isDark) 0.25f else 0.15f,
+                    style = Stroke(
+                        width = 8.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+
                 drawPath(
                     path = usablePath,
                     brush = horizontalBrush,
@@ -18775,13 +20678,12 @@ fun EnhancedCircadianEnergyGraph(
                     )
                 )
 
-                // G. Current Time ("NOW") or Active Scrubber Indicator
                 val targetMillis = activeSnapshot.timestampMillis
                 val markerX = timeToX(targetMillis)
                 val markerY = energyToY(activeSnapshot.usableEnergy.toFloat())
 
                 drawLine(
-                    color = Color.White.copy(alpha = if (scrubbedIndex != null) 0.55f else 0.28f),
+                    color = if (scrubbedIndex != null) activeAccent.copy(alpha = 0.7f) else TextSecondary.copy(alpha = 0.35f),
                     start = Offset(markerX, padTop),
                     end = Offset(markerX, padTop + chartHeight),
                     strokeWidth = 1.5.dp.toPx(),
@@ -18789,44 +20691,43 @@ fun EnhancedCircadianEnergyGraph(
                 )
 
                 drawCircle(
-                    color = phaseColor(activeSnapshot.phase).copy(alpha = 0.3f),
-                    radius = 9.dp.toPx(),
+                    color = activeAccent.copy(alpha = 0.28f),
+                    radius = 11.dp.toPx(),
                     center = Offset(markerX, markerY)
                 )
                 drawCircle(
-                    color = phaseColor(activeSnapshot.phase),
-                    radius = 5.dp.toPx(),
+                    color = activeAccent,
+                    radius = 5.5.dp.toPx(),
                     center = Offset(markerX, markerY)
                 )
                 drawCircle(
-                    color = SurfaceDark,
-                    radius = 2.dp.toPx(),
+                    color = palette.surface,
+                    radius = 2.2.dp.toPx(),
                     center = Offset(markerX, markerY)
                 )
 
-                // H. X-Axis Hour Labels (Every 4 hours)
                 drawHourAxisLabels(
                     startMillis = startMillis,
                     totalSpanMillis = totalSpanMillis,
                     chartWidth = chartWidth,
                     labelY = padTop + chartHeight + 6.dp.toPx(),
                     zoneId = zoneId,
+                    labelColor = TextSecondary.copy(alpha = 0.65f),
                     textMeasurer = textMeasurer
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // 4. Compact Legend
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            LegendItem(color = ReboundCyan, label = "Usable Energy")
-            LegendItem(color = Color.White.copy(alpha = 0.45f), label = "Bio Potential (Unloaded)", isDashed = true)
-            LegendItem(color = PeakGold, label = "Frog / Deep Block")
+            LegendItem(color = PeakEmerald, label = "Usable Energy", textColor = TextSecondary)
+            LegendItem(color = TextSecondary.copy(alpha = 0.5f), label = "Bio Potential", isDashed = true, textColor = TextSecondary)
+            LegendItem(color = DipAmber, label = "Frog / Deep Work", textColor = TextSecondary)
         }
     }
 }
@@ -18834,7 +20735,10 @@ fun EnhancedCircadianEnergyGraph(
 @Composable
 private fun FactorDecompositionStrip(
     snapshot: CircadianSnapshot,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    textPrimary: Color,
+    textSecondary: Color,
+    surfaceSubtle: Color
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()) }
     val timeText = Instant.ofEpochMilli(snapshot.timestampMillis).atZone(zoneId).format(timeFormatter)
@@ -18847,35 +20751,35 @@ private fun FactorDecompositionStrip(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.05f))
+            .background(surfaceSubtle)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = timeText,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = textPrimary
         )
-        FactorChip(label = "Circadian", value = "+$cPoints", color = Color(0xFF00E5FF))
-        FactorChip(label = "Sleep Debt", value = "$sDebtPenalty", color = Color(0xFFFF8A65))
+        FactorChip(label = "Drive", value = "+$cPoints", color = NeuroFlowPaletteV2.OptimalEmerald, labelColor = textSecondary)
+        FactorChip(label = "Sleep Debt", value = "$sDebtPenalty", color = NeuroFlowPaletteV2.PeakAmber, labelColor = textSecondary)
         if (focusPenalty < 0) {
-            FactorChip(label = "Focus Load", value = "$focusPenalty", color = Color(0xFFFF5252))
+            FactorChip(label = "Load", value = "$focusPenalty", color = NeuroFlowPaletteV2.RecoveryRose, labelColor = textSecondary)
         }
         if (learnedAdj != 0) {
             val signPrefix = if (learnedAdj > 0) "+" else ""
-            FactorChip(label = "Learned", value = "$signPrefix$learnedAdj", color = Color(0xFFB388FF))
+            FactorChip(label = "AI", value = "$signPrefix$learnedAdj", color = NeuroFlowPaletteV2.DipIndigo, labelColor = textSecondary)
         }
     }
 }
 
 @Composable
-private fun FactorChip(label: String, value: String, color: Color) {
+private fun FactorChip(label: String, value: String, color: Color, labelColor: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "$label: ",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.6f)
+            color = labelColor
         )
         Text(
             text = value,
@@ -18886,7 +20790,7 @@ private fun FactorChip(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String, isDashed: Boolean = false) {
+private fun LegendItem(color: Color, label: String, textColor: Color, isDashed: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -18898,16 +20802,12 @@ private fun LegendItem(color: Color, label: String, isDashed: Boolean = false) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.6f),
+            color = textColor,
             fontSize = 10.sp
         )
     }
 }
 
-/**
- * Builds a Monotone Cubic Hermite Spline (Fritsch-Carlson method) so the energy curve
- * never overshoots [0..100] around sharp transitions like morning wake or power naps.
- */
 private fun buildMonotoneCubicPath(points: List<Offset>): Path {
     val path = Path()
     val n = points.size
@@ -18986,7 +20886,7 @@ private fun DrawScope.drawPhaseBands(
         when (snap.phase) {
             EnergyPhase.PEAK -> {
                 drawRect(
-                    color = peakColor.copy(alpha = 0.045f),
+                    color = peakColor.copy(alpha = 0.05f),
                     topLeft = Offset(x, padTop),
                     size = Size(slotWidth + 1f, chartHeight)
                 )
@@ -19009,10 +20909,11 @@ private fun DrawScope.drawHourAxisLabels(
     chartWidth: Float,
     labelY: Float,
     zoneId: ZoneId,
+    labelColor: Color,
     textMeasurer: TextMeasurer
 ) {
     val labelStyle = TextStyle(
-        color = Color.White.copy(alpha = 0.45f),
+        color = labelColor,
         fontSize = 10.sp,
         fontWeight = FontWeight.Medium
     )
@@ -19038,22 +20939,6 @@ private fun DrawScope.drawHourAxisLabels(
         }
     }
 }
-
-private fun phaseColor(phase: EnergyPhase): Color = when (phase) {
-    EnergyPhase.PEAK -> Color(0xFFFFB300)
-    EnergyPhase.REBOUND -> Color(0xFF00E5FF)
-    EnergyPhase.DIP -> Color(0xFF7C4DFF)
-    EnergyPhase.RECOVERY_NEEDED -> Color(0xFFFF5252)
-    EnergyPhase.WIND_DOWN -> Color(0xFF5C6BC0)
-}
-
-private fun phaseLabel(phase: EnergyPhase): String = when (phase) {
-    EnergyPhase.PEAK -> "Peak Cognitive Zone"
-    EnergyPhase.REBOUND -> "Associative Rebound"
-    EnergyPhase.DIP -> "Circadian Afternoon Dip"
-    EnergyPhase.RECOVERY_NEEDED -> "Synaptic Recovery Needed"
-    EnergyPhase.WIND_DOWN -> "Melatonin Wind-Down"
-}
 ```
 
 ---
@@ -19062,8 +20947,8 @@ private fun phaseLabel(phase: EnergyPhase): String = when (phase) {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowHubUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowHubUpgradesV2.kt`
-- **Lines of Code:** 425
-- **Size:** 18,632 bytes (18.2 KB)
+- **Lines of Code:** 644
+- **Size:** 28,659 bytes (28.0 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.flow
@@ -19075,22 +20960,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.CheckCircleOutline
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.ShieldMoon
@@ -19100,6 +20974,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19114,15 +20989,18 @@ import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.scheduler.DueSlot
 import com.neuroflow.app.domain.scheduler.SlotPhase
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.remember
+import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.CognitiveBlockCategory
+import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
+import kotlin.math.roundToInt
 
-/**
- * Spotlight Hero Card for FlowScreenV2:
- * Automatically switches between a running ProtectedTimeSlot takeover (Meal, Exercise, Mindfulness)
- * and the highest-affinity Next Action / Daily Frog task so the user never faces choice paralysis.
- */
 @Composable
 fun FlowSpotlightHeroCard(
     activeTakeoverSlot: DueSlot?,
@@ -19135,15 +21013,24 @@ fun FlowSpotlightHeroCard(
     currentPhase: EnergyPhase,
     onStartFocusClick: (String) -> Unit,
     onCompleteQuickClick: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    approachingSlot: DueSlot? = null,
+    topTaskMicroSteps: List<StepByStepPlanStep> = emptyList()
 ) {
     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
+    val cardShape = RoundedCornerShape(24.dp)
+
     if (activeTakeoverSlot != null) {
         Surface(
             color = NeuroFlowPaletteV2.SurfaceCard,
-            shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.45f)),
-            modifier = modifier.fillMaxWidth()
+            shape = cardShape,
+            modifier = modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.5.dp,
+                    brush = NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.OptimalEmerald, 1f),
+                    shape = cardShape
+                )
         ) {
             Column(
                 modifier = Modifier
@@ -19155,7 +21042,7 @@ fun FlowSpotlightHeroCard(
                             )
                         )
                     )
-                    .padding(18.dp)
+                    .padding(20.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -19180,20 +21067,20 @@ fun FlowSpotlightHeroCard(
                     Text(
                         text = "${activeTakeoverSlot.minutesLeft}m left",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White.copy(alpha = 0.8f)
+                        color = NeuroFlowPaletteV2.TextSecondary
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = activeTakeoverSlot.slot.label,
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                    color = Color.White
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Deep work is paused to protect your ${activeTakeoverSlot.slot.category.name.lowercase()} window and discharge synaptic fatigue.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.68f)
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
         }
@@ -19204,9 +21091,15 @@ fun FlowSpotlightHeroCard(
 
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.5.dp, phaseAccent.copy(alpha = 0.45f)),
-        modifier = modifier.fillMaxWidth()
+        shape = cardShape,
+        tonalElevation = 4.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.5.dp,
+                brush = NeuroFlowPaletteV2.specularBorderBrush(phaseAccent, 1f),
+                shape = cardShape
+            )
     ) {
         Column(
             modifier = Modifier
@@ -19215,70 +21108,147 @@ fun FlowSpotlightHeroCard(
                         listOf(phaseAccent.copy(alpha = 0.12f), Color.Transparent)
                     )
                 )
-                .padding(18.dp)
+                .padding(20.dp)
         ) {
+            if (approachingSlot != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("🛡️", fontSize = 14.sp)
+                        Text(
+                            text = "${approachingSlot.slot.label} starts in ${approachingSlot.minutesLeft}m — fit a quick doorway step before transition",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeuroFlowPaletteV2.PeakAmber
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (isTopTaskFrog) "🐸 DAILY FROG SPOTLIGHT" else "⚡ OPTIMAL NEXT ACTION",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        color = phaseAccent,
-                        letterSpacing = 1.sp
-                    )
-                }
+                Text(
+                    text = if (isTopTaskFrog) "🐸 DAILY FROG SPOTLIGHT" else "⚡ OPTIMAL NEXT ACTION",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                    color = phaseAccent,
+                    letterSpacing = 1.sp
+                )
                 Surface(
-                    color = Color.White.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(50)
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
                 ) {
                     Text(
                         text = "${topTaskDurationMinutes}m · ${topTaskEnergyLevel.name}",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = NeuroFlowPaletteV2.TextSecondary,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }
+
             Spacer(modifier = Modifier.height(10.dp))
+
             Text(
                 text = topTaskTitle,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White,
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = NeuroFlowPaletteV2.TextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 
-            // 2-Minute Activation Doorway preview
-            if (!topTaskFirstMicroStep.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
+            if (topTaskMicroSteps.isNotEmpty()) {
+                val completedCount = topTaskMicroSteps.count { it.completed }
+                val totalCount = topTaskMicroSteps.size
+                val currentStep = topTaskMicroSteps.firstOrNull { !it.completed } ?: topTaskMicroSteps.first()
+                val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeuroFlowPaletteV2.SurfaceElevated)
+                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🪜 2m Doorway: Step ${completedCount + 1} of $totalCount",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = NeuroFlowPaletteV2.ReboundCyan
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}% completed",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextTertiary,
+                            fontSize = 10.sp
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = NeuroFlowPaletteV2.ReboundCyan,
+                        trackColor = NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.3f),
+                    )
+                    Text(
+                        text = currentStep.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else if (!topTaskFirstMicroStep.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeuroFlowPaletteV2.SurfaceElevated)
+                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "2m Starter:",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        text = "2m Doorway:",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                         color = NeuroFlowPaletteV2.ReboundCyan
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = topTaskFirstMicroStep,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NeuroFlowPaletteV2.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -19288,12 +21258,12 @@ fun FlowSpotlightHeroCard(
                     onClick = { onStartFocusClick(topTaskId) },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = phaseAccent,
-                        contentColor = Color.Black
+                        contentColor = Color(0xFF0A0B0E)
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .height(46.dp)
+                        .height(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
@@ -19307,15 +21277,16 @@ fun FlowSpotlightHeroCard(
                     )
                 }
                 Surface(
-                    color = Color.White.copy(alpha = 0.07f),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
                     modifier = Modifier
-                        .height(46.dp)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable { onCompleteQuickClick(topTaskId) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -19328,7 +21299,7 @@ fun FlowSpotlightHeroCard(
                         Text(
                             text = "Done",
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White
+                            color = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 }
@@ -19337,14 +21308,12 @@ fun FlowSpotlightHeroCard(
     }
 }
 
-/**
- * One-Tap Guilt-Free Schedule Recovery Banner powered by FreshStartEngine.buildEmergencyResetPlan()
- */
 @Composable
 fun FreshStartRecoveryBanner(
     visible: Boolean,
     resetPlan: FreshStartEngine.EmergencyResetPlan?,
     onApplyEmergencyReset: () -> Unit,
+    onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -19354,15 +21323,17 @@ fun FreshStartRecoveryBanner(
         modifier = modifier
     ) {
         val plan = resetPlan ?: return@AnimatedVisibility
+        val shape = RoundedCornerShape(18.dp)
         Surface(
-            color = NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.14f),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.45f)),
+            color = NeuroFlowPaletteV2.SurfaceCard,
+            shape = shape,
+            border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 0.9f)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.10f))
                     .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -19382,37 +21353,52 @@ fun FreshStartRecoveryBanner(
                         Text(
                             text = "Schedule Feeling Heavy?",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White
+                            color = NeuroFlowPaletteV2.TextPrimary
                         )
                         Text(
                             text = "Keep ${plan.tasksToReschedule.size} essential task(s) today, move ${plan.tasksPushedToBacklog.size} to backlog, and freeze your streak.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.72f)
+                            color = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(10.dp))
-                Surface(
-                    color = NeuroFlowPaletteV2.ReboundCyan,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.clickable { onApplyEmergencyReset() }
+                Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    TextButton(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoFixHigh,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Fresh Start",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                            color = Color.Black
+                            text = "Not Now",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextSecondary
                         )
+                    }
+                    Surface(
+                        color = NeuroFlowPaletteV2.ReboundCyan,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.clickable { onApplyEmergencyReset() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoFixHigh,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Fresh Start",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }
@@ -19420,11 +21406,6 @@ fun FreshStartRecoveryBanner(
     }
 }
 
-/**
- * Displays the projected usable energy at a task's scheduled start time,
- * any active synaptic/meal/exercise delta, and a 1-tap "Shift to Peak" chip
- * if a HIGH-energy task is scheduled during an energy dip (< 50%).
- */
 @Composable
 fun TaskSlotEnergyFitBadge(
     taskScheduledMillis: Long,
@@ -19439,16 +21420,15 @@ fun TaskSlotEnergyFitBadge(
     val isOptimalFit = (taskEnergyDemand == EnergyLevel.HIGH && slotSnapshot.usableEnergy >= 70) ||
         (taskEnergyDemand == EnergyLevel.LOW && slotSnapshot.phase == EnergyPhase.DIP)
     val badgeColor = when {
-        isMismatch -> Color(0xFFFF5252)
-        isOptimalFit -> Color(0xFF00E676)
-        else -> Color(0xFF00E5FF)
+        isMismatch -> NeuroFlowPaletteV2.RecoveryRose
+        isOptimalFit -> NeuroFlowPaletteV2.OptimalEmerald
+        else -> NeuroFlowPaletteV2.ReboundCyan
     }
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Slot Usable Energy Pill
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
@@ -19467,17 +21447,16 @@ fun TaskSlotEnergyFitBadge(
                 Text(
                     text = "(Load -${(slotSnapshot.focusDepletionPenalty * 100).toInt()}%)",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFFF8A65)
+                    color = NeuroFlowPaletteV2.PeakAmber
                 )
             }
         }
-        // Actionable Mismatch Warning Chip
         if (isMismatch && onShiftToPeakClick != null) {
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFFFB300).copy(alpha = 0.16f))
-                    .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                    .background(NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.16f))
+                    .border(1.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                     .clickable { onShiftToPeakClick() }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -19485,12 +21464,137 @@ fun TaskSlotEnergyFitBadge(
                 Text(
                     text = "⚠ Dip Mismatch • Shift to Peak",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFFFB300)
+                    color = NeuroFlowPaletteV2.PeakAmber
                 )
             }
         }
     }
 }
+
+@Composable
+fun UltradianRecoveryDivider(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("☕", fontSize = 13.sp)
+                Text(
+                    text = "15m Ultradian Rest Buffer",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = NeuroFlowPaletteV2.OptimalEmerald
+                )
+            }
+            Text(
+                text = "Replenish Prefrontal Glucose",
+                style = MaterialTheme.typography.labelSmall,
+                color = NeuroFlowPaletteV2.TextSecondary,
+                fontSize = 10.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun ActiveBiophysicalImpulseStrip(
+    cognitiveBlocks: List<CognitiveBlockWindow>,
+    activePlasmaMg: Double,
+    modifier: Modifier = Modifier
+) {
+    val now = System.currentTimeMillis()
+    val activeBlocks = remember(cognitiveBlocks, now) {
+        cognitiveBlocks.filter { block ->
+            val start = block.explicitStartMillis ?: return@filter false
+            val end = block.explicitEndMillis ?: return@filter false
+            now in start..end
+        }
+    }
+    val hasActiveImpulse = activeBlocks.isNotEmpty() || activePlasmaMg > 0.05
+    if (!hasActiveImpulse) return
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp)),
+        color = NeuroFlowPaletteV2.SurfaceElevated.copy(alpha = 0.8f),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("🧬", fontSize = 12.sp)
+            Text(
+                text = "Active Impulses:",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = NeuroFlowPaletteV2.TextSecondary
+            )
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (activePlasmaMg > 0.05) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "Stimulant PK (~${activePlasmaMg.roundToInt().coerceAtLeast(1)}mg)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.OptimalEmerald,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                activeBlocks.forEach { block ->
+                    val (label: String, color: Color) = when (block.category) {
+                        CognitiveBlockCategory.MEAL -> "Postprandial Dip" to NeuroFlowPaletteV2.PeakAmber
+                        CognitiveBlockCategory.EXERCISE -> "Post-Exercise BDNF" to NeuroFlowPaletteV2.ReboundCyan
+                        CognitiveBlockCategory.SLEEP -> "Rest Recovery" to NeuroFlowPaletteV2.OptimalEmerald
+                        else -> block.category.name to NeuroFlowPaletteV2.TextSecondary
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = color.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = color,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 ```
 
 ---
@@ -19499,8 +21603,8 @@ fun TaskSlotEnergyFitBadge(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowScreenV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowScreenV2.kt`
-- **Lines of Code:** 388
-- **Size:** 16,925 bytes (16.5 KB)
+- **Lines of Code:** 441
+- **Size:** 20,219 bytes (19.7 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.flow
@@ -19533,7 +21637,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
@@ -19558,6 +21664,7 @@ fun FlowScreenV2(
     var showComposer by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var showNotesSheet by remember { mutableStateOf(false) }
+    var showFrogConfetti by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialOpenComposer) {
         if (initialOpenComposer) {
@@ -19576,10 +21683,11 @@ fun FlowScreenV2(
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) {
-                if (msg.startsWith("Completed")) {
-                    viewModel.undoCompleteTask()
-                } else if (msg.startsWith("Deferred")) {
-                    viewModel.undoDeferTask()
+                when {
+                    msg.startsWith("Completed") -> viewModel.undoCompleteTask()
+                    msg.startsWith("Deferred") -> viewModel.undoDeferTask()
+                    msg.startsWith("Stimulant logged:") -> viewModel.undoLogStimulant()
+                    msg.startsWith("Bio-event logged:") -> viewModel.undoLogPhysiologicalEvent()
                 }
             }
             viewModel.clearActionMessage()
@@ -19596,7 +21704,7 @@ fun FlowScreenV2(
                 Snackbar(
                     snackbarData = data,
                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                    contentColor = Color.White,
+                    contentColor = NeuroFlowThemeV2Colors.TextPrimary,
                     actionColor = NeuroFlowThemeV2Colors.WarmAmber,
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -19617,7 +21725,7 @@ fun FlowScreenV2(
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Quick Add Task (Long-press for Notes)",
-                    tint = Color.White,
+                    tint = NeuroFlowThemeV2Colors.TextPrimary,
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -19704,32 +21812,66 @@ fun FlowScreenV2(
                 cognitiveBlocks = state.dailyCognitiveBlocks,
                 naps = state.daytimeNaps,
                 isFallbackSleep = state.isFallbackSleep,
-                learnedSampleCount = state.learnedSampleCount
+                learnedSampleCount = state.learnedSampleCount,
+                stimulantDoses = state.stimulantDoses,
+                isCrashWindow = state.isCrashWindow,
+                activePlasmaMg = state.activePlasmaMg,
+                socialJetlagLagHours = state.socialJetlagLagHours,
+                predictedSwsSuppressionPercent = state.predictedSwsSuppressionPercent,
+                latestSafeStimulantCutoffFormatted = state.latestSafeStimulantCutoffFormatted,
+                onClearStimulants = { viewModel.clearAllStimulants() },
+                onRemoveStimulantDose = { dose -> viewModel.removeStimulantDose(dose.timestampMillis, dose.type) },
+                onLogStimulant = { type -> viewModel.logStimulant(type) },
+                onLogPhysiologicalEvent = { type -> viewModel.logPhysiologicalEvent(type) },
+                onClearPhysiologicalEvents = { viewModel.clearAllPhysiologicalEvents() }
             )
 
+            // Active Biophysical Impulse Strip (Meal, Workout, Nap, Stimulant PK ticker)
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                ActiveBiophysicalImpulseStrip(
+                    cognitiveBlocks = state.dailyCognitiveBlocks,
+                    activePlasmaMg = state.activePlasmaMg
+                )
+            }
+
             // Flow Spotlight Hero Card (Takeover or Top Action)
+            val nowMillis = System.currentTimeMillis()
+            val activeTakeoverSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
+                ProtectedSlotClock.takeoverOf(state.preferences.protectedTimeSlots, nowMillis)
+            }
+            val approachingSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
+                ProtectedSlotClock.approaching(state.preferences.protectedTimeSlots, nowMillis, leadInMinutes = 45).firstOrNull()
+            }
             val topTask = state.recommendedTask ?: state.activeTasks.firstOrNull { it.isFrog } ?: state.activeTasks.firstOrNull()
-            if (topTask != null) {
-                val nowMillis = System.currentTimeMillis()
+            if (topTask != null || activeTakeoverSlot != null) {
                 val currentPhase = state.energyTimeline.minByOrNull {
                     kotlin.math.abs(it.timestampMillis - nowMillis)
                 }?.phase ?: EnergyPhase.PEAK
+                val microSteps = remember(topTask?.ifThenPlan) {
+                    topTask?.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it) } ?: emptyList()
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                     FlowSpotlightHeroCard(
-                        activeTakeoverSlot = null,
-                        topTaskId = topTask.id,
-                        topTaskTitle = topTask.title,
-                        topTaskFirstMicroStep = topTask.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it).firstOrNull()?.text },
-                        topTaskDurationMinutes = topTask.estimatedDurationMinutes,
-                        topTaskEnergyLevel = topTask.energyLevel,
-                        isTopTaskFrog = topTask.isFrog,
+                        activeTakeoverSlot = activeTakeoverSlot,
+                        approachingSlot = approachingSlot,
+                        topTaskId = topTask?.id,
+                        topTaskTitle = topTask?.title,
+                        topTaskFirstMicroStep = microSteps.firstOrNull()?.text,
+                        topTaskMicroSteps = microSteps,
+                        topTaskDurationMinutes = topTask?.estimatedDurationMinutes ?: 25,
+                        topTaskEnergyLevel = topTask?.energyLevel ?: EnergyLevel.MEDIUM,
+                        isTopTaskFrog = topTask?.isFrog ?: false,
                         currentPhase = currentPhase,
                         onStartFocusClick = { taskId -> onStartFocus(taskId) },
                         onCompleteQuickClick = { taskId ->
                             val taskToComplete = state.activeTasks.find { it.id == taskId } ?: topTask
-                            viewModel.completeTask(taskToComplete)
+                            if (taskToComplete != null) {
+                                if (taskToComplete.isFrog) showFrogConfetti = true
+                                viewModel.completeTask(taskToComplete)
+                            }
                         }
                     )
                 }
@@ -19746,13 +21888,14 @@ fun FlowScreenV2(
                 } else null
             }
 
-            if (state.showZeroGuiltPrompt || (resetPlan != null && resetPlan.tasksPushedToBacklog.isNotEmpty())) {
+            if (!state.zeroGuiltDismissed && (state.showZeroGuiltPrompt || (resetPlan != null && resetPlan.tasksPushedToBacklog.isNotEmpty()))) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                     FreshStartRecoveryBanner(
                         visible = true,
                         resetPlan = resetPlan,
-                        onApplyEmergencyReset = { viewModel.freshStartRollover() }
+                        onApplyEmergencyReset = { viewModel.freshStartRollover() },
+                        onDismiss = { viewModel.dismissZeroGuiltPrompt() }
                     )
                 }
             }
@@ -19829,7 +21972,7 @@ fun FlowScreenV2(
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            selectedLabelColor = Color.White,
+                            selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                             containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                             labelColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -19845,10 +21988,14 @@ fun FlowScreenV2(
             EnergyTimelineStream(
                 scheduledTasks = state.filteredTasks,
                 onTaskClick = { task -> onStartFocus(task.id) },
-                onCompleteTask = { task -> viewModel.completeTask(task) },
+                onCompleteTask = { task ->
+                    if (task.isFrog) showFrogConfetti = true
+                    viewModel.completeTask(task)
+                },
                 onDeferTask = { task -> viewModel.deferTask(task) },
                 onBreakDownTask = { task -> viewModel.breakDownTask(task) },
                 onEditTask = { task -> editingTask = task },
+                onShiftToPeak = { task -> viewModel.shiftTaskToPeak(task) },
                 timeline = state.energyTimeline
             )
 
@@ -19887,8 +22034,18 @@ fun FlowScreenV2(
             notes = recentNotes,
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
             onDismiss = { showNotesSheet = false },
-            onOpenFullNotes = onNavigateToNotes
+            onOpenFullNotes = onNavigateToNotes,
+            onCreateTask = { title, desc -> viewModel.addTaskFromNote(title, desc) },
+            onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
         )
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
     }
 }
 ```
@@ -19899,30 +22056,38 @@ fun FlowScreenV2(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowViewModelV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/flow/FlowViewModelV2.kt`
-- **Lines of Code:** 521
-- **Size:** 23,033 bytes (22.5 KB)
+- **Lines of Code:** 863
+- **Size:** 40,245 bytes (39.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.flow
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
-import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.local.entity.buildNormalizedScheduleTimestamps
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.parseStimulantLogs
+import com.neuroflow.app.data.local.PhysiologicalEventType
+import com.neuroflow.app.data.local.parsePhysiologicalLogs
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.inference.TaskInferenceEngine
+import com.neuroflow.app.domain.service.CognitiveBlockCategory
+import java.time.Instant
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
-import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
-import com.neuroflow.app.domain.inference.TaskInferenceEngine
+import com.neuroflow.app.domain.repository.EnergyMetricsRepository
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.EnergyUiModel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
@@ -19932,11 +22097,15 @@ import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.model.buildBehavioralObservations
 import com.neuroflow.app.domain.model.buildDailyCognitiveBlocks
 import com.neuroflow.app.domain.model.computeEnergyUiState
-import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.computeRollingDailySleepAverage
+import com.neuroflow.app.domain.model.extractStimulantDosesFromSlots
 import com.neuroflow.app.domain.service.AdaptiveCircadianLearner
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.GeminiAiOnlineService
+import com.neuroflow.app.domain.service.QuickNoteSynthesis
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DailyCircadianSummary
@@ -19945,13 +22114,28 @@ import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
 import com.neuroflow.app.domain.service.EnergyDemand
+import com.neuroflow.app.domain.service.PharmacokineticStimulantCalculator
 import com.neuroflow.app.domain.service.SchedulableTask
+import com.neuroflow.app.domain.service.SocialJetlagCalculator
+import com.neuroflow.app.domain.service.StimulantDoseBout
+import com.neuroflow.app.domain.service.StimulantType
 import com.neuroflow.app.domain.service.TaskCategory
 import com.neuroflow.app.domain.service.TaskSchedulerService
+import com.neuroflow.app.domain.service.TimeSlotWindow
+import com.neuroflow.app.domain.service.computeLatestSafeStimulantCutoffMinute
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -19972,13 +22156,20 @@ data class FlowUiStateV2(
     val isLoading: Boolean = false,
     val overdueTasksCount: Int = 0,
     val showZeroGuiltPrompt: Boolean = false,
+    val zeroGuiltDismissed: Boolean = false,
     val selectedTag: String? = null,
     val availableTags: List<String> = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin"),
     val isEveningShutdownTime: Boolean = false,
     val eveningShutdownDismissed: Boolean = false,
     val lastCompletedTask: TaskEntity? = null,
     val lastDeferredTask: Pair<TaskEntity, Long>? = null,
-    val lastActionMessage: String? = null
+    val lastActionMessage: String? = null,
+    val stimulantDoses: List<StimulantDoseBout> = emptyList(),
+    val isCrashWindow: Boolean = false,
+    val activePlasmaMg: Double = 0.0,
+    val socialJetlagLagHours: Double = 0.0,
+    val predictedSwsSuppressionPercent: Int = 0,
+    val latestSafeStimulantCutoffFormatted: String = "16:11"
 )
 
 @HiltViewModel
@@ -19990,7 +22181,10 @@ class FlowViewModelV2 @Inject constructor(
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
-    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService()
+    private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
+    @ApplicationContext private val context: Context? = null,
+    private val geminiAiOnlineService: GeminiAiOnlineService? = null,
+    private val energyMetricsRepository: EnergyMetricsRepository? = null
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
@@ -20008,9 +22202,18 @@ class FlowViewModelV2 @Inject constructor(
             taskRepository.observeCompletedTasks(),
             preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
                 old.wakeUpHour == new.wakeUpHour &&
+                    old.sleepHour == new.sleepHour &&
                     old.sleepPressurePoints == new.sleepPressurePoints &&
                     old.onboardingCompleted == new.onboardingCompleted &&
-                    old.tagCatalog == new.tagCatalog
+                    old.tagCatalog == new.tagCatalog &&
+                    old.stimulantLogsJson == new.stimulantLogsJson &&
+                    old.quickPhysiologicalLogsJson == new.quickPhysiologicalLogsJson &&
+                    old.protectedTimeSlots == new.protectedTimeSlots &&
+                    old.quizChronotype == new.quizChronotype &&
+                    old.manualChronotype == new.manualChronotype &&
+                    old.meqScore == new.meqScore &&
+                    old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
+                    old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay
             },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { active, completed, prefs, sleepLogs ->
@@ -20049,22 +22252,90 @@ class FlowViewModelV2 @Inject constructor(
 
         val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
         val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
-        val naps = signal?.daytimeNaps ?: emptyList()
+        val baseNaps = signal?.daytimeNaps ?: emptyList()
         val isFallback = sleepLogs.isEmpty() || (signal != null && signal.consolidatedSessions.isEmpty())
 
-        val sevenDaysAgo = now - 7 * 86_400_000L
-        val recentSleepLogs = sleepLogs.filter { it.startAt >= sevenDaysAgo || it.endAt >= sevenDaysAgo }
-        val rollingAverageSleepMinutes = if (recentSleepLogs.isNotEmpty()) {
-            recentSleepLogs.map { if (it.durationMinutes > 0) it.durationMinutes.toDouble() else (it.endAt - it.startAt) / 60_000.0 }.average()
-        } else {
-            480.0
-        }
+        val rollingAverageSleepMinutes = computeRollingDailySleepAverage(sleepLogs, now, systemZone)
 
-        val dailyBlocks = buildDailyCognitiveBlocks(
+        val dayStart = zonedDateTime.toLocalDate().atStartOfDay(systemZone).toInstant().toEpochMilli()
+        val slotBlocks = buildDailyCognitiveBlocks(
             slots = prefs.protectedTimeSlots,
             date = zonedDateTime.toLocalDate(),
             zoneId = systemZone
         )
+
+        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
+
+        val physBlocks = physLogs.mapNotNull { log ->
+            val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(systemZone)
+            val minOfDay = logZdt.hour * 60 + logZdt.minute
+            val duration = log.durationMinutes.coerceIn(5, 240)
+            when (log.type) {
+                PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
+                    startMinuteOfDay = minOfDay,
+                    endMinuteOfDay = (minOfDay + duration) % 1440,
+                    category = CognitiveBlockCategory.MEAL,
+                    intensity = log.intensity,
+                    label = "Quick Logged Meal #${log.timestampMillis}",
+                    explicitStartMillis = log.timestampMillis,
+                    explicitEndMillis = log.timestampMillis + duration * 60_000L
+                )
+                PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
+                    startMinuteOfDay = minOfDay,
+                    endMinuteOfDay = (minOfDay + duration) % 1440,
+                    category = CognitiveBlockCategory.EXERCISE,
+                    intensity = log.intensity,
+                    label = "Quick Logged Workout #${log.timestampMillis}",
+                    explicitStartMillis = log.timestampMillis,
+                    explicitEndMillis = log.timestampMillis + duration * 60_000L
+                )
+                PhysiologicalEventType.NAP -> null
+            }
+        }
+
+        val physNaps = physLogs.filter { it.type == PhysiologicalEventType.NAP }.map { log ->
+            val napDuration = log.durationMinutes.coerceIn(5, 180)
+            DaytimeNapBout(
+                startMillis = log.timestampMillis,
+                endMillis = log.timestampMillis + napDuration * 60_000L
+            )
+        }
+
+        val dailyBlocks = slotBlocks + physBlocks
+        val naps = baseNaps + physNaps
+
+        val loggedStimulants = parseStimulantLogs(prefs.stimulantLogsJson)
+        val slotStimulants = extractStimulantDosesFromSlots(
+            slots = prefs.protectedTimeSlots,
+            date = zonedDateTime.toLocalDate(),
+            zoneId = systemZone
+        )
+        val allStimulants = (loggedStimulants + slotStimulants)
+            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
+            .distinctBy { "${it.timestampMillis}_${it.type}" }
+
+        val stimEffect = PharmacokineticStimulantCalculator.evaluateAt(now, allStimulants)
+        val isCrashWindow = allStimulants.any { bout ->
+            val elapsed = (now - bout.timestampMillis) / 3_600_000.0
+            elapsed in (bout.type.halfLifeHours)..(bout.type.halfLifeHours + 3.5) && bout.type.crashSeverityFactor >= 0.05
+        } || (allStimulants.isNotEmpty() && stimEffect.acuteAlertnessBoostPoints < -1.0)
+
+        // Bedtime Slow-Wave Sleep (SWS) Suppression & Safe Stimulant Cutoff
+        val plannedBedtimeZdt = zonedDateTime.toLocalDate()
+            .atTime(prefs.sleepHour.coerceIn(0, 23), 0)
+            .atZone(systemZone)
+            .let { if (it.toInstant().toEpochMilli() <= now) it.plusDays(1) else it }
+        val swsSuppressionPercent = (PharmacokineticStimulantCalculator.predictBedtimeSwsSuppression(
+            plannedSleepMillis = plannedBedtimeZdt.toInstant().toEpochMilli(),
+            doses = allStimulants
+        ) * 100.0).roundToInt().coerceIn(0, 35)
+
+        val cutoffMin = computeLatestSafeStimulantCutoffMinute(sleepHour = prefs.sleepHour)
+        val cutoffFormatted = String.format(Locale.US, "%02d:%02d", cutoffMin / 60, cutoffMin % 60)
+
+        val sleepWindows = sleepLogs.map { TimeSlotWindow(it.startAt, it.endAt) }
+        val socialJetlagReport = SocialJetlagCalculator.evaluateFromSleepWindows(sleepWindows, now, systemZone)
 
         val behavioralObservations = buildBehavioralObservations(completedTasks = completedTasks, zoneId = systemZone)
         val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
@@ -20079,8 +22350,35 @@ class FlowViewModelV2 @Inject constructor(
             prefs = prefs,
             sleepLogs = sleepLogs,
             completedTasks = completedTasks,
-            nowMillis = now
+            nowMillis = now,
+            stimulantDoses = allStimulants
         )
+
+        if (prefs.energyTelemetryEnabled && energyMetricsRepository != null) {
+            viewModelScope.launch {
+                runCatching {
+                    energyMetricsRepository.recordEnergyPrediction(
+                        predictedAtMillis = now,
+                        baselineRawEnergy = snapshot.baselineBiologicalEnergy.toFloat(),
+                        peakScore = snapshot.usableEnergy.toFloat(),
+                        fatiguePenalty = (snapshot.homeostaticSleepPressure * 100).toFloat(),
+                        sleepPressurePoints = prefs.sleepPressurePoints,
+                        fatiguePercent = (snapshot.homeostaticSleepPressure * 100).toInt().coerceIn(0, 100),
+                        momentAdjustment = (snapshot.physiologicalImpulse + snapshot.learnedAdjustmentPoints).toFloat(),
+                        momentConfidence = snapshot.predictionConfidence.toFloat(),
+                        momentSupportScore = 50f,
+                        momentPressureScore = 50f,
+                        adjustedRawEnergy = snapshot.usableEnergy.toFloat(),
+                        usableEnergy = snapshot.usableEnergy,
+                        chronotype = prefs.quizChronotype ?: prefs.manualChronotype ?: "INTERMEDIATE",
+                        wakeUpHour = prefs.wakeUpHour,
+                        peakMinuteOfDay = prefs.detectedPeakMinuteOfDay.takeIf { it > 0 } ?: (prefs.peakEnergyStart * 60),
+                        peakConfidence = prefs.peakDetectionConfidence.takeIf { it > 0f } ?: 0.85f,
+                        activeTaskCount = activeTasks.size
+                    )
+                }
+            }
+        }
         val battery = snapshot.usableEnergy
         val currentEnergyZone = when {
             battery >= 65 -> EnergyLevel.HIGH
@@ -20090,12 +22388,11 @@ class FlowViewModelV2 @Inject constructor(
 
         val overdueTasks = activeTasks.filter { task ->
             task.postponeCount >= 3 ||
-                (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
+                (task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
                 (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
         }
         val showZeroGuilt = overdueTasks.size >= 3 && !dismissedGuilt
 
-        // Dynamic Tag Catalog Merge
         val defaultTags = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin")
         val dynamicTags = (prefs.tagCatalog + activeTasks.flatMap { it.tags.split(",") })
             .map { it.trim().removePrefix("#") }
@@ -20137,7 +22434,8 @@ class FlowViewModelV2 @Inject constructor(
                 prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
                 impactScore = task.impactScore,
                 estimatedEnjoyment = task.enjoymentScore / 10,
-                postponeCount = task.postponeCount
+                postponeCount = task.postponeCount,
+                distractionScore = task.distractionScore
             )
             val baseLeverage = (if (task.isFrog) 1000 else 0) + task.impactScore
             baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
@@ -20184,11 +22482,12 @@ class FlowViewModelV2 @Inject constructor(
                 manualPeakStartHour = manualPeakHour,
                 cognitiveBlocks = dailyBlocks,
                 learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAverageSleepMinutes
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                stimulantDoses = allStimulants,
+                socialJetlagLagHours = socialJetlagReport.mondayMorningPhaseLagHours
             )
         }.getOrNull()
 
-        val dayStart = zonedDateTime.toLocalDate().atStartOfDay(systemZone).toInstant().toEpochMilli()
         val dayTimeline: List<CircadianSnapshot> = runCatching {
             circadianEnergyService.projectDayTimeline(
                 dayStartMillis = dayStart,
@@ -20201,7 +22500,9 @@ class FlowViewModelV2 @Inject constructor(
                 manualPeakStartHour = manualPeakHour,
                 cognitiveBlocks = dailyBlocks,
                 learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAverageSleepMinutes
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                stimulantDoses = allStimulants,
+                socialJetlagLagHours = socialJetlagReport.mondayMorningPhaseLagHours
             )
         }.getOrElse { emptyList() }
 
@@ -20222,13 +22523,20 @@ class FlowViewModelV2 @Inject constructor(
             isLoading = false,
             overdueTasksCount = overdueTasks.size,
             showZeroGuiltPrompt = showZeroGuilt,
+            zeroGuiltDismissed = dismissedGuilt,
             selectedTag = tag,
             availableTags = mergedTags,
             isEveningShutdownTime = isEvening,
             eveningShutdownDismissed = shutdownDismissed,
             lastCompletedTask = lastCompleted,
             lastDeferredTask = lastDeferred,
-            lastActionMessage = actionMsg
+            lastActionMessage = actionMsg,
+            stimulantDoses = allStimulants,
+            isCrashWindow = isCrashWindow,
+            activePlasmaMg = stimEffect.activeEquivalentMg,
+            socialJetlagLagHours = socialJetlagReport.socialJetlagHours,
+            predictedSwsSuppressionPercent = swsSuppressionPercent,
+            latestSafeStimulantCutoffFormatted = cutoffFormatted
         )
     }.stateIn(
         viewModelScope,
@@ -20239,6 +22547,156 @@ class FlowViewModelV2 @Inject constructor(
     fun addTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.insert(task)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
+        }
+    }
+
+    fun logStimulant(type: StimulantType) {
+        viewModelScope.launch {
+            preferencesDataStore.recordStimulantDose(type)
+            val label = when (type) {
+                StimulantType.CAFFEINE -> "Caffeine ☕"
+                StimulantType.GREEN_TEA_L_THEANINE -> "Green Tea 🍵"
+                StimulantType.PRESCRIPTION_STIMULANT_IR -> "Meds IR 💊"
+                StimulantType.PRESCRIPTION_STIMULANT_XR -> "Meds XR 💊"
+            }
+            _lastActionMessage.value = "Stimulant logged: $label — Energy curve updated"
+        }
+    }
+
+    fun undoLogStimulant() {
+        viewModelScope.launch {
+            val undone = preferencesDataStore.undoLastStimulantDose()
+            if (undone) {
+                _lastActionMessage.value = "Undone: Removed last stimulant dose ↩️"
+            }
+        }
+    }
+
+    fun clearAllStimulants() {
+        viewModelScope.launch {
+            preferencesDataStore.clearStimulantLogs()
+            _lastActionMessage.value = "Cleared all logged stimulants 🧹"
+        }
+    }
+
+    fun removeStimulantDose(timestampMillis: Long, type: StimulantType? = null) {
+        viewModelScope.launch {
+            val typeStr = type?.name
+            val removed = preferencesDataStore.removeStimulantDose(timestampMillis, typeStr)
+            if (removed) {
+                _lastActionMessage.value = "Removed stimulant dose 🗑️"
+            }
+        }
+    }
+
+    fun logPhysiologicalEvent(type: PhysiologicalEventType) {
+        viewModelScope.launch {
+            preferencesDataStore.recordPhysiologicalEvent(type)
+            val label = when (type) {
+                PhysiologicalEventType.MEAL -> "Meal Dip 🍽️ (-12.0 pt nadir)"
+                PhysiologicalEventType.WORKOUT -> "Workout 🏃 (+10 pt endorphin window)"
+                PhysiologicalEventType.NAP -> "20m Power Nap 💤 (sleep pressure cleared)"
+            }
+            _lastActionMessage.value = "Bio-event logged: $label — Curve updated"
+        }
+    }
+
+    fun undoLogPhysiologicalEvent() {
+        viewModelScope.launch {
+            val undone = preferencesDataStore.undoLastPhysiologicalEvent()
+            if (undone) {
+                _lastActionMessage.value = "Undone: Removed last physiological event ↩️"
+            }
+        }
+    }
+
+    fun clearAllPhysiologicalEvents() {
+        viewModelScope.launch {
+            preferencesDataStore.clearPhysiologicalLogs()
+            _lastActionMessage.value = "Cleared all physiological events 🧹"
+        }
+    }
+
+    fun addTaskFromNote(title: String, content: String) {
+        viewModelScope.launch {
+            val fullText = if (title.isNotBlank()) "$title: $content" else content
+            val inferred = TaskInferenceEngine.inferFromInput(fullText)
+            val now = System.currentTimeMillis()
+            val newTask = TaskEntity(
+                title = inferred.sanitizedTitle.ifBlank { title.ifBlank { "Quick Task" } },
+                description = content,
+                estimatedDurationMinutes = inferred.durationMinutes,
+                priority = inferred.priority,
+                energyLevel = inferred.energyDemand,
+                taskType = inferred.taskType,
+                quadrant = inferred.quadrant,
+                tags = inferred.contextTags.joinToString(","),
+                scheduledDate = inferred.scheduledDate ?: now,
+                scheduledTime = inferred.scheduledTime,
+                deadlineDate = inferred.deadlineDate,
+                deadlineTime = inferred.deadlineTime,
+                isFrog = inferred.isFrog,
+                createdAt = now,
+                updatedAt = now
+            )
+            taskRepository.insert(newTask)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, newTask) }
+            _lastActionMessage.value = "Created task from note: ${newTask.title.take(24)} ⚡"
+        }
+    }
+
+    fun shiftTaskToPeak(task: TaskEntity) {
+        viewModelScope.launch {
+            val peakHour = uiState.value.circadianSummary?.peakWindowStartHour
+                ?: uiState.value.preferences.peakEnergyStart.takeIf { it > 0 } ?: 10
+            val peakEndHour = uiState.value.circadianSummary?.peakWindowEndHour ?: (peakHour + 3)
+            val dipEndHour = uiState.value.circadianSummary?.dipWindowEndHour ?: 16
+            val usableEnergy = uiState.value.circadianSummary?.currentSnapshot?.usableEnergy ?: 60
+
+            val now = System.currentTimeMillis()
+            val cal = Calendar.getInstance().apply { timeInMillis = now }
+            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+
+            val baseDate = task.scheduledDate ?: now
+            val baseCal = Calendar.getInstance().apply {
+                timeInMillis = baseDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val isToday = baseCal.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
+                baseCal.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR)
+
+            val targetDate: Long
+            val targetHour: Int
+            val messageLabel: String
+
+            if (!isToday || currentHour < peakEndHour) {
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Peak Window (${peakHour}:00)"
+            } else if (currentHour < 18 && usableEnergy >= 55) {
+                targetDate = baseCal.timeInMillis
+                targetHour = maxOf(currentHour + 1, dipEndHour).coerceAtMost(17)
+                messageLabel = "Afternoon Rebound (${targetHour}:00)"
+            } else {
+                baseCal.add(Calendar.DAY_OF_YEAR, 1)
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Tomorrow's Peak (${peakHour}:00)"
+            }
+
+            val millisInDay = targetHour * 3600_000L
+            val updated = task.copy(
+                scheduledDate = targetDate,
+                scheduledTime = millisInDay,
+                isScheduleLocked = true,
+                updatedAt = System.currentTimeMillis()
+            )
+            taskRepository.update(updated)
+            _lastActionMessage.value = "Shifted '${task.title.take(20)}' to $messageLabel ⚡"
         }
     }
 
@@ -20251,7 +22709,12 @@ class FlowViewModelV2 @Inject constructor(
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
             _lastCompletedTask.value = task
-            _lastActionMessage.value = "Completed: ${task.title}"
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {
+                " • \"${prefs.affirmations.random()}\""
+            } else ""
+            _lastActionMessage.value = "Completed: ${task.title}$affirmationSuffix"
+            context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
         }
     }
@@ -20274,27 +22737,31 @@ class FlowViewModelV2 @Inject constructor(
     fun deferTask(task: TaskEntity, hours: Int = 2) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            val previousTime = task.scheduledTime ?: now
-            _lastDeferredTask.value = Pair(task, previousTime)
-            val newScheduledTime = previousTime + hours * 3600_000L
+            val currentEpoch = task.resolveScheduledEpochMillis(now) ?: now
+            _lastDeferredTask.value = Pair(task, task.scheduledTime ?: 0L)
+            val newEpoch = currentEpoch + hours * 3600_000L
+            val (newDate, newTime) = buildNormalizedScheduleTimestamps(newEpoch)
             taskRepository.update(
                 task.copy(
-                    scheduledTime = newScheduledTime,
+                    scheduledDate = newDate,
+                    scheduledTime = newTime,
                     postponeCount = task.postponeCount + 1,
                     updatedAt = now
                 )
             )
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
             _lastActionMessage.value = "Deferred by ${hours}h: ${task.title}"
         }
     }
 
     fun undoDeferTask() {
         val pair = _lastDeferredTask.value ?: return
-        val (originalTask, prevTime) = pair
+        val (originalTask, _) = pair
         viewModelScope.launch {
             taskRepository.update(
                 originalTask.copy(
-                    scheduledTime = prevTime,
+                    scheduledDate = originalTask.scheduledDate,
+                    scheduledTime = originalTask.scheduledTime,
                     postponeCount = (originalTask.postponeCount - 1).coerceAtLeast(0),
                     updatedAt = System.currentTimeMillis()
                 )
@@ -20313,7 +22780,7 @@ class FlowViewModelV2 @Inject constructor(
             val now = System.currentTimeMillis()
             val overdue = uiState.value.activeTasks.filter { task ->
                 task.postponeCount >= 3 ||
-                    (task.scheduledTime != null && task.scheduledTime!! < now - 2 * 3600_000L) ||
+                    (task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
                     (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
             }
             overdue.forEach { task ->
@@ -20393,32 +22860,64 @@ class FlowViewModelV2 @Inject constructor(
         }
     }
 
+    suspend fun synthesizeQuickNote(content: String): QuickNoteSynthesis {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.synthesizeQuickNote(
+            rawContent = content,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        ) ?: run {
+            val inferred = TaskInferenceEngine.inferFromInput(content)
+            QuickNoteSynthesis(
+                extractedTaskTitle = inferred.sanitizedTitle.ifBlank { content.take(35) },
+                suggestedCategory = inferred.taskType.name,
+                estimatedMinutes = inferred.durationMinutes,
+                tags = inferred.contextTags,
+                firstActionStep = "Review scratchpad note and outline details"
+            )
+        }
+    }
+
+    suspend fun enrichTaskWithAi(taskTitle: String, durationMinutes: Int = 30): com.neuroflow.app.domain.service.TaskEnrichmentResult? {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.enrichTaskWithAi(
+            title = taskTitle,
+            durationMinutes = durationMinutes,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        )
+    }
+
     fun logPastTime(task: TaskEntity, minutes: Float) {
+        if (minutes.isNaN() || minutes.isInfinite()) return
+        val safeMinutes = minutes.coerceAtMost(1440f)
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val session = TimeSessionEntity(
                 taskId = task.id,
-                startedAt = now - (minutes * 60_000f).toLong(),
+                startedAt = now - (safeMinutes * 60_000f).toLong(),
                 endedAt = now,
-                durationMinutes = minutes,
+                durationMinutes = safeMinutes,
                 sessionType = "MANUAL_LOG"
             )
             sessionRepository?.insert(session)
-            val newTracked = task.totalTimeTrackedMinutes + minutes
+            val newTracked = task.totalTimeTrackedMinutes + safeMinutes
             val newCount = task.sessionCount + 1
             taskRepository.update(
                 task.copy(
                     totalTimeTrackedMinutes = newTracked,
                     sessionCount = newCount,
-                    lastSessionDurationMinutes = minutes,
+                    lastSessionDurationMinutes = safeMinutes,
                     actualDurationMinutes = newTracked,
                     updatedAt = now
                 )
             )
             preferencesDataStore.updatePreferences { prefs ->
-                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
+                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + safeMinutes.toInt())
             }
-            _lastActionMessage.value = "Logged ${minutes.toInt()}m past time for ${task.title}"
+            _lastActionMessage.value = "Logged ${safeMinutes.toInt()}m past time for ${task.title}"
         }
     }
 
@@ -20432,8 +22931,8 @@ class FlowViewModelV2 @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusAndRegulationUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusAndRegulationUpgradesV2.kt`
-- **Lines of Code:** 511
-- **Size:** 19,943 bytes (19.5 KB)
+- **Lines of Code:** 498
+- **Size:** 19,562 bytes (19.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus
@@ -20444,7 +22943,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20456,7 +22954,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -20487,14 +22984,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.engine.WoopEngine
-import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlinx.coroutines.delay
 
-/**
- * 1. Zen Micro-Step Spotlight Card for FocusScreenV2:
- * Shows ONLY the active micro-step in bold typography to prevent ADHD working-memory overload.
- */
 @Composable
 fun ZenMicroStepSpotlightCard(
     currentStepIndex: Int,
@@ -20509,7 +23001,10 @@ fun ZenMicroStepSpotlightCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -20535,7 +23030,7 @@ fun ZenMicroStepSpotlightCard(
                 Text(
                     text = "~${currentStepEstimatedMinutes}m target",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.55f)
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.height(14.dp))
@@ -20545,7 +23040,7 @@ fun ZenMicroStepSpotlightCard(
                     fontWeight = FontWeight.Bold,
                     fontSize = 19.sp
                 ),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -20560,7 +23055,7 @@ fun ZenMicroStepSpotlightCard(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                        contentColor = Color.Black
+                        contentColor = Color(0xFF0A0B0E)
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
@@ -20579,9 +23074,9 @@ fun ZenMicroStepSpotlightCard(
                     )
                 }
                 Surface(
-                    color = Color.White.copy(alpha = 0.06f),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
                     modifier = Modifier
                         .height(44.dp)
                         .clickable { onSkipStep() }
@@ -20593,7 +23088,7 @@ fun ZenMicroStepSpotlightCard(
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Step",
-                            tint = Color.White.copy(alpha = 0.75f)
+                            tint = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
@@ -20602,9 +23097,6 @@ fun ZenMicroStepSpotlightCard(
     }
 }
 
-/**
- * 2. Interactive Physiological Sigh Guide Sheet (Double Inhale + Long Exhale)
- */
 @Composable
 fun InteractivePhysiologicalSighSheet(
     totalCycles: Int = 3,
@@ -20681,7 +23173,7 @@ fun InteractivePhysiologicalSighSheet(
         Text(
             text = "Cycle $cycle of $totalCycles",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(24.dp))
         Box(
@@ -20709,7 +23201,7 @@ fun InteractivePhysiologicalSighSheet(
             Text(
                 text = stageLabel,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
@@ -20718,15 +23210,12 @@ fun InteractivePhysiologicalSighSheet(
         Text(
             text = "Two inhales maximally inflate alveoli; the extended exhale triggers vagal nerve slowing and clears acute executive friction.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             textAlign = TextAlign.Center
         )
     }
 }
 
-/**
- * 3. One-Tap Haptic Affordance Rating Sheet (AffordanceRatingSheet.kt)
- */
 @Composable
 fun UpgradedAffordanceRatingSheet(
     taskTitle: String,
@@ -20761,14 +23250,14 @@ fun UpgradedAffordanceRatingSheet(
         Text(
             text = "How did \"$taskTitle\" feel compared to what you expected?",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White,
+            color = NeuroFlowPaletteV2.TextPrimary,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "1 tap updates your personal circadian curve and future task scheduling.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.6f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(18.dp))
@@ -20797,7 +23286,7 @@ fun UpgradedAffordanceRatingSheet(
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = NeuroFlowPaletteV2.TextPrimary,
                             textAlign = TextAlign.Center,
                             fontSize = 10.sp
                         )
@@ -20809,7 +23298,7 @@ fun UpgradedAffordanceRatingSheet(
         Text(
             text = "Skip for now",
             style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.45f),
+            color = NeuroFlowPaletteV2.TextTertiary,
             modifier = Modifier
                 .clickable { onSkip() }
                 .padding(8.dp)
@@ -20817,9 +23306,6 @@ fun UpgradedAffordanceRatingSheet(
     }
 }
 
-/**
- * 4. Guided WOOP Obstacle & If-Then Plan Sheet (WoopPromptSheet.kt)
- */
 @Composable
 fun UpgradedWoopPromptSheet(
     taskTitle: String,
@@ -20854,7 +23340,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "Unblock \"$taskTitle\"",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White
+            color = NeuroFlowPaletteV2.TextPrimary
         )
         if (!dreadedTaskInsight.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -20875,7 +23361,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "1. Tap your main internal obstacle:",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color.White.copy(alpha = 0.8f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         presetObstacles.forEach { preset ->
@@ -20895,7 +23381,7 @@ fun UpgradedWoopPromptSheet(
                 Text(
                     text = preset,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = Color.White,
+                    color = NeuroFlowPaletteV2.TextPrimary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
                 )
             }
@@ -20904,7 +23390,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "2. Your automatic If-Then reflex:",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color.White.copy(alpha = 0.8f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         OutlinedTextField(
@@ -20933,7 +23419,7 @@ fun UpgradedWoopPromptSheet(
             },
             colors = ButtonDefaults.buttonColors(
                 containerColor = NeuroFlowPaletteV2.ReboundCyan,
-                contentColor = Color.Black
+                contentColor = Color.White
             ),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier
@@ -21091,12 +23577,14 @@ class FocusCompletionNotifier @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusScreenV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusScreenV2.kt`
-- **Lines of Code:** 1,028
-- **Size:** 49,502 bytes (48.3 KB)
+- **Lines of Code:** 1,329
+- **Size:** 61,678 bytes (60.2 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus
 
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -21133,6 +23621,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -21141,12 +23630,14 @@ import com.neuroflow.app.presentation.v2.focus.components.KeepScreenOnEffect
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FocusScreenV2(
+    initialOpenWoop: Boolean = false,
     onNavigateBack: () -> Unit,
     onNavigateToNextTask: (String) -> Unit = {},
     viewModel: FocusViewModelV2 = hiltViewModel()
@@ -21157,13 +23648,29 @@ fun FocusScreenV2(
     var newThoughtText by remember { mutableStateOf("") }
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
-    var showWoopPromptSheet by remember { mutableStateOf(false) }
+    var showWoopPromptSheet by remember { mutableStateOf(initialOpenWoop) }
+    var showFrogConfetti by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.task, state.preferences, initialOpenWoop) {
+        val task = state.task
+        val prefs = state.preferences
+        if (task != null) {
+            if (initialOpenWoop || (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null)) {
+                showWoopPromptSheet = true
+                viewModel.markWoopPromptShown()
+            }
+        }
+    }
 
     KeepScreenOnEffect(enabled = state.isSessionActive && !state.isPaused)
 
+    val context = LocalContext.current
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.onScreenExit()
+            val activity = context as? Activity
+            if (activity?.isChangingConfigurations != true) {
+                viewModel.onScreenExit()
+            }
         }
     }
 
@@ -21221,7 +23728,7 @@ fun FocusScreenV2(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Mode Selector Chips
-            if (!state.isRunning && !state.isCompleted) {
+            if (!state.isRunning && !state.isPaused && !state.isCompleted) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -21233,7 +23740,7 @@ fun FocusScreenV2(
                             label = { Text(mode.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = Color.White,
+                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                 labelColor = NeuroFlowThemeV2Colors.TextSecondary
                             ),
@@ -21282,7 +23789,7 @@ fun FocusScreenV2(
                     Icon(
                         imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
-                        tint = Color.White,
+                        tint = NeuroFlowThemeV2Colors.TextPrimary,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -21291,14 +23798,17 @@ fun FocusScreenV2(
 
                 // Complete Task Button (touch target >= 48dp)
                 Button(
-                    onClick = { viewModel.completeTask() },
+                    onClick = {
+                        if (state.task?.isFrog == true) showFrogConfetti = true
+                        viewModel.completeTask()
+                    },
                     modifier = Modifier.heightIn(min = 52.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White)
+                    Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Complete", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Complete", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
                 }
 
                 Spacer(modifier = Modifier.width(10.dp))
@@ -21312,6 +23822,30 @@ fun FocusScreenV2(
                 ) {
                     Icon(Icons.Default.Lightbulb, contentDescription = "Park Thought", tint = NeuroFlowThemeV2Colors.WarmAmber)
                 }
+            }
+
+            // Bioluminescent Waveform Visualizer (Active during sprint with soundscape enabled)
+            val isAudioActive = state.selectedSoundscape != SoundscapeType.NONE && state.isRunning && !state.isPaused
+            if (isAudioActive) {
+                BioluminescentSoundscapeWaveformCard(soundscape = state.selectedSoundscape)
+            }
+
+            // Pinned Active Doorway Step Spotlight Card
+            val activeMicroSteps = state.microSteps
+            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
+                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
+            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
+            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
+
+            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
+                ZenMicroStepSpotlightCard(
+                    currentStepIndex = firstIncompleteIndex,
+                    totalSteps = activeMicroSteps.size,
+                    currentStepTitle = currentMicroStep.text,
+                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
+                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
+                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
+                )
             }
 
             // Neural Soundscapes Card
@@ -21376,7 +23910,7 @@ fun FocusScreenV2(
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                    selectedLabelColor = Color.White,
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                     labelColor = NeuroFlowThemeV2Colors.TextSecondary
                                 ),
@@ -21558,30 +24092,13 @@ fun FocusScreenV2(
                 }
             }
 
-            // Active Focus Mode: Zen Micro-Step Spotlight Card (or multi-step overview when paused/ready)
-            val activeMicroSteps = state.microSteps
-            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
-                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
-            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
-            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
-
-            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
-                ZenMicroStepSpotlightCard(
-                    currentStepIndex = firstIncompleteIndex,
-                    totalSteps = activeMicroSteps.size,
-                    currentStepTitle = currentMicroStep.text,
-                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
-                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
-                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
-                )
-            } else {
-                // Micro-Steps Decomposition Checklist
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurface,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
-                ) {
+            // Micro-Steps Decomposition Checklist
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+            ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         val completedCount = state.microSteps.count { it.completed }
                         val totalSteps = state.microSteps.size
@@ -21668,7 +24185,6 @@ fun FocusScreenV2(
                         }
                     }
                 }
-            }
             }
 
             Spacer(modifier = Modifier.height(60.dp))
@@ -21788,6 +24304,10 @@ fun FocusScreenV2(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Outstanding focus. You conquered '${state.task?.title}' and earned +${state.pointsEarned} dopamine points.", style = MaterialTheme.typography.bodyMedium)
+                    if (!state.completionAffirmation.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("✨ \"${state.completionAffirmation}\"", style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                    }
                     if (state.nextTaskId != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Next in queue: ${state.nextTaskTitle}", fontWeight = FontWeight.SemiBold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
@@ -21902,6 +24422,33 @@ fun FocusScreenV2(
             )
         }
     }
+
+    if (state.showSprintCompletionSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.dismissSprintCompletionSheet() },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            SprintCompletionSheet(
+                taskTitle = state.task?.title ?: "Deep Focus",
+                timerMode = state.timerMode,
+                onKeepGoing = { viewModel.keepGoing(FocusTimerModeV2.POMODORO_25) },
+                onDecompress = { viewModel.takeDecompressionRest() },
+                onCompleteTask = {
+                    if (state.task?.isFrog == true) showFrogConfetti = true
+                    viewModel.completeTask()
+                },
+                onDismiss = { viewModel.dismissSprintCompletionSheet() }
+            )
+        }
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
+    }
 }
 
 @Composable
@@ -21914,29 +24461,63 @@ fun RadialTimerGauge(
 ) {
     val totalSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 3600L else timerMode.durationSeconds
     val currentSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) elapsedSeconds else remainingSeconds
-    val progress = (currentSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+    val rawProgress = (currentSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = rawProgress,
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "timer_progress"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "focus_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.10f,
+        targetValue = if (isRunning && !isPaused) 0.26f else 0.10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_alpha"
+    )
 
     val minutes = currentSeconds / 60
     val seconds = currentSeconds % 60
-    val timeDisplay = String.format("%02d:%02d", minutes, seconds)
+    val timeDisplay = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+
+    val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+    val ringColor = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigo
+    val ringGlow = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigoGlow
 
     Box(
         modifier = Modifier
-            .size(230.dp)
-            .padding(10.dp),
+            .size(248.dp)
+            .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
-        val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
-        val ringColor = NeuroFlowThemeV2Colors.ElectricIndigo
-        val ringGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 14.dp.toPx()
-            val diameter = size.minDimension - strokeWidth
+            val glowStrokeWidth = 24.dp.toPx()
+            val diameter = size.minDimension - glowStrokeWidth
             val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
             val arcSize = Size(diameter, diameter)
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = diameter / 2f
 
-            // Background track
+            // 1. Breathing radial core aura
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        ringGlow.copy(alpha = pulseAlpha),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = radius * 1.05f
+                ),
+                radius = radius * 1.05f,
+                center = center
+            )
+
+            // 2. Background track
             drawArc(
                 color = trackColor,
                 startAngle = -90f,
@@ -21947,22 +24528,45 @@ fun RadialTimerGauge(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
-            // Animated progress ring
-            drawArc(
-                brush = Brush.sweepGradient(
-                    listOf(
-                        ringColor,
-                        ringGlow,
-                        ringColor
-                    )
-                ),
-                startAngle = -90f,
-                sweepAngle = progress * 360f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
+            // 3. Soft outer bloom arc + crisp core ring + leading tip orb
+            val sweep = animatedProgress * 360f
+            if (sweep > 0.5f) {
+                drawArc(
+                    color = ringGlow.copy(alpha = 0.22f),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = glowStrokeWidth, cap = StrokeCap.Round)
+                )
+
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        listOf(ringColor, ringGlow, ringColor)
+                    ),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+
+                val angleRad = Math.toRadians((-90.0 + sweep.toDouble()))
+                val tipX = center.x + radius * kotlin.math.cos(angleRad).toFloat()
+                val tipY = center.y + radius * kotlin.math.sin(angleRad).toFloat()
+                drawCircle(
+                    color = ringGlow.copy(alpha = 0.45f),
+                    radius = 11.dp.toPx(),
+                    center = Offset(tipX, tipY)
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 4.5.dp.toPx(),
+                    center = Offset(tipX, tipY)
+                )
+            }
         }
 
         Column(
@@ -21971,26 +24575,34 @@ fun RadialTimerGauge(
         ) {
             Text(
                 text = timeDisplay,
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Black,
-                color = NeuroFlowThemeV2Colors.TextPrimary,
-                letterSpacing = 1.sp
+                style = MaterialTheme.typography.displayMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    fontSize = 46.sp,
+                    letterSpacing = (-1).sp
+                ),
+                color = NeuroFlowThemeV2Colors.TextPrimary
             )
+            Spacer(modifier = Modifier.height(4.dp))
             val statusLabel = when {
-                !isRunning -> "READY"
-                isPaused -> "PAUSED"
-                else -> "FLOW IN PROGRESS"
+                !isRunning && !isPaused -> "READY FOR DEEP WORK"
+                isPaused -> "SESSION PAUSED"
+                else -> "FLOW STATE ACTIVE"
             }
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = when {
-                    !isRunning -> NeuroFlowThemeV2Colors.TextSecondary
-                    isPaused -> NeuroFlowThemeV2Colors.WarmAmber
-                    else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                }
-            )
+            Surface(
+                color = ringGlow.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, ringGlow.copy(alpha = 0.35f))
+            ) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.9.sp
+                    ),
+                    color = ringGlow,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
@@ -22033,6 +24645,73 @@ fun ActiveAudioIndicator(isActive: Boolean) {
                     .height(height.dp)
                     .background(barColor, RoundedCornerShape(1.5.dp))
             )
+        }
+    }
+}
+
+@Composable
+fun BioluminescentSoundscapeWaveformCard(
+    soundscape: SoundscapeType,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
+        label = "phase"
+    )
+
+    Surface(
+        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.5f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "🎧 ${soundscape.displayName}",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                )
+                Text(
+                    text = "Soundscape Stream",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+
+            // Bioluminescent Waveform Bars
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.height(24.dp)
+            ) {
+                val barCount = 14
+                for (i in 0 until barCount) {
+                    val normalizedI = i.toFloat() / barCount
+                    val wave = kotlin.math.sin((normalizedI * 2 * Math.PI + phase * 2 * Math.PI).toFloat())
+                    val barHeight = (6f + 14f * (0.5f + 0.5f * wave)).coerceIn(4f, 20f)
+                    val barAlpha = 0.45f + 0.55f * (0.5f + 0.5f * wave)
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(barHeight.dp)
+                            .background(
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = barAlpha),
+                                shape = RoundedCornerShape(1.5.dp)
+                            )
+                    )
+                }
+            }
         }
     }
 }
@@ -22123,6 +24802,114 @@ fun HeroTaskCard(
         }
     }
 }
+
+@Composable
+fun SprintCompletionSheet(
+    taskTitle: String,
+    timerMode: FocusTimerModeV2,
+    onKeepGoing: () -> Unit,
+    onDecompress: () -> Unit,
+    onCompleteTask: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMicroStart = timerMode == FocusTimerModeV2.JUST_5_MIN
+    val title = if (isMicroStart) "⚡ Dopamine Micro-Start Complete!" else "🎯 Focus Sprint Complete!"
+    val subtitle = if (isMicroStart) {
+        "You successfully broke initial task paralysis on \"$taskTitle\". Momentum is active!"
+    } else {
+        "Solid work on \"$taskTitle\"! Decide your next cognitive step below."
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = NeuroFlowThemeV2Colors.WarmAmber,
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = NeuroFlowThemeV2Colors.TextSecondary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Action 1: Keep Going (Momentum)
+        Button(
+            onClick = onKeepGoing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "Keep Going (+25m Pomodoro)",
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+        }
+
+        // Action 2: Decompress (Rest)
+        Button(
+            onClick = onDecompress,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
+        ) {
+            Icon(Icons.Default.Psychology, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "3-Minute Rest (Decompression)",
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+        }
+
+        // Action 3: Complete Entire Task
+        OutlinedButton(
+            onClick = onCompleteTask,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f))
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "I'm Finished — Complete Task",
+                fontWeight = FontWeight.SemiBold,
+                color = NeuroFlowThemeV2Colors.SageGreen
+            )
+        }
+
+        // Dismiss
+        TextButton(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Stay on Focus Screen", color = NeuroFlowThemeV2Colors.TextSecondary)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
 ```
 
 ---
@@ -22131,8 +24918,8 @@ fun HeroTaskCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusViewModelV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusViewModelV2.kt`
-- **Lines of Code:** 749
-- **Size:** 28,478 bytes (27.8 KB)
+- **Lines of Code:** 897
+- **Size:** 34,841 bytes (34.0 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus
@@ -22153,11 +24940,13 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.v2.focus.audio.NeuralSoundscapePlayer
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22207,7 +24996,10 @@ data class FocusUiStateV2(
     val isDecompressionSighActive: Boolean = false,
     val decompressionSighRemainingSeconds: Int = 0,
     val isDecompressionBypassed: Boolean = false,
-    val skippedMicroStepIndices: Set<Int> = emptySet()
+    val skippedMicroStepIndices: Set<Int> = emptySet(),
+    val showSprintCompletionSheet: Boolean = false,
+    val isSprintCompleted: Boolean = false,
+    val completionAffirmation: String? = null
 ) {
     val isSessionActive: Boolean get() = isRunning
 }
@@ -22232,6 +25024,8 @@ class FocusViewModelV2 @Inject constructor(
     private var timerJob: Job? = null
     private var pauseCount: Int = 0
     private var hasNotifiedCompletion = false
+    private var autoTrackerJob: Job? = null
+    private var autoTrackerTriggered = false
 
     val soundscapePlayer: NeuralSoundscapePlayer by lazy {
         NeuralSoundscapePlayer(context)
@@ -22243,10 +25037,17 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     private fun loadTask() {
+        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
         viewModelScope.launch {
             val task = taskRepository.getById(taskId)
             val woop = woopRepository.getByTaskId(taskId)
-            val steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            var steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            if (steps.isEmpty() && task != null) {
+                val dbSteps = taskRepository.getMicroSteps(task.id)
+                if (dbSteps.isNotEmpty()) {
+                    steps = dbSteps.map { StepByStepPlanStep(it.title, it.isCompleted) }
+                }
+            }
 
             // Find next task
             val activeTasks = taskRepository.getActiveTasks()
@@ -22317,18 +25118,41 @@ class FocusViewModelV2 @Inject constructor(
     private fun observePreferences() {
         viewModelScope.launch {
             preferencesDataStore.preferencesFlow
-                .distinctUntilChanged { old, new ->
-                    old.dndEnabled == new.dndEnabled &&
-                    old.totalFocusMinutes == new.totalFocusMinutes
-                }
                 .collect { prefs ->
                     _uiState.update { it.copy(preferences = prefs) }
+                    checkAutoTracker(prefs)
                 }
         }
     }
 
+    private fun checkAutoTracker(prefs: UserPreferences) {
+        if (!prefs.autoTrackerEnabled || autoTrackerTriggered || _uiState.value.isRunning || _uiState.value.isPaused) return
+        if (autoTrackerJob == null || autoTrackerJob?.isActive == false) {
+            autoTrackerJob = viewModelScope.launch {
+                delay(8000L)
+                if (!_uiState.value.isRunning && !_uiState.value.isPaused && !autoTrackerTriggered) {
+                    autoTrackerTriggered = true
+                    startTimer()
+                }
+            }
+        }
+    }
+
+    fun markWoopPromptShown() {
+        viewModelScope.launch {
+            val task = _uiState.value.task ?: return@launch
+            if (!task.woopPromptShown) {
+                val updated = task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis())
+                taskRepository.update(updated)
+                _uiState.update { it.copy(task = updated) }
+            }
+        }
+    }
+
     fun selectTimerMode(mode: FocusTimerModeV2) {
-        if (_uiState.value.isRunning) return
+        if (_uiState.value.isRunning || _uiState.value.isPaused) return
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
         hasNotifiedCompletion = false
         _uiState.update {
             it.copy(
@@ -22337,7 +25161,9 @@ class FocusViewModelV2 @Inject constructor(
                 elapsedSeconds = 0L,
                 startedAtMillis = 0L,
                 accumulatedPauseMillis = 0L,
-                pausedAtMillis = null
+                pausedAtMillis = null,
+                isSprintCompleted = false,
+                showSprintCompletionSheet = false
             )
         }
     }
@@ -22361,7 +25187,9 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     fun onScreenExit() {
-        if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
+        if (!_uiState.value.isSessionActive && _uiState.value.selectedSoundscape != SoundscapeType.NONE) {
             soundscapePlayer.pauseWithFadeOut()
         }
     }
@@ -22387,10 +25215,18 @@ class FocusViewModelV2 @Inject constructor(
             )
             woopRepository.upsert(entity)
             _uiState.update { it.copy(woopData = entity) }
+
+            val task = _uiState.value.task
+            if (task != null && (task.ifThenPlan.isNullOrBlank() || !task.ifThenPlan!!.contains("["))) {
+                taskRepository.update(task.copy(ifThenPlan = plan, updatedAt = now))
+            }
         }
     }
 
     fun startTimer() {
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
+        autoTrackerTriggered = true
         if (_uiState.value.isRunning && !_uiState.value.isPaused) return
 
         if (_uiState.value.isPaused) {
@@ -22399,7 +25235,8 @@ class FocusViewModelV2 @Inject constructor(
         }
 
         val now = System.currentTimeMillis()
-        val sessionId = _uiState.value.activeSessionId ?: UUID.randomUUID().toString()
+        val isFreshOrFinished = _uiState.value.isSprintCompleted || _uiState.value.isCompleted || _uiState.value.activeSessionId == null
+        val sessionId = if (isFreshOrFinished) UUID.randomUUID().toString() else (_uiState.value.activeSessionId ?: UUID.randomUUID().toString())
         hasNotifiedCompletion = false
 
         _uiState.update {
@@ -22409,7 +25246,11 @@ class FocusViewModelV2 @Inject constructor(
                 activeSessionId = sessionId,
                 startedAtMillis = now,
                 accumulatedPauseMillis = 0L,
-                pausedAtMillis = null
+                pausedAtMillis = null,
+                elapsedSeconds = 0L,
+                remainingSeconds = if (it.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 0L else it.timerMode.durationSeconds,
+                isSprintCompleted = false,
+                showSprintCompletionSheet = false
             )
         }
 
@@ -22474,14 +25315,43 @@ class FocusViewModelV2 @Inject constructor(
 
             if (isExpired) {
                 countdownHitZero = true
+                current.copy(
+                    isRunning = false,
+                    isPaused = false,
+                    elapsedSeconds = current.timerMode.durationSeconds,
+                    remainingSeconds = 0L,
+                    isSprintCompleted = true,
+                    showSprintCompletionSheet = true
+                )
+            } else {
+                current.copy(
+                    elapsedSeconds = elapsed,
+                    remainingSeconds = remaining
+                )
             }
-            current.copy(
-                elapsedSeconds = elapsed,
-                remainingSeconds = remaining
-            )
         }
         if (countdownHitZero) {
+            timerJob?.cancel()
+            timerJob = null
+            disableDnd()
             soundscapePlayer.pauseWithFadeOut()
+            FocusService.stopService(context)
+
+            val durationSec = _uiState.value.elapsedSeconds
+            val actualMinutes = max(1, (durationSec / 60).toInt())
+
+            updateSessionRecord(isOpen = false)
+
+            viewModelScope.launch {
+                val currentTask = _uiState.value.task
+                if (currentTask != null) {
+                    val updatedTask = currentTask.copy(
+                        totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                    )
+                    taskRepository.update(updatedTask)
+                }
+            }
+
             if (!hasNotifiedCompletion) {
                 hasNotifiedCompletion = true
                 focusCompletionNotifier?.playCompletionChimeAndHaptics(viewModelScope)
@@ -22608,6 +25478,7 @@ class FocusViewModelV2 @Inject constructor(
         disableDnd()
         soundscapePlayer.pauseWithFadeOut()
         FocusService.stopService(context)
+        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
 
         val now = System.currentTimeMillis()
         val durationSec = _uiState.value.elapsedSeconds
@@ -22628,12 +25499,26 @@ class FocusViewModelV2 @Inject constructor(
             }
 
             val currentTask = _uiState.value.task ?: return@launch
+            val finalTracked = currentTask.totalTimeTrackedMinutes + actualMinutes
+            val est = currentTask.estimatedDurationMinutes.toFloat()
+            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+
+            val points = 50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2)
+
             val updatedTask = currentTask.copy(
-                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                totalTimeTrackedMinutes = finalTracked,
+                actualDurationMinutes = finalTracked,
+                sessionCount = currentTask.sessionCount + 1,
+                lastSessionDurationMinutes = actualMinutes.toFloat(),
+                estimationErrorMape = mape,
+                estimationErrorSmape = smape,
+                focusModePoints = points,
+                status = TaskStatus.COMPLETED,
+                completedAt = now,
+                updatedAt = now
             )
             taskRepository.update(updatedTask)
-
-            val points = 50 + if (updatedTask.isFrog) 50 else 0 + (updatedTask.impactScore / 2)
             taskRepository.completeAndRecur(updatedTask, now)
 
             preferencesDataStore.updatePreferences { prefs ->
@@ -22658,6 +25543,9 @@ class FocusViewModelV2 @Inject constructor(
                 )
             }
 
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmation = if (prefs.affirmations.isNotEmpty()) prefs.affirmations.random() else null
+
             _uiState.update {
                 it.copy(
                     isRunning = false,
@@ -22669,7 +25557,8 @@ class FocusViewModelV2 @Inject constructor(
                     decompressionRemainingSeconds = 180,
                     isDecompressionSighActive = false,
                     decompressionSighRemainingSeconds = 0,
-                    isDecompressionBypassed = false
+                    isDecompressionBypassed = false,
+                    completionAffirmation = affirmation
                 )
             }
         }
@@ -22690,6 +25579,36 @@ class FocusViewModelV2 @Inject constructor(
 
     fun dismissAffordanceRating() {
         _uiState.update { it.copy(showAffordanceRating = false) }
+    }
+
+    fun keepGoing(nextMode: FocusTimerModeV2 = FocusTimerModeV2.POMODORO_25) {
+        _uiState.update {
+            it.copy(
+                timerMode = nextMode,
+                showSprintCompletionSheet = false,
+                isSprintCompleted = false
+            )
+        }
+        startTimer()
+    }
+
+    fun takeDecompressionRest() {
+        _uiState.update {
+            it.copy(
+                showSprintCompletionSheet = false,
+                isSprintCompleted = false,
+                showDecompressionZone = true,
+                decompressionRemainingSeconds = 180,
+                isDecompressionSighActive = false,
+                decompressionSighRemainingSeconds = 0,
+                isDecompressionBypassed = false
+            )
+        }
+        startDecompressionTicker()
+    }
+
+    fun dismissSprintCompletionSheet() {
+        _uiState.update { it.copy(showSprintCompletionSheet = false) }
     }
 
     private var decompressionJob: Job? = null
@@ -22828,6 +25747,10 @@ class FocusViewModelV2 @Inject constructor(
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            if (index in roomSteps.indices) {
+                taskRepository.toggleMicroStepCompleted(roomSteps[index])
+            }
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -22854,6 +25777,17 @@ class FocusViewModelV2 @Inject constructor(
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            val nextOrder = (roomSteps.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            taskRepository.insertMicroStep(
+                TaskMicroStepEntity(
+                    taskId = task.id,
+                    title = stepText.trim(),
+                    sortOrder = nextOrder,
+                    isCompleted = false,
+                    estimatedMinutes = 5
+                )
+            )
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -22877,10 +25811,11 @@ class FocusViewModelV2 @Inject constructor(
         timerJob?.cancel()
         decompressionJob?.cancel()
         disableDnd()
-        soundscapePlayer.release()
-        FocusService.stopService(context)
-        if (_uiState.value.isRunning && !_uiState.value.isCompleted) {
-            updateSessionRecord(isOpen = false)
+        if (!_uiState.value.isRunning || _uiState.value.isCompleted) {
+            soundscapePlayer.release()
+            FocusService.stopService(context)
+        } else {
+            soundscapePlayer.pauseWithFadeOut()
         }
     }
 }
@@ -22892,8 +25827,8 @@ class FocusViewModelV2 @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapeGenerator.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapeGenerator.kt`
-- **Lines of Code:** 166
-- **Size:** 6,883 bytes (6.7 KB)
+- **Lines of Code:** 269
+- **Size:** 11,741 bytes (11.5 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.audio
@@ -22919,6 +25854,7 @@ class NeuralSoundscapeGenerator(
     companion object {
         const val CARRIER_HZ = 200.0
         const val GAMMA_BEAT_HZ = 40.0
+        const val BETA_BEAT_HZ = 16.0
         const val LEFT_FREQ = CARRIER_HZ
         const val RIGHT_FREQ = CARRIER_HZ + GAMMA_BEAT_HZ // 240.0 Hz
     }
@@ -22926,6 +25862,10 @@ class NeuralSoundscapeGenerator(
     // Phase accumulators for binaural carriers
     private var phaseLeft = 0.0
     private var phaseRight = 0.0
+
+    // Phase accumulators for monaural beats
+    private var monauralPhase1 = 0.0
+    private var monauralPhase2 = 0.0
 
     // Brownian motion state (independent stereo leaky random walks)
     private var brownLeft = 0.0f
@@ -22945,6 +25885,8 @@ class NeuralSoundscapeGenerator(
     fun reset() {
         phaseLeft = 0.0
         phaseRight = 0.0
+        monauralPhase1 = 0.0
+        monauralPhase2 = 0.0
         brownLeft = 0.0f
         brownRight = 0.0f
         b0L = 0f; b1L = 0f; b2L = 0f; b3L = 0f; b4L = 0f; b5L = 0f; b6L = 0f
@@ -22997,6 +25939,9 @@ class NeuralSoundscapeGenerator(
 
         val stepLeft = 2.0 * PI * LEFT_FREQ / sampleRate
         val stepRight = 2.0 * PI * RIGHT_FREQ / sampleRate
+        val stepMonauralCarrier = 2.0 * PI * CARRIER_HZ / sampleRate
+        val stepMonauralGammaOffset = 2.0 * PI * (CARRIER_HZ + GAMMA_BEAT_HZ) / sampleRate
+        val stepMonauralBetaOffset = 2.0 * PI * (CARRIER_HZ + BETA_BEAT_HZ) / sampleRate
         val volDelta = targetVol - startVol
 
         for (i in 0 until numFrames) {
@@ -23015,6 +25960,36 @@ class NeuralSoundscapeGenerator(
                     phaseRight += stepRight
                     if (phaseLeft >= 2.0 * PI) phaseLeft -= 2.0 * PI
                     if (phaseRight >= 2.0 * PI) phaseRight -= 2.0 * PI
+                }
+                SoundscapeType.MONAURAL_GAMMA_40HZ,
+                SoundscapeType.BETA_16HZ -> {
+                    val stepOffset = if (type == SoundscapeType.MONAURAL_GAMMA_40HZ) {
+                        stepMonauralGammaOffset
+                    } else {
+                        stepMonauralBetaOffset
+                    }
+                    monauralPhase1 += stepMonauralCarrier
+                    if (monauralPhase1 >= 2.0 * PI) monauralPhase1 -= 2.0 * PI
+                    monauralPhase2 += stepOffset
+                    if (monauralPhase2 >= 2.0 * PI) monauralPhase2 -= 2.0 * PI
+
+                    val monauralBeat = 0.5f * (sin(monauralPhase1).toFloat() + sin(monauralPhase2).toFloat())
+
+                    // Synthesize pink noise bed sample (Paul Kellet 1/f filter)
+                    val w = Random.nextFloat() * 2f - 1f
+                    b0L = 0.99886f * b0L + w * 0.0555179f
+                    b1L = 0.99332f * b1L + w * 0.0750759f
+                    b2L = 0.96900f * b2L + w * 0.1538520f
+                    b3L = 0.86650f * b3L + w * 0.3104856f
+                    b4L = 0.55000f * b4L + w * 0.5329522f
+                    b5L = -0.7616f * b5L - w * 0.0168980f
+                    val pinkNoiseSample = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+                    b6L = w * 0.115926f
+
+                    // 75% prominent monaural tone + 25% subtle pink noise cushion
+                    val mixedSample = (monauralBeat * 0.75f + pinkNoiseSample * 0.25f).coerceIn(-1.0f, 1.0f)
+                    leftSampleFloat = mixedSample
+                    rightSampleFloat = mixedSample
                 }
                 SoundscapeType.BROWN_NOISE -> {
                     val whiteL = Random.nextFloat() * 2f - 1f
@@ -23061,6 +26036,69 @@ class NeuralSoundscapeGenerator(
 
         currentVolume = targetVol
     }
+
+    /**
+     * Synthesizes monaural beat frames with customizable carrier, beat frequency, and noise bed.
+     * Delivers an identical acoustic interference envelope to Left and Right channels.
+     * Section 6.44 Ratified Formula.
+     */
+    fun generateMonauralBeatFrames(
+        beatFreqHz: Double,
+        outputBuffer: ShortArray,
+        numFrames: Int,
+        volumeMultiplier: Float = 0.7f,
+        carrierHz: Double = CARRIER_HZ,
+        pinkNoiseRatio: Float = 0.25f
+    ) {
+        require(numFrames >= 0) { "numFrames cannot be negative: $numFrames" }
+        require(outputBuffer.size >= numFrames * 2) {
+            "outputBuffer size (${outputBuffer.size}) is smaller than required frames (${numFrames * 2})"
+        }
+        if (numFrames == 0) return
+
+        val safeVolume = if (volumeMultiplier.isNaN()) 0f else volumeMultiplier
+        val targetVol = safeVolume.coerceIn(0f, 1f)
+        val startVol = if (currentVolume.isNaN()) 0f else currentVolume
+
+        if (targetVol <= 0.00001f && startVol <= 0.00001f) {
+            outputBuffer.fill(0, 0, numFrames * 2)
+            currentVolume = 0.0f
+            return
+        }
+
+        val stepCarrier = 2.0 * PI * carrierHz / sampleRate
+        val stepOffset = 2.0 * PI * (carrierHz + beatFreqHz) / sampleRate
+        val volDelta = targetVol - startVol
+        val toneRatio = (1.0f - pinkNoiseRatio).coerceIn(0f, 1f)
+
+        for (i in 0 until numFrames) {
+            val fraction = (i + 1).toFloat() / numFrames
+            val vol = (startVol + volDelta * fraction).coerceIn(0f, 1f)
+
+            monauralPhase1 += stepCarrier
+            if (monauralPhase1 >= 2.0 * PI) monauralPhase1 -= 2.0 * PI
+            monauralPhase2 += stepOffset
+            if (monauralPhase2 >= 2.0 * PI) monauralPhase2 -= 2.0 * PI
+
+            val monauralBeat = 0.5f * (sin(monauralPhase1).toFloat() + sin(monauralPhase2).toFloat())
+
+            val w = Random.nextFloat() * 2f - 1f
+            b0L = 0.99886f * b0L + w * 0.0555179f
+            b1L = 0.99332f * b1L + w * 0.0750759f
+            b2L = 0.96900f * b2L + w * 0.1538520f
+            b3L = 0.86650f * b3L + w * 0.3104856f
+            b4L = 0.55000f * b4L + w * 0.5329522f
+            b5L = -0.7616f * b5L - w * 0.0168980f
+            val pinkNoise = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+            b6L = w * 0.115926f
+
+            val mixedSample = (monauralBeat * toneRatio + pinkNoise * pinkNoiseRatio).coerceIn(-1.0f, 1.0f)
+            val pcm = (mixedSample * vol * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+            outputBuffer[2 * i] = pcm
+            outputBuffer[2 * i + 1] = pcm
+        }
+        currentVolume = targetVol
+    }
 }
 ```
 
@@ -23070,8 +26108,8 @@ class NeuralSoundscapeGenerator(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapePlayer.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapePlayer.kt`
-- **Lines of Code:** 377
-- **Size:** 13,214 bytes (12.9 KB)
+- **Lines of Code:** 380
+- **Size:** 13,386 bytes (13.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.audio
@@ -23316,6 +26354,7 @@ class NeuralSoundscapePlayer(
     private fun startPlaybackThread() {
         stopPlaybackThread()
         playbackThread = thread(name = "NeuralSoundscapeAudio", isDaemon = true) {
+            val thisThread = Thread.currentThread()
             val buffer = ShortArray(CHUNK_FRAMES * 2)
             var fadeStartVol = currentVolume
             var fadeStartTime = 0L
@@ -23381,12 +26420,14 @@ class NeuralSoundscapePlayer(
                     }
                 }
             } finally {
-                isPlaying.set(false)
-                isFadingOut.set(false)
-                abandonAudioFocus()
-                try {
-                    audioTrack?.stop()
-                } catch (_: Throwable) {}
+                if (playbackThread == thisThread || playbackThread == null) {
+                    isPlaying.set(false)
+                    isFadingOut.set(false)
+                    abandonAudioFocus()
+                    try {
+                        audioTrack?.stop()
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }
@@ -23459,8 +26500,8 @@ class NeuralSoundscapePlayer(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/SoundscapeType.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/SoundscapeType.kt`
-- **Lines of Code:** 36
-- **Size:** 1,000 bytes (1.0 KB)
+- **Lines of Code:** 48
+- **Size:** 1,382 bytes (1.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.audio
@@ -23485,6 +26526,18 @@ enum class SoundscapeType(
         subtitle = "Binaural Prefrontal Synchrony",
         emoji = "🧠",
         shortChipLabel = "40Hz Gamma 🧠"
+    ),
+    MONAURAL_GAMMA_40HZ(
+        displayName = "40 Hz Monaural Gamma",
+        subtitle = "Acoustic Interference + Pink Cushion",
+        emoji = "⚡",
+        shortChipLabel = "40Hz Monaural ⚡"
+    ),
+    BETA_16HZ(
+        displayName = "16 Hz SMR Beta",
+        subtitle = "Monaural Low-Fatigue Focus",
+        emoji = "🎯",
+        shortChipLabel = "16Hz Beta 🎯"
     ),
     BROWN_NOISE(
         displayName = "Deep Brown Noise",
@@ -23607,8 +26660,8 @@ object FocusTimingCalculator {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/service/FocusService.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/service/FocusService.kt`
-- **Lines of Code:** 411
-- **Size:** 16,127 bytes (15.7 KB)
+- **Lines of Code:** 523
+- **Size:** 22,073 bytes (21.6 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.service
@@ -23681,22 +26734,29 @@ class FocusService : Service() {
 
         when (intent.action) {
             ACTION_START -> {
-                taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
+                val newTaskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
+                val newStartedAt = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
+                val isSameTaskAndSession = (newTaskId == taskId && startedAtMillis == newStartedAt && startedAtMillis > 0L)
+                taskId = newTaskId
                 taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: taskTitle
                 durationSeconds = intent.getLongExtra(EXTRA_DURATION_SECONDS, durationSeconds)
-                startedAtMillis = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
-                accumulatedPauseMillis = 0L
-                pausedAtMillis = null
-                isPaused = false
+                startedAtMillis = newStartedAt
+                if (!isSameTaskAndSession) {
+                    accumulatedPauseMillis = 0L
+                    pausedAtMillis = null
+                    isPaused = false
+                }
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
                     remainingSeconds = durationSeconds,
                     totalSeconds = durationSeconds,
-                    isPaused = false
+                    isPaused = isPaused
                 )
                 updateNotification()
-                startTicker()
+                if (!isPaused) {
+                    startTicker()
+                }
             }
             ACTION_PAUSE -> {
                 if (!isPaused) {
@@ -23705,6 +26765,21 @@ class FocusService : Service() {
                     isPaused = true
                     _activeSession.value = _activeSession.value?.copy(isPaused = true)
                     updateNotification()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            if (::sessionRepository.isInitialized && taskId.isNotBlank()) {
+                                val open = sessionRepository.getOpenSessionForTask(taskId)
+                                if (open != null) {
+                                    sessionRepository.update(
+                                        open.copy(
+                                            pausedAt = pausedAtMillis,
+                                            pauseResumeCount = open.pauseResumeCount + 1
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
             ACTION_RESUME -> {
@@ -23718,6 +26793,21 @@ class FocusService : Service() {
                     _activeSession.value = _activeSession.value?.copy(isPaused = false)
                     updateNotification()
                     startTicker()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            if (::sessionRepository.isInitialized && taskId.isNotBlank()) {
+                                val open = sessionRepository.getOpenSessionForTask(taskId)
+                                if (open != null) {
+                                    sessionRepository.update(
+                                        open.copy(
+                                            pausedAt = null,
+                                            totalPausedMs = newAcc
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
             ACTION_COMPLETE -> {
@@ -23747,6 +26837,18 @@ class FocusService : Service() {
                     nowMillis = now,
                     targetDurationSeconds = durationSeconds
                 )
+                val isExpired = durationSeconds > 0L && timing.isExpired
+                if (isExpired) {
+                    _activeSession.value = ActiveFocusSession(
+                        taskId = taskId,
+                        taskTitle = taskTitle,
+                        remainingSeconds = 0L,
+                        totalSeconds = durationSeconds,
+                        isPaused = false
+                    )
+                    showSprintCompletedNotification()
+                    break
+                }
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
@@ -23758,6 +26860,39 @@ class FocusService : Service() {
                     updateNotification()
                 }
             }
+        }
+    }
+
+    private fun showSprintCompletedNotification() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java) ?: return
+            val contentIntent = Intent(this, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_FOCUS"
+                putExtra("taskId", taskId)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val title = if (taskTitle.isNotBlank()) taskTitle else "Deep Focus"
+            val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("🎯 Sprint Complete: $title")
+                .setContentText("Great job completing your sprint! Tap to keep going or take a rest.")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(contentPendingIntent)
+                .build()
+
+            nm.notify(NOTIFICATION_ID, notif)
+        } catch (_: Throwable) {
+            // Defensive: headless / unit test
         }
     }
 
@@ -23878,13 +27013,43 @@ class FocusService : Service() {
                     if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && activeTaskId.isNotBlank()) {
                         val now = System.currentTimeMillis()
                         val openSession = sessionRepository.getOpenSessionForTask(activeTaskId)
+                        val currentPause = if (isPaused) (now - (pausedAtMillis ?: now)) else 0L
+                        val totalPause = (accumulatedPauseMillis + currentPause).coerceAtLeast(0L)
+                        val rawDurationMs = if (openSession != null) (now - openSession.startedAt) else (now - startedAtMillis)
+                        val netDurationMs = (rawDurationMs - totalPause).coerceAtLeast(0L)
+                        val durationMins = (netDurationMs / 60000f).coerceAtLeast(1f)
+
                         if (openSession != null) {
-                            val durationMins = ((now - openSession.startedAt) / 60000f).coerceAtLeast(1f)
-                            sessionRepository.update(openSession.copy(endedAt = now, durationMinutes = durationMins))
+                            sessionRepository.update(
+                                openSession.copy(
+                                    endedAt = now,
+                                    pausedAt = null,
+                                    totalPausedMs = totalPause,
+                                    durationMinutes = durationMins
+                                )
+                            )
                         }
                         val task = taskRepository.getById(activeTaskId)
                         if (task != null) {
-                            taskRepository.completeAndRecur(task, now)
+                            val finalTracked = task.totalTimeTrackedMinutes + durationMins
+                            val est = task.estimatedDurationMinutes.toFloat()
+                            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+                            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+                            val points = 50 + (if (task.isFrog) 50 else 0) + (task.impactScore / 2)
+                            val updatedTask = task.copy(
+                                totalTimeTrackedMinutes = finalTracked,
+                                actualDurationMinutes = finalTracked,
+                                sessionCount = task.sessionCount + 1,
+                                lastSessionDurationMinutes = durationMins,
+                                estimationErrorMape = mape,
+                                estimationErrorSmape = smape,
+                                focusModePoints = points,
+                                status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED,
+                                completedAt = now,
+                                updatedAt = now
+                            )
+                            taskRepository.update(updatedTask)
+                            taskRepository.completeAndRecur(updatedTask, now)
                         }
                     }
                 } catch (_: Throwable) {
@@ -24031,7 +27196,7 @@ class FocusService : Service() {
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/insights/InsightsScreenV2.kt`
 - **Lines of Code:** 1,181
-- **Size:** 50,579 bytes (49.4 KB)
+- **Size:** 50,602 bytes (49.4 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.insights
@@ -24154,7 +27319,7 @@ fun InsightsScreenV2(
                         shape = SegmentedButtonDefaults.itemShape(index = idx, count = tabs.size),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            activeContentColor = Color.White,
+                            activeContentColor = NeuroFlowThemeV2Colors.TextPrimary,
                             inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurface,
                             inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -25224,7 +28389,7 @@ fun WeeklyAiFrictionAuditCard(
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/insights/InsightsTabbedUpgradesV2.kt`
 - **Lines of Code:** 362
-- **Size:** 14,711 bytes (14.4 KB)
+- **Size:** 14,757 bytes (14.4 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.insights
@@ -25307,7 +28472,7 @@ fun UpgradedInsightsHubV2(
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium
                         ),
-                        color = if (active) Color.White else NeuroFlowThemeV2Colors.TextSecondary
+                        color = if (active) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextSecondary
                     )
                 }
             }
@@ -25537,7 +28702,7 @@ private fun ForensicAvoidanceAuditDigest(
                         Text(
                             text = "Refresh Audit",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White,
+                            color = NeuroFlowThemeV2Colors.TextPrimary,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
@@ -25952,8 +29117,8 @@ sealed class NavHubsV2(val route: String, val title: String, val icon: ImageVect
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/navigation/NeuroFlowAppV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/navigation/NeuroFlowAppV2.kt`
-- **Lines of Code:** 350
-- **Size:** 16,676 bytes (16.3 KB)
+- **Lines of Code:** 400
+- **Size:** 18,946 bytes (18.5 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.navigation
@@ -25962,6 +29127,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25995,6 +29161,7 @@ import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
 import com.neuroflow.app.presentation.v2.focus.FocusScreenV2
 import com.neuroflow.app.presentation.v2.insights.InsightsScreenV2
 import com.neuroflow.app.presentation.v2.plan.PlanScreenV2
+import com.neuroflow.app.presentation.v2.plan.PlanViewModelV2
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.presentation.v2.theme.MiniFocusSessionBar
@@ -26012,6 +29179,12 @@ fun NeuroFlowAppV2(
     onInitialTaskConsumed: () -> Unit = {},
     initialOpenComposer: Boolean = false,
     onInitialComposerConsumed: () -> Unit = {},
+    initialWoopTaskId: String? = null,
+    onInitialWoopConsumed: () -> Unit = {},
+    initialGuideOpen: Boolean = false,
+    onInitialGuideConsumed: () -> Unit = {},
+    initialScheduleOpen: Boolean = false,
+    onInitialScheduleConsumed: () -> Unit = {},
     darkTheme: Boolean = true,
     amoledDark: Boolean = false
 ) {
@@ -26030,6 +29203,27 @@ fun NeuroFlowAppV2(
         }
     }
 
+    LaunchedEffect(initialWoopTaskId) {
+        if (!initialWoopTaskId.isNullOrBlank()) {
+            navController.navigate("focus_v2/$initialWoopTaskId?openWoop=true")
+            onInitialWoopConsumed()
+        }
+    }
+
+    LaunchedEffect(initialGuideOpen) {
+        if (initialGuideOpen) {
+            navController.navigate("app_guide")
+            onInitialGuideConsumed()
+        }
+    }
+
+    LaunchedEffect(initialScheduleOpen) {
+        if (initialScheduleOpen) {
+            navController.navigate(NavHubsV2.Plan.route)
+            onInitialScheduleConsumed()
+        }
+    }
+
     val isAmoled = darkTheme && (amoledDark || MaterialTheme.colorScheme.background == Color.Black)
     val activeFocusSessionState by FocusService.activeSession.collectAsState()
     val session = activeFocusSessionState
@@ -26037,6 +29231,7 @@ fun NeuroFlowAppV2(
 
     NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled) {
         val flowViewModel: FlowViewModelV2 = hiltViewModel()
+        val planViewModel: PlanViewModelV2 = hiltViewModel()
         val flowState by flowViewModel.uiState.collectAsState()
         val now = System.currentTimeMillis()
         val livePhase = flowState.energyTimeline.minByOrNull {
@@ -26118,7 +29313,8 @@ fun NeuroFlowAppV2(
                     PlanScreenV2(
                         onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
                         onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") },
-                        onNavigateToNotes = { navController.navigate("notes") }
+                        onNavigateToNotes = { navController.navigate("notes") },
+                        viewModel = planViewModel
                     )
                 }
 
@@ -26141,7 +29337,8 @@ fun NeuroFlowAppV2(
                         onNavigateToPrivacyPermissions = { navController.navigate("privacy_permissions") },
                         onNavigateToMEQQuiz = { navController.navigate("meq_quiz") },
                         onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
-                        onNavigateToAccountSync = { navController.navigate("account_sync") }
+                        onNavigateToAccountSync = { navController.navigate("account_sync") },
+                        onNavigateToLogTime = { navController.navigate("log_time") }
                     )
                 }
 
@@ -26166,7 +29363,10 @@ fun NeuroFlowAppV2(
                 composable("weekly_schedule") {
                     WeeklyScheduleScreen(
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToDay = { navController.popBackStack() },
+                        onNavigateToDay = { dayMillis ->
+                            planViewModel.selectDate(dayMillis)
+                            navController.popBackStack()
+                        },
                         onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
                     )
                 }
@@ -26211,6 +29411,14 @@ fun NeuroFlowAppV2(
                                         )
                                     }
                                 },
+                                actions = {
+                                    IconButton(onClick = { navController.navigate("log_time") }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Log Time"
+                                        )
+                                    }
+                                },
                                 colors = TopAppBarDefaults.topAppBarColors(
                                     containerColor = MaterialTheme.colorScheme.surface,
                                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -26220,7 +29428,10 @@ fun NeuroFlowAppV2(
                         }
                     ) { innerPadding ->
                         Box(modifier = Modifier.padding(innerPadding)) {
-                            HistoryScreen(hideTopBar = true)
+                            HistoryScreen(
+                                hideTopBar = true,
+                                onNavigateToLogTime = { navController.navigate("log_time") }
+                            )
                         }
                     }
                 }
@@ -26267,13 +29478,17 @@ fun NeuroFlowAppV2(
                     )
                 }
 
+                // Parity route: "focus_v2/{taskId}" with optional openWoop query parameter
                 composable(
-                    route = "focus_v2/{taskId}",
+                    route = "focus_v2/{taskId}?openWoop={openWoop}",
                     arguments = listOf(
-                        navArgument("taskId") { type = NavType.StringType }
+                        navArgument("taskId") { type = NavType.StringType },
+                        navArgument("openWoop") { type = NavType.BoolType; defaultValue = false }
                     )
-                ) {
+                ) { backStackEntry ->
+                    val openWoop = backStackEntry.arguments?.getBoolean("openWoop") ?: false
                     FocusScreenV2(
+                        initialOpenWoop = openWoop,
                         onNavigateBack = { navController.popBackStack() },
                         onNavigateToNextTask = { nextTaskId ->
                             navController.navigate("focus_v2/$nextTaskId") {
@@ -26314,8 +29529,8 @@ fun NeuroFlowAppV2(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/notes/QuickNotesBottomSheet.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/notes/QuickNotesBottomSheet.kt`
-- **Lines of Code:** 250
-- **Size:** 11,415 bytes (11.1 KB)
+- **Lines of Code:** 292
+- **Size:** 14,106 bytes (13.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.notes
@@ -26352,11 +29567,33 @@ fun QuickNotesBottomSheet(
     onSaveNote: (title: String, content: String) -> Unit,
     onDismiss: () -> Unit,
     onOpenFullNotes: () -> Unit = {},
-    onCreateTask: ((title: String, description: String) -> Unit)? = null
+    onCreateTask: ((title: String, description: String) -> Unit)? = null,
+    onSynthesizeNote: (suspend (String) -> com.neuroflow.app.domain.service.QuickNoteSynthesis)? = null
 ) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
+    var synthesis by remember { mutableStateOf<com.neuroflow.app.domain.service.QuickNoteSynthesis?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(content, title) {
+        if (content.isNotBlank()) {
+            val full = if (title.isNotBlank()) "$title: $content" else content
+            if (onSynthesizeNote != null) {
+                synthesis = onSynthesizeNote(full)
+            } else {
+                val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
+                synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                    extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+                    suggestedCategory = inferred.taskType.name,
+                    estimatedMinutes = inferred.durationMinutes,
+                    tags = inferred.contextTags,
+                    firstActionStep = "Review note: ${content.take(20)}..."
+                )
+            }
+        } else {
+            synthesis = null
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -26468,24 +29705,15 @@ fun QuickNotesBottomSheet(
             }
 
             // Quick Note AI Task Extraction Preview
-            if (content.isNotBlank()) {
-                val synthesis = remember(content, title) {
-                    com.neuroflow.app.domain.service.QuickNoteSynthesis(
-                        extractedTaskTitle = title.ifBlank { content.take(35) },
-                        suggestedCategory = "DEEP_WORK",
-                        estimatedMinutes = 25,
-                        tags = emptyList(),
-                        firstActionStep = "Review note: ${content.take(20)}..."
-                    )
-                }
+            synthesis?.let { syn ->
                 com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
-                    synthesis = synthesis,
-                    onConvertToTaskClick = { syn ->
+                    synthesis = syn,
+                    onConvertToTaskClick = { finalSyn ->
                         if (onCreateTask != null) {
-                            onCreateTask(syn.extractedTaskTitle, content)
-                            onSaveNote(syn.extractedTaskTitle, content)
+                            onCreateTask(finalSyn.extractedTaskTitle, content)
+                            onSaveNote(finalSyn.extractedTaskTitle, content)
                         } else {
-                            onSaveNote(syn.extractedTaskTitle, content)
+                            onSaveNote(finalSyn.extractedTaskTitle, content)
                         }
                         title = ""
                         content = ""
@@ -26552,12 +29780,41 @@ fun QuickNotesBottomSheet(
                                     maxLines = 3
                                 )
 
-                                Text(
-                                    text = dateFormatted,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeuroFlowThemeV2Colors.TextTertiary,
-                                    fontSize = 10.sp
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = dateFormatted,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextTertiary,
+                                        fontSize = 10.sp
+                                    )
+                                    if (onCreateTask != null) {
+                                        Surface(
+                                            modifier = Modifier.clickable {
+                                                onCreateTask(note.title, note.content)
+                                            },
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
+                                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Convert to Task",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -26576,8 +29833,8 @@ fun QuickNotesBottomSheet(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanAndComposerUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanAndComposerUpgradesV2.kt`
-- **Lines of Code:** 304
-- **Size:** 13,219 bytes (12.9 KB)
+- **Lines of Code:** 300
+- **Size:** 12,945 bytes (12.6 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.plan
@@ -26585,7 +29842,6 @@ package com.neuroflow.app.presentation.v2.plan
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26600,7 +29856,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -26620,10 +29875,6 @@ import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.service.TaskEnrichmentResult
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 
-/**
- * Interactive Conflict Resolution Banner for PlanScreenV2 & WeeklyScheduleScreen:
- * Surfaces overlaps detected by ConflictResolver.analyzeScheduleConflicts() with 1-tap resolution.
- */
 @Composable
 fun ScheduleConflictResolverStrip(
     conflicts: List<ScheduleConflict>,
@@ -26638,14 +29889,17 @@ fun ScheduleConflictResolverStrip(
             conflicts.take(2).forEach { conflict ->
                 Surface(
                     color = NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.RecoveryRose, 0.9f)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -26659,19 +29913,19 @@ fun ScheduleConflictResolverStrip(
                                 tint = NeuroFlowPaletteV2.RecoveryRose,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
                                     text = conflict.taskTitle,
                                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White,
+                                    color = NeuroFlowPaletteV2.TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = conflict.conflictDescription,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.72f)
+                                    color = NeuroFlowPaletteV2.TextSecondary
                                 )
                             }
                         }
@@ -26679,13 +29933,13 @@ fun ScheduleConflictResolverStrip(
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
                                 color = NeuroFlowPaletteV2.RecoveryRose,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.clickable { onResolveConflictClick(conflict) }
                             ) {
                                 Text(
-                                    text = "Move to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
+                                    text = "Shift to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.Black,
+                                    color = Color.White,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
@@ -26697,9 +29951,6 @@ fun ScheduleConflictResolverStrip(
     }
 }
 
-/**
- * Compact 2x2 Interactive Eisenhower Quadrant Filter Grid for PlanScreenV2
- */
 @Composable
 fun CompactEisenhowerMatrixFilter(
     countsByQuadrant: Map<Quadrant, Int>,
@@ -26761,11 +30012,14 @@ private fun QuadrantFilterTile(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = if (isSelected) accent.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceCard,
+        color = if (isSelected) accent.copy(alpha = 0.16f) else NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(
             width = if (isSelected) 1.5.dp else 1.dp,
-            color = if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle
+            brush = NeuroFlowPaletteV2.specularBorderBrush(
+                if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle,
+                if (isSelected) 1f else 0.7f
+            )
         ),
         modifier = modifier.clickable { onClick() }
     ) {
@@ -26779,12 +30033,12 @@ private fun QuadrantFilterTile(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (isSelected) accent else Color.White.copy(alpha = 0.85f)
+                color = if (isSelected) accent else NeuroFlowPaletteV2.TextPrimary
             )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(accent.copy(alpha = 0.2f))
+                    .background(accent.copy(alpha = 0.18f))
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -26797,10 +30051,6 @@ private fun QuadrantFilterTile(
     }
 }
 
-/**
- * AI Task Enrichment & Micro-Step Preview Card for SmartTaskComposerSheetV2:
- * Displays GeminiAiOnlineService.enrichTaskWithAi() results (2m activation tip + micro-steps + suggested slot).
- */
 @Composable
 fun ComposerAiEnrichmentPreviewCard(
     enrichment: TaskEnrichmentResult?,
@@ -26813,7 +30063,10 @@ fun ComposerAiEnrichmentPreviewCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -26845,7 +30098,7 @@ fun ComposerAiEnrichmentPreviewCard(
                         Text(
                             text = "Apply Steps",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                            color = Color.Black,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -26856,7 +30109,7 @@ fun ComposerAiEnrichmentPreviewCard(
                 Text(
                     text = "💡 ${enrichment.activationTip}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.85f)
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 enrichment.microSteps.forEachIndexed { idx, step ->
@@ -26870,13 +30123,13 @@ fun ComposerAiEnrichmentPreviewCard(
                         Text(
                             text = "${idx + 1}. ${step.title}",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (idx == 0) NeuroFlowPaletteV2.OptimalEmerald else Color.White.copy(alpha = 0.8f),
+                            color = if (idx == 0) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.TextPrimary,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = "${step.estimatedMinutes}m",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.55f)
+                            color = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
@@ -26892,8 +30145,8 @@ fun ComposerAiEnrichmentPreviewCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanScreenV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanScreenV2.kt`
-- **Lines of Code:** 1,426
-- **Size:** 72,282 bytes (70.6 KB)
+- **Lines of Code:** 1,703
+- **Size:** 88,165 bytes (86.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.plan
@@ -26906,11 +30159,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.presentation.v2.flow.TaskSlotEnergyFitBadge
+import com.neuroflow.app.presentation.v2.flow.UltradianRecoveryDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
@@ -26922,6 +30180,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26937,6 +30196,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
@@ -26962,10 +30222,15 @@ fun PlanScreenV2(
 
     var showNotesSheet by remember { mutableStateOf(false) }
     var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
+    var taskToScheduleTime by remember { mutableStateOf<TaskEntity?>(null) }
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var isObjectivesExpanded by remember { mutableStateOf(false) }
+    var newGoalTitle by remember { mutableStateOf("") }
+    var showFrogConfetti by remember { mutableStateOf(false) }
+    var showProtectedSlotSheet by remember { mutableStateOf(false) }
 
     val handleCompleteTask: (TaskEntity) -> Unit = { task ->
+        if (task.isFrog) showFrogConfetti = true
         viewModel.completeTask(task)
         scope.launch {
             snackbarHostState.currentSnackbarData?.dismiss()
@@ -27122,7 +30387,7 @@ fun PlanScreenV2(
                         ),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            activeContentColor = Color.White,
+                            activeContentColor = NeuroFlowThemeV2Colors.TextPrimary,
                             inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurface,
                             inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -27216,27 +30481,25 @@ fun PlanScreenV2(
                         }
                     }
 
-                    if (state.activeGoals.isNotEmpty()) {
-                        item(key = "objectives_pill") {
-                            FilterChip(
-                                selected = isObjectivesExpanded,
-                                onClick = { isObjectivesExpanded = !isObjectivesExpanded },
-                                label = {
-                                    Text(
-                                        text = "🎯 Objectives (${state.activeGoals.size})",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                ),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                        }
+                    item(key = "objectives_pill") {
+                        FilterChip(
+                            selected = isObjectivesExpanded,
+                            onClick = { isObjectivesExpanded = !isObjectivesExpanded },
+                            label = {
+                                Text(
+                                    text = if (state.activeGoals.isNotEmpty()) "🎯 Objectives (${state.activeGoals.size})" else "🎯 Objectives",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
                     }
 
                     items(state.availableTags, key = { it }) { tag ->
@@ -27258,7 +30521,7 @@ fun PlanScreenV2(
                             },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = Color.White,
+                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                 labelColor = NeuroFlowThemeV2Colors.TextSecondary
                             ),
@@ -27321,6 +30584,23 @@ fun PlanScreenV2(
                                             fontSize = 10.sp
                                         )
                                     }
+                                    val deferral = state.deferrals.firstOrNull { it.taskId == unscheduled.id }
+                                    if (deferral != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "⏳ ${deferral.reasonCode.name.replace('_', ' ')}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                fontSize = 9.sp,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -27328,7 +30608,7 @@ fun PlanScreenV2(
                 }
 
                 // Expandable Objectives Drawer
-                AnimatedVisibility(visible = isObjectivesExpanded && state.activeGoals.isNotEmpty()) {
+                AnimatedVisibility(visible = isObjectivesExpanded) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
@@ -27339,23 +30619,86 @@ fun PlanScreenV2(
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            state.activeGoals.forEach { goal ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .background(NeuroFlowThemeV2Colors.ElectricIndigoGlow, CircleShape)
+                            if (state.activeGoals.isEmpty()) {
+                                Text(
+                                    text = "No active objectives yet. Set a north-star goal below:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                            } else {
+                                state.activeGoals.forEach { goal ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = { viewModel.completeGoal(goal) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Complete Objective",
+                                                tint = NeuroFlowThemeV2Colors.BioMint,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = goal.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = NeuroFlowThemeV2Colors.TextPrimary,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = { viewModel.deleteGoal(goal) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Delete Objective",
+                                                tint = NeuroFlowThemeV2Colors.TextTertiary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Inline Add Goal
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = newGoalTitle,
+                                    onValueChange = { newGoalTitle = it },
+                                    placeholder = { Text("New Objective...", fontSize = 12.sp, color = NeuroFlowThemeV2Colors.TextTertiary) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(color = NeuroFlowThemeV2Colors.TextPrimary),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                        unfocusedBorderColor = NeuroFlowThemeV2Colors.SlateBorder
                                     )
-                                    Text(
-                                        text = goal.title,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = NeuroFlowThemeV2Colors.TextPrimary,
-                                        fontWeight = FontWeight.Medium
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (newGoalTitle.isNotBlank()) {
+                                            viewModel.addGoal(newGoalTitle)
+                                            newGoalTitle = ""
+                                        }
+                                    },
+                                    enabled = newGoalTitle.isNotBlank(),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add Objective",
+                                        tint = if (newGoalTitle.isNotBlank()) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextTertiary
                                     )
                                 }
                             }
@@ -27375,6 +30718,8 @@ fun PlanScreenV2(
                     onCompleteTask = handleCompleteTask,
                     onDeleteTask = { viewModel.requestDeleteTask(it) },
                     onBreakDownTask = { viewModel.breakDownTask(it) },
+                    onShiftToPeak = { viewModel.shiftTaskToPeak(it) },
+                    onAssignTaskTime = { task -> taskToScheduleTime = task },
                     onLogPastTime = { taskToLogTime = it },
                     onEditTask = { task -> editingTask = task }
                 )
@@ -27391,10 +30736,26 @@ fun PlanScreenV2(
                     state = state,
                     onToggleAutoSchedule = { viewModel.toggleAutoSchedule() },
                     onTriggerNow = { viewModel.triggerAutoScheduleNow() },
-                    onToggleSlot = { id, enabled -> viewModel.toggleProtectedSlot(id, enabled) }
+                    onToggleSlot = { id, enabled -> viewModel.toggleProtectedSlot(id, enabled) },
+                    onManageSlotsClick = { showProtectedSlotSheet = true }
                 )
             }
         }
+    }
+
+    if (showProtectedSlotSheet) {
+        com.neuroflow.app.presentation.schedule.ProtectedSlotBottomSheet(
+            protectedSlots = state.protectedSlots,
+            onDismiss = { showProtectedSlotSheet = false },
+            onSaveSlot = { slot -> viewModel.saveProtectedSlot(slot) },
+            onDeleteSlot = { slotId -> viewModel.deleteProtectedSlot(slotId) },
+            onToggleSlot = { slotId ->
+                val slot = state.protectedSlots.firstOrNull { it.id == slotId }
+                if (slot != null) {
+                    viewModel.toggleProtectedSlot(slotId, !slot.isEnabled)
+                }
+            }
+        )
     }
 
     if (showNotesSheet) {
@@ -27403,7 +30764,8 @@ fun PlanScreenV2(
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
             onDismiss = { showNotesSheet = false },
             onOpenFullNotes = onNavigateToNotes,
-            onCreateTask = { title, desc -> viewModel.createTaskFromNote(title, desc) }
+            onCreateTask = { title, desc -> viewModel.createTaskFromNote(title, desc) },
+            onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
         )
     }
 
@@ -27429,6 +30791,59 @@ fun PlanScreenV2(
                 viewModel.updateTask(updated)
             }
         )
+    }
+
+    taskToScheduleTime?.let { task ->
+        val initialMinuteOfDay = task.timelineStartMinuteOfDay()
+        val initialHour = initialMinuteOfDay / 60
+        val initialMinute = initialMinuteOfDay % 60
+        val timePickerState = rememberTimePickerState(
+            initialHour = if (initialHour in 0..23) initialHour else 9,
+            initialMinute = if (initialMinute in 0..59) initialMinute else 0
+        )
+        AlertDialog(
+            onDismissRequest = { taskToScheduleTime = null },
+            title = {
+                Text(
+                    text = "Assign Time Slot",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.TextPrimary
+                )
+            },
+            text = {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    TimePicker(state = timePickerState)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.assignTaskTime(task, timePickerState.hour, timePickerState.minute)
+                        taskToScheduleTime = null
+                    }
+                ) {
+                    Text("Confirm", color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { taskToScheduleTime = null }) {
+                    Text("Cancel", color = NeuroFlowThemeV2Colors.TextSecondary)
+                }
+            },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+        )
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
     }
 }
 
@@ -27490,14 +30905,14 @@ fun DateCarouselStrip(
                     Text(
                         text = dayName,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextSecondary,
+                        color = if (isSelected) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextSecondary,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = dayNum,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextPrimary
+                        color = if (isSelected) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextPrimary
                     )
                 }
             }
@@ -27512,6 +30927,21 @@ private fun isSameDay(t1: Long, t2: Long): Boolean {
         c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
 }
 
+private fun shouldShowUltradianBufferAfter(tasks: List<TaskEntity>, index: Int): Boolean {
+    if (index >= tasks.size - 1) return false
+    var runSum = 0
+    for (i in 0..index) {
+        runSum += tasks[i].estimatedDurationMinutes
+        if (i == index) {
+            return runSum >= 90
+        }
+        if (runSum >= 90) {
+            runSum = 0
+        }
+    }
+    return false
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimelineScheduleView(
@@ -27523,6 +30953,8 @@ fun TimelineScheduleView(
     onCompleteTask: (TaskEntity) -> Unit,
     onDeleteTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
+    onShiftToPeak: (TaskEntity) -> Unit = {},
+    onAssignTaskTime: (TaskEntity) -> Unit = {},
     onLogPastTime: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {}
 ) {
@@ -27559,7 +30991,8 @@ fun TimelineScheduleView(
             // 1. Daily Cognitive Budget Meter (Scoped inside scrollable timeline)
             item(key = "budget_meter") {
                 val scheduledMinutes = state.tasksForDay.sumOf { it.estimatedDurationMinutes }
-                val capacityMinutes = state.circadianSummary?.recommendedDeepWorkMinutes ?: 360
+                val capacityMinutes = state.preferences.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
+                    ?: state.circadianSummary?.recommendedDeepWorkMinutes ?: 360
                 com.neuroflow.app.presentation.v2.theme.CognitiveBudgetMeterCard(
                     scheduledMinutesToday = scheduledMinutes,
                     recommendedCapacityMinutes = capacityMinutes,
@@ -27637,7 +31070,7 @@ fun TimelineScheduleView(
                     }
                 }
             } else {
-                items(state.tasksForDay, key = { it.id }) { task ->
+                itemsIndexed(state.tasksForDay, key = { _, it -> it.id }) { index, task ->
                     val minuteOfDay = task.timelineStartMinuteOfDay()
                     val h = minuteOfDay / 60
                     val m = minuteOfDay % 60
@@ -27693,7 +31126,7 @@ fun TimelineScheduleView(
                                         tint = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                                             NeuroFlowThemeV2Colors.RoseCoral
                                         } else {
-                                            Color.White
+                                            NeuroFlowThemeV2Colors.TextPrimary
                                         }
                                     )
                                 }
@@ -27770,11 +31203,61 @@ fun TimelineScheduleView(
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${task.estimatedDurationMinutes}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = NeuroFlowThemeV2Colors.TextSecondary
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${task.estimatedDurationMinutes}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowThemeV2Colors.TextSecondary
+                                        )
+
+                                        val isUltradianPart = task.id.contains("#part") || task.title.contains("(Part ")
+                                        if (isUltradianPart) {
+                                            val partLabel = if (task.id.contains("#part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f)
+                                            ) {
+                                                Text(
+                                                    text = partLabel,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+
+                                        if (task.postponeCount >= 3) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.18f)
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Dopamine Warm-Up",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    val scheduledMillis = task.resolveScheduledEpochMillis() ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
+                                    if (scheduledMillis != null && state.energyTimeline.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        TaskSlotEnergyFitBadge(
+                                            taskScheduledMillis = scheduledMillis,
+                                            taskEnergyDemand = task.energyLevel,
+                                            timeline = state.energyTimeline,
+                                            onShiftToPeakClick = { onShiftToPeak(task) }
+                                        )
+                                    }
 
                                     val microSteps = remember(task.ifThenPlan) { StepByStepPlanCodec.parse(task.ifThenPlan) }
                                     if (microSteps.isNotEmpty()) {
@@ -27872,6 +31355,16 @@ fun TimelineScheduleView(
                                             }
                                         )
                                         DropdownMenuItem(
+                                            text = { Text("Assign Time Slot", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                            },
+                                            onClick = {
+                                                showItemMenu = false
+                                                onAssignTaskTime(task)
+                                            }
+                                        )
+                                        DropdownMenuItem(
                                             text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
                                             leadingIcon = {
                                                 Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
@@ -27885,6 +31378,11 @@ fun TimelineScheduleView(
                                 }
                             }
                         }
+                    }
+
+                    if (shouldShowUltradianBufferAfter(state.tasksForDay, index)) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        UltradianRecoveryDivider()
                     }
                 }
             }
@@ -28173,7 +31671,8 @@ fun AutopilotConfigView(
     state: PlanUiStateV2,
     onToggleAutoSchedule: () -> Unit,
     onTriggerNow: () -> Unit,
-    onToggleSlot: (String, Boolean) -> Unit
+    onToggleSlot: (String, Boolean) -> Unit,
+    onManageSlotsClick: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -28228,7 +31727,7 @@ fun AutopilotConfigView(
                         colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
                     ) {
                         if (state.isAutoScheduling) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = NeuroFlowThemeV2Colors.TextPrimary)
                         } else {
                             Icon(Icons.Default.AutoAwesome, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
@@ -28275,12 +31774,43 @@ fun AutopilotConfigView(
         }
 
         item(key = "protected_slots_title") {
-            Text(
-                "🛡️ Manage Protected Time Slots",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = NeuroFlowThemeV2Colors.TextPrimary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "🛡️ Manage Protected Time Slots",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.TextPrimary
+                )
+                TextButton(onClick = onManageSlotsClick) {
+                    Text("+ Add Slot", color = NeuroFlowThemeV2Colors.ElectricIndigo, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        if (state.protectedSlots.isEmpty()) {
+            item(key = "protected_slots_empty") {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onManageSlotsClick() },
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurface.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No protected time slots configured.", style = MaterialTheme.typography.bodySmall, color = NeuroFlowThemeV2Colors.TextSecondary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("+ Create your first protected block", style = MaterialTheme.typography.labelMedium, color = NeuroFlowThemeV2Colors.ElectricIndigo, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
 
         items(state.protectedSlots, key = { it.id }) { slot ->
@@ -28330,12 +31860,13 @@ fun AutopilotConfigView(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanViewModelV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanViewModelV2.kt`
-- **Lines of Code:** 662
-- **Size:** 29,498 bytes (28.8 KB)
+- **Lines of Code:** 950
+- **Size:** 42,815 bytes (41.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.plan
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.ExistingWorkPolicy
@@ -28343,29 +31874,42 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.dao.QuickNoteDao
+import com.neuroflow.app.data.local.parsePhysiologicalLogs
+import com.neuroflow.app.data.local.parseStimulantLogs
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.service.DaytimeNapBout
+import com.neuroflow.app.domain.service.GeminiAiOnlineService
+import com.neuroflow.app.domain.service.QuickNoteSynthesis
+import com.neuroflow.app.domain.service.StimulantDoseBout
+import com.neuroflow.app.domain.service.StimulantType
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlin.math.roundToInt
 import com.neuroflow.app.data.local.entity.NoteEntity
+import com.neuroflow.app.data.local.entity.QuickNoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyUiModel
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.domain.model.buildEnergyUiModel
-import com.neuroflow.app.domain.model.computeEnergyUiState
-import com.neuroflow.app.domain.scheduler.ConflictResolver
-import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
-import com.neuroflow.app.data.local.dao.QuickNoteDao
-import com.neuroflow.app.data.local.entity.QuickNoteEntity
-import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.model.computeEnergyUiState
+import com.neuroflow.app.domain.scheduler.ConflictResolver
+import com.neuroflow.app.domain.scheduler.DeferralRationale
+import com.neuroflow.app.domain.scheduler.ScheduleConflict
+import com.neuroflow.app.domain.scheduler.SchedulePreparationOrchestrator
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
@@ -28375,8 +31919,21 @@ import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Calendar
 import javax.inject.Inject
 
@@ -28403,6 +31960,7 @@ data class PlanUiStateV2(
     val workDayEnd: Int = 20,
     val energyUi: EnergyUiModel? = null,
     val circadianSummary: DailyCircadianSummary? = null,
+    val energyTimeline: List<CircadianSnapshot> = emptyList(),
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = true,
     val pendingDeletedTask: TaskEntity? = null,
@@ -28410,7 +31968,8 @@ data class PlanUiStateV2(
     val searchQuery: String = "",
     val isSearchVisible: Boolean = false,
     val decomposingTaskId: String? = null,
-    val selectedQuadrant: Quadrant? = null
+    val selectedQuadrant: Quadrant? = null,
+    val deferrals: List<DeferralRationale> = emptyList()
 )
 
 private fun startOfTodayMillis(): Long {
@@ -28435,8 +31994,16 @@ class PlanViewModelV2 @Inject constructor(
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
     private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null,
-    private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null
+    private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null,
+    @ApplicationContext private val context: Context? = null,
+    private val geminiAiOnlineService: GeminiAiOnlineService? = null
 ) : ViewModel() {
+
+    private val scheduleOrchestrator = SchedulePreparationOrchestrator(
+        taskSchedulerService = taskSchedulerService,
+        behavioralSupportService = behavioralSupportService,
+        sleepTelemetryRepository = sleepTelemetryRepository
+    )
 
     private val _selectedDate = MutableStateFlow(startOfTodayMillis())
     private val _viewMode = MutableStateFlow(PlanViewModeV2.TIMELINE)
@@ -28448,6 +32015,7 @@ class PlanViewModelV2 @Inject constructor(
     private val _isSearchVisible = MutableStateFlow(false)
     private val _decomposingTaskId = MutableStateFlow<String?>(null)
     private val _selectedQuadrant = MutableStateFlow<Quadrant?>(null)
+    private val _deferrals = MutableStateFlow<List<DeferralRationale>>(emptyList())
 
     private val _userActionMessage = MutableSharedFlow<String>()
     val userActionMessage: SharedFlow<String> = _userActionMessage.asSharedFlow()
@@ -28464,7 +32032,8 @@ class PlanViewModelV2 @Inject constructor(
         val searchQuery: String,
         val isSearchVisible: Boolean,
         val decomposingTaskId: String?,
-        val selectedQuadrant: Quadrant?
+        val selectedQuadrant: Quadrant?,
+        val deferrals: List<DeferralRationale> = emptyList()
     )
 
     val uiState: StateFlow<PlanUiStateV2> = combine(
@@ -28475,10 +32044,11 @@ class PlanViewModelV2 @Inject constructor(
             combine(_pendingDeletedTask, _isStagingDrawerExpanded, _searchQuery) { pendingTask, drawerExpanded, searchQ ->
                 listOf<Any?>(pendingTask, drawerExpanded, searchQ)
             },
-            combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant) { searchVis, decompId, selectedQuad ->
-                listOf<Any?>(searchVis, decompId, selectedQuad)
+            combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant, _deferrals) { searchVis, decompId, selectedQuad, defs ->
+                listOf<Any?>(searchVis, decompId, selectedQuad, defs)
             }
         ) { first, second, third ->
+            @Suppress("UNCHECKED_CAST")
             PlanNavParams(
                 dateMillis = first[0] as Long,
                 mode = first[1] as PlanViewModeV2,
@@ -28489,17 +32059,26 @@ class PlanViewModelV2 @Inject constructor(
                 searchQuery = second[2] as String,
                 isSearchVisible = third[0] as Boolean,
                 decomposingTaskId = third[1] as String?,
-                selectedQuadrant = third[2] as Quadrant?
+                selectedQuadrant = third[2] as Quadrant?,
+                deferrals = third[3] as List<DeferralRationale>
             )
         },
         taskRepository.observeActiveTasks(),
         preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
             old.workDayStart == new.workDayStart &&
-            old.workDayEnd == new.workDayEnd &&
-            old.autoSchedulingEnabled == new.autoSchedulingEnabled &&
-            old.protectedTimeSlots == new.protectedTimeSlots &&
-            old.wakeUpHour == new.wakeUpHour &&
-            old.sleepPressurePoints == new.sleepPressurePoints
+                old.workDayEnd == new.workDayEnd &&
+                old.autoSchedulingEnabled == new.autoSchedulingEnabled &&
+                old.protectedTimeSlots == new.protectedTimeSlots &&
+                old.wakeUpHour == new.wakeUpHour &&
+                old.sleepHour == new.sleepHour &&
+                old.sleepPressurePoints == new.sleepPressurePoints &&
+                old.stimulantLogsJson == new.stimulantLogsJson &&
+                old.quickPhysiologicalLogsJson == new.quickPhysiologicalLogsJson &&
+                old.quizChronotype == new.quizChronotype &&
+                old.manualChronotype == new.manualChronotype &&
+                old.meqScore == new.meqScore &&
+                old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
+                old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay
         },
         sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList()),
         goalRepository?.observeActiveGoals() ?: flowOf(emptyList())
@@ -28510,12 +32089,58 @@ class PlanViewModelV2 @Inject constructor(
         val tag = params.tag
 
         val now = System.currentTimeMillis()
+        val zoneId = java.time.ZoneId.systemDefault()
+        val zonedDateTime = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId)
+        var anchor = zonedDateTime.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(zoneId)
+        if (anchor.toInstant().toEpochMilli() > dateMillis) {
+            anchor = anchor.minusDays(1)
+        }
+        val baseWakeMillis = anchor.toInstant().toEpochMilli()
+
+        val signal = sleepTelemetryRepository?.normalizeLogs(
+            logs = sleepLogs,
+            baseWakeMillis = baseWakeMillis,
+            baseSleepMinutes = 480.0
+        )
+        val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
+        val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
+
+        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+        val quickPhysNaps = physLogs
+            .filter { it.type == com.neuroflow.app.data.local.PhysiologicalEventType.NAP }
+            .map { log ->
+                DaytimeNapBout(
+                    startMillis = log.timestampMillis - log.durationMinutes.coerceAtLeast(10) * 60_000L,
+                    endMillis = log.timestampMillis
+                )
+            }
+        val naps = ((signal?.daytimeNaps ?: emptyList()) + quickPhysNaps).sortedBy { it.startMillis }
+
+        val resolvedChronotype = if (!prefs.manualChronotype.isNullOrBlank()) {
+            ChronotypeProfile.fromString(prefs.manualChronotype)
+        } else if (!prefs.quizChronotype.isNullOrBlank()) {
+            ChronotypeProfile.fromString(prefs.quizChronotype)
+        } else if (prefs.meqScore > 0) {
+            when {
+                prefs.meqScore >= 70 -> ChronotypeProfile.DEFINITE_MORNING
+                prefs.meqScore >= 59 -> ChronotypeProfile.MODERATE_MORNING
+                prefs.meqScore >= 42 -> ChronotypeProfile.INTERMEDIATE
+                prefs.meqScore >= 31 -> ChronotypeProfile.MODERATE_EVENING
+                else -> ChronotypeProfile.DEFINITE_EVENING
+            }
+        } else {
+            ChronotypeProfile.INTERMEDIATE
+        }
+
+        val allStimulants = parseStimulantLogs(prefs.stimulantLogsJson)
+
         val (_, energyUi) = computeEnergyUiState(
             circadianEnergyService = circadianEnergyService,
             sleepTelemetryRepository = sleepTelemetryRepository,
             prefs = prefs,
             sleepLogs = sleepLogs,
-            nowMillis = now
+            nowMillis = now,
+            stimulantDoses = allStimulants
         )
 
         val tagFilteredAll = if (tag.isNullOrBlank() || tag.equals("All", ignoreCase = true)) {
@@ -28572,15 +32197,30 @@ class PlanViewModelV2 @Inject constructor(
         val circadianSummary = runCatching {
             circadianEnergyService.computeDailySummary(
                 timestampMillis = dateMillis,
-                wakeTimeMillis = dateMillis + (prefs.wakeUpHour * 3600_000L),
-                lastSleepDurationMinutes = 480,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
                 continuousActiveFocusMinutes = 0,
-                zoneId = java.time.ZoneId.systemDefault(),
-                naps = emptyList(),
-                chronotype = ChronotypeProfile.fromString(prefs.quizChronotype),
-                manualPeakStartHour = manualPeakHour
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = resolvedChronotype,
+                manualPeakStartHour = manualPeakHour,
+                stimulantDoses = allStimulants
             )
         }.getOrNull()
+
+        val energyTimeline = runCatching {
+            circadianEnergyService.projectDayTimeline(
+                dayStartMillis = dateMillis,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                stepMinutes = 30,
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = resolvedChronotype,
+                manualPeakStartHour = manualPeakHour,
+                stimulantDoses = allStimulants
+            )
+        }.getOrDefault(emptyList())
 
         PlanUiStateV2(
             selectedDateMillis = dateMillis,
@@ -28598,6 +32238,7 @@ class PlanViewModelV2 @Inject constructor(
             workDayEnd = prefs.workDayEnd,
             energyUi = energyUi,
             circadianSummary = circadianSummary,
+            energyTimeline = energyTimeline,
             preferences = prefs,
             isLoading = false,
             pendingDeletedTask = params.pendingDeletedTask,
@@ -28605,7 +32246,8 @@ class PlanViewModelV2 @Inject constructor(
             searchQuery = params.searchQuery,
             isSearchVisible = params.isSearchVisible,
             decomposingTaskId = params.decomposingTaskId,
-            selectedQuadrant = params.selectedQuadrant
+            selectedQuadrant = params.selectedQuadrant,
+            deferrals = params.deferrals
         )
     }.stateIn(
         viewModelScope,
@@ -28632,7 +32274,13 @@ class PlanViewModelV2 @Inject constructor(
     fun toggleAutoSchedule() {
         viewModelScope.launch {
             val current = uiState.value.isAutoScheduleOn
-            preferencesDataStore.updatePreferences { it.copy(autoSchedulingEnabled = !current) }
+            val nextState = !current
+            preferencesDataStore.updatePreferences {
+                it.copy(
+                    autoSchedulingEnabled = nextState,
+                    isAutoScheduleToggleOn = nextState
+                )
+            }
         }
     }
 
@@ -28641,6 +32289,7 @@ class PlanViewModelV2 @Inject constructor(
             _isAutoScheduling.value = true
             try {
                 val prefs = preferencesDataStore.preferencesFlow.first()
+                val allKnownTasks = taskRepository.getAllTasks().ifEmpty { taskRepository.getActiveTasks() }
                 val allTasks = taskRepository.getActiveTasks()
                 val zoneId = java.time.ZoneId.systemDefault()
                 val dayDate = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId).toLocalDate()
@@ -28657,97 +32306,64 @@ class PlanViewModelV2 @Inject constructor(
                     if (end > dayStart && start < dayEnd) com.neuroflow.app.domain.service.TimeSlotWindow(start, end) else null
                 }
                 val totalBusyWindows = externalBusyWindows + fixedWindows
-
                 val nowMillis = System.currentTimeMillis()
-                val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-                val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
-                val wakeHour = prefs.wakeUpHour
-                val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-                val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
 
                 val candidateTasks = allTasks.filter { task ->
                     val sDate = task.scheduledDate
                     sDate == null || (sDate in dayStart..dayEnd && !task.isScheduleLocked)
                 }
 
-                val schedulableTasks = candidateTasks.map { task ->
-                    com.neuroflow.app.domain.service.SchedulableTask(
-                        id = task.id,
-                        title = task.title,
-                        category = when (task.taskType) {
-                            com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
-                            com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
-                            com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
-                            com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
-                            com.neuroflow.app.domain.model.TaskType.GENERAL -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
-                            com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
-                        },
-                        priority = when (task.priority) {
-                            com.neuroflow.app.domain.model.Priority.HIGH -> 2
-                            com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
-                            else -> 0
-                        },
-                        estimatedMinutes = task.estimatedDurationMinutes,
-                        energyDemand = when (task.energyLevel) {
-                            com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
-                            com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
-                            else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
-                        },
-                        isFrog = task.isFrog,
-                        scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: dayStart) + it },
-                        deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
-                        isLocked = task.isScheduleLocked,
-                        parentTaskId = task.parentTaskId
-                    )
+                val allSessions = runCatching {
+                    sessionRepository?.getAllSessions().orEmpty()
+                }.getOrDefault(emptyList())
+                val closedSessions = allSessions.filter { it.endedAt != null }
+                val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+                val microStepCounts = candidateTasks.associate { task ->
+                    val steps = taskRepository.getMicroSteps(task.id)
+                    task.id to Pair(steps.count { it.isCompleted }, steps.size)
                 }
-
-                val protectedSlots = prefs.protectedTimeSlots.filter { it.isEnabled }.map {
-                    com.neuroflow.app.domain.service.ProtectedLocalSlot(
-                        startHour = it.startMinuteOfDay / 60,
-                        startMinute = it.startMinuteOfDay % 60,
-                        durationMinutes = it.durationMinutes
-                    )
-                }
-
                 val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
-                val signal = sleepTelemetryRepository?.normalizeLogs(
-                    logs = sleepLogs,
-                    baseWakeMillis = wakeTimeMillis,
-                    baseSleepMinutes = 480.0
-                )
-                val naps = signal?.daytimeNaps ?: emptyList()
 
-                val placements = taskSchedulerService.scheduleDay(
-                    tasks = schedulableTasks,
+                val outcome = scheduleOrchestrator.orchestrateDayScheduleWithOutcome(
+                    candidateTasks = candidateTasks,
+                    allKnownTasks = allKnownTasks,
+                    closedSessions = closedSessions,
+                    sleepLogs = sleepLogs,
+                    prefs = prefs,
                     dayDate = dayDate,
                     nowMillis = nowMillis,
-                    wakeTimeMillis = wakeTimeMillis,
-                    lastSleepDurationMinutes = 480,
                     busyWindows = totalBusyWindows,
-                    protectedSlots = protectedSlots,
-                    calibrationRatio = 1.20,
                     forceReplan = forceReplan,
                     zoneId = zoneId,
-                    naps = naps
+                    activeTaskId = activeTaskId,
+                    microStepCounts = microStepCounts
                 )
+                val placements = outcome.placements
+                _deferrals.value = outcome.deferrals
 
-                for (placement in placements) {
-                    val fresh = taskRepository.getById(placement.task.id) ?: continue
+                val placementsByBaseId = placements.groupBy { it.task.id.substringBefore("#part") }
+
+                for ((baseTaskId, taskPlacements) in placementsByBaseId) {
+                    val primaryPlacement = taskPlacements.first()
+                    val fresh = taskRepository.getById(baseTaskId) ?: continue
                     if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE || fresh.isScheduleLocked) continue
-                    val calSlot = Calendar.getInstance().apply { timeInMillis = placement.window.startMillis }
+                    val calSlot = Calendar.getInstance().apply { timeInMillis = primaryPlacement.window.startMillis }
                     val startOfDay = calSlot.apply {
                         set(Calendar.HOUR_OF_DAY, 0)
                         set(Calendar.MINUTE, 0)
                         set(Calendar.SECOND, 0)
                         set(Calendar.MILLISECOND, 0)
                     }.timeInMillis
-                    val timeOffset = placement.window.startMillis - startOfDay
+                    val timeOffset = primaryPlacement.window.startMillis - startOfDay
 
+                    val isSplit = taskPlacements.size > 1 || primaryPlacement.task.id.endsWith("#part1")
+                    val titleToUse = if (isSplit && !fresh.title.contains("(Part ")) "${fresh.title} (Part 1/2)" else fresh.title
                     val updated = fresh.copy(
+                        title = titleToUse,
                         scheduledDate = startOfDay,
                         scheduledTime = timeOffset,
                         isAutoScheduled = true,
-                        plannedBlockMinutes = placement.window.durationMinutes,
+                        plannedBlockMinutes = primaryPlacement.window.durationMinutes,
                         lastAutoScheduledAt = nowMillis,
                         updatedAt = nowMillis
                     )
@@ -28755,9 +32371,43 @@ class PlanViewModelV2 @Inject constructor(
                     if (updated.isFrog) {
                         calendarSyncRepository?.upsertTaskEvent(
                             updated,
-                            startMillis = placement.window.startMillis,
-                            durationMinutes = placement.window.durationMinutes
+                            startMillis = primaryPlacement.window.startMillis,
+                            durationMinutes = primaryPlacement.window.durationMinutes
                         )
+                    }
+
+                    val part2Placement = taskPlacements.getOrNull(1)
+                    if (part2Placement != null && part2Placement.task.id.endsWith("#part2")) {
+                        val calSlot2 = Calendar.getInstance().apply { timeInMillis = part2Placement.window.startMillis }
+                        val startOfDay2 = calSlot2.apply {
+                            set(Calendar.HOUR_OF_DAY, 0)
+                            set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                            }.timeInMillis
+                        val timeOffset2 = part2Placement.window.startMillis - startOfDay2
+                        val part2Id = "${baseTaskId}_part2"
+                        val existingPart2 = taskRepository.getById(part2Id)
+                        val part2Title = if (!part2Placement.task.title.contains("(Part ")) "${fresh.title.substringBefore(" (Part ")} (Part 2/2)" else part2Placement.task.title
+                        val part2Entity = (existingPart2 ?: fresh).copy(
+                            id = part2Id,
+                            title = part2Title,
+                            parentTaskId = baseTaskId,
+                            dependsOnTaskIds = baseTaskId,
+                            estimatedDurationMinutes = part2Placement.window.durationMinutes,
+                            plannedBlockMinutes = part2Placement.window.durationMinutes,
+                            scheduledDate = startOfDay2,
+                            scheduledTime = timeOffset2,
+                            isAutoScheduled = true,
+                            isFrog = false,
+                            lastAutoScheduledAt = nowMillis,
+                            updatedAt = nowMillis
+                        )
+                        if (existingPart2 != null) {
+                            taskRepository.update(part2Entity)
+                        } else {
+                            taskRepository.insert(part2Entity)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -28778,12 +32428,13 @@ class PlanViewModelV2 @Inject constructor(
 
     fun resolveConflict(conflict: ScheduleConflict) {
         val suggestedMinute = conflict.suggestedNewStartMinute
-        val targetTask = uiState.value.tasksForDay.firstOrNull { it.title == conflict.taskTitle }
+        val targetTask = uiState.value.tasksForDay.firstOrNull { it.id == conflict.taskId }
+            ?: uiState.value.tasksForDay.firstOrNull { it.title == conflict.taskTitle }
         if (targetTask != null && suggestedMinute != null) {
             assignTaskTime(targetTask, suggestedMinute / 60, suggestedMinute % 60)
             viewModelScope.launch {
                 _userActionMessage.emit(
-                    "Moved '${targetTask.title.take(24)}' to ${ConflictResolver.formatMinutesToTime(suggestedMinute)}"
+                    "Shifted '${targetTask.title.take(24)}' to ${ConflictResolver.formatMinutesToTime(suggestedMinute)}"
                 )
             }
         } else {
@@ -28859,20 +32510,138 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun addTaskFromNote(title: String, content: String) = createTaskFromNote(title, content)
+
     fun createTaskFromNote(title: String, description: String = "") {
         viewModelScope.launch {
-            val cleanTitle = title.ifBlank { description.take(40).trim() }.ifBlank { "New Task" }
+            val fullText = if (title.isNotBlank()) "$title: $description" else description
+            val inferred = TaskInferenceEngine.inferFromInput(fullText)
+            val now = System.currentTimeMillis()
             val newTask = TaskEntity(
                 id = java.util.UUID.randomUUID().toString(),
-                title = cleanTitle,
+                title = inferred.sanitizedTitle.ifBlank { title.ifBlank { "Quick Task" } },
                 description = description.trim(),
-                scheduledDate = uiState.value.selectedDateMillis,
-                estimatedDurationMinutes = 25,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
+                estimatedDurationMinutes = inferred.durationMinutes,
+                priority = inferred.priority,
+                energyLevel = inferred.energyDemand,
+                taskType = inferred.taskType,
+                quadrant = inferred.quadrant,
+                tags = inferred.contextTags.joinToString(","),
+                scheduledDate = inferred.scheduledDate ?: uiState.value.selectedDateMillis,
+                scheduledTime = inferred.scheduledTime,
+                deadlineDate = inferred.deadlineDate,
+                deadlineTime = inferred.deadlineTime,
+                isFrog = inferred.isFrog,
+                createdAt = now,
+                updatedAt = now
             )
             taskRepository.insert(newTask)
-            _userActionMessage.emit("Created task '$cleanTitle'")
+            calendarSyncRepository?.handleTaskStateChanged(newTask)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, newTask) }
+            _userActionMessage.emit("Created task '${newTask.title.take(24)}' ⚡")
+        }
+    }
+
+    suspend fun synthesizeQuickNote(content: String): QuickNoteSynthesis {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.synthesizeQuickNote(
+            rawContent = content,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        ) ?: run {
+            val inferred = TaskInferenceEngine.inferFromInput(content)
+            QuickNoteSynthesis(
+                extractedTaskTitle = inferred.sanitizedTitle.ifBlank { content.take(35) },
+                suggestedCategory = inferred.taskType.name,
+                estimatedMinutes = inferred.durationMinutes,
+                tags = inferred.contextTags,
+                firstActionStep = "Review scratchpad note and outline details"
+            )
+        }
+    }
+
+    fun addGoal(title: String, description: String = "") {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            goalRepository?.insert(
+                com.neuroflow.app.data.local.entity.GoalEntity(
+                    title = title.trim(),
+                    description = description.trim(),
+                    isActive = true,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            _userActionMessage.emit("Goal added: ${title.take(20)}")
+        }
+    }
+
+    fun completeGoal(goal: com.neuroflow.app.data.local.entity.GoalEntity) {
+        viewModelScope.launch {
+            goalRepository?.update(goal.copy(isActive = false))
+            _userActionMessage.emit("Goal completed! 🎯")
+        }
+    }
+
+    fun deleteGoal(goal: com.neuroflow.app.data.local.entity.GoalEntity) {
+        viewModelScope.launch {
+            goalRepository?.delete(goal)
+            _userActionMessage.emit("Goal removed")
+        }
+    }
+
+    fun shiftTaskToPeak(task: TaskEntity) {
+        viewModelScope.launch {
+            val peakHour = uiState.value.circadianSummary?.peakWindowStartHour
+                ?: uiState.value.preferences.peakEnergyStart.takeIf { it > 0 } ?: 10
+            val peakEndHour = uiState.value.circadianSummary?.peakWindowEndHour ?: (peakHour + 3)
+            val dipEndHour = uiState.value.circadianSummary?.dipWindowEndHour ?: 16
+            val usableEnergy = uiState.value.circadianSummary?.currentSnapshot?.usableEnergy ?: 60
+
+            val now = System.currentTimeMillis()
+            val cal = Calendar.getInstance().apply { timeInMillis = now }
+            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+
+            val baseDate = task.scheduledDate ?: uiState.value.selectedDateMillis
+            val baseCal = Calendar.getInstance().apply {
+                timeInMillis = baseDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val isToday = baseCal.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
+                baseCal.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR)
+
+            val targetDate: Long
+            val targetHour: Int
+            val messageLabel: String
+
+            if (!isToday || currentHour < peakEndHour) {
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Peak Window (${peakHour}:00)"
+            } else if (currentHour < 18 && usableEnergy >= 55) {
+                targetDate = baseCal.timeInMillis
+                targetHour = maxOf(currentHour + 1, dipEndHour).coerceAtMost(17)
+                messageLabel = "Afternoon Rebound (${targetHour}:00)"
+            } else {
+                baseCal.add(Calendar.DAY_OF_YEAR, 1)
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Tomorrow's Peak (${peakHour}:00)"
+            }
+
+            val millisInDay = targetHour * 3600_000L
+            val updated = task.copy(
+                scheduledDate = targetDate,
+                scheduledTime = millisInDay,
+                isScheduleLocked = true,
+                updatedAt = System.currentTimeMillis()
+            )
+            taskRepository.update(updated)
+            calendarSyncRepository?.handleTaskStateChanged(updated)
+            _userActionMessage.emit("Shifted '${task.title.take(20)}' to $messageLabel ⚡")
         }
     }
 
@@ -28891,12 +32660,25 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun assignTaskTime(taskId: String, newStartMillis: Long) {
+        val targetTask = uiState.value.tasksForDay.firstOrNull { it.id == taskId } ?: return
+        val zoneId = ZoneId.systemDefault()
+        val zdt = Instant.ofEpochMilli(newStartMillis).atZone(zoneId)
+        assignTaskTime(targetTask, zdt.hour, zdt.minute)
+    }
+
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
+            context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
             calendarSyncRepository?.handleTaskStateChanged(
                 task.copy(status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED)
             )
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {
+                " • \"${prefs.affirmations.random()}\""
+            } else ""
+            _userActionMessage.emit("Completed: ${task.title}$affirmationSuffix")
         }
     }
 
@@ -28923,30 +32705,65 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun saveProtectedSlot(slot: ProtectedTimeSlot) {
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                val existing = prefs.protectedTimeSlots
+                val updated = if (existing.any { it.id == slot.id }) {
+                    existing.map { if (it.id == slot.id) slot else it }
+                } else {
+                    existing + slot
+                }
+                prefs.copy(protectedTimeSlots = updated)
+            }
+        }
+    }
+
+    fun deleteProtectedSlot(slotId: String) {
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(protectedTimeSlots = prefs.protectedTimeSlots.filterNot { it.id == slotId })
+            }
+        }
+    }
+
+    suspend fun enrichTaskWithAi(taskTitle: String, durationMinutes: Int = 30): com.neuroflow.app.domain.service.TaskEnrichmentResult? {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.enrichTaskWithAi(
+            title = taskTitle,
+            durationMinutes = durationMinutes,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        )
+    }
+
     fun logPastTime(task: TaskEntity, minutes: Float) {
+        if (minutes.isNaN() || minutes.isInfinite()) return
+        val safeMinutes = minutes.coerceAtMost(1440f)
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val session = TimeSessionEntity(
                 taskId = task.id,
-                startedAt = now - (minutes * 60_000f).toLong(),
+                startedAt = now - (safeMinutes * 60_000f).toLong(),
                 endedAt = now,
-                durationMinutes = minutes,
+                durationMinutes = safeMinutes,
                 sessionType = "MANUAL_LOG"
             )
             sessionRepository?.insert(session)
-            val newTracked = task.totalTimeTrackedMinutes + minutes
+            val newTracked = task.totalTimeTrackedMinutes + safeMinutes
             val newCount = task.sessionCount + 1
             taskRepository.update(
                 task.copy(
                     totalTimeTrackedMinutes = newTracked,
                     sessionCount = newCount,
-                    lastSessionDurationMinutes = minutes,
+                    lastSessionDurationMinutes = safeMinutes,
                     actualDurationMinutes = newTracked,
                     updatedAt = now
                 )
             )
             preferencesDataStore.updatePreferences { prefs ->
-                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
+                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + safeMinutes.toInt())
             }
         }
     }
@@ -28972,6 +32789,7 @@ class PlanViewModelV2 @Inject constructor(
         val task = _pendingDeletedTask.value ?: return
         _pendingDeletedTask.value = null
         viewModelScope.launch {
+            context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             preferencesDataStore.recordDeletedTask(
                 title = task.title,
                 durationMinutes = task.estimatedDurationMinutes,
@@ -29004,8 +32822,8 @@ class PlanViewModelV2 @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/settings/HyperFocusNotesAndSettingsUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/settings/HyperFocusNotesAndSettingsUpgradesV2.kt`
-- **Lines of Code:** 340
-- **Size:** 13,585 bytes (13.3 KB)
+- **Lines of Code:** 335
+- **Size:** 13,404 bytes (13.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.settings
@@ -29052,10 +32870,6 @@ import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.service.QuickNoteSynthesis
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 
-/**
- * 1. Dopamine-Safe HyperFocus Gate Card (For BlockingOverlayScreen.kt & HyperFocusHomeScreen.kt)
- * Replaces punitive app-block walls with a RewardTier progress ring and a 2-minute starter step pivot.
- */
 @Composable
 fun DopamineSafeBlockingGateCard(
     blockedAppName: String,
@@ -29072,7 +32886,10 @@ fun DopamineSafeBlockingGateCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.5f)),
+        border = BorderStroke(
+            1.5.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 1f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -29095,19 +32912,18 @@ fun DopamineSafeBlockingGateCard(
             Text(
                 text = "$blockedAppName is paused right now",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "Complete $tasksNeeded more task(s) to unlock a ${nextRewardTier.unlockMinutes}-minute ${nextRewardTier.name} reward pass.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.72f),
+                color = NeuroFlowPaletteV2.TextSecondary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2-Minute Low-Friction Pivot Card
             Surface(
                 color = NeuroFlowPaletteV2.SurfaceElevated,
                 shape = RoundedCornerShape(16.dp),
@@ -29124,7 +32940,7 @@ fun DopamineSafeBlockingGateCard(
                     Text(
                         text = topTaskFirstStep.ifBlank { topTaskTitle },
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                 }
             }
@@ -29134,7 +32950,7 @@ fun DopamineSafeBlockingGateCard(
                 onClick = onStartTwoMinuteStepClick,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                    contentColor = Color.Black
+                    contentColor = Color(0xFF0A0B0E)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -29168,9 +32984,6 @@ fun DopamineSafeBlockingGateCard(
     }
 }
 
-/**
- * 2. Quick Note to Structured Task Synthesizer (For QuickNotesBottomSheet.kt)
- */
 @Composable
 fun QuickNoteAiSynthesizerCard(
     synthesis: QuickNoteSynthesis,
@@ -29180,7 +32993,10 @@ fun QuickNoteAiSynthesizerCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -29209,12 +33025,12 @@ fun QuickNoteAiSynthesizerCard(
                 Text(
                     text = synthesis.extractedTaskTitle,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Text(
                     text = "Starter: ${synthesis.firstActionStep}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.68f)
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.width(10.dp))
@@ -29226,7 +33042,7 @@ fun QuickNoteAiSynthesizerCard(
                 Text(
                     text = "+ Add Task",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = Color.Black,
+                    color = Color.White,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                 )
             }
@@ -29234,9 +33050,6 @@ fun QuickNoteAiSynthesizerCard(
     }
 }
 
-/**
- * 3. Categorized Settings Hub (For SettingsScreen.kt)
- */
 @Composable
 fun CategorizedSettingsHubV2(
     chronotypeSummary: String,
@@ -29295,7 +33108,7 @@ private fun SettingsCategoryRowCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(accent, 0.7f)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -29330,20 +33143,20 @@ private fun SettingsCategoryRowCard(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = NeuroFlowPaletteV2.TextSecondary
                     )
                 }
             }
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.4f)
+                tint = NeuroFlowPaletteV2.TextTertiary
             )
         }
     }
@@ -29356,15 +33169,15 @@ private fun SettingsCategoryRowCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/settings/SubScreensAndHyperFocusUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/settings/SubScreensAndHyperFocusUpgradesV2.kt`
-- **Lines of Code:** 365
-- **Size:** 15,253 bytes (14.9 KB)
+- **Lines of Code:** 355
+- **Size:** 14,730 bytes (14.4 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.settings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29403,10 +33216,6 @@ import com.neuroflow.app.domain.service.PriorityWeightProfile
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
-/**
- * 1. Sleep Pressure & Provenance Header Card (For SleepLogsScreen.kt)
- * Displays SleepPressureRepository.Snapshot alongside Health Connect / Manual / Auto-Default provenance.
- */
 @Composable
 fun UpgradedSleepPressureOverviewCard(
     snapshot: SleepPressureRepository.Snapshot,
@@ -29417,7 +33226,10 @@ fun UpgradedSleepPressureOverviewCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 0.8f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -29480,7 +33292,7 @@ private fun SleepStatColumn(label: String, value: String, color: Color) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.55f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
@@ -29491,10 +33303,6 @@ private fun SleepStatColumn(label: String, value: String, color: Color) {
     }
 }
 
-/**
- * 2. Protected Slot Physiological Effect Selector (For ProtectedSlotBottomSheet.kt & WeeklyScheduleScreen.kt)
- * Explains how Meal, Exercise, and Mindfulness slots dynamically alter the circadian energy curve.
- */
 @Composable
 fun ProtectedSlotPhysiologicalPreviewBar(
     selectedCategory: PtsCategory,
@@ -29511,7 +33319,7 @@ fun ProtectedSlotPhysiologicalPreviewBar(
         Text(
             text = "PHYSIOLOGICAL CURVE IMPACT",
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = Color.White.copy(alpha = 0.65f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             letterSpacing = 0.8.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -29522,7 +33330,7 @@ fun ProtectedSlotPhysiologicalPreviewBar(
             categories.forEach { (category, label, icon) ->
                 val isSelected = selectedCategory == category
                 Surface(
-                    color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceElevated,
+                    color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.16f) else NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(
                         1.dp,
@@ -29539,14 +33347,14 @@ fun ProtectedSlotPhysiologicalPreviewBar(
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else Color.White.copy(alpha = 0.7f),
+                            tint = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else NeuroFlowPaletteV2.TextSecondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else Color.White.copy(alpha = 0.8f),
+                            color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else NeuroFlowPaletteV2.TextPrimary,
                             fontSize = 10.sp
                         )
                     }
@@ -29556,10 +33364,6 @@ fun ProtectedSlotPhysiologicalPreviewBar(
     }
 }
 
-/**
- * 3. Scheduler Priority Weights Tuner Card (For PriorityWeightsScreen.kt)
- * Interactive normalized weight sliders for TaskSchedulerService.PriorityWeightProfile.
- */
 @Composable
 fun UpgradedPriorityWeightsTunerCard(
     weights: PriorityWeightProfile,
@@ -29569,7 +33373,7 @@ fun UpgradedPriorityWeightsTunerCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -29623,7 +33427,7 @@ private fun WeightSliderRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Text(
                 text = "${"%.1f".format(value)}x",
@@ -29643,10 +33447,6 @@ private fun WeightSliderRow(
     }
 }
 
-/**
- * 4. Minimalist HyperFocus Home Launcher & Cloud Sync Status Bar
- * (For HyperFocusHomeScreen.kt, GateTaskScreen.kt & AccountSyncScreen.kt)
- */
 @Composable
 fun HyperFocusLauncherStatusHeader(
     sessionModeLabel: String,
@@ -29656,9 +33456,12 @@ fun HyperFocusLauncherStatusHeader(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = Color(0xFF07080C),
+        color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.3f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.8f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -29694,7 +33497,7 @@ fun HyperFocusLauncherStatusHeader(
                     Text(
                         text = remainingTasksOrMinutesLabel,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                 }
             }
@@ -29733,8 +33536,8 @@ fun HyperFocusLauncherStatusHeader(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/theme/NeuroFlowComponentsV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/theme/NeuroFlowComponentsV2.kt`
-- **Lines of Code:** 450
-- **Size:** 17,675 bytes (17.3 KB)
+- **Lines of Code:** 541
+- **Size:** 21,494 bytes (21.0 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.theme
@@ -29742,12 +33545,17 @@ package com.neuroflow.app.presentation.v2.theme
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29777,10 +33585,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -29793,8 +33603,6 @@ import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.service.EnergyPhase
 import kotlin.math.roundToInt
 
-import androidx.compose.runtime.ReadOnlyComposable
-
 object NeuroFlowPaletteV2 {
     val BackgroundDeep: Color
         @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.background
@@ -29803,7 +33611,14 @@ object NeuroFlowPaletteV2 {
     val SurfaceElevated: Color
         @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.surfaceElevated
     val BorderSubtle: Color
-        @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.border.copy(alpha = 0.5f)
+        @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.border.copy(alpha = 0.55f)
+
+    val TextPrimary: Color
+        @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.textPrimary
+    val TextSecondary: Color
+        @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.textSecondary
+    val TextTertiary: Color
+        @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.textTertiary
 
     val PeakAmber: Color
         @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.energyModerateAmber
@@ -29821,17 +33636,32 @@ object NeuroFlowPaletteV2 {
     @Composable
     @ReadOnlyComposable
     fun accentForPhase(phase: EnergyPhase): Color = when (phase) {
-        EnergyPhase.PEAK -> PeakAmber
+        EnergyPhase.PEAK -> OptimalEmerald
         EnergyPhase.REBOUND -> ReboundCyan
-        EnergyPhase.DIP -> DipIndigo
-        EnergyPhase.WIND_DOWN -> WindDownSlate
+        EnergyPhase.DIP -> PeakAmber
+        EnergyPhase.WIND_DOWN -> DipIndigo
         EnergyPhase.RECOVERY_NEEDED -> RecoveryRose
+    }
+
+    /**
+     * Top-lit specular border brush that makes cards look tactile in Dark, AMOLED, and Light themes.
+     */
+    @Composable
+    @ReadOnlyComposable
+    fun specularBorderBrush(accent: Color = BorderSubtle, alphaBoost: Float = 1f): Brush {
+        val isDark = LocalNeuroFlowPalette.current.isDark
+        val topHighlight = if (isDark) {
+            accent.copy(alpha = (0.42f * alphaBoost).coerceIn(0f, 1f))
+        } else {
+            accent.copy(alpha = (0.28f * alphaBoost).coerceIn(0f, 1f))
+        }
+        val bottomShadow = BorderSubtle.copy(alpha = if (isDark) 0.16f else 0.35f)
+        return Brush.verticalGradient(listOf(topHighlight, bottomShadow))
     }
 }
 
 /**
  * 1. Phase-Adaptive Ambient Backdrop
- * Wrap top-level screen content in this Box so the top aura shifts subtly with the user's biological phase.
  */
 @Composable
 fun PhaseAmbientScreenContainer(
@@ -29839,11 +33669,15 @@ fun PhaseAmbientScreenContainer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val isDark = LocalNeuroFlowPalette.current.isDark
     val targetAccent by animateColorAsState(
         targetValue = NeuroFlowPaletteV2.accentForPhase(phase),
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
         label = "phase_ambient_color"
     )
+
+    val topAlpha = if (isDark) 0.14f else 0.08f
+    val midAlpha = if (isDark) 0.04f else 0.02f
 
     Box(
         modifier = modifier
@@ -29851,12 +33685,12 @@ fun PhaseAmbientScreenContainer(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        targetAccent.copy(alpha = 0.11f),
-                        targetAccent.copy(alpha = 0.03f),
+                        targetAccent.copy(alpha = topAlpha),
+                        targetAccent.copy(alpha = midAlpha),
                         Color.Transparent
                     ),
                     startY = 0f,
-                    endY = 680f
+                    endY = 760f
                 )
             )
     ) {
@@ -29865,8 +33699,7 @@ fun PhaseAmbientScreenContainer(
 }
 
 /**
- * 2. Daily Cognitive Capacity Meter (For PlanScreenV2 & FlowScreenV2)
- * Prevents ADHD over-scheduling by visualizing scheduled load against recommended deep-work capacity.
+ * 2. Daily Cognitive Capacity Meter
  */
 @Composable
 fun CognitiveBudgetMeterCard(
@@ -29880,7 +33713,7 @@ fun CognitiveBudgetMeterCard(
     val ratio = (scheduledMinutesToday.toFloat() / safeCapacity.toFloat()).coerceIn(0f, 1.25f)
     val animatedProgress by animateFloatAsState(
         targetValue = ratio.coerceAtMost(1f),
-        animationSpec = tween(durationMillis = 500),
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
         label = "capacity_progress"
     )
 
@@ -29888,16 +33721,18 @@ fun CognitiveBudgetMeterCard(
     val barColor = when {
         isOverbooked || conflictCount > 0 -> NeuroFlowPaletteV2.RecoveryRose
         ratio >= 0.85f -> NeuroFlowPaletteV2.PeakAmber
-        else -> NeuroFlowPaletteV2.ReboundCyan
+        else -> NeuroFlowPaletteV2.OptimalEmerald
     }
+
+    val shape = RoundedCornerShape(20.dp)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(shape)
             .background(NeuroFlowPaletteV2.SurfaceCard)
-            .border(1.dp, NeuroFlowPaletteV2.BorderSubtle, RoundedCornerShape(18.dp))
-            .padding(14.dp)
+            .border(1.dp, NeuroFlowPaletteV2.specularBorderBrush(barColor, 0.75f), shape)
+            .padding(16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -29905,48 +33740,59 @@ fun CognitiveBudgetMeterCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (isOverbooked || conflictCount > 0) Icons.Default.WarningAmber else Icons.Default.Bolt,
-                    contentDescription = null,
-                    tint = barColor,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(barColor.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isOverbooked || conflictCount > 0) Icons.Default.WarningAmber else Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = barColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (isOverbooked) "COGNITIVE OVERLOAD RISK" else "DAILY COGNITIVE BUDGET",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White.copy(alpha = 0.7f),
-                    letterSpacing = 0.8.sp
+                    color = NeuroFlowPaletteV2.TextSecondary,
+                    letterSpacing = 0.9.sp
                 )
             }
             Text(
                 text = "${scheduledMinutesToday}m / ${safeCapacity}m",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
                 color = barColor
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Progress Track
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(7.dp)
+                .height(8.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.08f))
+                .background(NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.25f))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(animatedProgress)
                     .fillMaxHeight()
                     .clip(CircleShape)
-                    .background(barColor)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(barColor.copy(alpha = 0.75f), barColor)
+                        )
+                    )
             )
         }
 
         if ((isOverbooked || conflictCount > 0) && onAutoBalanceClick != null) {
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -29958,28 +33804,28 @@ fun CognitiveBudgetMeterCard(
                 }
                 Text(
                     text = warningText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.75f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NeuroFlowPaletteV2.TextSecondary,
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Surface(
-                    color = barColor.copy(alpha = 0.16f),
+                    color = barColor.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, barColor.copy(alpha = 0.4f)),
+                    border = BorderStroke(1.dp, barColor.copy(alpha = 0.4f)),
                     modifier = Modifier.clickable { onAutoBalanceClick() }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = null,
                             tint = barColor,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = "Auto-Rebalance",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
@@ -29993,8 +33839,7 @@ fun CognitiveBudgetMeterCard(
 }
 
 /**
- * 3. Live NLP Inference Token Strip (For SmartTaskComposerSheetV2)
- * Surfaces TaskInferenceEngine's real-time parsing as interactive pills while the user types.
+ * 3. Live NLP Inference Token Strip
  */
 @Composable
 fun LiveNlpInferenceStrip(
@@ -30016,10 +33861,9 @@ fun LiveNlpInferenceStrip(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Duration + Calibration Pill
             val isCalibrated = !inferred.isDurationExplicit && kotlin.math.abs(inferred.calibrationFactorApplied - 1.0f) >= 0.08f
             val durationLabel = if (isCalibrated) {
-                "⏱ ${inferred.durationMinutes}m (${(inferred.calibrationFactorApplied * 100).roundToInt()}% bias-adjusted)"
+                "⏱ ${inferred.durationMinutes}m (${(inferred.calibrationFactorApplied * 100).roundToInt()}% calibrated)"
             } else {
                 "⏱ ${inferred.durationMinutes}m"
             }
@@ -30028,7 +33872,6 @@ fun LiveNlpInferenceStrip(
                 accent = NeuroFlowPaletteV2.ReboundCyan
             )
 
-            // Energy Demand Pill
             val (energyText, energyColor) = when (inferred.energyDemand) {
                 EnergyLevel.HIGH -> "⚡ High Energy" to NeuroFlowPaletteV2.PeakAmber
                 EnergyLevel.MEDIUM -> "⚡ Med Energy" to NeuroFlowPaletteV2.ReboundCyan
@@ -30036,19 +33879,16 @@ fun LiveNlpInferenceStrip(
             }
             NlpTokenChip(text = energyText, accent = energyColor)
 
-            // Frog Badge
             if (inferred.isFrog) {
                 NlpTokenChip(text = "🐸 Daily Frog", accent = NeuroFlowPaletteV2.PeakAmber)
             }
 
-            // Priority Badge (if elevated)
             if (inferred.priority == Priority.HIGH) {
                 NlpTokenChip(text = "🔥 P1 High", accent = NeuroFlowPaletteV2.RecoveryRose)
             }
 
-            // Context Tags
             inferred.contextTags.forEach { tag ->
-                NlpTokenChip(text = "#$tag", accent = Color.White.copy(alpha = 0.75f))
+                NlpTokenChip(text = "#$tag", accent = NeuroFlowPaletteV2.TextSecondary)
             }
         }
     }
@@ -30061,20 +33901,20 @@ private fun NlpTokenChip(
 ) {
     Surface(
         color = accent.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.32f))
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.30f))
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
             color = accent,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
         )
     }
 }
 
 /**
- * 4. Persistent Mini-Focus Session Bar (For NeuroFlowAppV2 shell when navigating away from Focus tab)
+ * 4. Persistent Mini-Focus Session Bar with Live Progress Track & Breathing Pulse
  */
 @Composable
 fun MiniFocusSessionBar(
@@ -30087,10 +33927,15 @@ fun MiniFocusSessionBar(
     val mins = (remainingSeconds / 60).coerceAtLeast(0)
     val secs = (remainingSeconds % 60).coerceAtLeast(0)
     val timeFormatted = "%02d:%02d".format(mins, secs)
+    val progress = if (totalSeconds > 0) {
+        ((totalSeconds - remainingSeconds).toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
     MiniFocusSessionBar(
         activeTaskTitle = taskTitle,
         remainingTimeFormatted = timeFormatted,
         currentMicroStepTitle = null,
+        progress = progress,
         onReturnToFocusClick = onTap,
         modifier = modifier
     )
@@ -30102,87 +33947,136 @@ fun MiniFocusSessionBar(
     remainingTimeFormatted: String,
     currentMicroStepTitle: String?,
     onReturnToFocusClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    progress: Float = 0f
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "focus_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_dot"
+    )
+
+    val shape = RoundedCornerShape(18.dp)
+
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(
+        shape = shape,
+        border = BorderStroke(
             1.dp,
-            NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.4f)
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.OptimalEmerald, 0.9f)
         ),
-        shadowElevation = 8.dp,
+        shadowElevation = 10.dp,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .clip(shape)
             .clickable { onReturnToFocusClick() }
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(NeuroFlowPaletteV2.OptimalEmerald)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = activeTaskTitle,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (!currentMicroStepTitle.isNullOrBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(16.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .scale(pulseScale)
+                                .clip(CircleShape)
+                                .background(NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.28f))
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(NeuroFlowPaletteV2.OptimalEmerald)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
                         Text(
-                            text = "Step: $currentMicroStepTitle",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.65f),
+                            text = activeTaskTitle,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = NeuroFlowPaletteV2.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (!currentMicroStepTitle.isNullOrBlank()) {
+                            Text(
+                                text = "Step: $currentMicroStepTitle",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowPaletteV2.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.14f))
+                        .padding(horizontal = 11.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = NeuroFlowPaletteV2.ReboundCyan,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = remainingTimeFormatted,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        color = NeuroFlowPaletteV2.ReboundCyan
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Return to Focus",
+                        tint = NeuroFlowPaletteV2.ReboundCyan,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.15f))
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Schedule,
-                    contentDescription = null,
-                    tint = NeuroFlowPaletteV2.ReboundCyan,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = remainingTimeFormatted,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
-                    color = NeuroFlowPaletteV2.ReboundCyan
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Return to Focus",
-                    tint = NeuroFlowPaletteV2.ReboundCyan,
-                    modifier = Modifier.size(14.dp)
-                )
+            if (progress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.2f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        NeuroFlowPaletteV2.ReboundCyan,
+                                        NeuroFlowPaletteV2.OptimalEmerald
+                                    )
+                                )
+                            )
+                    )
+                }
             }
         }
     }
@@ -30195,12 +34089,13 @@ fun MiniFocusSessionBar(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/theme/NeuroFlowThemeV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/theme/NeuroFlowThemeV2.kt`
-- **Lines of Code:** 363
-- **Size:** 12,949 bytes (12.6 KB)
+- **Lines of Code:** 374
+- **Size:** 13,229 bytes (12.9 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -30209,6 +34104,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -30486,8 +34382,12 @@ object NeuroFlowThemeV2Colors {
 fun NeuroFlowThemeV2(
     darkTheme: Boolean = isSystemInDarkTheme(),
     amoledDark: Boolean = false,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val dynamicSupported = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
     val palette = when {
         !darkTheme -> LightSemanticPalette
         amoledDark -> AmoledSemanticPalette
@@ -30500,54 +34400,59 @@ fun NeuroFlowThemeV2(
         else -> DarkExtendedColors
     }
 
-    val colorScheme = if (darkTheme) {
-        darkColorScheme(
-            primary = palette.primaryIndigo,
-            onPrimary = Color.White,
-            primaryContainer = palette.surfaceElevated,
-            onPrimaryContainer = palette.textPrimary,
-            secondary = palette.energyPeakMint,
-            onSecondary = Color.Black,
-            secondaryContainer = if (amoledDark) Color(0xFF042F2E) else Color(0xFF064E3B),
-            onSecondaryContainer = Color(0xFF6EE7B7),
-            tertiary = palette.energyModerateAmber,
-            onTertiary = Color.Black,
-            tertiaryContainer = Color(0xFF78350F),
-            onTertiaryContainer = Color(0xFFFDE68A),
-            background = palette.background,
-            onBackground = palette.textPrimary,
-            surface = palette.surface,
-            onSurface = palette.textPrimary,
-            surfaceVariant = palette.surfaceElevated,
-            onSurfaceVariant = palette.textSecondary,
-            outline = palette.border,
-            error = palette.energyLowCoral,
-            onError = Color.White
-        )
-    } else {
-        lightColorScheme(
-            primary = palette.primaryIndigo,
-            onPrimary = Color.White,
-            primaryContainer = palette.surfaceElevated,
-            onPrimaryContainer = palette.primaryIndigo,
-            secondary = palette.energyPeakMint,
-            onSecondary = Color.White,
-            secondaryContainer = Color(0xFFD1FAE5),
-            onSecondaryContainer = Color(0xFF065F46),
-            tertiary = palette.energyModerateAmber,
-            onTertiary = Color.White,
-            tertiaryContainer = Color(0xFFFEF3C7),
-            onTertiaryContainer = Color(0xFF92400E),
-            background = palette.background,
-            onBackground = palette.textPrimary,
-            surface = palette.surface,
-            onSurface = palette.textPrimary,
-            surfaceVariant = palette.surfaceElevated,
-            onSurfaceVariant = palette.textSecondary,
-            outline = palette.border,
-            error = palette.energyLowCoral,
-            onError = Color.White
-        )
+    val defaultDark = darkColorScheme(
+        primary = palette.primaryIndigo,
+        onPrimary = Color.White,
+        primaryContainer = palette.surfaceElevated,
+        onPrimaryContainer = palette.textPrimary,
+        secondary = palette.energyPeakMint,
+        onSecondary = Color.Black,
+        secondaryContainer = if (amoledDark) Color(0xFF042F2E) else Color(0xFF064E3B),
+        onSecondaryContainer = Color(0xFF6EE7B7),
+        tertiary = palette.energyModerateAmber,
+        onTertiary = Color.Black,
+        tertiaryContainer = Color(0xFF78350F),
+        onTertiaryContainer = Color(0xFFFDE68A),
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.surface,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.surfaceElevated,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.border,
+        error = palette.energyLowCoral,
+        onError = Color.White
+    )
+
+    val defaultLight = lightColorScheme(
+        primary = palette.primaryIndigo,
+        onPrimary = Color.White,
+        primaryContainer = palette.surfaceElevated,
+        onPrimaryContainer = palette.primaryIndigo,
+        secondary = palette.energyPeakMint,
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFD1FAE5),
+        onSecondaryContainer = Color(0xFF065F46),
+        tertiary = palette.energyModerateAmber,
+        onTertiary = Color.White,
+        tertiaryContainer = Color(0xFFFEF3C7),
+        onTertiaryContainer = Color(0xFF92400E),
+        background = palette.background,
+        onBackground = palette.textPrimary,
+        surface = palette.surface,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.surfaceElevated,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.border,
+        error = palette.energyLowCoral,
+        onError = Color.White
+    )
+
+    val colorScheme = when {
+        dynamicSupported && darkTheme -> dynamicDarkColorScheme(context)
+        dynamicSupported && !darkTheme -> dynamicLightColorScheme(context)
+        darkTheme -> defaultDark
+        else -> defaultLight
     }
 
     CompositionLocalProvider(

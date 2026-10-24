@@ -1,10 +1,10 @@
 # neuroFlow UI Codebase — Settings Hub, Sleep Logs, MEQ Quiz & Notes Workspace
 
 **Description:** SettingsScreen/ViewModel, MEQQuiz, SleepLogs, PriorityWeights, NotesScreen/Editor, and QuickNotesBottomSheet.  
-**Generated for Vice Head Review:** 2026-10-20 16:59:40  
+**Generated for Vice Head Review:** 2026-10-23 22:05:10  
 **Files:** 33  
-**Lines of Code:** 8,289  
-**Uncompressed Size:** 342.4 KB  
+**Lines of Code:** 8,906  
+**Uncompressed Size:** 379.2 KB  
 
 ---
 
@@ -2575,17 +2575,22 @@ class NotesViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/onboarding/AppGuideScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/onboarding/AppGuideScreen.kt`
-- **Lines of Code:** 388
-- **Size:** 19,552 bytes (19.1 KB)
+- **Lines of Code:** 790
+- **Size:** 45,867 bytes (44.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.onboarding
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -2593,38 +2598,276 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+
+enum class GuideCategory(val label: String, val emoji: String) {
+    ALL("All Topics", "🌐"),
+    QUICK_START("Quick Start", "🚀"),
+    CIRCADIAN_FLOW("Flow & Circadian", "⚡"),
+    PHARMACOKINETICS("Stimulants & PK", "☕"),
+    SCHEDULING_PLAN("Plan & Calendar", "🤖"),
+    EXECUTIVE_ADHD("ADHD & Executive", "🧠"),
+    FOCUS_DSP("Focus & Audio DSP", "🎯"),
+    AI_NLP("AI & Smart Tasks", "🪄"),
+    VAULT_CHRONO("Vault & Chronotype", "🗃️")
+}
+
+data class GuideSectionItem(
+    val id: String,
+    val category: GuideCategory,
+    val emoji: String,
+    val tag: String,
+    val title: String,
+    val summary: String,
+    val accentColor: Color,
+    val keyPoints: List<Pair<String, String>>,
+    val proTip: String? = null,
+    val scienceNote: String? = null
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppGuideScreen(onNavigateBack: () -> Unit) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(GuideCategory.ALL) }
+    var expandedIds by remember { mutableStateOf(setOf("quick_start")) }
+
+    val guideItems = remember {
+        listOf(
+            GuideSectionItem(
+                id = "quick_start",
+                category = GuideCategory.QUICK_START,
+                emoji = "🚀",
+                tag = "3-MINUTE PROTOCOL",
+                title = "Quick Start: Zero-Friction Setup",
+                summary = "The essential daily activation sequence to get productive in under 3 minutes.",
+                accentColor = Color(0xFF6366F1),
+                keyPoints = listOf(
+                    "1. The Rule of 3-5 Tasks" to "Limit your active queue to 3–5 items maximum. Overflowing backlogs trigger executive overwhelm and freeze responses. Park all other ideas in the Vault Icebox until today's queue is cleared.",
+                    "2. Mark Today's 🐸 Frog" to "Select one high-impact, high-resistance task as your daily Frog. Completing it early capitalizes on peak morning cognitive bandwidth before decision fatigue accumulates.",
+                    "3. Read Biological Weather" to "Glance at the Circadian Hero Barometer on the Flow Cockpit. If you're in a Peak window, dive straight into deep work. If in a Dip, switch to low-friction organizing or admin.",
+                    "4. Single-Task Sprint" to "Launch Focus Mode for 25–45 minutes with procedural background noise. The display is kept awake automatically so your micro-steps and timer remain in sight.",
+                    "5. Celebrate, Log & Decompress" to "Mark the task done or record offline minutes. Rest for 5–15 minutes before switching to the next item to allow neurochemical replenishment."
+                ),
+                proTip = "If a task triggers avoidance or dread, commit to working for just 5 minutes, or tap 'Break Down' to generate a 2-minute doorway step.",
+                scienceNote = "Overcoming the activation energy barrier (E_a) of the first micro-step is the single most effective intervention for executive dysfunction."
+            ),
+            GuideSectionItem(
+                id = "circadian_cockpit",
+                category = GuideCategory.CIRCADIAN_FLOW,
+                emoji = "⚡",
+                tag = "BORBÉLY TWO-PROCESS MODEL",
+                title = "Flow Cockpit & Circadian Energy Barometer",
+                summary = "Lab-grade biophysical energy modeling combining homeostatic sleep pressure and double-harmonic circadian rhythm.",
+                accentColor = Color(0xFF10B981),
+                keyPoints = listOf(
+                    "Process S (Sleep Pressure)" to "Tracks adenosine accumulation from waking (S_0 -> 1.0). Discharges logarithmically during nocturnal sleep and daytime power naps (S_nap).",
+                    "Process C (Circadian Wave)" to "Biological double-harmonic alertness wave (φ = t_wake + 4.5h) modeling your natural morning peak and afternoon post-prandial dip.",
+                    "⚡ PEAK (75–100%)" to "Maximum synaptic plasticity. Strictly reserved for deep analytical thinking, strategic architecture, and creative breakthroughs.",
+                    "📈 REBOUND (55–74%)" to "Secondary alertness wave in the late afternoon. Optimal for collaborative execution, meetings, and tactical progress.",
+                    "☕ DIP (35–54%)" to "Biological circadian trough (13:30–15:30). Switch to light admin, organization, or take a 15–20 minute restorative power nap.",
+                    "🧘 RECOVERY NEEDED (<35%)" to "Neural exhaustion detected. Take a 15m NSDR (Non-Sleep Deep Rest) session or a walk outside before resuming high-stakes work.",
+                    "🌙 WIND-DOWN (<20% or >21:30)" to "Melatonin secretion rising. Execute Evening Shutdown to close open loops, archive completed wins, and queue tomorrow's frog.",
+                    "Fast Kalman Circadian Learner" to "The app passively observes your actual completion timestamps to refine your personalized peak hours over time without manual quizzes."
+                ),
+                proTip = "Never schedule high-friction analytical tasks during your Dip (13:30–15:30). Protecting this window prevents chronic burnout.",
+                scienceNote = "Based on Borbély's Two-Process Model of Sleep Regulation. Continuous non-threshold modeling eliminates artificial hourly drop-offs."
+            ),
+            GuideSectionItem(
+                id = "stimulant_pk",
+                category = GuideCategory.PHARMACOKINETICS,
+                emoji = "☕",
+                tag = "BATEMAN TWO-COMPARTMENT PK",
+                title = "Stimulant Pharmacokinetics & Crash Guard",
+                summary = "Two-compartment differential equation modeling for caffeine and prescription ADHD medications with crash warnings.",
+                accentColor = Color(0xFFF59E0B),
+                keyPoints = listOf(
+                    "Bateman Differential Model" to "Computes absorption rate (k_a) and elimination half-life (t_half) to track real-time active plasma concentration and adenosine masking over 24 hours.",
+                    "+ ☕ Coffee (100mg)" to "Standard caffeine pharmacokinetic curve (t_half = 5.0h, k_a = 2.1). Reaches peak alertness at ~45 minutes.",
+                    "+ 🍵 Green Tea (50mg)" to "L-Theanine modulated caffeine (t_half = 3.5h, k_a = 1.6). Promotes relaxed alertness with smoother onset and reduced jitter.",
+                    "+ 💊 Meds IR (10mg)" to "Rapid-acting prescription stimulant (t_half = 4.0h, k_a = 2.5). Sharp alertness rise with pronounced wear-off boundary.",
+                    "+ 💊 Meds XR (20mg)" to "Extended-release dual-bead kinetic curve (t_half = 7.0h, k_a = 1.2). Sustained therapeutic plasma level across 8–10 hours.",
+                    "Live Plasma & 4-Second Undo" to "Displays active plasma concentration (~X mg active in plasma) on the Cockpit. A 4-second non-destructive Undo snackbar and [Clear doses] affordance ensure effortless error correction.",
+                    "⚡ Rebound Crash Guard" to "When wear-off and adenosine rebound coincide, an amber banner warns you against tackling high-friction tasks during neurochemical depletion.",
+                    "Protected Slot Keyword Auto-Detection" to "Calendar slots labeled 'Coffee', 'Caffeine', 'Meds', 'Vyvanse', or 'Adderall' are automatically converted into pharmacokinetic bouts."
+                ),
+                proTip = "Avoid high-dose stimulants after 14:00 to prevent Slow-Wave Sleep (SWS) suppression, even if you feel able to fall asleep on schedule.",
+                scienceNote = "Adenosine continues accumulating in the brain while caffeine blocks receptor sites. When caffeine detaches, rebound drowsiness occurs naturally."
+            ),
+            GuideSectionItem(
+                id = "social_jetlag",
+                category = GuideCategory.CIRCADIAN_FLOW,
+                emoji = "🌅",
+                tag = "CHRONOBIOLOGY & TELEMETRY",
+                title = "Social Jetlag & Wearable Sleep Telemetry",
+                summary = "Detecting weekend sleep schedule drift and normalizing wearable sleep metrics for circadian precision.",
+                accentColor = Color(0xFF818CF8),
+                keyPoints = listOf(
+                    "Social Jetlag (Δφ_SJL)" to "Measures the circular divergence between workday sleep midpoint (MSW) and weekend sleep midpoint (MSF).",
+                    "🌅 Weekend Drift Badge" to "When weekend sleep drift exceeds 1.0 hour, the Cockpit displays an amber Weekend Drift alert recommending 10–15 minutes of outdoor sunlight exposure upon waking.",
+                    "Stage-Weighted Telemetry" to "Processes wearable sleep logs with lab-grade stage efficiency (d_eff = 1.15 Deep + 1.05 REM + 0.85 Light) and automatically coalesces fragmented wake episodes (WASO <= 45m).",
+                    "Daytime Power Naps" to "Daytime naps between 10m and 180m discharge homeostatic pressure (ΔS) with an initial 20m sleep inertia envelope without corrupting nocturnal circadian anchors."
+                ),
+                proTip = "Morning sunlight within 30 minutes of waking triggers SCN photopigment melanopsin, resetting your master circadian clock and accelerating evening melatonin onset.",
+                scienceNote = "A 2-hour weekend sleep midpoint delay produces biological jetlag equivalent to flying across two time zones every single Monday."
+            ),
+            GuideSectionItem(
+                id = "math_scheduling",
+                category = GuideCategory.SCHEDULING_PLAN,
+                emoji = "🤖",
+                tag = "4-VECTOR OPTIMIZATION",
+                title = "Mathematical Auto-Scheduling & Calendar Sync",
+                summary = "Non-saturating algorithmic schedule generation with two-way Google Calendar synchronization and ultradian buffers.",
+                accentColor = Color(0xFF38BDF8),
+                keyPoints = listOf(
+                    "4-Vector Task Scoring Engine" to "Prioritization Formula: Score = 100 × [0.30 U + 0.30 I + 0.25 E + 0.15 M], balancing Urgency (U), Impact (I), Circadian Energy Match (E), and Momentum (M).",
+                    "Demand-Elastic Utility Damping λ(τ)" to "Logarithmically scales utility with duration, preventing huge 3-hour projects from starving shorter high-leverage tasks.",
+                    "Calendar Sync & Decompression Buffers" to "Two-way sync via Android CalendarContract. External meetings are imported as busy windows, and meetings ≥ 45m automatically receive a 5-minute cognitive decompression buffer.",
+                    "Ultradian Auto-Chunking" to "Tasks ≥ 60m placed into fragmented schedule slots are automatically split into linked sub-tasks ('🔗 Part 1/2' & '🔗 Part 2/2') chained by DAG dependencies.",
+                    "🔒 Schedule Locking" to "Tap 'Lock Schedule' on any task to pin it to an exact time slot. Auto-scheduling will route all other tasks around locked anchors.",
+                    "Protected Recurring Slots" to "Configure non-negotiable blocks for meals, gym, or family time in Settings that are guaranteed never to be booked over."
+                ),
+                proTip = "Tap 'Auto Schedule Day' in the Plan hub each morning. The engine will place your deep work during biological peaks and admin during dips.",
+                scienceNote = "Ultradian rhythm research shows human focus peaks in 90-minute waves, after which synaptic efficiency declines rapidly without restorative rest."
+            ),
+            GuideSectionItem(
+                id = "adhd_executive",
+                category = GuideCategory.EXECUTIVE_ADHD,
+                emoji = "🧠",
+                tag = "NEURODIVERGENT ERGONOMICS",
+                title = "ADHD Executive Hardening & Behavioral Science",
+                summary = "Science-backed tools to defeat task paralysis, time blindness, dread resistance, and hyperbolic discounting.",
+                accentColor = Color(0xFF8B5CF6),
+                keyPoints = listOf(
+                    "Implementation Intentions (WOOP)" to "Formulate Wish, Outcome, Obstacle, and If-Then Plan before starting work. Research demonstrates this doubles execution follow-through rates.",
+                    "Doorway Micro-Steps (≤ 4m)" to "Decomposes daunting tasks into a microscopic 2–4 minute first physical action (e.g. 'Open document and write title'), drastically lowering activation energy.",
+                    "⚡ Dopamine Warm-Up Badges" to "When a task has been postponed ≥ 3 times, a Dopamine Warm-Up / Paired Primer badge appears, granting momentum bonuses upon starting.",
+                    "Parkinson's Law Urgency Ignition" to "Non-linear priority scaling triggers when deadlines enter the [0.25h, 6.0h] window, overcoming ADHD time-blindness naturally.",
+                    "Zeigarnik Completion Pull" to "Leverages psychological closure inertia with sinusoidal pull peaking at 60–80% sub-task progress: M_Zeigarnik(p) = 30p + 10 sin(πp).",
+                    "Context-Switching Entropy Matrix" to "Awards +8.5 point bonuses for batching similar categories within 45m and penalizes jarring context jumps (-8.5 pts).",
+                    "Zero-Guilt Rollover" to "When ≥ 3 tasks become overdue, the Cockpit provides a zero-shame rollover card to batch-reschedule or archive without guilt."
+                ),
+                proTip = "When feeling stuck, do not force yourself to complete the entire project. Complete only Step 1 (the Doorway Step). Action generates momentum.",
+                scienceNote = "Hyperbolic discounting causes distant deadlines to be cognitively discounted. Nonlinear urgency ignition restores salience before crisis mode."
+            ),
+            GuideSectionItem(
+                id = "focus_audio_dsp",
+                category = GuideCategory.FOCUS_DSP,
+                emoji = "🎯",
+                tag = "DEEP WORK COCKPIT",
+                title = "Focus Mode, Soundscapes & Ergonomics",
+                summary = "Uninterrupted attention shielding with pure-Kotlin DSP soundscapes, display wake lock, and solfeggio chimes.",
+                accentColor = Color(0xFF6366F1),
+                keyPoints = listOf(
+                    "Display Wake Lock (FLAG_KEEP_SCREEN_ON)" to "The display remains awake throughout active focus sprints, keeping timers and micro-steps visible without needing to touch the phone.",
+                    "Pure Kotlin DSP Audio Synthesizer" to "Real-time streaming acoustic synthesis over AudioTrack (16-bit PCM, 44.1kHz stereo) with 400ms raised-cosine anti-click envelopes.",
+                    "🌊 Pink & Brown Noise" to "Attenuates environmental distractions, speech chatter, and office noise for seamless focus immersion.",
+                    "🧠 Alpha (10Hz) & Gamma (40Hz) Binaural Beats" to "Promotes neural entrainment and cognitive binding for sustained analytical depth.",
+                    "🌧️ Procedural Rain & Forest Soundscapes" to "Natural stochastic acoustic masks designed to calm sympathetic nervous system hyperactivity.",
+                    "Dual-Harmonic Solfeggio Chimes" to "Procedural 528Hz + 792Hz harmonic bell tone with double-pulse tactile vibration upon timer expiration.",
+                    "Interruption Shield" to "Gentle 3-second breathing interstitial when attempting to leave early, protecting your hyperfocus state.",
+                    "Manual Time Logging" to "Work performed away from your phone can be retroactively logged to maintain accurate XP, stats, and estimation calibration."
+                ),
+                proTip = "Pair Brown Noise with 40Hz Gamma binaural beats through stereo headphones for complex coding, math, or deep analytical writing.",
+                scienceNote = "40Hz gamma entrainment stimulates auditory cortex resonance and has been linked to enhanced working memory and cognitive binding."
+            ),
+            GuideSectionItem(
+                id = "smart_ai_nlp",
+                category = GuideCategory.AI_NLP,
+                emoji = "🪄",
+                tag = "PRIVACY-FIRST AI & NLP",
+                title = "Smart Task Creation & Gemini AI BYOK",
+                summary = "Natural language task syntax parsing and offline-resilient AI task decomposition.",
+                accentColor = Color(0xFF10B981),
+                keyPoints = listOf(
+                    "Natural Language Heuristic Parser" to "Type naturally: 'Draft budget tomorrow 3pm 45m #deepwork 🐸' — dates, times, durations, hashtags, and frog flags are extracted instantly.",
+                    "Archetype-Driven Decomposition" to "Classifies tasks into 6 core archetypes (Technical, Writing, Admin, Creative, Research, Everyday) and builds structured micro-step hierarchies.",
+                    "Pure BYOK (Bring Your Own Key)" to "Zero hardcoded keys or shared servers. Add your Gemini API key in Settings; it is encrypted locally in DataStore and never transmitted elsewhere.",
+                    "Resilient Cascade & TTL Caching" to "Features an in-memory 20-minute cache and 60s backoff guard. If network fails or no key is configured, neuroFlow degrades seamlessly to local heuristic decomposition with zero errors.",
+                    "Adaptive Behavioral Directives" to "Audits avoided or deleted tasks and synthesizes a concise coaching directive to refine future task decompositions."
+                ),
+                proTip = "Add hashtags like #deepwork, #offline, #admin, or #quickwin to automatically map tasks into dedicated energy zones and context profiles.",
+                scienceNote = "Closed-loop meta-prompting injects persistent coaching directives into task enrichment prompts to maintain alignment with minimal token footprint."
+            ),
+            GuideSectionItem(
+                id = "vault_chronotype",
+                category = GuideCategory.VAULT_CHRONO,
+                emoji = "🗃️",
+                tag = "KNOWLEDGE & CALIBRATION",
+                title = "The Vault, Scratchpad & Chronotype Profiles",
+                summary = "Icebox backlog, quick thought capture, and circadian chronotype tuning.",
+                accentColor = Color(0xFFF59E0B),
+                keyPoints = listOf(
+                    "Quick Scratchpad Notes" to "Long-press the floating action button (+) or tap the Notes icon in the top bar to record thoughts instantly without breaking focus.",
+                    "The Icebox (Zero-Distraction Backlog)" to "Park non-urgent ideas and someday/maybe tasks. Keeps your active Cockpit uncluttered until you are ready to pull them into Plan.",
+                    "MEQ Chronotype Assessment" to "Complete the validated Morningness-Eveningness Questionnaire (MEQ) to calibrate your biological phase anchors (Morning Lark, Intermediate, Night Owl).",
+                    "Manual Peak Energy Tuning" to "Prefer manual control? Enable manual peak anchor in Settings to lock your preferred cognitive focus hours.",
+                    "Evening Shutdown Ritual" to "Review completed tasks, log remaining thoughts into scratchpad, and trigger shutdown to transition smoothly into wind-down."
+                ),
+                proTip = "Review your Vault scratchpad at the end of the day during Evening Shutdown to convert fleeting notes into structured tasks.",
+                scienceNote = "Externalizing open loops into a trusted capture system reduces cognitive tension and prevents bedtime rumination."
+            )
+        )
+    }
+
+    val filteredItems = remember(searchQuery, selectedCategory, guideItems) {
+        guideItems.filter { item ->
+            val matchesCategory = selectedCategory == GuideCategory.ALL || item.category == selectedCategory
+            val matchesSearch = searchQuery.isBlank() ||
+                item.title.contains(searchQuery, ignoreCase = true) ||
+                item.tag.contains(searchQuery, ignoreCase = true) ||
+                item.summary.contains(searchQuery, ignoreCase = true) ||
+                item.keyPoints.any { it.first.contains(searchQuery, ignoreCase = true) || it.second.contains(searchQuery, ignoreCase = true) }
+            matchesCategory && matchesSearch
+        }
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("neuroFlow User Guide") },
+                title = {
+                    Column {
+                        Text(
+                            text = "neuroFlow V2 Manual",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Text(
+                            text = "Biological High Performance & Executive Guide",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    titleContentColor = NeuroFlowPaletteV2.TextPrimary
                 )
             )
         }
@@ -2634,330 +2877,491 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Hero
-            Card(
+            // Modern Hero Banner
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.Purple.copy(alpha = 0.1f))
+                shape = RoundedCornerShape(22.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(
+                    1.dp,
+                    NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigo, 0.85f)
+                ),
+                tonalElevation = 4.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("⚡", fontSize = 40.sp)
-                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🧬", fontSize = 26.sp)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        "Master your workflow with science-backed prioritization, auto-scheduling, and deep focus.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        text = "System Architecture & Biophysics",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Aligning task execution with Borbély circadian oscillations, Bateman stimulant pharmacokinetics, and neurodivergent executive ergonomics.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 18.sp
                     )
                 }
             }
 
-            // 1. Quick Start
-            GuideSection(
-                emoji = "🚀",
-                title = "Start in 3 Minutes",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.Purple,
-                summary = "Quick setup to get productive immediately.",
-                steps = listOf(
-                    "Add 3-5 tasks only. Keep titles specific and actionable.",
-                    "Set a deadline on at least one task that truly matters today.",
-                    "Mark one hard-but-crucial task as 🐸 Frog.",
-                    "Open Focus Mode and run one 25-minute sprint.",
-                    "Ignore everything else until that sprint is completed."
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                placeholder = {
+                    Text(
+                        "Search algorithms, biophysics, features...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextTertiary
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = NeuroFlowPaletteV2.TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = NeuroFlowPaletteV2.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    unfocusedContainerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    unfocusedBorderColor = NeuroFlowPaletteV2.BorderSubtle,
+                    focusedTextColor = NeuroFlowPaletteV2.TextPrimary,
+                    unfocusedTextColor = NeuroFlowPaletteV2.TextPrimary
                 )
             )
 
-            // 2. Daily Loop
-            GuideSection(
-                emoji = "🔁",
-                title = "The Daily Loop",
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                summary = "A repeatable 5-step daily routine.",
-                steps = listOf(
-                    "Morning: Check the Matrix and pick the top scored task in DO FIRST.",
-                    "Timeline: Review your auto-scheduled day or lock in key focus blocks.",
-                    "Sprint: Run Focus Mode for 25-45 minutes without switching apps.",
-                    "Post-Sprint: Mark done, log time, or split remaining work into the next session.",
-                    "Evening: Review completed wins and queue tomorrow's 🐸 Frog."
+            // Category Filter Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GuideCategory.values().forEach { category ->
+                    val isSelected = selectedCategory == category
+                    Surface(
+                        onClick = { selectedCategory = category },
+                        shape = RoundedCornerShape(50),
+                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f) else NeuroFlowPaletteV2.SurfaceCard,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo else NeuroFlowPaletteV2.BorderSubtle
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(category.emoji, fontSize = 13.sp)
+                            Text(
+                                text = category.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) NeuroFlowPaletteV2.TextPrimary else NeuroFlowPaletteV2.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Results count
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${filteredItems.size} Module${if (filteredItems.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowPaletteV2.TextTertiary,
+                    fontWeight = FontWeight.SemiBold
                 )
-            )
 
-            // 3. Auto-Scheduling
-            GuideSection(
-                emoji = "🤖",
-                title = "Auto-Scheduling & Smart Timeline",
-                color = NeuroFlowColors.ScheduledCard,
-                textColor = Color(0xFF1565C0),
-                summary = "How the intelligent scheduler places tasks automatically.",
-                steps = listOf(
-                    "Automatic Placement: When enabled, active tasks with estimated durations are automatically scheduled into your calendar timeline.",
-                    "Circadian & Energy Alignment: Analytical and high-effort tasks are placed during your peak energy hours; routine tasks during afternoon dips.",
-                    "Automatic Rest Breaks: A 15-minute restorative break is automatically inserted after every 90 minutes of continuous cognitive load.",
-                    "Protected Slots: Sleep hours and custom protected blocks (lunch, gym, winding down) are strictly respected.",
-                    "🔒 Schedule Locking: Tap 'Lock Schedule' on any task to pin it to an exact time slot. Auto-scheduling will never displace locked tasks."
+                if (expandedIds.size < filteredItems.size) {
+                    TextButton(
+                        onClick = { expandedIds = filteredItems.map { it.id }.toSet() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text(
+                            text = "Expand All",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else if (expandedIds.isNotEmpty()) {
+                    TextButton(
+                        onClick = { expandedIds = emptySet() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text(
+                            text = "Collapse All",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextTertiary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            // Empty search state
+            if (filteredItems.isEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = NeuroFlowPaletteV2.SurfaceCard,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("🔍", fontSize = 32.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No matching modules found",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Try clearing your search query or switching categories.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            // Guide Module Cards
+            filteredItems.forEach { item ->
+                val isExpanded = expandedIds.contains(item.id)
+                ModernGuideCard(
+                    item = item,
+                    isExpanded = isExpanded,
+                    onToggleExpand = {
+                        expandedIds = if (isExpanded) {
+                            expandedIds - item.id
+                        } else {
+                            expandedIds + item.id
+                        }
+                    }
                 )
-            )
+            }
 
-            // 4. Dependencies
-            GuideSection(
-                emoji = "🔗",
-                title = "Task Dependencies & Unblocking",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "Chaining tasks so work happens in the right order.",
-                steps = listOf(
-                    "Prerequisites: In the task editor, select 'Depends On' to link predecessor tasks.",
-                    "Blocked State: Blocked tasks score 0 and won't crowd your DO FIRST quadrant until their prerequisites are finished.",
-                    "Critical Path Multiplier: Tasks that unblock multiple other tasks receive an exponential priority boost (Critical Path Method).",
-                    "Auto-Unblocking: When you complete a prerequisite task, all dependent tasks are instantly unblocked and scheduled."
-                )
-            )
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 5. Multi-Session Task Splitting
-            GuideSection(
-                emoji = "✂️",
-                title = "Multi-Session Task Splitting",
-                color = NeuroFlowColors.DoFirstBg,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "Breaking huge 2hr+ projects into manageable 45-minute sprints.",
-                steps = listOf(
-                    "Overcome Procrastination: Large tasks often trigger avoidance. Splitting them transforms overwhelming projects into doable chunks.",
-                    "Chained Chunks: Splitting a 2-hour task creates sequential parts (e.g. Part 1/3, Part 2/3, Part 3/3), chained by dependencies.",
-                    "Seamless Scheduling: Part 1 schedules first. As soon as you complete Part 1, Part 2 automatically unlocks and schedules next.",
-                    "Progress Momentum: Each completed session earns XP and increases momentum scoring for subsequent sessions."
-                )
-            )
-
-            // 6. Eisenhower Matrix
-            GuideSection(
-                emoji = "🗂",
-                title = "Eisenhower Matrix Explained",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.PurpleDark,
-                summary = "The classic 4-quadrant decision framework.",
-                steps = listOf(
-                    "DO FIRST (Urgent & Important): High-impact tasks with pressing deadlines. Handle these first today.",
-                    "SCHEDULE (Important, Not Urgent): Long-term value, strategy, and skill building. Guard time on your calendar for these.",
-                    "DELEGATE (Urgent, Low Impact): Admin, quick emails, errands. Batch or handle quickly.",
-                    "ON HOLD / ELIMINATE: Parked ideas or low-value items. Kept out of sight until needed.",
-                    "The ✦ badge highlights the highest-scored task across your entire matrix."
-                )
-            )
-
-            // 7. Priority Scoring & Custom Weights
-            GuideSection(
-                emoji = "⚡",
-                title = "Priority Scoring & Strategy Tuning",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "How the 20+ signal scoring engine ranks your tasks.",
-                steps = listOf(
-                    "Continuous Mathematical Score: Recomputed dynamically based on deadlines, chronotype, time-of-day, habits, and momentum.",
-                    "Why This Score?: In Focus Mode, tap the score breakdown to see the exact point contributions for every heuristic.",
-                    "Custom Scoring Weights: Go to Settings → Priority Weights & Strategy to adjust sliders or pick a 1-click strategy preset.",
-                    "Presets: Switch between 'Balanced', 'Deadline Driven', 'Momentum / ADHD Friendly', or 'Pure Eisenhower' depending on your current mode."
-                )
-            )
-
-            // 8. Focus Mode & Time Tracking
-            GuideSection(
-                emoji = "🎯",
-                title = "Focus Mode & Deep Work",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "Stay in the flow and protect your attention.",
-                steps = listOf(
-                    "Live Timer: Track exact time spent per task. Pauses and resumes cleanly across app restarts.",
-                    "🍅 Pomodoro: Built-in 25-minute sprints with customizable break intervals.",
-                    "WOOP Method: Clarify your Wish, Outcome, Obstacle, and Plan before starting to double follow-through rates.",
-                    "Interruption Shield: Gentle 3-second breathing interstitial when attempting to leave an active focus sprint.",
-                    "Manual Logging: If you did work away from your phone, enter manual minutes on task completion to maintain accurate XP and estimation stats."
-                )
-            )
-
-            // 9. Time Blocking & Protected Slots
-            GuideSection(
-                emoji = "📅",
-                title = "Time Blocking & Protected Time",
-                color = NeuroFlowColors.ScheduledCard,
-                textColor = Color(0xFF1565C0),
-                summary = "Guard your calendar from overload.",
-                steps = listOf(
-                    "Timeline Drag & Tap: Tap any open hour slot in the Calendar view to assign a task.",
-                    "Protected Time Slots: Configure recurring gym, meal, or recovery blocks in Settings. The scheduler will route tasks around them.",
-                    "Chronotype Sync: Morning larks get peak morning slots; night owls get late afternoon/evening focus windows.",
-                    "Day Transitions: Easily navigate between days using the arrow buttons at the top of the Timeline."
-                )
-            )
-
-            // 10. Analytics & Insights
-            GuideSection(
-                emoji = "📊",
-                title = "Analytics & Performance Insights",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "Understand your working habits and estimation accuracy.",
-                steps = listOf(
-                    "XP & Impact Points: Earn points scaled by task impact and duration to gamify productivity.",
-                    "Estimation Accuracy (MAPE): Compares estimated vs. actual tracked minutes so you calibrate planning over time.",
-                    "Procrastination Radar: Highlights tasks that have been repeatedly postponed or rescheduled.",
-                    "Energy & Circadian Curves: Visualizes your daily energy rhythm and detected peak performance windows."
-                )
-            )
-
-            // 11. Cognitive Science
-            GuideSection(
-                emoji = "🧠",
-                title = "Science & Cognitive Frameworks",
-                color = MaterialTheme.colorScheme.surface,
-                textColor = MaterialTheme.colorScheme.onSurface,
-                summary = "The scientific principles powering neuroFlow.",
-                steps = listOf(
-                    "Temporal Motivation Theory (Steel): Hyperbolic discounting where urgency escalates exponentially near deadlines.",
-                    "Eat the Frog (Tracy): Morning-weighted willpower boosts for high-effort, dreaded tasks.",
-                    "Implementation Intentions (Gollwitzer): If-Then structured action plans dramatically boost completion rates.",
-                    "Zeigarnik Effect: Incomplete tasks create cognitive tension that resolves upon execution.",
-                    "Progress Principle (Amabile): Making small visible progress in meaningful work is the single strongest human motivator.",
-                    "Circadian Rhythm Matching (Anderson et al.): Harmonizing analytical tasks with biological temperature peaks."
-                )
-            )
-
-            // 12. Troubleshooting
-            GuideSection(
-                emoji = "💡",
-                title = "When You Feel Overwhelmed or Stuck",
-                color = NeuroFlowColors.PurpleLight,
-                textColor = NeuroFlowColors.PurpleDark,
-                summary = "Quick reset sequence for low-motivation days.",
-                steps = listOf(
-                    "1. Switch Preset: Go to Settings → Priority Weights and select 'Momentum / ADHD Friendly'.",
-                    "2. Chunk It: Split your biggest task into 30-min or 45-min sessions.",
-                    "3. 5-Minute Rule: Open Focus Mode and commit to working for just 5 minutes.",
-                    "4. If still blocked, do a low-effort administrative task first to build momentum.",
-                    "5. Remember: Consistency beats intensity. Doing one focused sprint per day builds unstoppable momentum."
-                )
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            // Footer tip
+            // Footer Mindset Card
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text("💡", fontSize = 24.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Do less, but do it daily. Consistency beats intensity.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NeuroFlowColors.Purple
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("💡", fontSize = 20.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "The Core Operating Law",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Consistency beats intensity. One focused sprint in biological sync per day creates compounding neurological momentum.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary,
+                            lineHeight = 17.sp
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 }
 
 @Composable
-private fun GuideSection(
-    emoji: String,
-    title: String,
-    color: Color,
-    textColor: Color,
-    summary: String,
-    steps: List<String>
+private fun ModernGuideCard(
+    item: GuideSectionItem,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val rotationState by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "expand_chevron_rotation"
+    )
 
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = color),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(20.dp),
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        border = BorderStroke(
+            1.dp,
+            if (isExpanded) {
+                NeuroFlowPaletteV2.specularBorderBrush(item.accentColor, 0.75f)
+            } else {
+                Brush.verticalGradient(listOf(NeuroFlowPaletteV2.BorderSubtle, NeuroFlowPaletteV2.BorderSubtle))
+            }
+        ),
+        tonalElevation = if (isExpanded) 3.dp else 1.dp
     ) {
-        Column {
-            // Header — always visible, tap to expand
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggleExpand() }
+                .padding(18.dp)
+        ) {
+            // Header Row
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(textColor.copy(alpha = 0.12f)),
+                        .background(item.accentColor.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(emoji, fontSize = 20.sp)
+                    Text(item.emoji, fontSize = 22.sp)
                 }
-                Spacer(Modifier.width(12.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textColor)
-                    Text(summary, fontSize = 13.sp, color = textColor.copy(alpha = 0.75f))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = item.accentColor.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = item.tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = item.accentColor,
+                            fontSize = 10.sp,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
                 }
-                Icon(
-                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    tint = textColor.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+
+                IconButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = if (isExpanded) item.accentColor else NeuroFlowPaletteV2.TextTertiary,
+                        modifier = Modifier.rotate(rotationState)
+                    )
+                }
             }
 
-            // Expandable steps
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = item.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowPaletteV2.TextSecondary,
+                lineHeight = 18.sp
+            )
+
+            // Expanded Content
             AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(),
-                exit = shrinkVertically()
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    HorizontalDivider(color = textColor.copy(alpha = 0.15f))
-                    Spacer(Modifier.height(4.dp))
-                    steps.forEachIndexed { index, step ->
-                        Row(verticalAlignment = Alignment.Top) {
+                    HorizontalDivider(
+                        color = item.accentColor.copy(alpha = 0.2f),
+                        thickness = 1.dp
+                    )
+
+                    // Key Points
+                    item.keyPoints.forEachIndexed { index, (pointTitle, pointDesc) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .padding(top = 3.dp)
-                                    .size(18.dp)
+                                    .padding(top = 2.dp)
+                                    .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(textColor.copy(alpha = 0.15f)),
+                                    .background(item.accentColor.copy(alpha = 0.18f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "${index + 1}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = textColor
+                                    text = "${index + 1}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = item.accentColor
                                 )
                             }
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                step,
-                                fontSize = 14.sp,
-                                color = textColor.copy(alpha = 0.9f),
-                                lineHeight = 20.sp
-                            )
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = pointTitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowPaletteV2.TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = pointDesc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowPaletteV2.TextSecondary,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Pro-Tip Callout
+                    item.proTip?.let { tip ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = item.accentColor.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, item.accentColor.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("💡", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "PRO-TIP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = item.accentColor,
+                                        letterSpacing = 0.6.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = tip,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NeuroFlowPaletteV2.TextPrimary,
+                                        lineHeight = 17.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Science / Mathematical Callout
+                    item.scienceNote?.let { science ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("🔬", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "BIOPHYSICAL BASIS",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = NeuroFlowPaletteV2.TextTertiary,
+                                        letterSpacing = 0.6.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = science,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NeuroFlowPaletteV2.TextSecondary,
+                                        lineHeight = 17.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2965,8 +3369,6 @@ private fun GuideSection(
         }
     }
 }
-
-
 ```
 
 ---
@@ -3923,8 +4325,8 @@ class AccountSyncViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizScreen.kt`
-- **Lines of Code:** 288
-- **Size:** 10,580 bytes (10.3 KB)
+- **Lines of Code:** 302
+- **Size:** 11,046 bytes (10.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -4192,15 +4594,29 @@ private fun QuizCompletionScreen(
         Spacer(modifier = Modifier.weight(1f))
         
         // Action buttons
-        Button(
-            onClick = onBack,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
-            shape = RoundedCornerShape(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Done")
+            OutlinedButton(
+                onClick = onReset,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Retake Quiz")
+            }
+            Button(
+                onClick = onBack,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Done")
+            }
         }
     }
 }
@@ -4223,8 +4639,8 @@ private fun formatChronotypeName(chronotype: String): String {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizViewModel.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/MEQQuizViewModel.kt`
-- **Lines of Code:** 297
-- **Size:** 13,322 bytes (13.0 KB)
+- **Lines of Code:** 298
+- **Size:** 13,363 bytes (13.0 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -4493,6 +4909,7 @@ class MEQQuizViewModel @Inject constructor(
                     effectivePeakStart = peakHourOfDay,
                     effectivePeakEnd = peakWindowEndHourOfDay,
                     effectivePeakMinuteOfDay = peakMinuteOfDay,
+                    meqScore = meqScore,
                     quizProgress = "{}"  // Clear progress on completion
                 )
             }
@@ -5087,8 +5504,8 @@ private fun InfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsScreen.kt`
-- **Lines of Code:** 1,497
-- **Size:** 70,157 bytes (68.5 KB)
+- **Lines of Code:** 1,601
+- **Size:** 75,557 bytes (73.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -5129,10 +5546,11 @@ import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.presentation.common.EnergyInsight
+import com.neuroflow.app.presentation.common.TaskTagViewModel
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -5143,6 +5561,7 @@ fun SettingsScreen(
     onNavigateToMEQQuiz: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
     onNavigateToAccountSync: () -> Unit = {},
+    onNavigateToLogTime: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -5463,6 +5882,13 @@ fun SettingsScreen(
                     checked = prefs.autoTrackerEnabled,
                     onCheckedChange = { viewModel.updatePreferences { p -> p.copy(autoTrackerEnabled = it) } }
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsToggleRow(
+                    label = "Do Not Disturb (DND) during focus",
+                    description = "Automatically mute notifications during active focus sprints",
+                    checked = prefs.dndEnabled,
+                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(dndEnabled = it) } }
+                )
                 Spacer(modifier = Modifier.height(10.dp))
                 SettingsDeepWorkTargetRow(
                     minutes = prefs.dailyDeepWorkTargetMinutes,
@@ -5470,6 +5896,91 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(dailyDeepWorkTargetMinutes = target) }
                     }
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToLogTime() },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Manual Time Logging", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Log past offline sessions and deep work time", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("Open →", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            SettingsSection("Task Tags Catalog") {
+                val tagViewModel: TaskTagViewModel = hiltViewModel()
+                val tags by tagViewModel.tags.collectAsStateWithLifecycle()
+                var newTagInput by remember { mutableStateOf("") }
+
+                Text(
+                    "Manage your custom task tags and labels used across planning filters.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newTagInput,
+                        onValueChange = { newTagInput = it },
+                        placeholder = { Text("Add tag (e.g. #deepwork)", fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    Button(
+                        onClick = {
+                            if (newTagInput.isNotBlank()) {
+                                tagViewModel.addTags(listOf(newTagInput.trim()))
+                                newTagInput = ""
+                            }
+                        },
+                        enabled = newTagInput.isNotBlank(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Add")
+                    }
+                }
+
+                if (tags.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        tags.forEach { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = {},
+                                label = { Text(tag, fontSize = 12.sp) },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove tag",
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { tagViewModel.removeTag(tag) }
+                                    )
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             SettingsSection("Distraction Tracking") {
@@ -5588,6 +6099,16 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(quizPeakEnabled = enabled) }
                     }
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = onNavigateToMEQQuiz,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (prefs.quizChronotype != null) "Retake MEQ Chronotype Quiz" else "Take MEQ Chronotype Quiz")
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (prefs.quizPeakEnabled) {
@@ -5979,9 +6500,9 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("User Guide", fontWeight = FontWeight.Bold)
+                        Text("neuroFlow V2 Operating Manual", fontWeight = FontWeight.Bold)
                         Text(
-                            "Start here: quick setup and daily workflow",
+                            "Circadian biophysics, auto-scheduling & executive protocols",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -6596,8 +7117,8 @@ private fun ProfileWindowPreviewRow(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsViewModel.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/SettingsViewModel.kt`
-- **Lines of Code:** 286
-- **Size:** 12,200 bytes (11.9 KB)
+- **Lines of Code:** 326
+- **Size:** 14,212 bytes (13.9 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -6648,7 +7169,8 @@ class SettingsViewModel @Inject constructor(
     private val databaseCleaner: DatabaseCleaner,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
-    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService
+    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService,
+    val passiveSleepSyncRepository: com.neuroflow.app.domain.repository.PassiveSleepSyncRepository? = null
 ) : ViewModel() {
 
     // Test convenience constructor
@@ -6668,8 +7190,47 @@ class SettingsViewModel @Inject constructor(
         databaseCleaner,
         circadianEnergyService,
         sleepTelemetryRepository,
-        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService()
+        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService(),
+        null
     )
+
+    val isPassiveSyncing = MutableStateFlow(false)
+    val passiveSyncStatus = MutableStateFlow<String?>(null)
+
+    fun syncWearableSleep() {
+        viewModelScope.launch {
+            val repo = passiveSleepSyncRepository
+            if (repo == null) {
+                passiveSyncStatus.value = "Health Connect integration not active on this device"
+                return@launch
+            }
+            isPassiveSyncing.value = true
+            try {
+                val now = System.currentTimeMillis()
+                val sevenDaysAgo = now - 7L * 24 * 60 * 60 * 1000L
+                val result = repo.syncPassiveSleep(sevenDaysAgo, now)
+                passiveSyncStatus.value = when (result) {
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.Success ->
+                        if (result.importedLogs.isNotEmpty()) "Imported ${result.importedLogs.size} wearable sleep logs"
+                        else "Wearable data is already synchronized"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.PermissionRequired ->
+                        "Permission required: ${result.missingPermissions.firstOrNull() ?: "READ_SLEEP"}"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.ProviderUnavailable ->
+                        "Health Provider: ${result.reason}"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.Failure ->
+                        "Sync failed: ${result.throwable.message}"
+                }
+            } catch (e: Exception) {
+                passiveSyncStatus.value = "Sync error: ${e.message}"
+            } finally {
+                isPassiveSyncing.value = false
+            }
+        }
+    }
+
+    fun clearPassiveSyncStatus() {
+        passiveSyncStatus.value = null
+    }
 
     data class LaunchableApp(val packageName: String, val label: String)
 
@@ -6894,8 +7455,8 @@ class SettingsViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/settings/SleepLogsScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/settings/SleepLogsScreen.kt`
-- **Lines of Code:** 390
-- **Size:** 14,988 bytes (14.6 KB)
+- **Lines of Code:** 423
+- **Size:** 16,649 bytes (16.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.settings
@@ -6930,6 +7491,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -6970,6 +7532,8 @@ fun SleepLogsScreen(
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
     val sleepLogs by viewModel.sleepLogs.collectAsStateWithLifecycle()
+    val passiveSyncStatus by viewModel.passiveSyncStatus.collectAsStateWithLifecycle()
+    val isPassiveSyncing by viewModel.isPassiveSyncing.collectAsStateWithLifecycle()
     val sleepLogInputError by viewModel.sleepLogInputError.collectAsStateWithLifecycle()
 
     var logDateMillis by rememberSaveable { mutableStateOf(todayUtcDateMillis()) }
@@ -7051,9 +7615,39 @@ fun SleepLogsScreen(
             }
             com.neuroflow.app.presentation.v2.settings.UpgradedSleepPressureOverviewCard(
                 snapshot = sleepSnapshot,
-                hasHealthConnectSync = false,
-                onSyncHealthConnectClick = { /* No-op / degraded */ }
+                hasHealthConnectSync = viewModel.passiveSleepSyncRepository != null,
+                onSyncHealthConnectClick = { viewModel.syncWearableSleep() }
             )
+
+            val currentStatus = passiveSyncStatus
+            if (currentStatus != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = currentStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { viewModel.clearPassiveSyncStatus() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -7296,8 +7890,8 @@ private fun fatigueZoneColor(zone: FatigueZone) = when (zone) {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/common/SecondaryScreensUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/common/SecondaryScreensUpgradesV2.kt`
-- **Lines of Code:** 438
-- **Size:** 18,455 bytes (18.0 KB)
+- **Lines of Code:** 434
+- **Size:** 18,268 bytes (17.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.common
@@ -7341,10 +7935,6 @@ import androidx.compose.ui.unit.sp
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
-/**
- * 1. Ulysses Pre-Commitment Contract Card (For UlyssesContractSheet.kt)
- * Locks a high-priority task to a strict deadline with clear visual accountability.
- */
 @Composable
 fun UpgradedUlyssesContractCard(
     taskTitle: String,
@@ -7357,7 +7947,10 @@ fun UpgradedUlyssesContractCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.55f)),
+        border = BorderStroke(
+            1.5.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.PeakAmber, 1f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -7380,20 +7973,20 @@ fun UpgradedUlyssesContractCard(
             Text(
                 text = taskTitle,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "\"$commitmentStatement\"",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f)
+                color = NeuroFlowPaletteV2.TextSecondary
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
+                    .background(NeuroFlowPaletteV2.SurfaceElevated)
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -7402,7 +7995,7 @@ fun UpgradedUlyssesContractCard(
                     Text(
                         text = "LOCKED DEADLINE",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = NeuroFlowPaletteV2.TextTertiary
                     )
                     Text(
                         text = deadlineFormatted,
@@ -7414,7 +8007,7 @@ fun UpgradedUlyssesContractCard(
                     Text(
                         text = "IF MISSED",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = NeuroFlowPaletteV2.TextTertiary
                     )
                     Text(
                         text = consequenceText.ifBlank { "Mandatory schedule lock" },
@@ -7431,7 +8024,7 @@ fun UpgradedUlyssesContractCard(
                 onClick = onSignContractClick,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeuroFlowPaletteV2.PeakAmber,
-                    contentColor = Color.Black
+                    contentColor = Color(0xFF0A0B0E)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -7449,9 +8042,6 @@ fun UpgradedUlyssesContractCard(
     }
 }
 
-/**
- * 2. Identity & Top Goals Alignment Card (For IdentityScreen.kt & TopGoalsRefillCard.kt)
- */
 @Composable
 fun UpgradedIdentityAndGoalsCard(
     identityStatement: String,
@@ -7463,7 +8053,10 @@ fun UpgradedIdentityAndGoalsCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -7498,7 +8091,7 @@ fun UpgradedIdentityAndGoalsCard(
             Text(
                 text = identityStatement.ifBlank { "I am someone who protects my peak focus hours and finishes what matters." },
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Spacer(modifier = Modifier.height(12.dp))
             if (activeGoals.isEmpty()) {
@@ -7529,19 +8122,19 @@ fun UpgradedIdentityAndGoalsCard(
                             modifier = Modifier
                                 .size(20.dp)
                                 .clip(CircleShape)
-                                .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.28f))
+                                .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.22f))
                         ) {
                             Text(
                                 text = "${index + 1}",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                color = NeuroFlowPaletteV2.DipIndigo
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = goal,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 }
@@ -7550,9 +8143,6 @@ fun UpgradedIdentityAndGoalsCard(
     }
 }
 
-/**
- * 3. Session History & Telemetry Row (For HistoryScreen.kt, LogTimeScreen.kt & ManualTimeLogSheet.kt)
- */
 @Composable
 fun UpgradedHistorySessionRow(
     taskTitle: String,
@@ -7566,7 +8156,7 @@ fun UpgradedHistorySessionRow(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -7599,14 +8189,14 @@ fun UpgradedHistorySessionRow(
                     Text(
                         text = taskTitle,
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White,
+                        color = NeuroFlowPaletteV2.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "$dateAndTimeText · Est ${estimatedMinutes}m → Actual ${durationMinutes.roundToInt()}m",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = NeuroFlowPaletteV2.TextSecondary
                     )
                 }
             }
@@ -7643,7 +8233,7 @@ fun UpgradedHistorySessionRow(
                 if (affectiveForecastError != null) {
                     val sign = if (affectiveForecastError > 0f) "+" else ""
                     Surface(
-                        color = Color.White.copy(alpha = 0.07f),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
@@ -7659,9 +8249,6 @@ fun UpgradedHistorySessionRow(
     }
 }
 
-/**
- * 4. Glassmorphic Note Card with 1-Tap AI Task Extraction (For NotesScreen.kt & NoteEditorScreen.kt)
- */
 @Composable
 fun UpgradedNoteCardV2(
     title: String,
@@ -7675,7 +8262,10 @@ fun UpgradedNoteCardV2(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, noteAccentColor.copy(alpha = 0.38f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(noteAccentColor, 0.85f)
+        ),
         modifier = modifier
             .fillMaxWidth()
             .clickable { onNoteClick() }
@@ -7689,7 +8279,7 @@ fun UpgradedNoteCardV2(
                 Text(
                     text = title.ifBlank { "Untitled Note" },
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White,
+                    color = NeuroFlowPaletteV2.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -7723,7 +8313,7 @@ fun UpgradedNoteCardV2(
                 Text(
                     text = contentPreview,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = NeuroFlowPaletteV2.TextSecondary,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -7732,7 +8322,7 @@ fun UpgradedNoteCardV2(
             Text(
                 text = updatedAtFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.45f),
+                color = NeuroFlowPaletteV2.TextTertiary,
                 fontSize = 10.sp
             )
         }
@@ -7746,8 +8336,8 @@ fun UpgradedNoteCardV2(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/notes/QuickNotesBottomSheet.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/notes/QuickNotesBottomSheet.kt`
-- **Lines of Code:** 250
-- **Size:** 11,415 bytes (11.1 KB)
+- **Lines of Code:** 292
+- **Size:** 14,106 bytes (13.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.notes
@@ -7784,11 +8374,33 @@ fun QuickNotesBottomSheet(
     onSaveNote: (title: String, content: String) -> Unit,
     onDismiss: () -> Unit,
     onOpenFullNotes: () -> Unit = {},
-    onCreateTask: ((title: String, description: String) -> Unit)? = null
+    onCreateTask: ((title: String, description: String) -> Unit)? = null,
+    onSynthesizeNote: (suspend (String) -> com.neuroflow.app.domain.service.QuickNoteSynthesis)? = null
 ) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
+    var synthesis by remember { mutableStateOf<com.neuroflow.app.domain.service.QuickNoteSynthesis?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(content, title) {
+        if (content.isNotBlank()) {
+            val full = if (title.isNotBlank()) "$title: $content" else content
+            if (onSynthesizeNote != null) {
+                synthesis = onSynthesizeNote(full)
+            } else {
+                val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
+                synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                    extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+                    suggestedCategory = inferred.taskType.name,
+                    estimatedMinutes = inferred.durationMinutes,
+                    tags = inferred.contextTags,
+                    firstActionStep = "Review note: ${content.take(20)}..."
+                )
+            }
+        } else {
+            synthesis = null
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -7900,24 +8512,15 @@ fun QuickNotesBottomSheet(
             }
 
             // Quick Note AI Task Extraction Preview
-            if (content.isNotBlank()) {
-                val synthesis = remember(content, title) {
-                    com.neuroflow.app.domain.service.QuickNoteSynthesis(
-                        extractedTaskTitle = title.ifBlank { content.take(35) },
-                        suggestedCategory = "DEEP_WORK",
-                        estimatedMinutes = 25,
-                        tags = emptyList(),
-                        firstActionStep = "Review note: ${content.take(20)}..."
-                    )
-                }
+            synthesis?.let { syn ->
                 com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
-                    synthesis = synthesis,
-                    onConvertToTaskClick = { syn ->
+                    synthesis = syn,
+                    onConvertToTaskClick = { finalSyn ->
                         if (onCreateTask != null) {
-                            onCreateTask(syn.extractedTaskTitle, content)
-                            onSaveNote(syn.extractedTaskTitle, content)
+                            onCreateTask(finalSyn.extractedTaskTitle, content)
+                            onSaveNote(finalSyn.extractedTaskTitle, content)
                         } else {
-                            onSaveNote(syn.extractedTaskTitle, content)
+                            onSaveNote(finalSyn.extractedTaskTitle, content)
                         }
                         title = ""
                         content = ""
@@ -7984,12 +8587,41 @@ fun QuickNotesBottomSheet(
                                     maxLines = 3
                                 )
 
-                                Text(
-                                    text = dateFormatted,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeuroFlowThemeV2Colors.TextTertiary,
-                                    fontSize = 10.sp
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = dateFormatted,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextTertiary,
+                                        fontSize = 10.sp
+                                    )
+                                    if (onCreateTask != null) {
+                                        Surface(
+                                            modifier = Modifier.clickable {
+                                                onCreateTask(note.title, note.content)
+                                            },
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
+                                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Convert to Task",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -8008,8 +8640,8 @@ fun QuickNotesBottomSheet(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/settings/HyperFocusNotesAndSettingsUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/settings/HyperFocusNotesAndSettingsUpgradesV2.kt`
-- **Lines of Code:** 340
-- **Size:** 13,585 bytes (13.3 KB)
+- **Lines of Code:** 335
+- **Size:** 13,404 bytes (13.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.settings
@@ -8056,10 +8688,6 @@ import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.service.QuickNoteSynthesis
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 
-/**
- * 1. Dopamine-Safe HyperFocus Gate Card (For BlockingOverlayScreen.kt & HyperFocusHomeScreen.kt)
- * Replaces punitive app-block walls with a RewardTier progress ring and a 2-minute starter step pivot.
- */
 @Composable
 fun DopamineSafeBlockingGateCard(
     blockedAppName: String,
@@ -8076,7 +8704,10 @@ fun DopamineSafeBlockingGateCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.5f)),
+        border = BorderStroke(
+            1.5.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 1f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -8099,19 +8730,18 @@ fun DopamineSafeBlockingGateCard(
             Text(
                 text = "$blockedAppName is paused right now",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "Complete $tasksNeeded more task(s) to unlock a ${nextRewardTier.unlockMinutes}-minute ${nextRewardTier.name} reward pass.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.72f),
+                color = NeuroFlowPaletteV2.TextSecondary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2-Minute Low-Friction Pivot Card
             Surface(
                 color = NeuroFlowPaletteV2.SurfaceElevated,
                 shape = RoundedCornerShape(16.dp),
@@ -8128,7 +8758,7 @@ fun DopamineSafeBlockingGateCard(
                     Text(
                         text = topTaskFirstStep.ifBlank { topTaskTitle },
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                 }
             }
@@ -8138,7 +8768,7 @@ fun DopamineSafeBlockingGateCard(
                 onClick = onStartTwoMinuteStepClick,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                    contentColor = Color.Black
+                    contentColor = Color(0xFF0A0B0E)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -8172,9 +8802,6 @@ fun DopamineSafeBlockingGateCard(
     }
 }
 
-/**
- * 2. Quick Note to Structured Task Synthesizer (For QuickNotesBottomSheet.kt)
- */
 @Composable
 fun QuickNoteAiSynthesizerCard(
     synthesis: QuickNoteSynthesis,
@@ -8184,7 +8811,10 @@ fun QuickNoteAiSynthesizerCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -8213,12 +8843,12 @@ fun QuickNoteAiSynthesizerCard(
                 Text(
                     text = synthesis.extractedTaskTitle,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Text(
                     text = "Starter: ${synthesis.firstActionStep}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.68f)
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.width(10.dp))
@@ -8230,7 +8860,7 @@ fun QuickNoteAiSynthesizerCard(
                 Text(
                     text = "+ Add Task",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = Color.Black,
+                    color = Color.White,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                 )
             }
@@ -8238,9 +8868,6 @@ fun QuickNoteAiSynthesizerCard(
     }
 }
 
-/**
- * 3. Categorized Settings Hub (For SettingsScreen.kt)
- */
 @Composable
 fun CategorizedSettingsHubV2(
     chronotypeSummary: String,
@@ -8299,7 +8926,7 @@ private fun SettingsCategoryRowCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(accent, 0.7f)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -8334,20 +8961,20 @@ private fun SettingsCategoryRowCard(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = NeuroFlowPaletteV2.TextSecondary
                     )
                 }
             }
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.4f)
+                tint = NeuroFlowPaletteV2.TextTertiary
             )
         }
     }
@@ -8360,15 +8987,15 @@ private fun SettingsCategoryRowCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/settings/SubScreensAndHyperFocusUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/settings/SubScreensAndHyperFocusUpgradesV2.kt`
-- **Lines of Code:** 365
-- **Size:** 15,253 bytes (14.9 KB)
+- **Lines of Code:** 355
+- **Size:** 14,730 bytes (14.4 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.settings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8407,10 +9034,6 @@ import com.neuroflow.app.domain.service.PriorityWeightProfile
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
-/**
- * 1. Sleep Pressure & Provenance Header Card (For SleepLogsScreen.kt)
- * Displays SleepPressureRepository.Snapshot alongside Health Connect / Manual / Auto-Default provenance.
- */
 @Composable
 fun UpgradedSleepPressureOverviewCard(
     snapshot: SleepPressureRepository.Snapshot,
@@ -8421,7 +9044,10 @@ fun UpgradedSleepPressureOverviewCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 0.8f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -8484,7 +9110,7 @@ private fun SleepStatColumn(label: String, value: String, color: Color) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.55f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
@@ -8495,10 +9121,6 @@ private fun SleepStatColumn(label: String, value: String, color: Color) {
     }
 }
 
-/**
- * 2. Protected Slot Physiological Effect Selector (For ProtectedSlotBottomSheet.kt & WeeklyScheduleScreen.kt)
- * Explains how Meal, Exercise, and Mindfulness slots dynamically alter the circadian energy curve.
- */
 @Composable
 fun ProtectedSlotPhysiologicalPreviewBar(
     selectedCategory: PtsCategory,
@@ -8515,7 +9137,7 @@ fun ProtectedSlotPhysiologicalPreviewBar(
         Text(
             text = "PHYSIOLOGICAL CURVE IMPACT",
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = Color.White.copy(alpha = 0.65f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             letterSpacing = 0.8.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -8526,7 +9148,7 @@ fun ProtectedSlotPhysiologicalPreviewBar(
             categories.forEach { (category, label, icon) ->
                 val isSelected = selectedCategory == category
                 Surface(
-                    color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceElevated,
+                    color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.16f) else NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(
                         1.dp,
@@ -8543,14 +9165,14 @@ fun ProtectedSlotPhysiologicalPreviewBar(
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else Color.White.copy(alpha = 0.7f),
+                            tint = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else NeuroFlowPaletteV2.TextSecondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else Color.White.copy(alpha = 0.8f),
+                            color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else NeuroFlowPaletteV2.TextPrimary,
                             fontSize = 10.sp
                         )
                     }
@@ -8560,10 +9182,6 @@ fun ProtectedSlotPhysiologicalPreviewBar(
     }
 }
 
-/**
- * 3. Scheduler Priority Weights Tuner Card (For PriorityWeightsScreen.kt)
- * Interactive normalized weight sliders for TaskSchedulerService.PriorityWeightProfile.
- */
 @Composable
 fun UpgradedPriorityWeightsTunerCard(
     weights: PriorityWeightProfile,
@@ -8573,7 +9191,7 @@ fun UpgradedPriorityWeightsTunerCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -8627,7 +9245,7 @@ private fun WeightSliderRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Text(
                 text = "${"%.1f".format(value)}x",
@@ -8647,10 +9265,6 @@ private fun WeightSliderRow(
     }
 }
 
-/**
- * 4. Minimalist HyperFocus Home Launcher & Cloud Sync Status Bar
- * (For HyperFocusHomeScreen.kt, GateTaskScreen.kt & AccountSyncScreen.kt)
- */
 @Composable
 fun HyperFocusLauncherStatusHeader(
     sessionModeLabel: String,
@@ -8660,9 +9274,12 @@ fun HyperFocusLauncherStatusHeader(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = Color(0xFF07080C),
+        color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.3f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.8f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -8698,7 +9315,7 @@ fun HyperFocusLauncherStatusHeader(
                     Text(
                         text = remainingTasksOrMinutesLabel,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                 }
             }

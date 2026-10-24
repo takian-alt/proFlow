@@ -28,7 +28,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
@@ -53,6 +55,7 @@ fun FlowScreenV2(
     var showComposer by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var showNotesSheet by remember { mutableStateOf(false) }
+    var showFrogConfetti by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialOpenComposer) {
         if (initialOpenComposer) {
@@ -71,10 +74,11 @@ fun FlowScreenV2(
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) {
-                if (msg.startsWith("Completed")) {
-                    viewModel.undoCompleteTask()
-                } else if (msg.startsWith("Deferred")) {
-                    viewModel.undoDeferTask()
+                when {
+                    msg.startsWith("Completed") -> viewModel.undoCompleteTask()
+                    msg.startsWith("Deferred") -> viewModel.undoDeferTask()
+                    msg.startsWith("Stimulant logged:") -> viewModel.undoLogStimulant()
+                    msg.startsWith("Bio-event logged:") -> viewModel.undoLogPhysiologicalEvent()
                 }
             }
             viewModel.clearActionMessage()
@@ -91,7 +95,7 @@ fun FlowScreenV2(
                 Snackbar(
                     snackbarData = data,
                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                    contentColor = Color.White,
+                    contentColor = NeuroFlowThemeV2Colors.TextPrimary,
                     actionColor = NeuroFlowThemeV2Colors.WarmAmber,
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -112,7 +116,7 @@ fun FlowScreenV2(
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Quick Add Task (Long-press for Notes)",
-                    tint = Color.White,
+                    tint = NeuroFlowThemeV2Colors.TextPrimary,
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -199,32 +203,66 @@ fun FlowScreenV2(
                 cognitiveBlocks = state.dailyCognitiveBlocks,
                 naps = state.daytimeNaps,
                 isFallbackSleep = state.isFallbackSleep,
-                learnedSampleCount = state.learnedSampleCount
+                learnedSampleCount = state.learnedSampleCount,
+                stimulantDoses = state.stimulantDoses,
+                isCrashWindow = state.isCrashWindow,
+                activePlasmaMg = state.activePlasmaMg,
+                socialJetlagLagHours = state.socialJetlagLagHours,
+                predictedSwsSuppressionPercent = state.predictedSwsSuppressionPercent,
+                latestSafeStimulantCutoffFormatted = state.latestSafeStimulantCutoffFormatted,
+                onClearStimulants = { viewModel.clearAllStimulants() },
+                onRemoveStimulantDose = { dose -> viewModel.removeStimulantDose(dose.timestampMillis, dose.type) },
+                onLogStimulant = { type -> viewModel.logStimulant(type) },
+                onLogPhysiologicalEvent = { type -> viewModel.logPhysiologicalEvent(type) },
+                onClearPhysiologicalEvents = { viewModel.clearAllPhysiologicalEvents() }
             )
 
+            // Active Biophysical Impulse Strip (Meal, Workout, Nap, Stimulant PK ticker)
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                ActiveBiophysicalImpulseStrip(
+                    cognitiveBlocks = state.dailyCognitiveBlocks,
+                    activePlasmaMg = state.activePlasmaMg
+                )
+            }
+
             // Flow Spotlight Hero Card (Takeover or Top Action)
+            val nowMillis = System.currentTimeMillis()
+            val activeTakeoverSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
+                ProtectedSlotClock.takeoverOf(state.preferences.protectedTimeSlots, nowMillis)
+            }
+            val approachingSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
+                ProtectedSlotClock.approaching(state.preferences.protectedTimeSlots, nowMillis, leadInMinutes = 45).firstOrNull()
+            }
             val topTask = state.recommendedTask ?: state.activeTasks.firstOrNull { it.isFrog } ?: state.activeTasks.firstOrNull()
-            if (topTask != null) {
-                val nowMillis = System.currentTimeMillis()
+            if (topTask != null || activeTakeoverSlot != null) {
                 val currentPhase = state.energyTimeline.minByOrNull {
                     kotlin.math.abs(it.timestampMillis - nowMillis)
                 }?.phase ?: EnergyPhase.PEAK
+                val microSteps = remember(topTask?.ifThenPlan) {
+                    topTask?.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it) } ?: emptyList()
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                     FlowSpotlightHeroCard(
-                        activeTakeoverSlot = null,
-                        topTaskId = topTask.id,
-                        topTaskTitle = topTask.title,
-                        topTaskFirstMicroStep = topTask.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it).firstOrNull()?.text },
-                        topTaskDurationMinutes = topTask.estimatedDurationMinutes,
-                        topTaskEnergyLevel = topTask.energyLevel,
-                        isTopTaskFrog = topTask.isFrog,
+                        activeTakeoverSlot = activeTakeoverSlot,
+                        approachingSlot = approachingSlot,
+                        topTaskId = topTask?.id,
+                        topTaskTitle = topTask?.title,
+                        topTaskFirstMicroStep = microSteps.firstOrNull()?.text,
+                        topTaskMicroSteps = microSteps,
+                        topTaskDurationMinutes = topTask?.estimatedDurationMinutes ?: 25,
+                        topTaskEnergyLevel = topTask?.energyLevel ?: EnergyLevel.MEDIUM,
+                        isTopTaskFrog = topTask?.isFrog ?: false,
                         currentPhase = currentPhase,
                         onStartFocusClick = { taskId -> onStartFocus(taskId) },
                         onCompleteQuickClick = { taskId ->
                             val taskToComplete = state.activeTasks.find { it.id == taskId } ?: topTask
-                            viewModel.completeTask(taskToComplete)
+                            if (taskToComplete != null) {
+                                if (taskToComplete.isFrog) showFrogConfetti = true
+                                viewModel.completeTask(taskToComplete)
+                            }
                         }
                     )
                 }
@@ -241,13 +279,14 @@ fun FlowScreenV2(
                 } else null
             }
 
-            if (state.showZeroGuiltPrompt || (resetPlan != null && resetPlan.tasksPushedToBacklog.isNotEmpty())) {
+            if (!state.zeroGuiltDismissed && (state.showZeroGuiltPrompt || (resetPlan != null && resetPlan.tasksPushedToBacklog.isNotEmpty()))) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                     FreshStartRecoveryBanner(
                         visible = true,
                         resetPlan = resetPlan,
-                        onApplyEmergencyReset = { viewModel.freshStartRollover() }
+                        onApplyEmergencyReset = { viewModel.freshStartRollover() },
+                        onDismiss = { viewModel.dismissZeroGuiltPrompt() }
                     )
                 }
             }
@@ -324,7 +363,7 @@ fun FlowScreenV2(
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            selectedLabelColor = Color.White,
+                            selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                             containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                             labelColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -340,10 +379,14 @@ fun FlowScreenV2(
             EnergyTimelineStream(
                 scheduledTasks = state.filteredTasks,
                 onTaskClick = { task -> onStartFocus(task.id) },
-                onCompleteTask = { task -> viewModel.completeTask(task) },
+                onCompleteTask = { task ->
+                    if (task.isFrog) showFrogConfetti = true
+                    viewModel.completeTask(task)
+                },
                 onDeferTask = { task -> viewModel.deferTask(task) },
                 onBreakDownTask = { task -> viewModel.breakDownTask(task) },
                 onEditTask = { task -> editingTask = task },
+                onShiftToPeak = { task -> viewModel.shiftTaskToPeak(task) },
                 timeline = state.energyTimeline
             )
 
@@ -382,7 +425,17 @@ fun FlowScreenV2(
             notes = recentNotes,
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
             onDismiss = { showNotesSheet = false },
-            onOpenFullNotes = onNavigateToNotes
+            onOpenFullNotes = onNavigateToNotes,
+            onCreateTask = { title, desc -> viewModel.addTaskFromNote(title, desc) },
+            onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
         )
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
     }
 }

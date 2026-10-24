@@ -21,11 +21,8 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -93,6 +90,13 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
         applicationScope.launch(Dispatchers.IO) {
             val firstLaunchAfterInstall = markFirstLaunchAfterInstall()
             databaseCleaner.enforceRestoreVersionPolicy(firstLaunchAfterInstall)
+
+            // Seed the persistent tag catalog from all existing tasks after restore version policy is enforced.
+            val allTags = taskRepository.getAllTasks()
+                .flatMap { task -> task.tags.split(",") }
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            userPreferencesDataStore.mergeTagCatalog(allTags)
         }
 
         createNotificationChannels(this)
@@ -115,15 +119,6 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             runCatching { allowlistMigrationRunner.runIfNeeded() }
                 .onFailure { android.util.Log.w("NeuroFlowApp", "Allowlist migration did not complete", it) }
         }
-
-        // Seed the persistent tag catalog from all existing tasks.
-        applicationScope.launch {
-            val allTags = taskRepository.getAllTasks()
-                .flatMap { task -> task.tags.split(",") }
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-            userPreferencesDataStore.mergeTagCatalog(allTags)
-        }
     }
 
     private fun markFirstLaunchAfterInstall(): Boolean {
@@ -133,7 +128,7 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
             marker.parentFile?.mkdirs()
             marker.writeText("1")
             true
-        }.getOrDefault(true)
+        }.getOrDefault(false)
     }
 
     private fun scheduleDailyWorkers() {
@@ -141,8 +136,17 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
 
         // Notification workers (daily plan, streak, escalation) follow user-configured hours/toggles.
         applicationScope.launch {
-            val prefs = userPreferencesDataStore.preferencesFlow.first()
-            scheduleNotificationWorkers(this@NeuroFlowApplication, prefs)
+            userPreferencesDataStore.preferencesFlow
+                .distinctUntilChanged { old, new ->
+                    old.dailyPlanNotificationsEnabled == new.dailyPlanNotificationsEnabled &&
+                    old.dailyPlanNotificationHour == new.dailyPlanNotificationHour &&
+                    old.streakNotificationsEnabled == new.streakNotificationsEnabled &&
+                    old.streakCheckNotificationHour == new.streakCheckNotificationHour &&
+                    old.deadlineEscalationNotificationsEnabled == new.deadlineEscalationNotificationsEnabled
+                }
+                .collect { prefs ->
+                    scheduleNotificationWorkers(this@NeuroFlowApplication, prefs)
+                }
         }
 
         // FocusWidgetUpdateWorker — runs every 15 minutes to keep the home screen widget fresh
@@ -190,8 +194,15 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
 
         // SleepPressureRefreshWorker — runs once daily to refresh sleep pressure and create automatic fallback sleep logs
         applicationScope.launch {
-            val prefs = userPreferencesDataStore.preferencesFlow.first()
-            scheduleSleepPressureRefreshWorker(this@NeuroFlowApplication, prefs)
+            userPreferencesDataStore.preferencesFlow
+                .distinctUntilChanged { old, new ->
+                    old.wakeUpHour == new.wakeUpHour &&
+                    old.sleepHour == new.sleepHour &&
+                    old.autoFallbackSleepInsertionEnabled == new.autoFallbackSleepInsertionEnabled
+                }
+                .collect { prefs ->
+                    scheduleSleepPressureRefreshWorker(this@NeuroFlowApplication, prefs)
+                }
         }
     }
 }

@@ -1,10 +1,15 @@
 package com.neuroflow.app.presentation.onboarding
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -12,38 +17,276 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+
+enum class GuideCategory(val label: String, val emoji: String) {
+    ALL("All Topics", "🌐"),
+    QUICK_START("Quick Start", "🚀"),
+    CIRCADIAN_FLOW("Flow & Circadian", "⚡"),
+    PHARMACOKINETICS("Stimulants & PK", "☕"),
+    SCHEDULING_PLAN("Plan & Calendar", "🤖"),
+    EXECUTIVE_ADHD("ADHD & Executive", "🧠"),
+    FOCUS_DSP("Focus & Audio DSP", "🎯"),
+    AI_NLP("AI & Smart Tasks", "🪄"),
+    VAULT_CHRONO("Vault & Chronotype", "🗃️")
+}
+
+data class GuideSectionItem(
+    val id: String,
+    val category: GuideCategory,
+    val emoji: String,
+    val tag: String,
+    val title: String,
+    val summary: String,
+    val accentColor: Color,
+    val keyPoints: List<Pair<String, String>>,
+    val proTip: String? = null,
+    val scienceNote: String? = null
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppGuideScreen(onNavigateBack: () -> Unit) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(GuideCategory.ALL) }
+    var expandedIds by remember { mutableStateOf(setOf("quick_start")) }
+
+    val guideItems = remember {
+        listOf(
+            GuideSectionItem(
+                id = "quick_start",
+                category = GuideCategory.QUICK_START,
+                emoji = "🚀",
+                tag = "3-MINUTE PROTOCOL",
+                title = "Quick Start: Zero-Friction Setup",
+                summary = "The essential daily activation sequence to get productive in under 3 minutes.",
+                accentColor = Color(0xFF6366F1),
+                keyPoints = listOf(
+                    "1. The Rule of 3-5 Tasks" to "Limit your active queue to 3–5 items maximum. Overflowing backlogs trigger executive overwhelm and freeze responses. Park all other ideas in the Vault Icebox until today's queue is cleared.",
+                    "2. Mark Today's 🐸 Frog" to "Select one high-impact, high-resistance task as your daily Frog. Completing it early capitalizes on peak morning cognitive bandwidth before decision fatigue accumulates.",
+                    "3. Read Biological Weather" to "Glance at the Circadian Hero Barometer on the Flow Cockpit. If you're in a Peak window, dive straight into deep work. If in a Dip, switch to low-friction organizing or admin.",
+                    "4. Single-Task Sprint" to "Launch Focus Mode for 25–45 minutes with procedural background noise. The display is kept awake automatically so your micro-steps and timer remain in sight.",
+                    "5. Celebrate, Log & Decompress" to "Mark the task done or record offline minutes. Rest for 5–15 minutes before switching to the next item to allow neurochemical replenishment."
+                ),
+                proTip = "If a task triggers avoidance or dread, commit to working for just 5 minutes, or tap 'Break Down' to generate a 2-minute doorway step.",
+                scienceNote = "Overcoming the activation energy barrier (E_a) of the first micro-step is the single most effective intervention for executive dysfunction."
+            ),
+            GuideSectionItem(
+                id = "circadian_cockpit",
+                category = GuideCategory.CIRCADIAN_FLOW,
+                emoji = "⚡",
+                tag = "BORBÉLY TWO-PROCESS MODEL",
+                title = "Flow Cockpit & Circadian Energy Barometer",
+                summary = "Lab-grade biophysical energy modeling combining homeostatic sleep pressure and double-harmonic circadian rhythm.",
+                accentColor = Color(0xFF10B981),
+                keyPoints = listOf(
+                    "Process S (Sleep Pressure)" to "Tracks adenosine accumulation from waking (S_0 -> 1.0). Discharges logarithmically during nocturnal sleep and daytime power naps (S_nap).",
+                    "Process C (Circadian Wave)" to "Biological double-harmonic alertness wave (φ = t_wake + 4.5h) modeling your natural morning peak and afternoon post-prandial dip.",
+                    "⚡ PEAK (75–100%)" to "Maximum synaptic plasticity. Strictly reserved for deep analytical thinking, strategic architecture, and creative breakthroughs.",
+                    "📈 REBOUND (55–74%)" to "Secondary alertness wave in the late afternoon. Optimal for collaborative execution, meetings, and tactical progress.",
+                    "☕ DIP (35–54%)" to "Biological circadian trough (13:30–15:30). Switch to light admin, organization, or take a 15–20 minute restorative power nap.",
+                    "🧘 RECOVERY NEEDED (<35%)" to "Neural exhaustion detected. Take a 15m NSDR (Non-Sleep Deep Rest) session or a walk outside before resuming high-stakes work.",
+                    "🌙 WIND-DOWN (<20% or >21:30)" to "Melatonin secretion rising. Execute Evening Shutdown to close open loops, archive completed wins, and queue tomorrow's frog.",
+                    "Fast Kalman Circadian Learner" to "The app passively observes your actual completion timestamps to refine your personalized peak hours over time without manual quizzes."
+                ),
+                proTip = "Never schedule high-friction analytical tasks during your Dip (13:30–15:30). Protecting this window prevents chronic burnout.",
+                scienceNote = "Based on Borbély's Two-Process Model of Sleep Regulation. Continuous non-threshold modeling eliminates artificial hourly drop-offs."
+            ),
+            GuideSectionItem(
+                id = "stimulant_pk",
+                category = GuideCategory.PHARMACOKINETICS,
+                emoji = "☕",
+                tag = "BATEMAN TWO-COMPARTMENT PK",
+                title = "Stimulant Pharmacokinetics & Crash Guard",
+                summary = "Two-compartment differential equation modeling for caffeine and prescription ADHD medications with crash warnings.",
+                accentColor = Color(0xFFF59E0B),
+                keyPoints = listOf(
+                    "Bateman Differential Model" to "Computes absorption rate (k_a) and elimination half-life (t_half) to track real-time active plasma concentration and adenosine masking over 24 hours.",
+                    "+ ☕ Coffee (100mg)" to "Standard caffeine pharmacokinetic curve (t_half = 5.0h, k_a = 2.1). Reaches peak alertness at ~45 minutes.",
+                    "+ 🍵 Green Tea (50mg)" to "L-Theanine modulated caffeine (t_half = 3.5h, k_a = 1.6). Promotes relaxed alertness with smoother onset and reduced jitter.",
+                    "+ 💊 Meds IR (10mg)" to "Rapid-acting prescription stimulant (t_half = 4.0h, k_a = 2.5). Sharp alertness rise with pronounced wear-off boundary.",
+                    "+ 💊 Meds XR (20mg)" to "Extended-release dual-bead kinetic curve (t_half = 7.0h, k_a = 1.2). Sustained therapeutic plasma level across 8–10 hours.",
+                    "Live Plasma & 4-Second Undo" to "Displays active plasma concentration (~X mg active in plasma) on the Cockpit. A 4-second non-destructive Undo snackbar and [Clear doses] affordance ensure effortless error correction.",
+                    "⚡ Rebound Crash Guard" to "When wear-off and adenosine rebound coincide, an amber banner warns you against tackling high-friction tasks during neurochemical depletion.",
+                    "Protected Slot Keyword Auto-Detection" to "Calendar slots labeled 'Coffee', 'Caffeine', 'Meds', 'Vyvanse', or 'Adderall' are automatically converted into pharmacokinetic bouts."
+                ),
+                proTip = "Avoid high-dose stimulants after 14:00 to prevent Slow-Wave Sleep (SWS) suppression, even if you feel able to fall asleep on schedule.",
+                scienceNote = "Adenosine continues accumulating in the brain while caffeine blocks receptor sites. When caffeine detaches, rebound drowsiness occurs naturally."
+            ),
+            GuideSectionItem(
+                id = "social_jetlag",
+                category = GuideCategory.CIRCADIAN_FLOW,
+                emoji = "🌅",
+                tag = "CHRONOBIOLOGY & TELEMETRY",
+                title = "Social Jetlag & Wearable Sleep Telemetry",
+                summary = "Detecting weekend sleep schedule drift and normalizing wearable sleep metrics for circadian precision.",
+                accentColor = Color(0xFF818CF8),
+                keyPoints = listOf(
+                    "Social Jetlag (Δφ_SJL)" to "Measures the circular divergence between workday sleep midpoint (MSW) and weekend sleep midpoint (MSF).",
+                    "🌅 Weekend Drift Badge" to "When weekend sleep drift exceeds 1.0 hour, the Cockpit displays an amber Weekend Drift alert recommending 10–15 minutes of outdoor sunlight exposure upon waking.",
+                    "Stage-Weighted Telemetry" to "Processes wearable sleep logs with lab-grade stage efficiency (d_eff = 1.15 Deep + 1.05 REM + 0.85 Light) and automatically coalesces fragmented wake episodes (WASO <= 45m).",
+                    "Daytime Power Naps" to "Daytime naps between 10m and 180m discharge homeostatic pressure (ΔS) with an initial 20m sleep inertia envelope without corrupting nocturnal circadian anchors."
+                ),
+                proTip = "Morning sunlight within 30 minutes of waking triggers SCN photopigment melanopsin, resetting your master circadian clock and accelerating evening melatonin onset.",
+                scienceNote = "A 2-hour weekend sleep midpoint delay produces biological jetlag equivalent to flying across two time zones every single Monday."
+            ),
+            GuideSectionItem(
+                id = "math_scheduling",
+                category = GuideCategory.SCHEDULING_PLAN,
+                emoji = "🤖",
+                tag = "4-VECTOR OPTIMIZATION",
+                title = "Mathematical Auto-Scheduling & Calendar Sync",
+                summary = "Non-saturating algorithmic schedule generation with two-way Google Calendar synchronization and ultradian buffers.",
+                accentColor = Color(0xFF38BDF8),
+                keyPoints = listOf(
+                    "4-Vector Task Scoring Engine" to "Prioritization Formula: Score = 100 × [0.30 U + 0.30 I + 0.25 E + 0.15 M], balancing Urgency (U), Impact (I), Circadian Energy Match (E), and Momentum (M).",
+                    "Demand-Elastic Utility Damping λ(τ)" to "Logarithmically scales utility with duration, preventing huge 3-hour projects from starving shorter high-leverage tasks.",
+                    "Calendar Sync & Decompression Buffers" to "Two-way sync via Android CalendarContract. External meetings are imported as busy windows, and meetings ≥ 45m automatically receive a 5-minute cognitive decompression buffer.",
+                    "Ultradian Auto-Chunking" to "Tasks ≥ 60m placed into fragmented schedule slots are automatically split into linked sub-tasks ('🔗 Part 1/2' & '🔗 Part 2/2') chained by DAG dependencies.",
+                    "🔒 Schedule Locking" to "Tap 'Lock Schedule' on any task to pin it to an exact time slot. Auto-scheduling will route all other tasks around locked anchors.",
+                    "Protected Recurring Slots" to "Configure non-negotiable blocks for meals, gym, or family time in Settings that are guaranteed never to be booked over."
+                ),
+                proTip = "Tap 'Auto Schedule Day' in the Plan hub each morning. The engine will place your deep work during biological peaks and admin during dips.",
+                scienceNote = "Ultradian rhythm research shows human focus peaks in 90-minute waves, after which synaptic efficiency declines rapidly without restorative rest."
+            ),
+            GuideSectionItem(
+                id = "adhd_executive",
+                category = GuideCategory.EXECUTIVE_ADHD,
+                emoji = "🧠",
+                tag = "NEURODIVERGENT ERGONOMICS",
+                title = "ADHD Executive Hardening & Behavioral Science",
+                summary = "Science-backed tools to defeat task paralysis, time blindness, dread resistance, and hyperbolic discounting.",
+                accentColor = Color(0xFF8B5CF6),
+                keyPoints = listOf(
+                    "Implementation Intentions (WOOP)" to "Formulate Wish, Outcome, Obstacle, and If-Then Plan before starting work. Research demonstrates this doubles execution follow-through rates.",
+                    "Doorway Micro-Steps (≤ 4m)" to "Decomposes daunting tasks into a microscopic 2–4 minute first physical action (e.g. 'Open document and write title'), drastically lowering activation energy.",
+                    "⚡ Dopamine Warm-Up Badges" to "When a task has been postponed ≥ 3 times, a Dopamine Warm-Up / Paired Primer badge appears, granting momentum bonuses upon starting.",
+                    "Parkinson's Law Urgency Ignition" to "Non-linear priority scaling triggers when deadlines enter the [0.25h, 6.0h] window, overcoming ADHD time-blindness naturally.",
+                    "Zeigarnik Completion Pull" to "Leverages psychological closure inertia with sinusoidal pull peaking at 60–80% sub-task progress: M_Zeigarnik(p) = 30p + 10 sin(πp).",
+                    "Context-Switching Entropy Matrix" to "Awards +8.5 point bonuses for batching similar categories within 45m and penalizes jarring context jumps (-8.5 pts).",
+                    "Zero-Guilt Rollover" to "When ≥ 3 tasks become overdue, the Cockpit provides a zero-shame rollover card to batch-reschedule or archive without guilt."
+                ),
+                proTip = "When feeling stuck, do not force yourself to complete the entire project. Complete only Step 1 (the Doorway Step). Action generates momentum.",
+                scienceNote = "Hyperbolic discounting causes distant deadlines to be cognitively discounted. Nonlinear urgency ignition restores salience before crisis mode."
+            ),
+            GuideSectionItem(
+                id = "focus_audio_dsp",
+                category = GuideCategory.FOCUS_DSP,
+                emoji = "🎯",
+                tag = "DEEP WORK COCKPIT",
+                title = "Focus Mode, Soundscapes & Ergonomics",
+                summary = "Uninterrupted attention shielding with pure-Kotlin DSP soundscapes, display wake lock, and solfeggio chimes.",
+                accentColor = Color(0xFF6366F1),
+                keyPoints = listOf(
+                    "Display Wake Lock (FLAG_KEEP_SCREEN_ON)" to "The display remains awake throughout active focus sprints, keeping timers and micro-steps visible without needing to touch the phone.",
+                    "Pure Kotlin DSP Audio Synthesizer" to "Real-time streaming acoustic synthesis over AudioTrack (16-bit PCM, 44.1kHz stereo) with 400ms raised-cosine anti-click envelopes.",
+                    "🌊 Pink & Brown Noise" to "Attenuates environmental distractions, speech chatter, and office noise for seamless focus immersion.",
+                    "🧠 Alpha (10Hz) & Gamma (40Hz) Binaural Beats" to "Promotes neural entrainment and cognitive binding for sustained analytical depth.",
+                    "🌧️ Procedural Rain & Forest Soundscapes" to "Natural stochastic acoustic masks designed to calm sympathetic nervous system hyperactivity.",
+                    "Dual-Harmonic Solfeggio Chimes" to "Procedural 528Hz + 792Hz harmonic bell tone with double-pulse tactile vibration upon timer expiration.",
+                    "Interruption Shield" to "Gentle 3-second breathing interstitial when attempting to leave early, protecting your hyperfocus state.",
+                    "Manual Time Logging" to "Work performed away from your phone can be retroactively logged to maintain accurate XP, stats, and estimation calibration."
+                ),
+                proTip = "Pair Brown Noise with 40Hz Gamma binaural beats through stereo headphones for complex coding, math, or deep analytical writing.",
+                scienceNote = "40Hz gamma entrainment stimulates auditory cortex resonance and has been linked to enhanced working memory and cognitive binding."
+            ),
+            GuideSectionItem(
+                id = "smart_ai_nlp",
+                category = GuideCategory.AI_NLP,
+                emoji = "🪄",
+                tag = "PRIVACY-FIRST AI & NLP",
+                title = "Smart Task Creation & Gemini AI BYOK",
+                summary = "Natural language task syntax parsing and offline-resilient AI task decomposition.",
+                accentColor = Color(0xFF10B981),
+                keyPoints = listOf(
+                    "Natural Language Heuristic Parser" to "Type naturally: 'Draft budget tomorrow 3pm 45m #deepwork 🐸' — dates, times, durations, hashtags, and frog flags are extracted instantly.",
+                    "Archetype-Driven Decomposition" to "Classifies tasks into 6 core archetypes (Technical, Writing, Admin, Creative, Research, Everyday) and builds structured micro-step hierarchies.",
+                    "Pure BYOK (Bring Your Own Key)" to "Zero hardcoded keys or shared servers. Add your Gemini API key in Settings; it is encrypted locally in DataStore and never transmitted elsewhere.",
+                    "Resilient Cascade & TTL Caching" to "Features an in-memory 20-minute cache and 60s backoff guard. If network fails or no key is configured, neuroFlow degrades seamlessly to local heuristic decomposition with zero errors.",
+                    "Adaptive Behavioral Directives" to "Audits avoided or deleted tasks and synthesizes a concise coaching directive to refine future task decompositions."
+                ),
+                proTip = "Add hashtags like #deepwork, #offline, #admin, or #quickwin to automatically map tasks into dedicated energy zones and context profiles.",
+                scienceNote = "Closed-loop meta-prompting injects persistent coaching directives into task enrichment prompts to maintain alignment with minimal token footprint."
+            ),
+            GuideSectionItem(
+                id = "vault_chronotype",
+                category = GuideCategory.VAULT_CHRONO,
+                emoji = "🗃️",
+                tag = "KNOWLEDGE & CALIBRATION",
+                title = "The Vault, Scratchpad & Chronotype Profiles",
+                summary = "Icebox backlog, quick thought capture, and circadian chronotype tuning.",
+                accentColor = Color(0xFFF59E0B),
+                keyPoints = listOf(
+                    "Quick Scratchpad Notes" to "Long-press the floating action button (+) or tap the Notes icon in the top bar to record thoughts instantly without breaking focus.",
+                    "The Icebox (Zero-Distraction Backlog)" to "Park non-urgent ideas and someday/maybe tasks. Keeps your active Cockpit uncluttered until you are ready to pull them into Plan.",
+                    "MEQ Chronotype Assessment" to "Complete the validated Morningness-Eveningness Questionnaire (MEQ) to calibrate your biological phase anchors (Morning Lark, Intermediate, Night Owl).",
+                    "Manual Peak Energy Tuning" to "Prefer manual control? Enable manual peak anchor in Settings to lock your preferred cognitive focus hours.",
+                    "Evening Shutdown Ritual" to "Review completed tasks, log remaining thoughts into scratchpad, and trigger shutdown to transition smoothly into wind-down."
+                ),
+                proTip = "Review your Vault scratchpad at the end of the day during Evening Shutdown to convert fleeting notes into structured tasks.",
+                scienceNote = "Externalizing open loops into a trusted capture system reduces cognitive tension and prevents bedtime rumination."
+            )
+        )
+    }
+
+    val filteredItems = remember(searchQuery, selectedCategory, guideItems) {
+        guideItems.filter { item ->
+            val matchesCategory = selectedCategory == GuideCategory.ALL || item.category == selectedCategory
+            val matchesSearch = searchQuery.isBlank() ||
+                item.title.contains(searchQuery, ignoreCase = true) ||
+                item.tag.contains(searchQuery, ignoreCase = true) ||
+                item.summary.contains(searchQuery, ignoreCase = true) ||
+                item.keyPoints.any { it.first.contains(searchQuery, ignoreCase = true) || it.second.contains(searchQuery, ignoreCase = true) }
+            matchesCategory && matchesSearch
+        }
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("neuroFlow User Guide") },
+                title = {
+                    Column {
+                        Text(
+                            text = "neuroFlow V2 Manual",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Text(
+                            text = "Biological High Performance & Executive Guide",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    titleContentColor = NeuroFlowPaletteV2.TextPrimary
                 )
             )
         }
@@ -53,330 +296,491 @@ fun AppGuideScreen(onNavigateBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Hero
-            Card(
+            // Modern Hero Banner
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.Purple.copy(alpha = 0.1f))
+                shape = RoundedCornerShape(22.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(
+                    1.dp,
+                    NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigo, 0.85f)
+                ),
+                tonalElevation = 4.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("⚡", fontSize = 40.sp)
-                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🧬", fontSize = 26.sp)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        "Master your workflow with science-backed prioritization, auto-scheduling, and deep focus.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        text = "System Architecture & Biophysics",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Aligning task execution with Borbély circadian oscillations, Bateman stimulant pharmacokinetics, and neurodivergent executive ergonomics.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 18.sp
                     )
                 }
             }
 
-            // 1. Quick Start
-            GuideSection(
-                emoji = "🚀",
-                title = "Start in 3 Minutes",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.Purple,
-                summary = "Quick setup to get productive immediately.",
-                steps = listOf(
-                    "Add 3-5 tasks only. Keep titles specific and actionable.",
-                    "Set a deadline on at least one task that truly matters today.",
-                    "Mark one hard-but-crucial task as 🐸 Frog.",
-                    "Open Focus Mode and run one 25-minute sprint.",
-                    "Ignore everything else until that sprint is completed."
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                placeholder = {
+                    Text(
+                        "Search algorithms, biophysics, features...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextTertiary
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = NeuroFlowPaletteV2.TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = NeuroFlowPaletteV2.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    unfocusedContainerColor = NeuroFlowPaletteV2.SurfaceCard,
+                    focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                    unfocusedBorderColor = NeuroFlowPaletteV2.BorderSubtle,
+                    focusedTextColor = NeuroFlowPaletteV2.TextPrimary,
+                    unfocusedTextColor = NeuroFlowPaletteV2.TextPrimary
                 )
             )
 
-            // 2. Daily Loop
-            GuideSection(
-                emoji = "🔁",
-                title = "The Daily Loop",
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                summary = "A repeatable 5-step daily routine.",
-                steps = listOf(
-                    "Morning: Check the Matrix and pick the top scored task in DO FIRST.",
-                    "Timeline: Review your auto-scheduled day or lock in key focus blocks.",
-                    "Sprint: Run Focus Mode for 25-45 minutes without switching apps.",
-                    "Post-Sprint: Mark done, log time, or split remaining work into the next session.",
-                    "Evening: Review completed wins and queue tomorrow's 🐸 Frog."
+            // Category Filter Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GuideCategory.values().forEach { category ->
+                    val isSelected = selectedCategory == category
+                    Surface(
+                        onClick = { selectedCategory = category },
+                        shape = RoundedCornerShape(50),
+                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f) else NeuroFlowPaletteV2.SurfaceCard,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo else NeuroFlowPaletteV2.BorderSubtle
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(category.emoji, fontSize = 13.sp)
+                            Text(
+                                text = category.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) NeuroFlowPaletteV2.TextPrimary else NeuroFlowPaletteV2.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Results count
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${filteredItems.size} Module${if (filteredItems.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowPaletteV2.TextTertiary,
+                    fontWeight = FontWeight.SemiBold
                 )
-            )
 
-            // 3. Auto-Scheduling
-            GuideSection(
-                emoji = "🤖",
-                title = "Auto-Scheduling & Smart Timeline",
-                color = NeuroFlowColors.ScheduledCard,
-                textColor = Color(0xFF1565C0),
-                summary = "How the intelligent scheduler places tasks automatically.",
-                steps = listOf(
-                    "Automatic Placement: When enabled, active tasks with estimated durations are automatically scheduled into your calendar timeline.",
-                    "Circadian & Energy Alignment: Analytical and high-effort tasks are placed during your peak energy hours; routine tasks during afternoon dips.",
-                    "Automatic Rest Breaks: A 15-minute restorative break is automatically inserted after every 90 minutes of continuous cognitive load.",
-                    "Protected Slots: Sleep hours and custom protected blocks (lunch, gym, winding down) are strictly respected.",
-                    "🔒 Schedule Locking: Tap 'Lock Schedule' on any task to pin it to an exact time slot. Auto-scheduling will never displace locked tasks."
+                if (expandedIds.size < filteredItems.size) {
+                    TextButton(
+                        onClick = { expandedIds = filteredItems.map { it.id }.toSet() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text(
+                            text = "Expand All",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else if (expandedIds.isNotEmpty()) {
+                    TextButton(
+                        onClick = { expandedIds = emptySet() },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Text(
+                            text = "Collapse All",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextTertiary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            // Empty search state
+            if (filteredItems.isEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = NeuroFlowPaletteV2.SurfaceCard,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("🔍", fontSize = 32.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No matching modules found",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Try clearing your search query or switching categories.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            // Guide Module Cards
+            filteredItems.forEach { item ->
+                val isExpanded = expandedIds.contains(item.id)
+                ModernGuideCard(
+                    item = item,
+                    isExpanded = isExpanded,
+                    onToggleExpand = {
+                        expandedIds = if (isExpanded) {
+                            expandedIds - item.id
+                        } else {
+                            expandedIds + item.id
+                        }
+                    }
                 )
-            )
+            }
 
-            // 4. Dependencies
-            GuideSection(
-                emoji = "🔗",
-                title = "Task Dependencies & Unblocking",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "Chaining tasks so work happens in the right order.",
-                steps = listOf(
-                    "Prerequisites: In the task editor, select 'Depends On' to link predecessor tasks.",
-                    "Blocked State: Blocked tasks score 0 and won't crowd your DO FIRST quadrant until their prerequisites are finished.",
-                    "Critical Path Multiplier: Tasks that unblock multiple other tasks receive an exponential priority boost (Critical Path Method).",
-                    "Auto-Unblocking: When you complete a prerequisite task, all dependent tasks are instantly unblocked and scheduled."
-                )
-            )
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 5. Multi-Session Task Splitting
-            GuideSection(
-                emoji = "✂️",
-                title = "Multi-Session Task Splitting",
-                color = NeuroFlowColors.DoFirstBg,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "Breaking huge 2hr+ projects into manageable 45-minute sprints.",
-                steps = listOf(
-                    "Overcome Procrastination: Large tasks often trigger avoidance. Splitting them transforms overwhelming projects into doable chunks.",
-                    "Chained Chunks: Splitting a 2-hour task creates sequential parts (e.g. Part 1/3, Part 2/3, Part 3/3), chained by dependencies.",
-                    "Seamless Scheduling: Part 1 schedules first. As soon as you complete Part 1, Part 2 automatically unlocks and schedules next.",
-                    "Progress Momentum: Each completed session earns XP and increases momentum scoring for subsequent sessions."
-                )
-            )
-
-            // 6. Eisenhower Matrix
-            GuideSection(
-                emoji = "🗂",
-                title = "Eisenhower Matrix Explained",
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                textColor = NeuroFlowColors.PurpleDark,
-                summary = "The classic 4-quadrant decision framework.",
-                steps = listOf(
-                    "DO FIRST (Urgent & Important): High-impact tasks with pressing deadlines. Handle these first today.",
-                    "SCHEDULE (Important, Not Urgent): Long-term value, strategy, and skill building. Guard time on your calendar for these.",
-                    "DELEGATE (Urgent, Low Impact): Admin, quick emails, errands. Batch or handle quickly.",
-                    "ON HOLD / ELIMINATE: Parked ideas or low-value items. Kept out of sight until needed.",
-                    "The ✦ badge highlights the highest-scored task across your entire matrix."
-                )
-            )
-
-            // 7. Priority Scoring & Custom Weights
-            GuideSection(
-                emoji = "⚡",
-                title = "Priority Scoring & Strategy Tuning",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "How the 20+ signal scoring engine ranks your tasks.",
-                steps = listOf(
-                    "Continuous Mathematical Score: Recomputed dynamically based on deadlines, chronotype, time-of-day, habits, and momentum.",
-                    "Why This Score?: In Focus Mode, tap the score breakdown to see the exact point contributions for every heuristic.",
-                    "Custom Scoring Weights: Go to Settings → Priority Weights & Strategy to adjust sliders or pick a 1-click strategy preset.",
-                    "Presets: Switch between 'Balanced', 'Deadline Driven', 'Momentum / ADHD Friendly', or 'Pure Eisenhower' depending on your current mode."
-                )
-            )
-
-            // 8. Focus Mode & Time Tracking
-            GuideSection(
-                emoji = "🎯",
-                title = "Focus Mode & Deep Work",
-                color = NeuroFlowColors.ScheduleBg,
-                textColor = NeuroFlowColors.ScheduleText,
-                summary = "Stay in the flow and protect your attention.",
-                steps = listOf(
-                    "Live Timer: Track exact time spent per task. Pauses and resumes cleanly across app restarts.",
-                    "🍅 Pomodoro: Built-in 25-minute sprints with customizable break intervals.",
-                    "WOOP Method: Clarify your Wish, Outcome, Obstacle, and Plan before starting to double follow-through rates.",
-                    "Interruption Shield: Gentle 3-second breathing interstitial when attempting to leave an active focus sprint.",
-                    "Manual Logging: If you did work away from your phone, enter manual minutes on task completion to maintain accurate XP and estimation stats."
-                )
-            )
-
-            // 9. Time Blocking & Protected Slots
-            GuideSection(
-                emoji = "📅",
-                title = "Time Blocking & Protected Time",
-                color = NeuroFlowColors.ScheduledCard,
-                textColor = Color(0xFF1565C0),
-                summary = "Guard your calendar from overload.",
-                steps = listOf(
-                    "Timeline Drag & Tap: Tap any open hour slot in the Calendar view to assign a task.",
-                    "Protected Time Slots: Configure recurring gym, meal, or recovery blocks in Settings. The scheduler will route tasks around them.",
-                    "Chronotype Sync: Morning larks get peak morning slots; night owls get late afternoon/evening focus windows.",
-                    "Day Transitions: Easily navigate between days using the arrow buttons at the top of the Timeline."
-                )
-            )
-
-            // 10. Analytics & Insights
-            GuideSection(
-                emoji = "📊",
-                title = "Analytics & Performance Insights",
-                color = NeuroFlowColors.DeadlineCard,
-                textColor = NeuroFlowColors.DoFirstText,
-                summary = "Understand your working habits and estimation accuracy.",
-                steps = listOf(
-                    "XP & Impact Points: Earn points scaled by task impact and duration to gamify productivity.",
-                    "Estimation Accuracy (MAPE): Compares estimated vs. actual tracked minutes so you calibrate planning over time.",
-                    "Procrastination Radar: Highlights tasks that have been repeatedly postponed or rescheduled.",
-                    "Energy & Circadian Curves: Visualizes your daily energy rhythm and detected peak performance windows."
-                )
-            )
-
-            // 11. Cognitive Science
-            GuideSection(
-                emoji = "🧠",
-                title = "Science & Cognitive Frameworks",
-                color = MaterialTheme.colorScheme.surface,
-                textColor = MaterialTheme.colorScheme.onSurface,
-                summary = "The scientific principles powering neuroFlow.",
-                steps = listOf(
-                    "Temporal Motivation Theory (Steel): Hyperbolic discounting where urgency escalates exponentially near deadlines.",
-                    "Eat the Frog (Tracy): Morning-weighted willpower boosts for high-effort, dreaded tasks.",
-                    "Implementation Intentions (Gollwitzer): If-Then structured action plans dramatically boost completion rates.",
-                    "Zeigarnik Effect: Incomplete tasks create cognitive tension that resolves upon execution.",
-                    "Progress Principle (Amabile): Making small visible progress in meaningful work is the single strongest human motivator.",
-                    "Circadian Rhythm Matching (Anderson et al.): Harmonizing analytical tasks with biological temperature peaks."
-                )
-            )
-
-            // 12. Troubleshooting
-            GuideSection(
-                emoji = "💡",
-                title = "When You Feel Overwhelmed or Stuck",
-                color = NeuroFlowColors.PurpleLight,
-                textColor = NeuroFlowColors.PurpleDark,
-                summary = "Quick reset sequence for low-motivation days.",
-                steps = listOf(
-                    "1. Switch Preset: Go to Settings → Priority Weights and select 'Momentum / ADHD Friendly'.",
-                    "2. Chunk It: Split your biggest task into 30-min or 45-min sessions.",
-                    "3. 5-Minute Rule: Open Focus Mode and commit to working for just 5 minutes.",
-                    "4. If still blocked, do a low-effort administrative task first to build momentum.",
-                    "5. Remember: Consistency beats intensity. Doing one focused sprint per day builds unstoppable momentum."
-                )
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            // Footer tip
+            // Footer Mindset Card
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = NeuroFlowColors.Purple.copy(alpha = 0.08f),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text("💡", fontSize = 24.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Do less, but do it daily. Consistency beats intensity.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NeuroFlowColors.Purple
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("💡", fontSize = 20.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "The Core Operating Law",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Consistency beats intensity. One focused sprint in biological sync per day creates compounding neurological momentum.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary,
+                            lineHeight = 17.sp
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 }
 
 @Composable
-private fun GuideSection(
-    emoji: String,
-    title: String,
-    color: Color,
-    textColor: Color,
-    summary: String,
-    steps: List<String>
+private fun ModernGuideCard(
+    item: GuideSectionItem,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val rotationState by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "expand_chevron_rotation"
+    )
 
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = color),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(20.dp),
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        border = BorderStroke(
+            1.dp,
+            if (isExpanded) {
+                NeuroFlowPaletteV2.specularBorderBrush(item.accentColor, 0.75f)
+            } else {
+                Brush.verticalGradient(listOf(NeuroFlowPaletteV2.BorderSubtle, NeuroFlowPaletteV2.BorderSubtle))
+            }
+        ),
+        tonalElevation = if (isExpanded) 3.dp else 1.dp
     ) {
-        Column {
-            // Header — always visible, tap to expand
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggleExpand() }
+                .padding(18.dp)
+        ) {
+            // Header Row
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(textColor.copy(alpha = 0.12f)),
+                        .background(item.accentColor.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(emoji, fontSize = 20.sp)
+                    Text(item.emoji, fontSize = 22.sp)
                 }
-                Spacer(Modifier.width(12.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textColor)
-                    Text(summary, fontSize = 13.sp, color = textColor.copy(alpha = 0.75f))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = item.accentColor.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = item.tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = item.accentColor,
+                            fontSize = 10.sp,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
                 }
-                Icon(
-                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    tint = textColor.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+
+                IconButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = if (isExpanded) item.accentColor else NeuroFlowPaletteV2.TextTertiary,
+                        modifier = Modifier.rotate(rotationState)
+                    )
+                }
             }
 
-            // Expandable steps
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = item.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowPaletteV2.TextSecondary,
+                lineHeight = 18.sp
+            )
+
+            // Expanded Content
             AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(),
-                exit = shrinkVertically()
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    HorizontalDivider(color = textColor.copy(alpha = 0.15f))
-                    Spacer(Modifier.height(4.dp))
-                    steps.forEachIndexed { index, step ->
-                        Row(verticalAlignment = Alignment.Top) {
+                    HorizontalDivider(
+                        color = item.accentColor.copy(alpha = 0.2f),
+                        thickness = 1.dp
+                    )
+
+                    // Key Points
+                    item.keyPoints.forEachIndexed { index, (pointTitle, pointDesc) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .padding(top = 3.dp)
-                                    .size(18.dp)
+                                    .padding(top = 2.dp)
+                                    .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(textColor.copy(alpha = 0.15f)),
+                                    .background(item.accentColor.copy(alpha = 0.18f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "${index + 1}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = textColor
+                                    text = "${index + 1}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = item.accentColor
                                 )
                             }
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                step,
-                                fontSize = 14.sp,
-                                color = textColor.copy(alpha = 0.9f),
-                                lineHeight = 20.sp
-                            )
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = pointTitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowPaletteV2.TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = pointDesc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowPaletteV2.TextSecondary,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Pro-Tip Callout
+                    item.proTip?.let { tip ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = item.accentColor.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, item.accentColor.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("💡", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "PRO-TIP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = item.accentColor,
+                                        letterSpacing = 0.6.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = tip,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NeuroFlowPaletteV2.TextPrimary,
+                                        lineHeight = 17.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Science / Mathematical Callout
+                    item.scienceNote?.let { science ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("🔬", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "BIOPHYSICAL BASIS",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = NeuroFlowPaletteV2.TextTertiary,
+                                        letterSpacing = 0.6.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = science,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = NeuroFlowPaletteV2.TextSecondary,
+                                        lineHeight = 17.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -384,5 +788,3 @@ private fun GuideSection(
         }
     }
 }
-
-

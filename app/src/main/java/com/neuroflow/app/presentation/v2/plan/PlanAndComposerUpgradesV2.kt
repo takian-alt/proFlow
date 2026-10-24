@@ -3,7 +3,6 @@ package com.neuroflow.app.presentation.v2.plan
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,10 +36,6 @@ import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.service.TaskEnrichmentResult
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 
-/**
- * Interactive Conflict Resolution Banner for PlanScreenV2 & WeeklyScheduleScreen:
- * Surfaces overlaps detected by ConflictResolver.analyzeScheduleConflicts() with 1-tap resolution.
- */
 @Composable
 fun ScheduleConflictResolverStrip(
     conflicts: List<ScheduleConflict>,
@@ -56,14 +50,17 @@ fun ScheduleConflictResolverStrip(
             conflicts.take(2).forEach { conflict ->
                 Surface(
                     color = NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.RecoveryRose, 0.9f)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -77,19 +74,21 @@ fun ScheduleConflictResolverStrip(
                                 tint = NeuroFlowPaletteV2.RecoveryRose,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
                                 Text(
                                     text = conflict.taskTitle,
                                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White,
+                                    color = NeuroFlowPaletteV2.TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = conflict.conflictDescription,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.72f)
+                                    color = NeuroFlowPaletteV2.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -97,13 +96,13 @@ fun ScheduleConflictResolverStrip(
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
                                 color = NeuroFlowPaletteV2.RecoveryRose,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.clickable { onResolveConflictClick(conflict) }
                             ) {
                                 Text(
-                                    text = "Move to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
+                                    text = "Shift to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.Black,
+                                    color = Color.White,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
@@ -115,9 +114,6 @@ fun ScheduleConflictResolverStrip(
     }
 }
 
-/**
- * Compact 2x2 Interactive Eisenhower Quadrant Filter Grid for PlanScreenV2
- */
 @Composable
 fun CompactEisenhowerMatrixFilter(
     countsByQuadrant: Map<Quadrant, Int>,
@@ -179,11 +175,14 @@ private fun QuadrantFilterTile(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = if (isSelected) accent.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceCard,
+        color = if (isSelected) accent.copy(alpha = 0.16f) else NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(
             width = if (isSelected) 1.5.dp else 1.dp,
-            color = if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle
+            brush = NeuroFlowPaletteV2.specularBorderBrush(
+                if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle,
+                if (isSelected) 1f else 0.7f
+            )
         ),
         modifier = modifier.clickable { onClick() }
     ) {
@@ -197,12 +196,16 @@ private fun QuadrantFilterTile(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (isSelected) accent else Color.White.copy(alpha = 0.85f)
+                color = if (isSelected) accent else NeuroFlowPaletteV2.TextPrimary,
+                modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            Spacer(modifier = Modifier.width(4.dp))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(accent.copy(alpha = 0.2f))
+                    .background(accent.copy(alpha = 0.18f))
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -215,10 +218,6 @@ private fun QuadrantFilterTile(
     }
 }
 
-/**
- * AI Task Enrichment & Micro-Step Preview Card for SmartTaskComposerSheetV2:
- * Displays GeminiAiOnlineService.enrichTaskWithAi() results (2m activation tip + micro-steps + suggested slot).
- */
 @Composable
 fun ComposerAiEnrichmentPreviewCard(
     enrichment: TaskEnrichmentResult?,
@@ -231,7 +230,10 @@ fun ComposerAiEnrichmentPreviewCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -240,7 +242,10 @@ fun ComposerAiEnrichmentPreviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = null,
@@ -251,10 +256,13 @@ fun ComposerAiEnrichmentPreviewCard(
                     Text(
                         text = if (isLoading) "BREAKING DOWN INITIATION FRICTION..." else "AI EXECUTIVE FUNCTION BREAKDOWN",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        color = NeuroFlowPaletteV2.ReboundCyan
+                        color = NeuroFlowPaletteV2.ReboundCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 if (enrichment != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
                     Surface(
                         color = NeuroFlowPaletteV2.ReboundCyan,
                         shape = RoundedCornerShape(8.dp),
@@ -263,7 +271,7 @@ fun ComposerAiEnrichmentPreviewCard(
                         Text(
                             text = "Apply Steps",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                            color = Color.Black,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -274,7 +282,7 @@ fun ComposerAiEnrichmentPreviewCard(
                 Text(
                     text = "💡 ${enrichment.activationTip}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.85f)
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 enrichment.microSteps.forEachIndexed { idx, step ->
@@ -288,13 +296,13 @@ fun ComposerAiEnrichmentPreviewCard(
                         Text(
                             text = "${idx + 1}. ${step.title}",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (idx == 0) NeuroFlowPaletteV2.OptimalEmerald else Color.White.copy(alpha = 0.8f),
+                            color = if (idx == 0) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.TextPrimary,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = "${step.estimatedMinutes}m",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.55f)
+                            color = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }

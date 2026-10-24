@@ -1,10 +1,10 @@
 # neuroFlow UI Codebase — Focus Deep Work Cockpit & Audio Soundscape Synthesizer
 
 **Description:** FocusScreenV2, FocusViewModelV2, FocusService, NeuralSoundscapePlayer/Generator, Solfeggio bell, and regulation sheets.  
-**Generated for Vice Head Review:** 2026-10-20 16:59:40  
+**Generated for Vice Head Review:** 2026-10-23 22:05:10  
 **Files:** 10  
-**Lines of Code:** 3,478  
-**Uncompressed Size:** 139.4 KB  
+**Lines of Code:** 4,144  
+**Uncompressed Size:** 168.2 KB  
 
 ---
 
@@ -29,8 +29,8 @@
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusAndRegulationUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusAndRegulationUpgradesV2.kt`
-- **Lines of Code:** 511
-- **Size:** 19,943 bytes (19.5 KB)
+- **Lines of Code:** 498
+- **Size:** 19,562 bytes (19.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus
@@ -41,7 +41,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +52,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -84,14 +82,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.engine.WoopEngine
-import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlinx.coroutines.delay
 
-/**
- * 1. Zen Micro-Step Spotlight Card for FocusScreenV2:
- * Shows ONLY the active micro-step in bold typography to prevent ADHD working-memory overload.
- */
 @Composable
 fun ZenMicroStepSpotlightCard(
     currentStepIndex: Int,
@@ -106,7 +99,10 @@ fun ZenMicroStepSpotlightCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -132,7 +128,7 @@ fun ZenMicroStepSpotlightCard(
                 Text(
                     text = "~${currentStepEstimatedMinutes}m target",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.55f)
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.height(14.dp))
@@ -142,7 +138,7 @@ fun ZenMicroStepSpotlightCard(
                     fontWeight = FontWeight.Bold,
                     fontSize = 19.sp
                 ),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -157,7 +153,7 @@ fun ZenMicroStepSpotlightCard(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                        contentColor = Color.Black
+                        contentColor = Color(0xFF0A0B0E)
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
@@ -176,9 +172,9 @@ fun ZenMicroStepSpotlightCard(
                     )
                 }
                 Surface(
-                    color = Color.White.copy(alpha = 0.06f),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
                     modifier = Modifier
                         .height(44.dp)
                         .clickable { onSkipStep() }
@@ -190,7 +186,7 @@ fun ZenMicroStepSpotlightCard(
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Step",
-                            tint = Color.White.copy(alpha = 0.75f)
+                            tint = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
@@ -199,9 +195,6 @@ fun ZenMicroStepSpotlightCard(
     }
 }
 
-/**
- * 2. Interactive Physiological Sigh Guide Sheet (Double Inhale + Long Exhale)
- */
 @Composable
 fun InteractivePhysiologicalSighSheet(
     totalCycles: Int = 3,
@@ -278,7 +271,7 @@ fun InteractivePhysiologicalSighSheet(
         Text(
             text = "Cycle $cycle of $totalCycles",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(24.dp))
         Box(
@@ -306,7 +299,7 @@ fun InteractivePhysiologicalSighSheet(
             Text(
                 text = stageLabel,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
@@ -315,15 +308,12 @@ fun InteractivePhysiologicalSighSheet(
         Text(
             text = "Two inhales maximally inflate alveoli; the extended exhale triggers vagal nerve slowing and clears acute executive friction.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             textAlign = TextAlign.Center
         )
     }
 }
 
-/**
- * 3. One-Tap Haptic Affordance Rating Sheet (AffordanceRatingSheet.kt)
- */
 @Composable
 fun UpgradedAffordanceRatingSheet(
     taskTitle: String,
@@ -358,14 +348,14 @@ fun UpgradedAffordanceRatingSheet(
         Text(
             text = "How did \"$taskTitle\" feel compared to what you expected?",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White,
+            color = NeuroFlowPaletteV2.TextPrimary,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "1 tap updates your personal circadian curve and future task scheduling.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.6f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(18.dp))
@@ -394,7 +384,7 @@ fun UpgradedAffordanceRatingSheet(
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = NeuroFlowPaletteV2.TextPrimary,
                             textAlign = TextAlign.Center,
                             fontSize = 10.sp
                         )
@@ -406,7 +396,7 @@ fun UpgradedAffordanceRatingSheet(
         Text(
             text = "Skip for now",
             style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.45f),
+            color = NeuroFlowPaletteV2.TextTertiary,
             modifier = Modifier
                 .clickable { onSkip() }
                 .padding(8.dp)
@@ -414,9 +404,6 @@ fun UpgradedAffordanceRatingSheet(
     }
 }
 
-/**
- * 4. Guided WOOP Obstacle & If-Then Plan Sheet (WoopPromptSheet.kt)
- */
 @Composable
 fun UpgradedWoopPromptSheet(
     taskTitle: String,
@@ -451,7 +438,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "Unblock \"$taskTitle\"",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White
+            color = NeuroFlowPaletteV2.TextPrimary
         )
         if (!dreadedTaskInsight.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -472,7 +459,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "1. Tap your main internal obstacle:",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color.White.copy(alpha = 0.8f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         presetObstacles.forEach { preset ->
@@ -492,7 +479,7 @@ fun UpgradedWoopPromptSheet(
                 Text(
                     text = preset,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = Color.White,
+                    color = NeuroFlowPaletteV2.TextPrimary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
                 )
             }
@@ -501,7 +488,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "2. Your automatic If-Then reflex:",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color.White.copy(alpha = 0.8f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         OutlinedTextField(
@@ -530,7 +517,7 @@ fun UpgradedWoopPromptSheet(
             },
             colors = ButtonDefaults.buttonColors(
                 containerColor = NeuroFlowPaletteV2.ReboundCyan,
-                contentColor = Color.Black
+                contentColor = Color.White
             ),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier
@@ -688,12 +675,14 @@ class FocusCompletionNotifier @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusScreenV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusScreenV2.kt`
-- **Lines of Code:** 1,028
-- **Size:** 49,502 bytes (48.3 KB)
+- **Lines of Code:** 1,329
+- **Size:** 61,678 bytes (60.2 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus
 
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -730,6 +719,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -738,12 +728,14 @@ import com.neuroflow.app.presentation.v2.focus.components.KeepScreenOnEffect
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FocusScreenV2(
+    initialOpenWoop: Boolean = false,
     onNavigateBack: () -> Unit,
     onNavigateToNextTask: (String) -> Unit = {},
     viewModel: FocusViewModelV2 = hiltViewModel()
@@ -754,13 +746,29 @@ fun FocusScreenV2(
     var newThoughtText by remember { mutableStateOf("") }
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
-    var showWoopPromptSheet by remember { mutableStateOf(false) }
+    var showWoopPromptSheet by remember { mutableStateOf(initialOpenWoop) }
+    var showFrogConfetti by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.task, state.preferences, initialOpenWoop) {
+        val task = state.task
+        val prefs = state.preferences
+        if (task != null) {
+            if (initialOpenWoop || (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null)) {
+                showWoopPromptSheet = true
+                viewModel.markWoopPromptShown()
+            }
+        }
+    }
 
     KeepScreenOnEffect(enabled = state.isSessionActive && !state.isPaused)
 
+    val context = LocalContext.current
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.onScreenExit()
+            val activity = context as? Activity
+            if (activity?.isChangingConfigurations != true) {
+                viewModel.onScreenExit()
+            }
         }
     }
 
@@ -818,7 +826,7 @@ fun FocusScreenV2(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Mode Selector Chips
-            if (!state.isRunning && !state.isCompleted) {
+            if (!state.isRunning && !state.isPaused && !state.isCompleted) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -830,7 +838,7 @@ fun FocusScreenV2(
                             label = { Text(mode.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = Color.White,
+                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                 labelColor = NeuroFlowThemeV2Colors.TextSecondary
                             ),
@@ -879,7 +887,7 @@ fun FocusScreenV2(
                     Icon(
                         imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
-                        tint = Color.White,
+                        tint = NeuroFlowThemeV2Colors.TextPrimary,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -888,14 +896,17 @@ fun FocusScreenV2(
 
                 // Complete Task Button (touch target >= 48dp)
                 Button(
-                    onClick = { viewModel.completeTask() },
+                    onClick = {
+                        if (state.task?.isFrog == true) showFrogConfetti = true
+                        viewModel.completeTask()
+                    },
                     modifier = Modifier.heightIn(min = 52.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White)
+                    Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Complete", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Complete", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
                 }
 
                 Spacer(modifier = Modifier.width(10.dp))
@@ -909,6 +920,30 @@ fun FocusScreenV2(
                 ) {
                     Icon(Icons.Default.Lightbulb, contentDescription = "Park Thought", tint = NeuroFlowThemeV2Colors.WarmAmber)
                 }
+            }
+
+            // Bioluminescent Waveform Visualizer (Active during sprint with soundscape enabled)
+            val isAudioActive = state.selectedSoundscape != SoundscapeType.NONE && state.isRunning && !state.isPaused
+            if (isAudioActive) {
+                BioluminescentSoundscapeWaveformCard(soundscape = state.selectedSoundscape)
+            }
+
+            // Pinned Active Doorway Step Spotlight Card
+            val activeMicroSteps = state.microSteps
+            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
+                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
+            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
+            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
+
+            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
+                ZenMicroStepSpotlightCard(
+                    currentStepIndex = firstIncompleteIndex,
+                    totalSteps = activeMicroSteps.size,
+                    currentStepTitle = currentMicroStep.text,
+                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
+                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
+                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
+                )
             }
 
             // Neural Soundscapes Card
@@ -973,7 +1008,7 @@ fun FocusScreenV2(
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                    selectedLabelColor = Color.White,
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                     labelColor = NeuroFlowThemeV2Colors.TextSecondary
                                 ),
@@ -1155,30 +1190,13 @@ fun FocusScreenV2(
                 }
             }
 
-            // Active Focus Mode: Zen Micro-Step Spotlight Card (or multi-step overview when paused/ready)
-            val activeMicroSteps = state.microSteps
-            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
-                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
-            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
-            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
-
-            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
-                ZenMicroStepSpotlightCard(
-                    currentStepIndex = firstIncompleteIndex,
-                    totalSteps = activeMicroSteps.size,
-                    currentStepTitle = currentMicroStep.text,
-                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
-                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
-                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
-                )
-            } else {
-                // Micro-Steps Decomposition Checklist
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurface,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
-                ) {
+            // Micro-Steps Decomposition Checklist
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+            ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         val completedCount = state.microSteps.count { it.completed }
                         val totalSteps = state.microSteps.size
@@ -1265,7 +1283,6 @@ fun FocusScreenV2(
                         }
                     }
                 }
-            }
             }
 
             Spacer(modifier = Modifier.height(60.dp))
@@ -1385,6 +1402,10 @@ fun FocusScreenV2(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Outstanding focus. You conquered '${state.task?.title}' and earned +${state.pointsEarned} dopamine points.", style = MaterialTheme.typography.bodyMedium)
+                    if (!state.completionAffirmation.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("✨ \"${state.completionAffirmation}\"", style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                    }
                     if (state.nextTaskId != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Next in queue: ${state.nextTaskTitle}", fontWeight = FontWeight.SemiBold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
@@ -1499,6 +1520,33 @@ fun FocusScreenV2(
             )
         }
     }
+
+    if (state.showSprintCompletionSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.dismissSprintCompletionSheet() },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurface
+        ) {
+            SprintCompletionSheet(
+                taskTitle = state.task?.title ?: "Deep Focus",
+                timerMode = state.timerMode,
+                onKeepGoing = { viewModel.keepGoing(FocusTimerModeV2.POMODORO_25) },
+                onDecompress = { viewModel.takeDecompressionRest() },
+                onCompleteTask = {
+                    if (state.task?.isFrog == true) showFrogConfetti = true
+                    viewModel.completeTask()
+                },
+                onDismiss = { viewModel.dismissSprintCompletionSheet() }
+            )
+        }
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
+    }
 }
 
 @Composable
@@ -1511,29 +1559,63 @@ fun RadialTimerGauge(
 ) {
     val totalSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 3600L else timerMode.durationSeconds
     val currentSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) elapsedSeconds else remainingSeconds
-    val progress = (currentSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+    val rawProgress = (currentSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = rawProgress,
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "timer_progress"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "focus_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.10f,
+        targetValue = if (isRunning && !isPaused) 0.26f else 0.10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_alpha"
+    )
 
     val minutes = currentSeconds / 60
     val seconds = currentSeconds % 60
-    val timeDisplay = String.format("%02d:%02d", minutes, seconds)
+    val timeDisplay = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+
+    val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+    val ringColor = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigo
+    val ringGlow = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigoGlow
 
     Box(
         modifier = Modifier
-            .size(230.dp)
-            .padding(10.dp),
+            .size(248.dp)
+            .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
-        val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
-        val ringColor = NeuroFlowThemeV2Colors.ElectricIndigo
-        val ringGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 14.dp.toPx()
-            val diameter = size.minDimension - strokeWidth
+            val glowStrokeWidth = 24.dp.toPx()
+            val diameter = size.minDimension - glowStrokeWidth
             val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
             val arcSize = Size(diameter, diameter)
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = diameter / 2f
 
-            // Background track
+            // 1. Breathing radial core aura
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        ringGlow.copy(alpha = pulseAlpha),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = radius * 1.05f
+                ),
+                radius = radius * 1.05f,
+                center = center
+            )
+
+            // 2. Background track
             drawArc(
                 color = trackColor,
                 startAngle = -90f,
@@ -1544,22 +1626,45 @@ fun RadialTimerGauge(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
-            // Animated progress ring
-            drawArc(
-                brush = Brush.sweepGradient(
-                    listOf(
-                        ringColor,
-                        ringGlow,
-                        ringColor
-                    )
-                ),
-                startAngle = -90f,
-                sweepAngle = progress * 360f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
+            // 3. Soft outer bloom arc + crisp core ring + leading tip orb
+            val sweep = animatedProgress * 360f
+            if (sweep > 0.5f) {
+                drawArc(
+                    color = ringGlow.copy(alpha = 0.22f),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = glowStrokeWidth, cap = StrokeCap.Round)
+                )
+
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        listOf(ringColor, ringGlow, ringColor)
+                    ),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+
+                val angleRad = Math.toRadians((-90.0 + sweep.toDouble()))
+                val tipX = center.x + radius * kotlin.math.cos(angleRad).toFloat()
+                val tipY = center.y + radius * kotlin.math.sin(angleRad).toFloat()
+                drawCircle(
+                    color = ringGlow.copy(alpha = 0.45f),
+                    radius = 11.dp.toPx(),
+                    center = Offset(tipX, tipY)
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 4.5.dp.toPx(),
+                    center = Offset(tipX, tipY)
+                )
+            }
         }
 
         Column(
@@ -1568,26 +1673,34 @@ fun RadialTimerGauge(
         ) {
             Text(
                 text = timeDisplay,
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Black,
-                color = NeuroFlowThemeV2Colors.TextPrimary,
-                letterSpacing = 1.sp
+                style = MaterialTheme.typography.displayMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    fontSize = 46.sp,
+                    letterSpacing = (-1).sp
+                ),
+                color = NeuroFlowThemeV2Colors.TextPrimary
             )
+            Spacer(modifier = Modifier.height(4.dp))
             val statusLabel = when {
-                !isRunning -> "READY"
-                isPaused -> "PAUSED"
-                else -> "FLOW IN PROGRESS"
+                !isRunning && !isPaused -> "READY FOR DEEP WORK"
+                isPaused -> "SESSION PAUSED"
+                else -> "FLOW STATE ACTIVE"
             }
-            Text(
-                text = statusLabel,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = when {
-                    !isRunning -> NeuroFlowThemeV2Colors.TextSecondary
-                    isPaused -> NeuroFlowThemeV2Colors.WarmAmber
-                    else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                }
-            )
+            Surface(
+                color = ringGlow.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, ringGlow.copy(alpha = 0.35f))
+            ) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.9.sp
+                    ),
+                    color = ringGlow,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
@@ -1630,6 +1743,73 @@ fun ActiveAudioIndicator(isActive: Boolean) {
                     .height(height.dp)
                     .background(barColor, RoundedCornerShape(1.5.dp))
             )
+        }
+    }
+}
+
+@Composable
+fun BioluminescentSoundscapeWaveformCard(
+    soundscape: SoundscapeType,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
+        label = "phase"
+    )
+
+    Surface(
+        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.5f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "🎧 ${soundscape.displayName}",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                )
+                Text(
+                    text = "Soundscape Stream",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+
+            // Bioluminescent Waveform Bars
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.height(24.dp)
+            ) {
+                val barCount = 14
+                for (i in 0 until barCount) {
+                    val normalizedI = i.toFloat() / barCount
+                    val wave = kotlin.math.sin((normalizedI * 2 * Math.PI + phase * 2 * Math.PI).toFloat())
+                    val barHeight = (6f + 14f * (0.5f + 0.5f * wave)).coerceIn(4f, 20f)
+                    val barAlpha = 0.45f + 0.55f * (0.5f + 0.5f * wave)
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(barHeight.dp)
+                            .background(
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = barAlpha),
+                                shape = RoundedCornerShape(1.5.dp)
+                            )
+                    )
+                }
+            }
         }
     }
 }
@@ -1720,6 +1900,114 @@ fun HeroTaskCard(
         }
     }
 }
+
+@Composable
+fun SprintCompletionSheet(
+    taskTitle: String,
+    timerMode: FocusTimerModeV2,
+    onKeepGoing: () -> Unit,
+    onDecompress: () -> Unit,
+    onCompleteTask: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isMicroStart = timerMode == FocusTimerModeV2.JUST_5_MIN
+    val title = if (isMicroStart) "⚡ Dopamine Micro-Start Complete!" else "🎯 Focus Sprint Complete!"
+    val subtitle = if (isMicroStart) {
+        "You successfully broke initial task paralysis on \"$taskTitle\". Momentum is active!"
+    } else {
+        "Solid work on \"$taskTitle\"! Decide your next cognitive step below."
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = NeuroFlowThemeV2Colors.WarmAmber,
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = NeuroFlowThemeV2Colors.TextSecondary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Action 1: Keep Going (Momentum)
+        Button(
+            onClick = onKeepGoing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "Keep Going (+25m Pomodoro)",
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+        }
+
+        // Action 2: Decompress (Rest)
+        Button(
+            onClick = onDecompress,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
+        ) {
+            Icon(Icons.Default.Psychology, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "3-Minute Rest (Decompression)",
+                fontWeight = FontWeight.Bold,
+                color = NeuroFlowThemeV2Colors.TextPrimary
+            )
+        }
+
+        // Action 3: Complete Entire Task
+        OutlinedButton(
+            onClick = onCompleteTask,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f))
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "I'm Finished — Complete Task",
+                fontWeight = FontWeight.SemiBold,
+                color = NeuroFlowThemeV2Colors.SageGreen
+            )
+        }
+
+        // Dismiss
+        TextButton(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Stay on Focus Screen", color = NeuroFlowThemeV2Colors.TextSecondary)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
 ```
 
 ---
@@ -1728,8 +2016,8 @@ fun HeroTaskCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusViewModelV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/FocusViewModelV2.kt`
-- **Lines of Code:** 749
-- **Size:** 28,478 bytes (27.8 KB)
+- **Lines of Code:** 897
+- **Size:** 34,841 bytes (34.0 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus
@@ -1750,11 +2038,13 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.v2.focus.audio.NeuralSoundscapePlayer
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -1804,7 +2094,10 @@ data class FocusUiStateV2(
     val isDecompressionSighActive: Boolean = false,
     val decompressionSighRemainingSeconds: Int = 0,
     val isDecompressionBypassed: Boolean = false,
-    val skippedMicroStepIndices: Set<Int> = emptySet()
+    val skippedMicroStepIndices: Set<Int> = emptySet(),
+    val showSprintCompletionSheet: Boolean = false,
+    val isSprintCompleted: Boolean = false,
+    val completionAffirmation: String? = null
 ) {
     val isSessionActive: Boolean get() = isRunning
 }
@@ -1829,6 +2122,8 @@ class FocusViewModelV2 @Inject constructor(
     private var timerJob: Job? = null
     private var pauseCount: Int = 0
     private var hasNotifiedCompletion = false
+    private var autoTrackerJob: Job? = null
+    private var autoTrackerTriggered = false
 
     val soundscapePlayer: NeuralSoundscapePlayer by lazy {
         NeuralSoundscapePlayer(context)
@@ -1840,10 +2135,17 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     private fun loadTask() {
+        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
         viewModelScope.launch {
             val task = taskRepository.getById(taskId)
             val woop = woopRepository.getByTaskId(taskId)
-            val steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            var steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            if (steps.isEmpty() && task != null) {
+                val dbSteps = taskRepository.getMicroSteps(task.id)
+                if (dbSteps.isNotEmpty()) {
+                    steps = dbSteps.map { StepByStepPlanStep(it.title, it.isCompleted) }
+                }
+            }
 
             // Find next task
             val activeTasks = taskRepository.getActiveTasks()
@@ -1914,18 +2216,41 @@ class FocusViewModelV2 @Inject constructor(
     private fun observePreferences() {
         viewModelScope.launch {
             preferencesDataStore.preferencesFlow
-                .distinctUntilChanged { old, new ->
-                    old.dndEnabled == new.dndEnabled &&
-                    old.totalFocusMinutes == new.totalFocusMinutes
-                }
                 .collect { prefs ->
                     _uiState.update { it.copy(preferences = prefs) }
+                    checkAutoTracker(prefs)
                 }
         }
     }
 
+    private fun checkAutoTracker(prefs: UserPreferences) {
+        if (!prefs.autoTrackerEnabled || autoTrackerTriggered || _uiState.value.isRunning || _uiState.value.isPaused) return
+        if (autoTrackerJob == null || autoTrackerJob?.isActive == false) {
+            autoTrackerJob = viewModelScope.launch {
+                delay(8000L)
+                if (!_uiState.value.isRunning && !_uiState.value.isPaused && !autoTrackerTriggered) {
+                    autoTrackerTriggered = true
+                    startTimer()
+                }
+            }
+        }
+    }
+
+    fun markWoopPromptShown() {
+        viewModelScope.launch {
+            val task = _uiState.value.task ?: return@launch
+            if (!task.woopPromptShown) {
+                val updated = task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis())
+                taskRepository.update(updated)
+                _uiState.update { it.copy(task = updated) }
+            }
+        }
+    }
+
     fun selectTimerMode(mode: FocusTimerModeV2) {
-        if (_uiState.value.isRunning) return
+        if (_uiState.value.isRunning || _uiState.value.isPaused) return
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
         hasNotifiedCompletion = false
         _uiState.update {
             it.copy(
@@ -1934,7 +2259,9 @@ class FocusViewModelV2 @Inject constructor(
                 elapsedSeconds = 0L,
                 startedAtMillis = 0L,
                 accumulatedPauseMillis = 0L,
-                pausedAtMillis = null
+                pausedAtMillis = null,
+                isSprintCompleted = false,
+                showSprintCompletionSheet = false
             )
         }
     }
@@ -1958,7 +2285,9 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     fun onScreenExit() {
-        if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
+        if (!_uiState.value.isSessionActive && _uiState.value.selectedSoundscape != SoundscapeType.NONE) {
             soundscapePlayer.pauseWithFadeOut()
         }
     }
@@ -1984,10 +2313,18 @@ class FocusViewModelV2 @Inject constructor(
             )
             woopRepository.upsert(entity)
             _uiState.update { it.copy(woopData = entity) }
+
+            val task = _uiState.value.task
+            if (task != null && (task.ifThenPlan.isNullOrBlank() || !task.ifThenPlan!!.contains("["))) {
+                taskRepository.update(task.copy(ifThenPlan = plan, updatedAt = now))
+            }
         }
     }
 
     fun startTimer() {
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
+        autoTrackerTriggered = true
         if (_uiState.value.isRunning && !_uiState.value.isPaused) return
 
         if (_uiState.value.isPaused) {
@@ -1996,7 +2333,8 @@ class FocusViewModelV2 @Inject constructor(
         }
 
         val now = System.currentTimeMillis()
-        val sessionId = _uiState.value.activeSessionId ?: UUID.randomUUID().toString()
+        val isFreshOrFinished = _uiState.value.isSprintCompleted || _uiState.value.isCompleted || _uiState.value.activeSessionId == null
+        val sessionId = if (isFreshOrFinished) UUID.randomUUID().toString() else (_uiState.value.activeSessionId ?: UUID.randomUUID().toString())
         hasNotifiedCompletion = false
 
         _uiState.update {
@@ -2006,7 +2344,11 @@ class FocusViewModelV2 @Inject constructor(
                 activeSessionId = sessionId,
                 startedAtMillis = now,
                 accumulatedPauseMillis = 0L,
-                pausedAtMillis = null
+                pausedAtMillis = null,
+                elapsedSeconds = 0L,
+                remainingSeconds = if (it.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 0L else it.timerMode.durationSeconds,
+                isSprintCompleted = false,
+                showSprintCompletionSheet = false
             )
         }
 
@@ -2071,14 +2413,43 @@ class FocusViewModelV2 @Inject constructor(
 
             if (isExpired) {
                 countdownHitZero = true
+                current.copy(
+                    isRunning = false,
+                    isPaused = false,
+                    elapsedSeconds = current.timerMode.durationSeconds,
+                    remainingSeconds = 0L,
+                    isSprintCompleted = true,
+                    showSprintCompletionSheet = true
+                )
+            } else {
+                current.copy(
+                    elapsedSeconds = elapsed,
+                    remainingSeconds = remaining
+                )
             }
-            current.copy(
-                elapsedSeconds = elapsed,
-                remainingSeconds = remaining
-            )
         }
         if (countdownHitZero) {
+            timerJob?.cancel()
+            timerJob = null
+            disableDnd()
             soundscapePlayer.pauseWithFadeOut()
+            FocusService.stopService(context)
+
+            val durationSec = _uiState.value.elapsedSeconds
+            val actualMinutes = max(1, (durationSec / 60).toInt())
+
+            updateSessionRecord(isOpen = false)
+
+            viewModelScope.launch {
+                val currentTask = _uiState.value.task
+                if (currentTask != null) {
+                    val updatedTask = currentTask.copy(
+                        totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                    )
+                    taskRepository.update(updatedTask)
+                }
+            }
+
             if (!hasNotifiedCompletion) {
                 hasNotifiedCompletion = true
                 focusCompletionNotifier?.playCompletionChimeAndHaptics(viewModelScope)
@@ -2205,6 +2576,7 @@ class FocusViewModelV2 @Inject constructor(
         disableDnd()
         soundscapePlayer.pauseWithFadeOut()
         FocusService.stopService(context)
+        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
 
         val now = System.currentTimeMillis()
         val durationSec = _uiState.value.elapsedSeconds
@@ -2225,12 +2597,26 @@ class FocusViewModelV2 @Inject constructor(
             }
 
             val currentTask = _uiState.value.task ?: return@launch
+            val finalTracked = currentTask.totalTimeTrackedMinutes + actualMinutes
+            val est = currentTask.estimatedDurationMinutes.toFloat()
+            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+
+            val points = 50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2)
+
             val updatedTask = currentTask.copy(
-                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                totalTimeTrackedMinutes = finalTracked,
+                actualDurationMinutes = finalTracked,
+                sessionCount = currentTask.sessionCount + 1,
+                lastSessionDurationMinutes = actualMinutes.toFloat(),
+                estimationErrorMape = mape,
+                estimationErrorSmape = smape,
+                focusModePoints = points,
+                status = TaskStatus.COMPLETED,
+                completedAt = now,
+                updatedAt = now
             )
             taskRepository.update(updatedTask)
-
-            val points = 50 + if (updatedTask.isFrog) 50 else 0 + (updatedTask.impactScore / 2)
             taskRepository.completeAndRecur(updatedTask, now)
 
             preferencesDataStore.updatePreferences { prefs ->
@@ -2255,6 +2641,9 @@ class FocusViewModelV2 @Inject constructor(
                 )
             }
 
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmation = if (prefs.affirmations.isNotEmpty()) prefs.affirmations.random() else null
+
             _uiState.update {
                 it.copy(
                     isRunning = false,
@@ -2266,7 +2655,8 @@ class FocusViewModelV2 @Inject constructor(
                     decompressionRemainingSeconds = 180,
                     isDecompressionSighActive = false,
                     decompressionSighRemainingSeconds = 0,
-                    isDecompressionBypassed = false
+                    isDecompressionBypassed = false,
+                    completionAffirmation = affirmation
                 )
             }
         }
@@ -2287,6 +2677,36 @@ class FocusViewModelV2 @Inject constructor(
 
     fun dismissAffordanceRating() {
         _uiState.update { it.copy(showAffordanceRating = false) }
+    }
+
+    fun keepGoing(nextMode: FocusTimerModeV2 = FocusTimerModeV2.POMODORO_25) {
+        _uiState.update {
+            it.copy(
+                timerMode = nextMode,
+                showSprintCompletionSheet = false,
+                isSprintCompleted = false
+            )
+        }
+        startTimer()
+    }
+
+    fun takeDecompressionRest() {
+        _uiState.update {
+            it.copy(
+                showSprintCompletionSheet = false,
+                isSprintCompleted = false,
+                showDecompressionZone = true,
+                decompressionRemainingSeconds = 180,
+                isDecompressionSighActive = false,
+                decompressionSighRemainingSeconds = 0,
+                isDecompressionBypassed = false
+            )
+        }
+        startDecompressionTicker()
+    }
+
+    fun dismissSprintCompletionSheet() {
+        _uiState.update { it.copy(showSprintCompletionSheet = false) }
     }
 
     private var decompressionJob: Job? = null
@@ -2425,6 +2845,10 @@ class FocusViewModelV2 @Inject constructor(
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            if (index in roomSteps.indices) {
+                taskRepository.toggleMicroStepCompleted(roomSteps[index])
+            }
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -2451,6 +2875,17 @@ class FocusViewModelV2 @Inject constructor(
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            val nextOrder = (roomSteps.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            taskRepository.insertMicroStep(
+                TaskMicroStepEntity(
+                    taskId = task.id,
+                    title = stepText.trim(),
+                    sortOrder = nextOrder,
+                    isCompleted = false,
+                    estimatedMinutes = 5
+                )
+            )
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -2474,10 +2909,11 @@ class FocusViewModelV2 @Inject constructor(
         timerJob?.cancel()
         decompressionJob?.cancel()
         disableDnd()
-        soundscapePlayer.release()
-        FocusService.stopService(context)
-        if (_uiState.value.isRunning && !_uiState.value.isCompleted) {
-            updateSessionRecord(isOpen = false)
+        if (!_uiState.value.isRunning || _uiState.value.isCompleted) {
+            soundscapePlayer.release()
+            FocusService.stopService(context)
+        } else {
+            soundscapePlayer.pauseWithFadeOut()
         }
     }
 }
@@ -2489,8 +2925,8 @@ class FocusViewModelV2 @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapeGenerator.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapeGenerator.kt`
-- **Lines of Code:** 166
-- **Size:** 6,883 bytes (6.7 KB)
+- **Lines of Code:** 269
+- **Size:** 11,741 bytes (11.5 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.audio
@@ -2516,6 +2952,7 @@ class NeuralSoundscapeGenerator(
     companion object {
         const val CARRIER_HZ = 200.0
         const val GAMMA_BEAT_HZ = 40.0
+        const val BETA_BEAT_HZ = 16.0
         const val LEFT_FREQ = CARRIER_HZ
         const val RIGHT_FREQ = CARRIER_HZ + GAMMA_BEAT_HZ // 240.0 Hz
     }
@@ -2523,6 +2960,10 @@ class NeuralSoundscapeGenerator(
     // Phase accumulators for binaural carriers
     private var phaseLeft = 0.0
     private var phaseRight = 0.0
+
+    // Phase accumulators for monaural beats
+    private var monauralPhase1 = 0.0
+    private var monauralPhase2 = 0.0
 
     // Brownian motion state (independent stereo leaky random walks)
     private var brownLeft = 0.0f
@@ -2542,6 +2983,8 @@ class NeuralSoundscapeGenerator(
     fun reset() {
         phaseLeft = 0.0
         phaseRight = 0.0
+        monauralPhase1 = 0.0
+        monauralPhase2 = 0.0
         brownLeft = 0.0f
         brownRight = 0.0f
         b0L = 0f; b1L = 0f; b2L = 0f; b3L = 0f; b4L = 0f; b5L = 0f; b6L = 0f
@@ -2594,6 +3037,9 @@ class NeuralSoundscapeGenerator(
 
         val stepLeft = 2.0 * PI * LEFT_FREQ / sampleRate
         val stepRight = 2.0 * PI * RIGHT_FREQ / sampleRate
+        val stepMonauralCarrier = 2.0 * PI * CARRIER_HZ / sampleRate
+        val stepMonauralGammaOffset = 2.0 * PI * (CARRIER_HZ + GAMMA_BEAT_HZ) / sampleRate
+        val stepMonauralBetaOffset = 2.0 * PI * (CARRIER_HZ + BETA_BEAT_HZ) / sampleRate
         val volDelta = targetVol - startVol
 
         for (i in 0 until numFrames) {
@@ -2612,6 +3058,36 @@ class NeuralSoundscapeGenerator(
                     phaseRight += stepRight
                     if (phaseLeft >= 2.0 * PI) phaseLeft -= 2.0 * PI
                     if (phaseRight >= 2.0 * PI) phaseRight -= 2.0 * PI
+                }
+                SoundscapeType.MONAURAL_GAMMA_40HZ,
+                SoundscapeType.BETA_16HZ -> {
+                    val stepOffset = if (type == SoundscapeType.MONAURAL_GAMMA_40HZ) {
+                        stepMonauralGammaOffset
+                    } else {
+                        stepMonauralBetaOffset
+                    }
+                    monauralPhase1 += stepMonauralCarrier
+                    if (monauralPhase1 >= 2.0 * PI) monauralPhase1 -= 2.0 * PI
+                    monauralPhase2 += stepOffset
+                    if (monauralPhase2 >= 2.0 * PI) monauralPhase2 -= 2.0 * PI
+
+                    val monauralBeat = 0.5f * (sin(monauralPhase1).toFloat() + sin(monauralPhase2).toFloat())
+
+                    // Synthesize pink noise bed sample (Paul Kellet 1/f filter)
+                    val w = Random.nextFloat() * 2f - 1f
+                    b0L = 0.99886f * b0L + w * 0.0555179f
+                    b1L = 0.99332f * b1L + w * 0.0750759f
+                    b2L = 0.96900f * b2L + w * 0.1538520f
+                    b3L = 0.86650f * b3L + w * 0.3104856f
+                    b4L = 0.55000f * b4L + w * 0.5329522f
+                    b5L = -0.7616f * b5L - w * 0.0168980f
+                    val pinkNoiseSample = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+                    b6L = w * 0.115926f
+
+                    // 75% prominent monaural tone + 25% subtle pink noise cushion
+                    val mixedSample = (monauralBeat * 0.75f + pinkNoiseSample * 0.25f).coerceIn(-1.0f, 1.0f)
+                    leftSampleFloat = mixedSample
+                    rightSampleFloat = mixedSample
                 }
                 SoundscapeType.BROWN_NOISE -> {
                     val whiteL = Random.nextFloat() * 2f - 1f
@@ -2658,6 +3134,69 @@ class NeuralSoundscapeGenerator(
 
         currentVolume = targetVol
     }
+
+    /**
+     * Synthesizes monaural beat frames with customizable carrier, beat frequency, and noise bed.
+     * Delivers an identical acoustic interference envelope to Left and Right channels.
+     * Section 6.44 Ratified Formula.
+     */
+    fun generateMonauralBeatFrames(
+        beatFreqHz: Double,
+        outputBuffer: ShortArray,
+        numFrames: Int,
+        volumeMultiplier: Float = 0.7f,
+        carrierHz: Double = CARRIER_HZ,
+        pinkNoiseRatio: Float = 0.25f
+    ) {
+        require(numFrames >= 0) { "numFrames cannot be negative: $numFrames" }
+        require(outputBuffer.size >= numFrames * 2) {
+            "outputBuffer size (${outputBuffer.size}) is smaller than required frames (${numFrames * 2})"
+        }
+        if (numFrames == 0) return
+
+        val safeVolume = if (volumeMultiplier.isNaN()) 0f else volumeMultiplier
+        val targetVol = safeVolume.coerceIn(0f, 1f)
+        val startVol = if (currentVolume.isNaN()) 0f else currentVolume
+
+        if (targetVol <= 0.00001f && startVol <= 0.00001f) {
+            outputBuffer.fill(0, 0, numFrames * 2)
+            currentVolume = 0.0f
+            return
+        }
+
+        val stepCarrier = 2.0 * PI * carrierHz / sampleRate
+        val stepOffset = 2.0 * PI * (carrierHz + beatFreqHz) / sampleRate
+        val volDelta = targetVol - startVol
+        val toneRatio = (1.0f - pinkNoiseRatio).coerceIn(0f, 1f)
+
+        for (i in 0 until numFrames) {
+            val fraction = (i + 1).toFloat() / numFrames
+            val vol = (startVol + volDelta * fraction).coerceIn(0f, 1f)
+
+            monauralPhase1 += stepCarrier
+            if (monauralPhase1 >= 2.0 * PI) monauralPhase1 -= 2.0 * PI
+            monauralPhase2 += stepOffset
+            if (monauralPhase2 >= 2.0 * PI) monauralPhase2 -= 2.0 * PI
+
+            val monauralBeat = 0.5f * (sin(monauralPhase1).toFloat() + sin(monauralPhase2).toFloat())
+
+            val w = Random.nextFloat() * 2f - 1f
+            b0L = 0.99886f * b0L + w * 0.0555179f
+            b1L = 0.99332f * b1L + w * 0.0750759f
+            b2L = 0.96900f * b2L + w * 0.1538520f
+            b3L = 0.86650f * b3L + w * 0.3104856f
+            b4L = 0.55000f * b4L + w * 0.5329522f
+            b5L = -0.7616f * b5L - w * 0.0168980f
+            val pinkNoise = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+            b6L = w * 0.115926f
+
+            val mixedSample = (monauralBeat * toneRatio + pinkNoise * pinkNoiseRatio).coerceIn(-1.0f, 1.0f)
+            val pcm = (mixedSample * vol * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+            outputBuffer[2 * i] = pcm
+            outputBuffer[2 * i + 1] = pcm
+        }
+        currentVolume = targetVol
+    }
 }
 ```
 
@@ -2667,8 +3206,8 @@ class NeuralSoundscapeGenerator(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapePlayer.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/NeuralSoundscapePlayer.kt`
-- **Lines of Code:** 377
-- **Size:** 13,214 bytes (12.9 KB)
+- **Lines of Code:** 380
+- **Size:** 13,386 bytes (13.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.audio
@@ -2913,6 +3452,7 @@ class NeuralSoundscapePlayer(
     private fun startPlaybackThread() {
         stopPlaybackThread()
         playbackThread = thread(name = "NeuralSoundscapeAudio", isDaemon = true) {
+            val thisThread = Thread.currentThread()
             val buffer = ShortArray(CHUNK_FRAMES * 2)
             var fadeStartVol = currentVolume
             var fadeStartTime = 0L
@@ -2978,12 +3518,14 @@ class NeuralSoundscapePlayer(
                     }
                 }
             } finally {
-                isPlaying.set(false)
-                isFadingOut.set(false)
-                abandonAudioFocus()
-                try {
-                    audioTrack?.stop()
-                } catch (_: Throwable) {}
+                if (playbackThread == thisThread || playbackThread == null) {
+                    isPlaying.set(false)
+                    isFadingOut.set(false)
+                    abandonAudioFocus()
+                    try {
+                        audioTrack?.stop()
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }
@@ -3056,8 +3598,8 @@ class NeuralSoundscapePlayer(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/SoundscapeType.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/audio/SoundscapeType.kt`
-- **Lines of Code:** 36
-- **Size:** 1,000 bytes (1.0 KB)
+- **Lines of Code:** 48
+- **Size:** 1,382 bytes (1.3 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.audio
@@ -3082,6 +3624,18 @@ enum class SoundscapeType(
         subtitle = "Binaural Prefrontal Synchrony",
         emoji = "🧠",
         shortChipLabel = "40Hz Gamma 🧠"
+    ),
+    MONAURAL_GAMMA_40HZ(
+        displayName = "40 Hz Monaural Gamma",
+        subtitle = "Acoustic Interference + Pink Cushion",
+        emoji = "⚡",
+        shortChipLabel = "40Hz Monaural ⚡"
+    ),
+    BETA_16HZ(
+        displayName = "16 Hz SMR Beta",
+        subtitle = "Monaural Low-Fatigue Focus",
+        emoji = "🎯",
+        shortChipLabel = "16Hz Beta 🎯"
     ),
     BROWN_NOISE(
         displayName = "Deep Brown Noise",
@@ -3204,8 +3758,8 @@ object FocusTimingCalculator {
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/focus/service/FocusService.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/focus/service/FocusService.kt`
-- **Lines of Code:** 411
-- **Size:** 16,127 bytes (15.7 KB)
+- **Lines of Code:** 523
+- **Size:** 22,073 bytes (21.6 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.focus.service
@@ -3278,22 +3832,29 @@ class FocusService : Service() {
 
         when (intent.action) {
             ACTION_START -> {
-                taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
+                val newTaskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
+                val newStartedAt = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
+                val isSameTaskAndSession = (newTaskId == taskId && startedAtMillis == newStartedAt && startedAtMillis > 0L)
+                taskId = newTaskId
                 taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: taskTitle
                 durationSeconds = intent.getLongExtra(EXTRA_DURATION_SECONDS, durationSeconds)
-                startedAtMillis = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
-                accumulatedPauseMillis = 0L
-                pausedAtMillis = null
-                isPaused = false
+                startedAtMillis = newStartedAt
+                if (!isSameTaskAndSession) {
+                    accumulatedPauseMillis = 0L
+                    pausedAtMillis = null
+                    isPaused = false
+                }
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
                     remainingSeconds = durationSeconds,
                     totalSeconds = durationSeconds,
-                    isPaused = false
+                    isPaused = isPaused
                 )
                 updateNotification()
-                startTicker()
+                if (!isPaused) {
+                    startTicker()
+                }
             }
             ACTION_PAUSE -> {
                 if (!isPaused) {
@@ -3302,6 +3863,21 @@ class FocusService : Service() {
                     isPaused = true
                     _activeSession.value = _activeSession.value?.copy(isPaused = true)
                     updateNotification()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            if (::sessionRepository.isInitialized && taskId.isNotBlank()) {
+                                val open = sessionRepository.getOpenSessionForTask(taskId)
+                                if (open != null) {
+                                    sessionRepository.update(
+                                        open.copy(
+                                            pausedAt = pausedAtMillis,
+                                            pauseResumeCount = open.pauseResumeCount + 1
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
             ACTION_RESUME -> {
@@ -3315,6 +3891,21 @@ class FocusService : Service() {
                     _activeSession.value = _activeSession.value?.copy(isPaused = false)
                     updateNotification()
                     startTicker()
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            if (::sessionRepository.isInitialized && taskId.isNotBlank()) {
+                                val open = sessionRepository.getOpenSessionForTask(taskId)
+                                if (open != null) {
+                                    sessionRepository.update(
+                                        open.copy(
+                                            pausedAt = null,
+                                            totalPausedMs = newAcc
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
             ACTION_COMPLETE -> {
@@ -3344,6 +3935,18 @@ class FocusService : Service() {
                     nowMillis = now,
                     targetDurationSeconds = durationSeconds
                 )
+                val isExpired = durationSeconds > 0L && timing.isExpired
+                if (isExpired) {
+                    _activeSession.value = ActiveFocusSession(
+                        taskId = taskId,
+                        taskTitle = taskTitle,
+                        remainingSeconds = 0L,
+                        totalSeconds = durationSeconds,
+                        isPaused = false
+                    )
+                    showSprintCompletedNotification()
+                    break
+                }
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
@@ -3355,6 +3958,39 @@ class FocusService : Service() {
                     updateNotification()
                 }
             }
+        }
+    }
+
+    private fun showSprintCompletedNotification() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java) ?: return
+            val contentIntent = Intent(this, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_FOCUS"
+                putExtra("taskId", taskId)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val title = if (taskTitle.isNotBlank()) taskTitle else "Deep Focus"
+            val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("🎯 Sprint Complete: $title")
+                .setContentText("Great job completing your sprint! Tap to keep going or take a rest.")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(contentPendingIntent)
+                .build()
+
+            nm.notify(NOTIFICATION_ID, notif)
+        } catch (_: Throwable) {
+            // Defensive: headless / unit test
         }
     }
 
@@ -3475,13 +4111,43 @@ class FocusService : Service() {
                     if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && activeTaskId.isNotBlank()) {
                         val now = System.currentTimeMillis()
                         val openSession = sessionRepository.getOpenSessionForTask(activeTaskId)
+                        val currentPause = if (isPaused) (now - (pausedAtMillis ?: now)) else 0L
+                        val totalPause = (accumulatedPauseMillis + currentPause).coerceAtLeast(0L)
+                        val rawDurationMs = if (openSession != null) (now - openSession.startedAt) else (now - startedAtMillis)
+                        val netDurationMs = (rawDurationMs - totalPause).coerceAtLeast(0L)
+                        val durationMins = (netDurationMs / 60000f).coerceAtLeast(1f)
+
                         if (openSession != null) {
-                            val durationMins = ((now - openSession.startedAt) / 60000f).coerceAtLeast(1f)
-                            sessionRepository.update(openSession.copy(endedAt = now, durationMinutes = durationMins))
+                            sessionRepository.update(
+                                openSession.copy(
+                                    endedAt = now,
+                                    pausedAt = null,
+                                    totalPausedMs = totalPause,
+                                    durationMinutes = durationMins
+                                )
+                            )
                         }
                         val task = taskRepository.getById(activeTaskId)
                         if (task != null) {
-                            taskRepository.completeAndRecur(task, now)
+                            val finalTracked = task.totalTimeTrackedMinutes + durationMins
+                            val est = task.estimatedDurationMinutes.toFloat()
+                            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+                            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+                            val points = 50 + (if (task.isFrog) 50 else 0) + (task.impactScore / 2)
+                            val updatedTask = task.copy(
+                                totalTimeTrackedMinutes = finalTracked,
+                                actualDurationMinutes = finalTracked,
+                                sessionCount = task.sessionCount + 1,
+                                lastSessionDurationMinutes = durationMins,
+                                estimationErrorMape = mape,
+                                estimationErrorSmape = smape,
+                                focusModePoints = points,
+                                status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED,
+                                completedAt = now,
+                                updatedAt = now
+                            )
+                            taskRepository.update(updatedTask)
+                            taskRepository.completeAndRecur(updatedTask, now)
                         }
                     }
                 } catch (_: Throwable) {

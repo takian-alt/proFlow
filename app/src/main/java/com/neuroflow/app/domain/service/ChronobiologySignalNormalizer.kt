@@ -96,9 +96,15 @@ class ChronobiologySignalNormalizer @Inject constructor() {
     fun computeEffectiveDuration(
         totalMinutes: Double,
         deepSleepMinutes: Double,
-        remSleepMinutes: Double
+        remSleepMinutes: Double,
+        lightSleepMinutes: Double? = null
     ): Double {
         if (totalMinutes <= 0.0) return 0.0
+        // Bug 1 Fix (ADR-026): When no sleep-stage breakdown is present (manual log or tracker lacking SWS/REM breakdown),
+        // assume normative stage architecture (stageWeight = 1.0) instead of penalizing by 15%.
+        if (lightSleepMinutes != null && deepSleepMinutes <= 0.0 && remSleepMinutes <= 0.0 && lightSleepMinutes <= 0.0) {
+            return totalMinutes
+        }
         val restorativeRatio = ((deepSleepMinutes + remSleepMinutes) / totalMinutes).coerceIn(0.0, 1.0)
         val stageWeight = (BASE_ARCHITECTURE_FACTOR + RESTORATIVE_SLOPE * restorativeRatio)
             .coerceIn(SWS_REM_MIN_FACTOR, SWS_REM_MAX_FACTOR)
@@ -136,14 +142,33 @@ class ChronobiologySignalNormalizer @Inject constructor() {
 
     /**
      * Extracts secondary daytime sleep bouts (10m <= d <= 180m) occurring after the morning wake anchor.
+     * Merges micro-arousals (<= 5m) without merging separate daytime rest bouts via nocturnal 45m WASO coalescing.
      */
     fun extractDaytimeNaps(
         intervals: List<TimeSlotWindow>,
         effectiveWakeTimeMillis: Long
     ): List<DaytimeNapBout> {
-        val (consolidated, _) = coalesceWasoEpisodes(intervals)
-        return consolidated
+        val daytimeWindows = intervals
             .filter { it.startMillis >= effectiveWakeTimeMillis && it.endMillis > it.startMillis }
+            .sortedBy { it.startMillis }
+        if (daytimeWindows.isEmpty()) return emptyList()
+
+        val merged = mutableListOf<TimeSlotWindow>()
+        var curStart = daytimeWindows[0].startMillis
+        var curEnd = daytimeWindows[0].endMillis
+        for (i in 1 until daytimeWindows.size) {
+            val next = daytimeWindows[i]
+            if (next.startMillis <= curEnd + 5 * 60_000L) {
+                curEnd = kotlin.math.max(curEnd, next.endMillis)
+            } else {
+                merged.add(TimeSlotWindow(curStart, curEnd))
+                curStart = next.startMillis
+                curEnd = next.endMillis
+            }
+        }
+        merged.add(TimeSlotWindow(curStart, curEnd))
+
+        return merged
             .map { DaytimeNapBout(it.startMillis, it.endMillis) }
             .filter { it.durationMinutes in 10..180 }
             .sortedBy { it.startMillis }
@@ -160,8 +185,13 @@ class ChronobiologySignalNormalizer @Inject constructor() {
         val (consolidated, wasoMinutes) = coalesceWasoEpisodes(telemetry.intervals)
 
         // Identify primary nocturnal sleep vs secondary daytime naps
+        // Bug 7 Fix: Restrict nocturnalSessions to intervals overlapping the nocturnal window [baseWakeMillis - 16h, baseWakeMillis + 4h]
+        val nocturnalWindowStart = baseWakeMillis - 16 * 3600_000L
+        val nocturnalWindowEnd = baseWakeMillis + 4 * 3600_000L
         val nocturnalSessions = consolidated.filter {
-            it.startMillis < baseWakeMillis || (it.endMillis - it.startMillis) > 180 * 60_000L
+            val overlapsNocturnalWindow = it.startMillis < nocturnalWindowEnd && it.endMillis > nocturnalWindowStart
+            val isConsolidatedOrWakeAligned = it.endMillis >= baseWakeMillis - 6 * 3600_000L || (it.endMillis - it.startMillis) > 180 * 60_000L
+            overlapsNocturnalWindow && isConsolidatedOrWakeAligned
         }
 
         val nocturnalWake = nocturnalSessions.maxOfOrNull { it.endMillis }
@@ -191,15 +221,16 @@ class ChronobiologySignalNormalizer @Inject constructor() {
         )
 
         // Extract secondary daytime sleep bouts (10m <= d <= 180m) after morning wake
-        val daytimeNaps = consolidated
-            .filter { it.startMillis >= (nocturnalWake ?: normalizedWake) && it.endMillis > it.startMillis }
-            .map { DaytimeNapBout(it.startMillis, it.endMillis) }
-            .filter { it.durationMinutes in 10..180 }
-            .sortedBy { it.startMillis }
+        val daytimeNaps = extractDaytimeNaps(telemetry.intervals, nocturnalWake ?: normalizedWake)
 
         val napIntervalWindows = daytimeNaps.map { TimeSlotWindow(it.startMillis, it.endMillis) }
-        val primarySessions = consolidated.filter { s ->
-            napIntervalWindows.none { it.startMillis == s.startMillis && it.endMillis == s.endMillis }
+        val primarySessions = if (nocturnalSessions.isNotEmpty()) {
+            consolidated.filter { s ->
+                s in nocturnalSessions &&
+                    napIntervalWindows.none { it.startMillis == s.startMillis && it.endMillis == s.endMillis }
+            }
+        } else {
+            emptyList()
         }
 
         var effectiveWasoMinutes = wasoMinutes
@@ -220,7 +251,8 @@ class ChronobiologySignalNormalizer @Inject constructor() {
         val effectiveDuration = computeEffectiveDuration(
             totalMinutes = rawSleepMinutes,
             deepSleepMinutes = telemetry.deepSleepMinutes,
-            remSleepMinutes = telemetry.remSleepMinutes
+            remSleepMinutes = telemetry.remSleepMinutes,
+            lightSleepMinutes = telemetry.lightSleepMinutes
         )
 
         val blendedDuration = blendDuration(

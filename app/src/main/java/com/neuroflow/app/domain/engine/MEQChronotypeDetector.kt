@@ -40,17 +40,23 @@ object MEQChronotypeDetector {
             "MEQ requires exactly $QUESTION_COUNT answers."
         }
 
-        val totalScore = answerScores.sum().coerceIn(MIN_TOTAL_SCORE, MAX_TOTAL_SCORE)
+        val answeredCount = answerScores.count { it > 0 }
+        val rawSum = answerScores.sum()
+        val totalScore = when {
+            answeredCount == 0 -> 48 // Default to intermediate baseline if completely unanswered
+            answeredCount < QUESTION_COUNT -> kotlin.math.round((rawSum.toDouble() / answeredCount.toDouble()) * QUESTION_COUNT).toInt().coerceIn(MIN_TOTAL_SCORE, MAX_TOTAL_SCORE)
+            else -> rawSum.coerceIn(MIN_TOTAL_SCORE, MAX_TOTAL_SCORE)
+        }
         val chronotype = classify(totalScore)
         val (peakStart, peakEnd) = baselinePeakWindow(chronotype)
-        val confidence = (answerScores.count { it > 0 }.toFloat() / QUESTION_COUNT).coerceIn(0f, 1f)
+        val confidence = (answeredCount.toFloat() / QUESTION_COUNT).coerceIn(0f, 1f)
 
         return Result(
             totalScore = totalScore,
             chronotype = chronotype,
             baselinePeakStartHour = peakStart,
             baselinePeakEndHour = peakEnd,
-            answeredQuestions = answerScores.count { it > 0 },
+            answeredQuestions = answeredCount,
             confidence = confidence
         )
     }

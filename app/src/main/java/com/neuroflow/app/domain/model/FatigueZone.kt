@@ -198,17 +198,7 @@ enum class FatigueZone {
 
             val fullCycles = safeSleepMinutes / CYCLE_MINUTES
             val remainderMinutes = safeSleepMinutes % CYCLE_MINUTES
-
-            val remainderRecovery = when {
-                remainderMinutes <= 0 -> 0
-                remainderMinutes < PHASE_ONE_END_MINUTE -> remainderMinutes
-                remainderMinutes == PHASE_ONE_END_MINUTE -> PHASE_ONE_END_MINUTE + PHASE_ONE_BONUS
-                remainderMinutes < CYCLE_MINUTES -> {
-                    val phaseTwoMinutes = remainderMinutes - PHASE_ONE_END_MINUTE
-                    (PHASE_ONE_END_MINUTE + PHASE_ONE_BONUS) + (phaseTwoMinutes * 2)
-                }
-                else -> FULL_CYCLE_RECOVERY
-            }
+            val remainderRecovery = (remainderMinutes * (FULL_CYCLE_RECOVERY.toDouble() / CYCLE_MINUTES.toDouble())).roundToInt()
 
             return (fullCycles * FULL_CYCLE_RECOVERY) + remainderRecovery
         }

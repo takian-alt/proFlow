@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -22,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -29,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +47,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.feature.hyperfocus.HyperFocusViewModel
@@ -119,6 +124,12 @@ private fun ActivationSheetContent(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearActivationMessage()
+        }
+    }
+
     var taskSearchQuery by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
     var sessionMode by remember { mutableStateOf(HyperFocusSessionMode.TASK_BASED) }
@@ -148,12 +159,32 @@ private fun ActivationSheetContent(
             .padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Title
-        Text(
-            text = "Activate Hyper Focus",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
+        // Title & Dismiss Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Activate Hyper Focus",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
 
         // Warning banner
         Surface(
@@ -260,8 +291,12 @@ private fun ActivationSheetContent(
                 Text(
                     text = "Tasks in Hyper Focus",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "$selectedTaskCount selected",
                     style = MaterialTheme.typography.labelMedium,
@@ -310,13 +345,17 @@ private fun ActivationSheetContent(
                             Text(
                                 text = task.title,
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             if (task.description.isNotBlank()) {
                                 Text(
                                     text = task.description,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -354,29 +393,46 @@ private fun ActivationSheetContent(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Button(
-            onClick = {
-                if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                    viewModel.activateTimed(selectedDurationMinutes)
-                } else {
+        if (prefs.isActive) {
+            Button(
+                onClick = {
                     val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
-                    viewModel.activate(selectedTasks)
-                }
-                onDismiss()
-            },
-            enabled = confirmText == "FOCUS" && essentialCount > 0 &&
-                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-        ) {
-            val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                "Activate ${selectedDurationMinutes}m Focus Lock"
-            } else {
-                "Activate Hyper Focus 🔒"
+                    viewModel.addTasksToActiveSession(selectedTasks)
+                    onDismiss()
+                },
+                enabled = selectedTaskCount > 0,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Text("Add $selectedTaskCount Task(s) to Focus Session 🔒", fontWeight = FontWeight.Bold)
             }
-            Text(label, fontWeight = FontWeight.Bold)
+        } else {
+            Button(
+                onClick = {
+                    if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                        viewModel.activateTimed(selectedDurationMinutes)
+                    } else {
+                        val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                        viewModel.activate(selectedTasks)
+                    }
+                    onDismiss()
+                },
+                enabled = confirmText == "FOCUS" && essentialCount > 0 &&
+                    (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    "Activate ${selectedDurationMinutes}m Focus Lock"
+                } else {
+                    "Activate Hyper Focus 🔒"
+                }
+                Text(label, fontWeight = FontWeight.Bold)
+            }
         }
 
 

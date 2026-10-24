@@ -20,9 +20,36 @@ class ScheduleAutoTasksWorkerTest : StringSpec({
         val wakeHour = 7 // 7:00 AM
 
         val wakeTime = ScheduleAutoTasksWorker.calculateWakeTimeMillis(now, wakeHour)
-        // 14:30 - 7:00 = 7 hours awake (based on integer hour difference)
-        val expectedWakeTime = now - (7 * 3600_000L)
-        wakeTime shouldBe expectedWakeTime
+        val expectedCal = Calendar.getInstance().apply {
+            timeInMillis = baseMillis
+            set(Calendar.HOUR_OF_DAY, 7)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        wakeTime shouldBe expectedCal.timeInMillis
+    }
+
+    "calculateWakeTimeMillis eliminates minute drift for non-zero minutes" {
+        val testCal = Calendar.getInstance().apply {
+            timeInMillis = baseMillis
+            set(Calendar.HOUR_OF_DAY, 10)
+            set(Calendar.MINUTE, 47)
+            set(Calendar.SECOND, 22)
+            set(Calendar.MILLISECOND, 333)
+        }
+        val now = testCal.timeInMillis
+        val wakeHour = 7
+
+        val wakeTime = ScheduleAutoTasksWorker.calculateWakeTimeMillis(now, wakeHour)
+        val expectedCal = Calendar.getInstance().apply {
+            timeInMillis = baseMillis
+            set(Calendar.HOUR_OF_DAY, 7)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        wakeTime shouldBe expectedCal.timeInMillis
     }
 
     "calculateWakeTimeMillis handles midnight wrap correctly" {
@@ -37,9 +64,15 @@ class ScheduleAutoTasksWorkerTest : StringSpec({
         val wakeHour = 7 // 7:00 AM previous morning
 
         val wakeTime = ScheduleAutoTasksWorker.calculateWakeTimeMillis(now, wakeHour)
-        // (2 - 7) + 24 = 19 hours awake
-        val expectedWakeTime = now - (19 * 3600_000L)
-        wakeTime shouldBe expectedWakeTime
+        val expectedCal = Calendar.getInstance().apply {
+            timeInMillis = baseMillis
+            add(Calendar.DAY_OF_YEAR, -1)
+            set(Calendar.HOUR_OF_DAY, 7)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        wakeTime shouldBe expectedCal.timeInMillis
     }
 
     "calculateWakeTimeMillis returns exact current time at wake hour" {

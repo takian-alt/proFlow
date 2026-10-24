@@ -1,10 +1,10 @@
 # neuroFlow UI Codebase — Plan Screen, Scheduling Timeline & Smart Composer Sheet
 
 **Description:** PlanScreenV2, PlanViewModelV2, SmartTaskComposerSheetV2, PlanAndComposerUpgradesV2, and WeeklySchedule.  
-**Generated for Vice Head Review:** 2026-10-20 16:59:40  
+**Generated for Vice Head Review:** 2026-10-23 22:05:10  
 **Files:** 7  
-**Lines of Code:** 4,652  
-**Uncompressed Size:** 215.7 KB  
+**Lines of Code:** 5,690  
+**Uncompressed Size:** 270.9 KB  
 
 ---
 
@@ -1697,8 +1697,8 @@ class WeeklyScheduleViewModel @Inject constructor(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/composer/SmartTaskComposerSheetV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/composer/SmartTaskComposerSheetV2.kt`
-- **Lines of Code:** 625
-- **Size:** 28,814 bytes (28.1 KB)
+- **Lines of Code:** 1,102
+- **Size:** 56,387 bytes (55.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.composer
@@ -1710,7 +1710,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -1718,11 +1721,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
@@ -1734,6 +1742,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -1746,6 +1755,7 @@ import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowColors
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
@@ -1758,6 +1768,31 @@ sealed interface SheetMode {
     data object Create : SheetMode
     data class Edit(val task: TaskEntity) : SheetMode
 }
+
+data class ComposerTagPreset(
+    val tag: String,
+    val emoji: String,
+    val shortBoost: String,
+    val category: String,
+    val energyDemand: String,
+    val biologicalWindow: String,
+    val boostDescription: String,
+    val fragmentationTolerance: String
+)
+
+val SMART_TAG_PRESETS: List<ComposerTagPreset> = listOf(
+    ComposerTagPreset("deepwork", "⚡", "+8.5pt Batching", "Analytical", "High (80)", "Peak Morning", "+8.5pt Attentional Batching, places in 90m peak focus window", "Low (0.20) — Protected from splits"),
+    ComposerTagPreset("coding", "💻", "+8.5pt Batching", "Analytical", "High (80)", "Peak Morning", "+8.5pt Same-Context Batching, shields deep focus state", "Low (0.25) — Protected from splits"),
+    ComposerTagPreset("study", "📚", "+8.5pt Batching", "Hard Work", "Medium (50)", "Morning Focus", "+8.5pt Batching, optimal memory encoding", "Moderate (0.35)"),
+    ComposerTagPreset("creative", "🎨", "+15pt Rebound", "Creative", "Medium (50)", "Evening Rebound Phase", "+15pt Divergent Thinking Rebound Bonus when inhibition lowers", "Moderate (0.40)"),
+    ComposerTagPreset("writing", "✍️", "+6pt Batching", "Creative", "Medium (50)", "Morning / Rebound", "+6.0pt Context Affinity, continuous narrative flow", "Moderate (0.40)"),
+    ComposerTagPreset("admin", "📋", "Protects Peak", "Routine", "Low (25)", "Afternoon Post-Lunch Dip", "Zero Peak Drain — slot-filled during low biological dip", "High (0.95) — Safe to interrupt"),
+    ComposerTagPreset("meetings", "🤝", "Midday Coalesce", "Routine", "Medium (50)", "Midday Plateau", "Coalesces meetings with 5m buffers, protects morning blocks", "High (0.80)"),
+    ComposerTagPreset("exercise", "🏃", "+12pt Endorphin", "Physical", "High (Exertion)", "Morning / Afternoon", "+10-12pt Alertness & BDNF boost for 45m post-workout", "Flexible (0.50)"),
+    ComposerTagPreset("mindfulness", "🧘", "+100pt Reset", "Mindfulness", "Low (Restorative)", "Recovery Needed / Night", "+100pt Affinity during high cognitive exhaustion / depletion", "High (0.85) — Non-split"),
+    ComposerTagPreset("chores", "🧹", "Active Rest", "Physical", "Low (25)", "Flexible / Dips", "Active Rest — physical movement during circadian dips", "High (0.90)"),
+    ComposerTagPreset("quickwin", "⏱️", "+15pt Momentum", "Low Friction", "Low (25)", "Immediate / Any", "+15pt Momentum Pull, low initiation barrier for ADHD activation", "High (1.00)")
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -1785,8 +1820,11 @@ fun SmartTaskComposerSheetV2(
     var userDeadlineDate by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineDate) }
     var userDeadlineTime by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineTime) }
     var isScheduleLocked by remember(existingTask) { mutableStateOf(existingTask?.isScheduleLocked ?: false) }
+    var recurrence by remember(existingTask) { mutableStateOf(existingTask?.recurrence ?: Recurrence.NONE) }
 
     var isExpanded by remember { mutableStateOf(existingTask != null) }
+    var showSyntaxGuide by remember { mutableStateOf(false) }
+    var showTagCatalogGuide by remember { mutableStateOf(false) }
     var description by remember(existingTask) { mutableStateOf(existingTask?.description ?: "") }
     var selectedQuadrant by remember(existingTask) { mutableStateOf(existingTask?.quadrant ?: Quadrant.DO_FIRST) }
 
@@ -1832,6 +1870,21 @@ fun SmartTaskComposerSheetV2(
         } catch (_: Exception) {}
     }
 
+    fun toggleTagInInput(tagName: String) {
+        val target = "#$tagName"
+        val regex = Regex("""(?i)\b#$tagName\b""")
+        rawInput = if (rawInput.contains(regex)) {
+            rawInput.replace(regex, "").replace(Regex("""\s{2,}"""), " ").trim()
+        } else {
+            if (rawInput.isBlank()) target else "${rawInput.trim()} $target"
+        }
+        userDurationOverride = null
+        userEnergyOverride = null
+        userTaskTypeOverride = null
+        userFrogOverride = null
+        userPriorityOverride = null
+    }
+
     fun handleSave() {
         val title = (if (mode is SheetMode.Edit) rawInput.trim() else inferred.sanitizedTitle.ifBlank { rawInput.trim() })
         if (title.isBlank()) return
@@ -1853,6 +1906,7 @@ fun SmartTaskComposerSheetV2(
                 scheduledDate = effectiveScheduledDate,
                 scheduledTime = userScheduledTime,
                 isScheduleLocked = isScheduleLocked,
+                recurrence = recurrence,
                 updatedAt = System.currentTimeMillis()
             )
         } else {
@@ -1872,7 +1926,8 @@ fun SmartTaskComposerSheetV2(
                 deadlineTime = userDeadlineTime,
                 scheduledDate = effectiveScheduledDate,
                 scheduledTime = userScheduledTime,
-                isScheduleLocked = isScheduleLocked
+                isScheduleLocked = isScheduleLocked,
+                recurrence = recurrence
             )
         }
         onSave(taskToSave)
@@ -1898,18 +1953,112 @@ fun SmartTaskComposerSheetV2(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (mode is SheetMode.Edit) "Edit Task" else "Smart Task Composer",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.TextPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (mode is SheetMode.Edit) "Edit Task" else "Smart Task Composer",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    IconButton(
+                        onClick = { showSyntaxGuide = !showSyntaxGuide },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = "Formatting Guide",
+                            tint = if (showSyntaxGuide) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextTertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = NeuroFlowThemeV2Colors.TextSecondary)
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Syntax Guide & Inspiration Examples (Expandable)
+            AnimatedVisibility(visible = showSyntaxGuide) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.Lightbulb, contentDescription = null, tint = NeuroFlowThemeV2Colors.WarmAmber, modifier = Modifier.size(16.dp))
+                            Text(
+                                "Natural Language Formatting Guide",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Type naturally! The engine automatically detects durations, deadlines, priorities, and tags:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("• ⏱️ Duration: '30m', '45m', '90m', '1h 30m'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                        Text("• 📅 Deadline: 'tomorrow', 'Friday 10am', 'today at 3pm'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                        Text("• 🐸 Crucial: '!frog' (sets daily frog), '#high', '!urgent'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                        Text("• 🏷️ Tags & Boosts: '#deepwork', '#coding', '#creative', '#admin'", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.TextTertiary)
+                    }
+                }
+            }
+
+            // Quick Preset Starters (when input is empty)
+            if (rawInput.isBlank()) {
+                Text(
+                    "💡 Quick Starters (Tap to try):",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeuroFlowThemeV2Colors.TextTertiary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "Ship core patch 45m #coding #deepwork",
+                        "Workout & cardio 30m #exercise tomorrow",
+                        "Inbox zero 15m #admin",
+                        "Roadmap brainstorm 60m #creative",
+                        "Mindful reset 10m #mindfulness"
+                    ).forEach { sample ->
+                        Surface(
+                            onClick = { rawInput = sample },
+                            shape = RoundedCornerShape(50),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                        ) {
+                            Text(
+                                text = sample,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.TextSecondary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            } else {
+                Spacer(modifier = Modifier.height(6.dp))
+            }
 
             // NLP Input Field
             OutlinedTextField(
@@ -1927,7 +2076,7 @@ fun SmartTaskComposerSheetV2(
                     .focusRequester(focusRequester),
                 placeholder = {
                     Text(
-                        "e.g. Design core mockups 90m #high !impact tomorrow",
+                        "e.g. Design core mockups 90m #high !frog tomorrow",
                         style = MaterialTheme.typography.bodyMedium,
                         color = NeuroFlowThemeV2Colors.TextTertiary
                     )
@@ -2037,14 +2186,191 @@ fun SmartTaskComposerSheetV2(
                 // Context Tags Chips
                 inferred.contextTags.forEach { tag ->
                     SuggestionChip(
-                        onClick = {},
-                        label = { Text("#$tag") },
+                        onClick = { toggleTagInInput(tag) },
+                        label = { Text("#$tag ✕") },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            // Available Tags & Boosts Section (User Guidance & 1-Tap Toggle)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        "🏷️ Available Tags & Boosts",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    Text(
+                        "(Tap to add)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.TextTertiary
+                    )
+                }
+
+                TextButton(
+                    onClick = { showTagCatalogGuide = !showTagCatalogGuide },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = if (showTagCatalogGuide) "Hide Details" else "View Boost Guide",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Horizontally Scrollable Tag Presets with Boost Pills
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SMART_TAG_PRESETS.forEach { preset ->
+                    val isSelected = rawInput.contains("#${preset.tag}", ignoreCase = true) ||
+                        inferred.contextTags.any { it.equals(preset.tag, ignoreCase = true) }
+
+                    Surface(
+                        onClick = { toggleTagInInput(preset.tag) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(preset.emoji, fontSize = 12.sp)
+                            Text(
+                                text = "#${preset.tag}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextPrimary
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f) else NeuroFlowThemeV2Colors.SlateSurface
+                            ) {
+                                Text(
+                                    text = preset.shortBoost,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Detailed Tag Catalog Guide Table (Expandable)
+            AnimatedVisibility(visible = showTagCatalogGuide) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "⚡ Biophysical Scheduling Boost Matrix",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        SMART_TAG_PRESETS.forEach { p ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("${p.emoji} #${p.tag}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.width(90.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${p.biologicalWindow} • ${p.energyDemand} Energy",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = NeuroFlowThemeV2Colors.TextPrimary
+                                    )
+                                    Text(
+                                        text = "${p.boostDescription} (${p.fragmentationTolerance})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextTertiary,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                            if (p != SMART_TAG_PRESETS.last()) {
+                                HorizontalDivider(color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 2.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Inferred Scheduling Strategy Preview Banner
+            val matchedPresets = SMART_TAG_PRESETS.filter { p ->
+                rawInput.contains("#${p.tag}", ignoreCase = true) || inferred.contextTags.any { it.equals(p.tag, ignoreCase = true) }
+            }
+            if (matchedPresets.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(15.dp))
+                            Text(
+                                "Active Scheduling Strategy:",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        matchedPresets.forEach { p ->
+                            Text(
+                                text = "• #${p.tag}: ${p.boostDescription} • ${p.biologicalWindow}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.TextPrimary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // AI Slot Placement Preview Banner
             Surface(
@@ -2176,6 +2502,157 @@ fun SmartTaskComposerSheetV2(
                                     modifier = Modifier.weight(1f)
                                 )
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Scheduled Slot & Calendar
+                    Text("⏰ Scheduled Slot Date & Time", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    datePickerTarget = "scheduled"
+                                    showDatePicker = true
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                Text(
+                                    text = if (effectiveScheduledDate != null) SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(effectiveScheduledDate)) else "Pick Slot Date",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    timePickerTarget = "scheduled"
+                                    showTimePicker = true
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                Text(
+                                    text = if (userScheduledTime != null) {
+                                        val h = (userScheduledTime!! / 3_600_000L).toInt()
+                                        val m = ((userScheduledTime!! % 3_600_000L) / 60_000L).toInt()
+                                        String.format("%02d:%02d", h, m)
+                                    } else "Pick Slot Time",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Recurrence / Habit
+                    Text("🔁 Recurrence / Habit", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            Recurrence.NONE to "None",
+                            Recurrence.DAILY to "Daily",
+                            Recurrence.WEEKLY to "Weekly",
+                            Recurrence.MONTHLY to "Monthly"
+                        ).forEach { (recOption, label) ->
+                            val isSelected = recurrence == recOption
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { recurrence = recOption },
+                                label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Lock Schedule Toggle (Pin to Slot)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        border = BorderStroke(1.dp, if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.5f) else NeuroFlowThemeV2Colors.SlateBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isScheduleLocked = !isScheduleLocked }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = if (isScheduleLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                    contentDescription = null,
+                                    tint = if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = if (isScheduleLocked) "🔒 Schedule Locked (Pinned)" else "Schedule Unlocked (Flexible)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isScheduleLocked) NeuroFlowThemeV2Colors.WarmAmber else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isScheduleLocked) "Auto-scheduler will never displace this task" else "Auto-scheduler can optimize slot placement",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextSecondary
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = isScheduleLocked,
+                                onCheckedChange = { isScheduleLocked = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = NeuroFlowThemeV2Colors.WarmAmber
+                                )
+                            )
                         }
                     }
 
@@ -2334,8 +2811,8 @@ fun MetadataPill(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanAndComposerUpgradesV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanAndComposerUpgradesV2.kt`
-- **Lines of Code:** 304
-- **Size:** 13,219 bytes (12.9 KB)
+- **Lines of Code:** 300
+- **Size:** 12,945 bytes (12.6 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.plan
@@ -2343,7 +2820,6 @@ package com.neuroflow.app.presentation.v2.plan
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -2358,7 +2834,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -2378,10 +2853,6 @@ import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.service.TaskEnrichmentResult
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 
-/**
- * Interactive Conflict Resolution Banner for PlanScreenV2 & WeeklyScheduleScreen:
- * Surfaces overlaps detected by ConflictResolver.analyzeScheduleConflicts() with 1-tap resolution.
- */
 @Composable
 fun ScheduleConflictResolverStrip(
     conflicts: List<ScheduleConflict>,
@@ -2396,14 +2867,17 @@ fun ScheduleConflictResolverStrip(
             conflicts.take(2).forEach { conflict ->
                 Surface(
                     color = NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.RecoveryRose, 0.9f)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -2417,19 +2891,19 @@ fun ScheduleConflictResolverStrip(
                                 tint = NeuroFlowPaletteV2.RecoveryRose,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
                                     text = conflict.taskTitle,
                                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White,
+                                    color = NeuroFlowPaletteV2.TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = conflict.conflictDescription,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.72f)
+                                    color = NeuroFlowPaletteV2.TextSecondary
                                 )
                             }
                         }
@@ -2437,13 +2911,13 @@ fun ScheduleConflictResolverStrip(
                             Spacer(modifier = Modifier.width(8.dp))
                             Surface(
                                 color = NeuroFlowPaletteV2.RecoveryRose,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.clickable { onResolveConflictClick(conflict) }
                             ) {
                                 Text(
-                                    text = "Move to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
+                                    text = "Shift to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.Black,
+                                    color = Color.White,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
@@ -2455,9 +2929,6 @@ fun ScheduleConflictResolverStrip(
     }
 }
 
-/**
- * Compact 2x2 Interactive Eisenhower Quadrant Filter Grid for PlanScreenV2
- */
 @Composable
 fun CompactEisenhowerMatrixFilter(
     countsByQuadrant: Map<Quadrant, Int>,
@@ -2519,11 +2990,14 @@ private fun QuadrantFilterTile(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = if (isSelected) accent.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceCard,
+        color = if (isSelected) accent.copy(alpha = 0.16f) else NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(
             width = if (isSelected) 1.5.dp else 1.dp,
-            color = if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle
+            brush = NeuroFlowPaletteV2.specularBorderBrush(
+                if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle,
+                if (isSelected) 1f else 0.7f
+            )
         ),
         modifier = modifier.clickable { onClick() }
     ) {
@@ -2537,12 +3011,12 @@ private fun QuadrantFilterTile(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (isSelected) accent else Color.White.copy(alpha = 0.85f)
+                color = if (isSelected) accent else NeuroFlowPaletteV2.TextPrimary
             )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(accent.copy(alpha = 0.2f))
+                    .background(accent.copy(alpha = 0.18f))
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -2555,10 +3029,6 @@ private fun QuadrantFilterTile(
     }
 }
 
-/**
- * AI Task Enrichment & Micro-Step Preview Card for SmartTaskComposerSheetV2:
- * Displays GeminiAiOnlineService.enrichTaskWithAi() results (2m activation tip + micro-steps + suggested slot).
- */
 @Composable
 fun ComposerAiEnrichmentPreviewCard(
     enrichment: TaskEnrichmentResult?,
@@ -2571,7 +3041,10 @@ fun ComposerAiEnrichmentPreviewCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2603,7 +3076,7 @@ fun ComposerAiEnrichmentPreviewCard(
                         Text(
                             text = "Apply Steps",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                            color = Color.Black,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -2614,7 +3087,7 @@ fun ComposerAiEnrichmentPreviewCard(
                 Text(
                     text = "💡 ${enrichment.activationTip}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.85f)
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 enrichment.microSteps.forEachIndexed { idx, step ->
@@ -2628,13 +3101,13 @@ fun ComposerAiEnrichmentPreviewCard(
                         Text(
                             text = "${idx + 1}. ${step.title}",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (idx == 0) NeuroFlowPaletteV2.OptimalEmerald else Color.White.copy(alpha = 0.8f),
+                            color = if (idx == 0) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.TextPrimary,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = "${step.estimatedMinutes}m",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White.copy(alpha = 0.55f)
+                            color = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
@@ -2650,8 +3123,8 @@ fun ComposerAiEnrichmentPreviewCard(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanScreenV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanScreenV2.kt`
-- **Lines of Code:** 1,426
-- **Size:** 72,282 bytes (70.6 KB)
+- **Lines of Code:** 1,703
+- **Size:** 88,165 bytes (86.1 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.plan
@@ -2664,11 +3137,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.presentation.v2.flow.TaskSlotEnergyFitBadge
+import com.neuroflow.app.presentation.v2.flow.UltradianRecoveryDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
@@ -2680,6 +3158,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -2695,6 +3174,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
+import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
@@ -2720,10 +3200,15 @@ fun PlanScreenV2(
 
     var showNotesSheet by remember { mutableStateOf(false) }
     var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
+    var taskToScheduleTime by remember { mutableStateOf<TaskEntity?>(null) }
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var isObjectivesExpanded by remember { mutableStateOf(false) }
+    var newGoalTitle by remember { mutableStateOf("") }
+    var showFrogConfetti by remember { mutableStateOf(false) }
+    var showProtectedSlotSheet by remember { mutableStateOf(false) }
 
     val handleCompleteTask: (TaskEntity) -> Unit = { task ->
+        if (task.isFrog) showFrogConfetti = true
         viewModel.completeTask(task)
         scope.launch {
             snackbarHostState.currentSnackbarData?.dismiss()
@@ -2880,7 +3365,7 @@ fun PlanScreenV2(
                         ),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            activeContentColor = Color.White,
+                            activeContentColor = NeuroFlowThemeV2Colors.TextPrimary,
                             inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurface,
                             inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -2974,27 +3459,25 @@ fun PlanScreenV2(
                         }
                     }
 
-                    if (state.activeGoals.isNotEmpty()) {
-                        item(key = "objectives_pill") {
-                            FilterChip(
-                                selected = isObjectivesExpanded,
-                                onClick = { isObjectivesExpanded = !isObjectivesExpanded },
-                                label = {
-                                    Text(
-                                        text = "🎯 Objectives (${state.activeGoals.size})",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                ),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                        }
+                    item(key = "objectives_pill") {
+                        FilterChip(
+                            selected = isObjectivesExpanded,
+                            onClick = { isObjectivesExpanded = !isObjectivesExpanded },
+                            label = {
+                                Text(
+                                    text = if (state.activeGoals.isNotEmpty()) "🎯 Objectives (${state.activeGoals.size})" else "🎯 Objectives",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
                     }
 
                     items(state.availableTags, key = { it }) { tag ->
@@ -3016,7 +3499,7 @@ fun PlanScreenV2(
                             },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = Color.White,
+                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                 labelColor = NeuroFlowThemeV2Colors.TextSecondary
                             ),
@@ -3079,6 +3562,23 @@ fun PlanScreenV2(
                                             fontSize = 10.sp
                                         )
                                     }
+                                    val deferral = state.deferrals.firstOrNull { it.taskId == unscheduled.id }
+                                    if (deferral != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "⏳ ${deferral.reasonCode.name.replace('_', ' ')}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                fontSize = 9.sp,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3086,7 +3586,7 @@ fun PlanScreenV2(
                 }
 
                 // Expandable Objectives Drawer
-                AnimatedVisibility(visible = isObjectivesExpanded && state.activeGoals.isNotEmpty()) {
+                AnimatedVisibility(visible = isObjectivesExpanded) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
@@ -3097,23 +3597,86 @@ fun PlanScreenV2(
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            state.activeGoals.forEach { goal ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .background(NeuroFlowThemeV2Colors.ElectricIndigoGlow, CircleShape)
+                            if (state.activeGoals.isEmpty()) {
+                                Text(
+                                    text = "No active objectives yet. Set a north-star goal below:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                            } else {
+                                state.activeGoals.forEach { goal ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = { viewModel.completeGoal(goal) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Complete Objective",
+                                                tint = NeuroFlowThemeV2Colors.BioMint,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = goal.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = NeuroFlowThemeV2Colors.TextPrimary,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = { viewModel.deleteGoal(goal) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Delete Objective",
+                                                tint = NeuroFlowThemeV2Colors.TextTertiary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Inline Add Goal
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = newGoalTitle,
+                                    onValueChange = { newGoalTitle = it },
+                                    placeholder = { Text("New Objective...", fontSize = 12.sp, color = NeuroFlowThemeV2Colors.TextTertiary) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(color = NeuroFlowThemeV2Colors.TextPrimary),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                        unfocusedBorderColor = NeuroFlowThemeV2Colors.SlateBorder
                                     )
-                                    Text(
-                                        text = goal.title,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = NeuroFlowThemeV2Colors.TextPrimary,
-                                        fontWeight = FontWeight.Medium
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (newGoalTitle.isNotBlank()) {
+                                            viewModel.addGoal(newGoalTitle)
+                                            newGoalTitle = ""
+                                        }
+                                    },
+                                    enabled = newGoalTitle.isNotBlank(),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add Objective",
+                                        tint = if (newGoalTitle.isNotBlank()) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextTertiary
                                     )
                                 }
                             }
@@ -3133,6 +3696,8 @@ fun PlanScreenV2(
                     onCompleteTask = handleCompleteTask,
                     onDeleteTask = { viewModel.requestDeleteTask(it) },
                     onBreakDownTask = { viewModel.breakDownTask(it) },
+                    onShiftToPeak = { viewModel.shiftTaskToPeak(it) },
+                    onAssignTaskTime = { task -> taskToScheduleTime = task },
                     onLogPastTime = { taskToLogTime = it },
                     onEditTask = { task -> editingTask = task }
                 )
@@ -3149,10 +3714,26 @@ fun PlanScreenV2(
                     state = state,
                     onToggleAutoSchedule = { viewModel.toggleAutoSchedule() },
                     onTriggerNow = { viewModel.triggerAutoScheduleNow() },
-                    onToggleSlot = { id, enabled -> viewModel.toggleProtectedSlot(id, enabled) }
+                    onToggleSlot = { id, enabled -> viewModel.toggleProtectedSlot(id, enabled) },
+                    onManageSlotsClick = { showProtectedSlotSheet = true }
                 )
             }
         }
+    }
+
+    if (showProtectedSlotSheet) {
+        com.neuroflow.app.presentation.schedule.ProtectedSlotBottomSheet(
+            protectedSlots = state.protectedSlots,
+            onDismiss = { showProtectedSlotSheet = false },
+            onSaveSlot = { slot -> viewModel.saveProtectedSlot(slot) },
+            onDeleteSlot = { slotId -> viewModel.deleteProtectedSlot(slotId) },
+            onToggleSlot = { slotId ->
+                val slot = state.protectedSlots.firstOrNull { it.id == slotId }
+                if (slot != null) {
+                    viewModel.toggleProtectedSlot(slotId, !slot.isEnabled)
+                }
+            }
+        )
     }
 
     if (showNotesSheet) {
@@ -3161,7 +3742,8 @@ fun PlanScreenV2(
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
             onDismiss = { showNotesSheet = false },
             onOpenFullNotes = onNavigateToNotes,
-            onCreateTask = { title, desc -> viewModel.createTaskFromNote(title, desc) }
+            onCreateTask = { title, desc -> viewModel.createTaskFromNote(title, desc) },
+            onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
         )
     }
 
@@ -3187,6 +3769,59 @@ fun PlanScreenV2(
                 viewModel.updateTask(updated)
             }
         )
+    }
+
+    taskToScheduleTime?.let { task ->
+        val initialMinuteOfDay = task.timelineStartMinuteOfDay()
+        val initialHour = initialMinuteOfDay / 60
+        val initialMinute = initialMinuteOfDay % 60
+        val timePickerState = rememberTimePickerState(
+            initialHour = if (initialHour in 0..23) initialHour else 9,
+            initialMinute = if (initialMinute in 0..59) initialMinute else 0
+        )
+        AlertDialog(
+            onDismissRequest = { taskToScheduleTime = null },
+            title = {
+                Text(
+                    text = "Assign Time Slot",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.TextPrimary
+                )
+            },
+            text = {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    TimePicker(state = timePickerState)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.assignTaskTime(task, timePickerState.hour, timePickerState.minute)
+                        taskToScheduleTime = null
+                    }
+                ) {
+                    Text("Confirm", color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { taskToScheduleTime = null }) {
+                    Text("Cancel", color = NeuroFlowThemeV2Colors.TextSecondary)
+                }
+            },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+        )
+    }
+
+    FrogConfettiOverlay(trigger = showFrogConfetti)
+    LaunchedEffect(showFrogConfetti) {
+        if (showFrogConfetti) {
+            kotlinx.coroutines.delay(2500)
+            showFrogConfetti = false
+        }
     }
 }
 
@@ -3248,14 +3883,14 @@ fun DateCarouselStrip(
                     Text(
                         text = dayName,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextSecondary,
+                        color = if (isSelected) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextSecondary,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = dayNum,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextPrimary
+                        color = if (isSelected) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextPrimary
                     )
                 }
             }
@@ -3270,6 +3905,21 @@ private fun isSameDay(t1: Long, t2: Long): Boolean {
         c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
 }
 
+private fun shouldShowUltradianBufferAfter(tasks: List<TaskEntity>, index: Int): Boolean {
+    if (index >= tasks.size - 1) return false
+    var runSum = 0
+    for (i in 0..index) {
+        runSum += tasks[i].estimatedDurationMinutes
+        if (i == index) {
+            return runSum >= 90
+        }
+        if (runSum >= 90) {
+            runSum = 0
+        }
+    }
+    return false
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimelineScheduleView(
@@ -3281,6 +3931,8 @@ fun TimelineScheduleView(
     onCompleteTask: (TaskEntity) -> Unit,
     onDeleteTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
+    onShiftToPeak: (TaskEntity) -> Unit = {},
+    onAssignTaskTime: (TaskEntity) -> Unit = {},
     onLogPastTime: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {}
 ) {
@@ -3317,7 +3969,8 @@ fun TimelineScheduleView(
             // 1. Daily Cognitive Budget Meter (Scoped inside scrollable timeline)
             item(key = "budget_meter") {
                 val scheduledMinutes = state.tasksForDay.sumOf { it.estimatedDurationMinutes }
-                val capacityMinutes = state.circadianSummary?.recommendedDeepWorkMinutes ?: 360
+                val capacityMinutes = state.preferences.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
+                    ?: state.circadianSummary?.recommendedDeepWorkMinutes ?: 360
                 com.neuroflow.app.presentation.v2.theme.CognitiveBudgetMeterCard(
                     scheduledMinutesToday = scheduledMinutes,
                     recommendedCapacityMinutes = capacityMinutes,
@@ -3395,7 +4048,7 @@ fun TimelineScheduleView(
                     }
                 }
             } else {
-                items(state.tasksForDay, key = { it.id }) { task ->
+                itemsIndexed(state.tasksForDay, key = { _, it -> it.id }) { index, task ->
                     val minuteOfDay = task.timelineStartMinuteOfDay()
                     val h = minuteOfDay / 60
                     val m = minuteOfDay % 60
@@ -3451,7 +4104,7 @@ fun TimelineScheduleView(
                                         tint = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                                             NeuroFlowThemeV2Colors.RoseCoral
                                         } else {
-                                            Color.White
+                                            NeuroFlowThemeV2Colors.TextPrimary
                                         }
                                     )
                                 }
@@ -3528,11 +4181,61 @@ fun TimelineScheduleView(
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${task.estimatedDurationMinutes}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = NeuroFlowThemeV2Colors.TextSecondary
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${task.estimatedDurationMinutes}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowThemeV2Colors.TextSecondary
+                                        )
+
+                                        val isUltradianPart = task.id.contains("#part") || task.title.contains("(Part ")
+                                        if (isUltradianPart) {
+                                            val partLabel = if (task.id.contains("#part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f)
+                                            ) {
+                                                Text(
+                                                    text = partLabel,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+
+                                        if (task.postponeCount >= 3) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.18f)
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Dopamine Warm-Up",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    val scheduledMillis = task.resolveScheduledEpochMillis() ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
+                                    if (scheduledMillis != null && state.energyTimeline.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        TaskSlotEnergyFitBadge(
+                                            taskScheduledMillis = scheduledMillis,
+                                            taskEnergyDemand = task.energyLevel,
+                                            timeline = state.energyTimeline,
+                                            onShiftToPeakClick = { onShiftToPeak(task) }
+                                        )
+                                    }
 
                                     val microSteps = remember(task.ifThenPlan) { StepByStepPlanCodec.parse(task.ifThenPlan) }
                                     if (microSteps.isNotEmpty()) {
@@ -3630,6 +4333,16 @@ fun TimelineScheduleView(
                                             }
                                         )
                                         DropdownMenuItem(
+                                            text = { Text("Assign Time Slot", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                            },
+                                            onClick = {
+                                                showItemMenu = false
+                                                onAssignTaskTime(task)
+                                            }
+                                        )
+                                        DropdownMenuItem(
                                             text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
                                             leadingIcon = {
                                                 Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
@@ -3643,6 +4356,11 @@ fun TimelineScheduleView(
                                 }
                             }
                         }
+                    }
+
+                    if (shouldShowUltradianBufferAfter(state.tasksForDay, index)) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        UltradianRecoveryDivider()
                     }
                 }
             }
@@ -3931,7 +4649,8 @@ fun AutopilotConfigView(
     state: PlanUiStateV2,
     onToggleAutoSchedule: () -> Unit,
     onTriggerNow: () -> Unit,
-    onToggleSlot: (String, Boolean) -> Unit
+    onToggleSlot: (String, Boolean) -> Unit,
+    onManageSlotsClick: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -3986,7 +4705,7 @@ fun AutopilotConfigView(
                         colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
                     ) {
                         if (state.isAutoScheduling) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = NeuroFlowThemeV2Colors.TextPrimary)
                         } else {
                             Icon(Icons.Default.AutoAwesome, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
@@ -4033,12 +4752,43 @@ fun AutopilotConfigView(
         }
 
         item(key = "protected_slots_title") {
-            Text(
-                "🛡️ Manage Protected Time Slots",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = NeuroFlowThemeV2Colors.TextPrimary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "🛡️ Manage Protected Time Slots",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.TextPrimary
+                )
+                TextButton(onClick = onManageSlotsClick) {
+                    Text("+ Add Slot", color = NeuroFlowThemeV2Colors.ElectricIndigo, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        if (state.protectedSlots.isEmpty()) {
+            item(key = "protected_slots_empty") {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onManageSlotsClick() },
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurface.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("No protected time slots configured.", style = MaterialTheme.typography.bodySmall, color = NeuroFlowThemeV2Colors.TextSecondary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("+ Create your first protected block", style = MaterialTheme.typography.labelMedium, color = NeuroFlowThemeV2Colors.ElectricIndigo, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
 
         items(state.protectedSlots, key = { it.id }) { slot ->
@@ -4088,12 +4838,13 @@ fun AutopilotConfigView(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanViewModelV2.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/plan/PlanViewModelV2.kt`
-- **Lines of Code:** 662
-- **Size:** 29,498 bytes (28.8 KB)
+- **Lines of Code:** 950
+- **Size:** 42,815 bytes (41.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.plan
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.ExistingWorkPolicy
@@ -4101,29 +4852,42 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.dao.QuickNoteDao
+import com.neuroflow.app.data.local.parsePhysiologicalLogs
+import com.neuroflow.app.data.local.parseStimulantLogs
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.service.DaytimeNapBout
+import com.neuroflow.app.domain.service.GeminiAiOnlineService
+import com.neuroflow.app.domain.service.QuickNoteSynthesis
+import com.neuroflow.app.domain.service.StimulantDoseBout
+import com.neuroflow.app.domain.service.StimulantType
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlin.math.roundToInt
 import com.neuroflow.app.data.local.entity.NoteEntity
+import com.neuroflow.app.data.local.entity.QuickNoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyUiModel
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
-import com.neuroflow.app.domain.model.buildEnergyUiModel
-import com.neuroflow.app.domain.model.computeEnergyUiState
-import com.neuroflow.app.domain.scheduler.ConflictResolver
-import com.neuroflow.app.domain.scheduler.ScheduleConflict
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
-import com.neuroflow.app.data.local.dao.QuickNoteDao
-import com.neuroflow.app.data.local.entity.QuickNoteEntity
-import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.model.computeEnergyUiState
+import com.neuroflow.app.domain.scheduler.ConflictResolver
+import com.neuroflow.app.domain.scheduler.DeferralRationale
+import com.neuroflow.app.domain.scheduler.ScheduleConflict
+import com.neuroflow.app.domain.scheduler.SchedulePreparationOrchestrator
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
@@ -4133,8 +4897,21 @@ import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Calendar
 import javax.inject.Inject
 
@@ -4161,6 +4938,7 @@ data class PlanUiStateV2(
     val workDayEnd: Int = 20,
     val energyUi: EnergyUiModel? = null,
     val circadianSummary: DailyCircadianSummary? = null,
+    val energyTimeline: List<CircadianSnapshot> = emptyList(),
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = true,
     val pendingDeletedTask: TaskEntity? = null,
@@ -4168,7 +4946,8 @@ data class PlanUiStateV2(
     val searchQuery: String = "",
     val isSearchVisible: Boolean = false,
     val decomposingTaskId: String? = null,
-    val selectedQuadrant: Quadrant? = null
+    val selectedQuadrant: Quadrant? = null,
+    val deferrals: List<DeferralRationale> = emptyList()
 )
 
 private fun startOfTodayMillis(): Long {
@@ -4193,8 +4972,16 @@ class PlanViewModelV2 @Inject constructor(
     private val taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
     private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null,
-    private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null
+    private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null,
+    @ApplicationContext private val context: Context? = null,
+    private val geminiAiOnlineService: GeminiAiOnlineService? = null
 ) : ViewModel() {
+
+    private val scheduleOrchestrator = SchedulePreparationOrchestrator(
+        taskSchedulerService = taskSchedulerService,
+        behavioralSupportService = behavioralSupportService,
+        sleepTelemetryRepository = sleepTelemetryRepository
+    )
 
     private val _selectedDate = MutableStateFlow(startOfTodayMillis())
     private val _viewMode = MutableStateFlow(PlanViewModeV2.TIMELINE)
@@ -4206,6 +4993,7 @@ class PlanViewModelV2 @Inject constructor(
     private val _isSearchVisible = MutableStateFlow(false)
     private val _decomposingTaskId = MutableStateFlow<String?>(null)
     private val _selectedQuadrant = MutableStateFlow<Quadrant?>(null)
+    private val _deferrals = MutableStateFlow<List<DeferralRationale>>(emptyList())
 
     private val _userActionMessage = MutableSharedFlow<String>()
     val userActionMessage: SharedFlow<String> = _userActionMessage.asSharedFlow()
@@ -4222,7 +5010,8 @@ class PlanViewModelV2 @Inject constructor(
         val searchQuery: String,
         val isSearchVisible: Boolean,
         val decomposingTaskId: String?,
-        val selectedQuadrant: Quadrant?
+        val selectedQuadrant: Quadrant?,
+        val deferrals: List<DeferralRationale> = emptyList()
     )
 
     val uiState: StateFlow<PlanUiStateV2> = combine(
@@ -4233,10 +5022,11 @@ class PlanViewModelV2 @Inject constructor(
             combine(_pendingDeletedTask, _isStagingDrawerExpanded, _searchQuery) { pendingTask, drawerExpanded, searchQ ->
                 listOf<Any?>(pendingTask, drawerExpanded, searchQ)
             },
-            combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant) { searchVis, decompId, selectedQuad ->
-                listOf<Any?>(searchVis, decompId, selectedQuad)
+            combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant, _deferrals) { searchVis, decompId, selectedQuad, defs ->
+                listOf<Any?>(searchVis, decompId, selectedQuad, defs)
             }
         ) { first, second, third ->
+            @Suppress("UNCHECKED_CAST")
             PlanNavParams(
                 dateMillis = first[0] as Long,
                 mode = first[1] as PlanViewModeV2,
@@ -4247,17 +5037,26 @@ class PlanViewModelV2 @Inject constructor(
                 searchQuery = second[2] as String,
                 isSearchVisible = third[0] as Boolean,
                 decomposingTaskId = third[1] as String?,
-                selectedQuadrant = third[2] as Quadrant?
+                selectedQuadrant = third[2] as Quadrant?,
+                deferrals = third[3] as List<DeferralRationale>
             )
         },
         taskRepository.observeActiveTasks(),
         preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
             old.workDayStart == new.workDayStart &&
-            old.workDayEnd == new.workDayEnd &&
-            old.autoSchedulingEnabled == new.autoSchedulingEnabled &&
-            old.protectedTimeSlots == new.protectedTimeSlots &&
-            old.wakeUpHour == new.wakeUpHour &&
-            old.sleepPressurePoints == new.sleepPressurePoints
+                old.workDayEnd == new.workDayEnd &&
+                old.autoSchedulingEnabled == new.autoSchedulingEnabled &&
+                old.protectedTimeSlots == new.protectedTimeSlots &&
+                old.wakeUpHour == new.wakeUpHour &&
+                old.sleepHour == new.sleepHour &&
+                old.sleepPressurePoints == new.sleepPressurePoints &&
+                old.stimulantLogsJson == new.stimulantLogsJson &&
+                old.quickPhysiologicalLogsJson == new.quickPhysiologicalLogsJson &&
+                old.quizChronotype == new.quizChronotype &&
+                old.manualChronotype == new.manualChronotype &&
+                old.meqScore == new.meqScore &&
+                old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
+                old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay
         },
         sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList()),
         goalRepository?.observeActiveGoals() ?: flowOf(emptyList())
@@ -4268,12 +5067,58 @@ class PlanViewModelV2 @Inject constructor(
         val tag = params.tag
 
         val now = System.currentTimeMillis()
+        val zoneId = java.time.ZoneId.systemDefault()
+        val zonedDateTime = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId)
+        var anchor = zonedDateTime.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(zoneId)
+        if (anchor.toInstant().toEpochMilli() > dateMillis) {
+            anchor = anchor.minusDays(1)
+        }
+        val baseWakeMillis = anchor.toInstant().toEpochMilli()
+
+        val signal = sleepTelemetryRepository?.normalizeLogs(
+            logs = sleepLogs,
+            baseWakeMillis = baseWakeMillis,
+            baseSleepMinutes = 480.0
+        )
+        val wakeTimeMillis = signal?.normalizedWakeTimeMillis ?: baseWakeMillis
+        val sleepDurationMinutes = signal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
+
+        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+        val quickPhysNaps = physLogs
+            .filter { it.type == com.neuroflow.app.data.local.PhysiologicalEventType.NAP }
+            .map { log ->
+                DaytimeNapBout(
+                    startMillis = log.timestampMillis - log.durationMinutes.coerceAtLeast(10) * 60_000L,
+                    endMillis = log.timestampMillis
+                )
+            }
+        val naps = ((signal?.daytimeNaps ?: emptyList()) + quickPhysNaps).sortedBy { it.startMillis }
+
+        val resolvedChronotype = if (!prefs.manualChronotype.isNullOrBlank()) {
+            ChronotypeProfile.fromString(prefs.manualChronotype)
+        } else if (!prefs.quizChronotype.isNullOrBlank()) {
+            ChronotypeProfile.fromString(prefs.quizChronotype)
+        } else if (prefs.meqScore > 0) {
+            when {
+                prefs.meqScore >= 70 -> ChronotypeProfile.DEFINITE_MORNING
+                prefs.meqScore >= 59 -> ChronotypeProfile.MODERATE_MORNING
+                prefs.meqScore >= 42 -> ChronotypeProfile.INTERMEDIATE
+                prefs.meqScore >= 31 -> ChronotypeProfile.MODERATE_EVENING
+                else -> ChronotypeProfile.DEFINITE_EVENING
+            }
+        } else {
+            ChronotypeProfile.INTERMEDIATE
+        }
+
+        val allStimulants = parseStimulantLogs(prefs.stimulantLogsJson)
+
         val (_, energyUi) = computeEnergyUiState(
             circadianEnergyService = circadianEnergyService,
             sleepTelemetryRepository = sleepTelemetryRepository,
             prefs = prefs,
             sleepLogs = sleepLogs,
-            nowMillis = now
+            nowMillis = now,
+            stimulantDoses = allStimulants
         )
 
         val tagFilteredAll = if (tag.isNullOrBlank() || tag.equals("All", ignoreCase = true)) {
@@ -4330,15 +5175,30 @@ class PlanViewModelV2 @Inject constructor(
         val circadianSummary = runCatching {
             circadianEnergyService.computeDailySummary(
                 timestampMillis = dateMillis,
-                wakeTimeMillis = dateMillis + (prefs.wakeUpHour * 3600_000L),
-                lastSleepDurationMinutes = 480,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
                 continuousActiveFocusMinutes = 0,
-                zoneId = java.time.ZoneId.systemDefault(),
-                naps = emptyList(),
-                chronotype = ChronotypeProfile.fromString(prefs.quizChronotype),
-                manualPeakStartHour = manualPeakHour
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = resolvedChronotype,
+                manualPeakStartHour = manualPeakHour,
+                stimulantDoses = allStimulants
             )
         }.getOrNull()
+
+        val energyTimeline = runCatching {
+            circadianEnergyService.projectDayTimeline(
+                dayStartMillis = dateMillis,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = sleepDurationMinutes,
+                stepMinutes = 30,
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = resolvedChronotype,
+                manualPeakStartHour = manualPeakHour,
+                stimulantDoses = allStimulants
+            )
+        }.getOrDefault(emptyList())
 
         PlanUiStateV2(
             selectedDateMillis = dateMillis,
@@ -4356,6 +5216,7 @@ class PlanViewModelV2 @Inject constructor(
             workDayEnd = prefs.workDayEnd,
             energyUi = energyUi,
             circadianSummary = circadianSummary,
+            energyTimeline = energyTimeline,
             preferences = prefs,
             isLoading = false,
             pendingDeletedTask = params.pendingDeletedTask,
@@ -4363,7 +5224,8 @@ class PlanViewModelV2 @Inject constructor(
             searchQuery = params.searchQuery,
             isSearchVisible = params.isSearchVisible,
             decomposingTaskId = params.decomposingTaskId,
-            selectedQuadrant = params.selectedQuadrant
+            selectedQuadrant = params.selectedQuadrant,
+            deferrals = params.deferrals
         )
     }.stateIn(
         viewModelScope,
@@ -4390,7 +5252,13 @@ class PlanViewModelV2 @Inject constructor(
     fun toggleAutoSchedule() {
         viewModelScope.launch {
             val current = uiState.value.isAutoScheduleOn
-            preferencesDataStore.updatePreferences { it.copy(autoSchedulingEnabled = !current) }
+            val nextState = !current
+            preferencesDataStore.updatePreferences {
+                it.copy(
+                    autoSchedulingEnabled = nextState,
+                    isAutoScheduleToggleOn = nextState
+                )
+            }
         }
     }
 
@@ -4399,6 +5267,7 @@ class PlanViewModelV2 @Inject constructor(
             _isAutoScheduling.value = true
             try {
                 val prefs = preferencesDataStore.preferencesFlow.first()
+                val allKnownTasks = taskRepository.getAllTasks().ifEmpty { taskRepository.getActiveTasks() }
                 val allTasks = taskRepository.getActiveTasks()
                 val zoneId = java.time.ZoneId.systemDefault()
                 val dayDate = java.time.Instant.ofEpochMilli(dateMillis).atZone(zoneId).toLocalDate()
@@ -4415,97 +5284,64 @@ class PlanViewModelV2 @Inject constructor(
                     if (end > dayStart && start < dayEnd) com.neuroflow.app.domain.service.TimeSlotWindow(start, end) else null
                 }
                 val totalBusyWindows = externalBusyWindows + fixedWindows
-
                 val nowMillis = System.currentTimeMillis()
-                val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-                val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
-                val wakeHour = prefs.wakeUpHour
-                val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-                val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
 
                 val candidateTasks = allTasks.filter { task ->
                     val sDate = task.scheduledDate
                     sDate == null || (sDate in dayStart..dayEnd && !task.isScheduleLocked)
                 }
 
-                val schedulableTasks = candidateTasks.map { task ->
-                    com.neuroflow.app.domain.service.SchedulableTask(
-                        id = task.id,
-                        title = task.title,
-                        category = when (task.taskType) {
-                            com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
-                            com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
-                            com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
-                            com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
-                            com.neuroflow.app.domain.model.TaskType.GENERAL -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
-                            com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
-                        },
-                        priority = when (task.priority) {
-                            com.neuroflow.app.domain.model.Priority.HIGH -> 2
-                            com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
-                            else -> 0
-                        },
-                        estimatedMinutes = task.estimatedDurationMinutes,
-                        energyDemand = when (task.energyLevel) {
-                            com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
-                            com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
-                            else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
-                        },
-                        isFrog = task.isFrog,
-                        scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: dayStart) + it },
-                        deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
-                        isLocked = task.isScheduleLocked,
-                        parentTaskId = task.parentTaskId
-                    )
+                val allSessions = runCatching {
+                    sessionRepository?.getAllSessions().orEmpty()
+                }.getOrDefault(emptyList())
+                val closedSessions = allSessions.filter { it.endedAt != null }
+                val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+                val microStepCounts = candidateTasks.associate { task ->
+                    val steps = taskRepository.getMicroSteps(task.id)
+                    task.id to Pair(steps.count { it.isCompleted }, steps.size)
                 }
-
-                val protectedSlots = prefs.protectedTimeSlots.filter { it.isEnabled }.map {
-                    com.neuroflow.app.domain.service.ProtectedLocalSlot(
-                        startHour = it.startMinuteOfDay / 60,
-                        startMinute = it.startMinuteOfDay % 60,
-                        durationMinutes = it.durationMinutes
-                    )
-                }
-
                 val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
-                val signal = sleepTelemetryRepository?.normalizeLogs(
-                    logs = sleepLogs,
-                    baseWakeMillis = wakeTimeMillis,
-                    baseSleepMinutes = 480.0
-                )
-                val naps = signal?.daytimeNaps ?: emptyList()
 
-                val placements = taskSchedulerService.scheduleDay(
-                    tasks = schedulableTasks,
+                val outcome = scheduleOrchestrator.orchestrateDayScheduleWithOutcome(
+                    candidateTasks = candidateTasks,
+                    allKnownTasks = allKnownTasks,
+                    closedSessions = closedSessions,
+                    sleepLogs = sleepLogs,
+                    prefs = prefs,
                     dayDate = dayDate,
                     nowMillis = nowMillis,
-                    wakeTimeMillis = wakeTimeMillis,
-                    lastSleepDurationMinutes = 480,
                     busyWindows = totalBusyWindows,
-                    protectedSlots = protectedSlots,
-                    calibrationRatio = 1.20,
                     forceReplan = forceReplan,
                     zoneId = zoneId,
-                    naps = naps
+                    activeTaskId = activeTaskId,
+                    microStepCounts = microStepCounts
                 )
+                val placements = outcome.placements
+                _deferrals.value = outcome.deferrals
 
-                for (placement in placements) {
-                    val fresh = taskRepository.getById(placement.task.id) ?: continue
+                val placementsByBaseId = placements.groupBy { it.task.id.substringBefore("#part") }
+
+                for ((baseTaskId, taskPlacements) in placementsByBaseId) {
+                    val primaryPlacement = taskPlacements.first()
+                    val fresh = taskRepository.getById(baseTaskId) ?: continue
                     if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE || fresh.isScheduleLocked) continue
-                    val calSlot = Calendar.getInstance().apply { timeInMillis = placement.window.startMillis }
+                    val calSlot = Calendar.getInstance().apply { timeInMillis = primaryPlacement.window.startMillis }
                     val startOfDay = calSlot.apply {
                         set(Calendar.HOUR_OF_DAY, 0)
                         set(Calendar.MINUTE, 0)
                         set(Calendar.SECOND, 0)
                         set(Calendar.MILLISECOND, 0)
                     }.timeInMillis
-                    val timeOffset = placement.window.startMillis - startOfDay
+                    val timeOffset = primaryPlacement.window.startMillis - startOfDay
 
+                    val isSplit = taskPlacements.size > 1 || primaryPlacement.task.id.endsWith("#part1")
+                    val titleToUse = if (isSplit && !fresh.title.contains("(Part ")) "${fresh.title} (Part 1/2)" else fresh.title
                     val updated = fresh.copy(
+                        title = titleToUse,
                         scheduledDate = startOfDay,
                         scheduledTime = timeOffset,
                         isAutoScheduled = true,
-                        plannedBlockMinutes = placement.window.durationMinutes,
+                        plannedBlockMinutes = primaryPlacement.window.durationMinutes,
                         lastAutoScheduledAt = nowMillis,
                         updatedAt = nowMillis
                     )
@@ -4513,9 +5349,43 @@ class PlanViewModelV2 @Inject constructor(
                     if (updated.isFrog) {
                         calendarSyncRepository?.upsertTaskEvent(
                             updated,
-                            startMillis = placement.window.startMillis,
-                            durationMinutes = placement.window.durationMinutes
+                            startMillis = primaryPlacement.window.startMillis,
+                            durationMinutes = primaryPlacement.window.durationMinutes
                         )
+                    }
+
+                    val part2Placement = taskPlacements.getOrNull(1)
+                    if (part2Placement != null && part2Placement.task.id.endsWith("#part2")) {
+                        val calSlot2 = Calendar.getInstance().apply { timeInMillis = part2Placement.window.startMillis }
+                        val startOfDay2 = calSlot2.apply {
+                            set(Calendar.HOUR_OF_DAY, 0)
+                            set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                            }.timeInMillis
+                        val timeOffset2 = part2Placement.window.startMillis - startOfDay2
+                        val part2Id = "${baseTaskId}_part2"
+                        val existingPart2 = taskRepository.getById(part2Id)
+                        val part2Title = if (!part2Placement.task.title.contains("(Part ")) "${fresh.title.substringBefore(" (Part ")} (Part 2/2)" else part2Placement.task.title
+                        val part2Entity = (existingPart2 ?: fresh).copy(
+                            id = part2Id,
+                            title = part2Title,
+                            parentTaskId = baseTaskId,
+                            dependsOnTaskIds = baseTaskId,
+                            estimatedDurationMinutes = part2Placement.window.durationMinutes,
+                            plannedBlockMinutes = part2Placement.window.durationMinutes,
+                            scheduledDate = startOfDay2,
+                            scheduledTime = timeOffset2,
+                            isAutoScheduled = true,
+                            isFrog = false,
+                            lastAutoScheduledAt = nowMillis,
+                            updatedAt = nowMillis
+                        )
+                        if (existingPart2 != null) {
+                            taskRepository.update(part2Entity)
+                        } else {
+                            taskRepository.insert(part2Entity)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -4536,12 +5406,13 @@ class PlanViewModelV2 @Inject constructor(
 
     fun resolveConflict(conflict: ScheduleConflict) {
         val suggestedMinute = conflict.suggestedNewStartMinute
-        val targetTask = uiState.value.tasksForDay.firstOrNull { it.title == conflict.taskTitle }
+        val targetTask = uiState.value.tasksForDay.firstOrNull { it.id == conflict.taskId }
+            ?: uiState.value.tasksForDay.firstOrNull { it.title == conflict.taskTitle }
         if (targetTask != null && suggestedMinute != null) {
             assignTaskTime(targetTask, suggestedMinute / 60, suggestedMinute % 60)
             viewModelScope.launch {
                 _userActionMessage.emit(
-                    "Moved '${targetTask.title.take(24)}' to ${ConflictResolver.formatMinutesToTime(suggestedMinute)}"
+                    "Shifted '${targetTask.title.take(24)}' to ${ConflictResolver.formatMinutesToTime(suggestedMinute)}"
                 )
             }
         } else {
@@ -4617,20 +5488,138 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun addTaskFromNote(title: String, content: String) = createTaskFromNote(title, content)
+
     fun createTaskFromNote(title: String, description: String = "") {
         viewModelScope.launch {
-            val cleanTitle = title.ifBlank { description.take(40).trim() }.ifBlank { "New Task" }
+            val fullText = if (title.isNotBlank()) "$title: $description" else description
+            val inferred = TaskInferenceEngine.inferFromInput(fullText)
+            val now = System.currentTimeMillis()
             val newTask = TaskEntity(
                 id = java.util.UUID.randomUUID().toString(),
-                title = cleanTitle,
+                title = inferred.sanitizedTitle.ifBlank { title.ifBlank { "Quick Task" } },
                 description = description.trim(),
-                scheduledDate = uiState.value.selectedDateMillis,
-                estimatedDurationMinutes = 25,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
+                estimatedDurationMinutes = inferred.durationMinutes,
+                priority = inferred.priority,
+                energyLevel = inferred.energyDemand,
+                taskType = inferred.taskType,
+                quadrant = inferred.quadrant,
+                tags = inferred.contextTags.joinToString(","),
+                scheduledDate = inferred.scheduledDate ?: uiState.value.selectedDateMillis,
+                scheduledTime = inferred.scheduledTime,
+                deadlineDate = inferred.deadlineDate,
+                deadlineTime = inferred.deadlineTime,
+                isFrog = inferred.isFrog,
+                createdAt = now,
+                updatedAt = now
             )
             taskRepository.insert(newTask)
-            _userActionMessage.emit("Created task '$cleanTitle'")
+            calendarSyncRepository?.handleTaskStateChanged(newTask)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, newTask) }
+            _userActionMessage.emit("Created task '${newTask.title.take(24)}' ⚡")
+        }
+    }
+
+    suspend fun synthesizeQuickNote(content: String): QuickNoteSynthesis {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.synthesizeQuickNote(
+            rawContent = content,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        ) ?: run {
+            val inferred = TaskInferenceEngine.inferFromInput(content)
+            QuickNoteSynthesis(
+                extractedTaskTitle = inferred.sanitizedTitle.ifBlank { content.take(35) },
+                suggestedCategory = inferred.taskType.name,
+                estimatedMinutes = inferred.durationMinutes,
+                tags = inferred.contextTags,
+                firstActionStep = "Review scratchpad note and outline details"
+            )
+        }
+    }
+
+    fun addGoal(title: String, description: String = "") {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            goalRepository?.insert(
+                com.neuroflow.app.data.local.entity.GoalEntity(
+                    title = title.trim(),
+                    description = description.trim(),
+                    isActive = true,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            _userActionMessage.emit("Goal added: ${title.take(20)}")
+        }
+    }
+
+    fun completeGoal(goal: com.neuroflow.app.data.local.entity.GoalEntity) {
+        viewModelScope.launch {
+            goalRepository?.update(goal.copy(isActive = false))
+            _userActionMessage.emit("Goal completed! 🎯")
+        }
+    }
+
+    fun deleteGoal(goal: com.neuroflow.app.data.local.entity.GoalEntity) {
+        viewModelScope.launch {
+            goalRepository?.delete(goal)
+            _userActionMessage.emit("Goal removed")
+        }
+    }
+
+    fun shiftTaskToPeak(task: TaskEntity) {
+        viewModelScope.launch {
+            val peakHour = uiState.value.circadianSummary?.peakWindowStartHour
+                ?: uiState.value.preferences.peakEnergyStart.takeIf { it > 0 } ?: 10
+            val peakEndHour = uiState.value.circadianSummary?.peakWindowEndHour ?: (peakHour + 3)
+            val dipEndHour = uiState.value.circadianSummary?.dipWindowEndHour ?: 16
+            val usableEnergy = uiState.value.circadianSummary?.currentSnapshot?.usableEnergy ?: 60
+
+            val now = System.currentTimeMillis()
+            val cal = Calendar.getInstance().apply { timeInMillis = now }
+            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+
+            val baseDate = task.scheduledDate ?: uiState.value.selectedDateMillis
+            val baseCal = Calendar.getInstance().apply {
+                timeInMillis = baseDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val isToday = baseCal.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
+                baseCal.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR)
+
+            val targetDate: Long
+            val targetHour: Int
+            val messageLabel: String
+
+            if (!isToday || currentHour < peakEndHour) {
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Peak Window (${peakHour}:00)"
+            } else if (currentHour < 18 && usableEnergy >= 55) {
+                targetDate = baseCal.timeInMillis
+                targetHour = maxOf(currentHour + 1, dipEndHour).coerceAtMost(17)
+                messageLabel = "Afternoon Rebound (${targetHour}:00)"
+            } else {
+                baseCal.add(Calendar.DAY_OF_YEAR, 1)
+                targetDate = baseCal.timeInMillis
+                targetHour = peakHour
+                messageLabel = "Tomorrow's Peak (${peakHour}:00)"
+            }
+
+            val millisInDay = targetHour * 3600_000L
+            val updated = task.copy(
+                scheduledDate = targetDate,
+                scheduledTime = millisInDay,
+                isScheduleLocked = true,
+                updatedAt = System.currentTimeMillis()
+            )
+            taskRepository.update(updated)
+            calendarSyncRepository?.handleTaskStateChanged(updated)
+            _userActionMessage.emit("Shifted '${task.title.take(20)}' to $messageLabel ⚡")
         }
     }
 
@@ -4649,12 +5638,25 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun assignTaskTime(taskId: String, newStartMillis: Long) {
+        val targetTask = uiState.value.tasksForDay.firstOrNull { it.id == taskId } ?: return
+        val zoneId = ZoneId.systemDefault()
+        val zdt = Instant.ofEpochMilli(newStartMillis).atZone(zoneId)
+        assignTaskTime(targetTask, zdt.hour, zdt.minute)
+    }
+
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
+            context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             taskRepository.completeAndRecur(task, System.currentTimeMillis())
             calendarSyncRepository?.handleTaskStateChanged(
                 task.copy(status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED)
             )
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {
+                " • \"${prefs.affirmations.random()}\""
+            } else ""
+            _userActionMessage.emit("Completed: ${task.title}$affirmationSuffix")
         }
     }
 
@@ -4681,30 +5683,65 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun saveProtectedSlot(slot: ProtectedTimeSlot) {
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                val existing = prefs.protectedTimeSlots
+                val updated = if (existing.any { it.id == slot.id }) {
+                    existing.map { if (it.id == slot.id) slot else it }
+                } else {
+                    existing + slot
+                }
+                prefs.copy(protectedTimeSlots = updated)
+            }
+        }
+    }
+
+    fun deleteProtectedSlot(slotId: String) {
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(protectedTimeSlots = prefs.protectedTimeSlots.filterNot { it.id == slotId })
+            }
+        }
+    }
+
+    suspend fun enrichTaskWithAi(taskTitle: String, durationMinutes: Int = 30): com.neuroflow.app.domain.service.TaskEnrichmentResult? {
+        val prefs = preferencesDataStore.preferencesFlow.first()
+        return geminiAiOnlineService?.enrichTaskWithAi(
+            title = taskTitle,
+            durationMinutes = durationMinutes,
+            userDirective = prefs.adaptiveSystemDirective,
+            apiKey = prefs.geminiApiKey,
+            useAi = prefs.geminiAiEnabled
+        )
+    }
+
     fun logPastTime(task: TaskEntity, minutes: Float) {
+        if (minutes.isNaN() || minutes.isInfinite()) return
+        val safeMinutes = minutes.coerceAtMost(1440f)
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val session = TimeSessionEntity(
                 taskId = task.id,
-                startedAt = now - (minutes * 60_000f).toLong(),
+                startedAt = now - (safeMinutes * 60_000f).toLong(),
                 endedAt = now,
-                durationMinutes = minutes,
+                durationMinutes = safeMinutes,
                 sessionType = "MANUAL_LOG"
             )
             sessionRepository?.insert(session)
-            val newTracked = task.totalTimeTrackedMinutes + minutes
+            val newTracked = task.totalTimeTrackedMinutes + safeMinutes
             val newCount = task.sessionCount + 1
             taskRepository.update(
                 task.copy(
                     totalTimeTrackedMinutes = newTracked,
                     sessionCount = newCount,
-                    lastSessionDurationMinutes = minutes,
+                    lastSessionDurationMinutes = safeMinutes,
                     actualDurationMinutes = newTracked,
                     updatedAt = now
                 )
             )
             preferencesDataStore.updatePreferences { prefs ->
-                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + minutes.toInt())
+                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + safeMinutes.toInt())
             }
         }
     }
@@ -4730,6 +5767,7 @@ class PlanViewModelV2 @Inject constructor(
         val task = _pendingDeletedTask.value ?: return
         _pendingDeletedTask.value = null
         viewModelScope.launch {
+            context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             preferencesDataStore.recordDeletedTask(
                 title = task.title,
                 durationMinutes = task.estimatedDurationMinutes,

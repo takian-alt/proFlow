@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,14 +17,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -46,17 +46,13 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.engine.WoopEngine
-import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlinx.coroutines.delay
 
-/**
- * 1. Zen Micro-Step Spotlight Card for FocusScreenV2:
- * Shows ONLY the active micro-step in bold typography to prevent ADHD working-memory overload.
- */
 @Composable
 fun ZenMicroStepSpotlightCard(
     currentStepIndex: Int,
@@ -71,7 +67,10 @@ fun ZenMicroStepSpotlightCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -97,7 +96,7 @@ fun ZenMicroStepSpotlightCard(
                 Text(
                     text = "~${currentStepEstimatedMinutes}m target",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.55f)
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.height(14.dp))
@@ -107,7 +106,7 @@ fun ZenMicroStepSpotlightCard(
                     fontWeight = FontWeight.Bold,
                     fontSize = 19.sp
                 ),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -122,7 +121,7 @@ fun ZenMicroStepSpotlightCard(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                        contentColor = Color.Black
+                        contentColor = Color(0xFF0A0B0E)
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
@@ -141,9 +140,9 @@ fun ZenMicroStepSpotlightCard(
                     )
                 }
                 Surface(
-                    color = Color.White.copy(alpha = 0.06f),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
                     modifier = Modifier
                         .height(44.dp)
                         .clickable { onSkipStep() }
@@ -155,7 +154,7 @@ fun ZenMicroStepSpotlightCard(
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Step",
-                            tint = Color.White.copy(alpha = 0.75f)
+                            tint = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
@@ -164,9 +163,6 @@ fun ZenMicroStepSpotlightCard(
     }
 }
 
-/**
- * 2. Interactive Physiological Sigh Guide Sheet (Double Inhale + Long Exhale)
- */
 @Composable
 fun InteractivePhysiologicalSighSheet(
     totalCycles: Int = 3,
@@ -243,7 +239,7 @@ fun InteractivePhysiologicalSighSheet(
         Text(
             text = "Cycle $cycle of $totalCycles",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(24.dp))
         Box(
@@ -271,7 +267,7 @@ fun InteractivePhysiologicalSighSheet(
             Text(
                 text = stageLabel,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
@@ -280,15 +276,12 @@ fun InteractivePhysiologicalSighSheet(
         Text(
             text = "Two inhales maximally inflate alveoli; the extended exhale triggers vagal nerve slowing and clears acute executive friction.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             textAlign = TextAlign.Center
         )
     }
 }
 
-/**
- * 3. One-Tap Haptic Affordance Rating Sheet (AffordanceRatingSheet.kt)
- */
 @Composable
 fun UpgradedAffordanceRatingSheet(
     taskTitle: String,
@@ -323,14 +316,14 @@ fun UpgradedAffordanceRatingSheet(
         Text(
             text = "How did \"$taskTitle\" feel compared to what you expected?",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White,
+            color = NeuroFlowPaletteV2.TextPrimary,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "1 tap updates your personal circadian curve and future task scheduling.",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.6f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(18.dp))
@@ -359,7 +352,7 @@ fun UpgradedAffordanceRatingSheet(
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = NeuroFlowPaletteV2.TextPrimary,
                             textAlign = TextAlign.Center,
                             fontSize = 10.sp
                         )
@@ -371,7 +364,7 @@ fun UpgradedAffordanceRatingSheet(
         Text(
             text = "Skip for now",
             style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.45f),
+            color = NeuroFlowPaletteV2.TextTertiary,
             modifier = Modifier
                 .clickable { onSkip() }
                 .padding(8.dp)
@@ -379,9 +372,6 @@ fun UpgradedAffordanceRatingSheet(
     }
 }
 
-/**
- * 4. Guided WOOP Obstacle & If-Then Plan Sheet (WoopPromptSheet.kt)
- */
 @Composable
 fun UpgradedWoopPromptSheet(
     taskTitle: String,
@@ -406,18 +396,42 @@ fun UpgradedWoopPromptSheet(
             .background(NeuroFlowPaletteV2.SurfaceCard)
             .padding(22.dp)
     ) {
-        Text(
-            text = "WOOP FRICTION SHIELD",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-            color = NeuroFlowPaletteV2.ReboundCyan,
-            letterSpacing = 1.sp
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Unblock \"$taskTitle\"",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(
+                    text = "WOOP FRICTION SHIELD",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                    color = NeuroFlowPaletteV2.ReboundCyan,
+                    letterSpacing = 1.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Unblock \"$taskTitle\"",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = NeuroFlowPaletteV2.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = NeuroFlowPaletteV2.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
         if (!dreadedTaskInsight.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(8.dp))
             Surface(
@@ -437,7 +451,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "1. Tap your main internal obstacle:",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color.White.copy(alpha = 0.8f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         presetObstacles.forEach { preset ->
@@ -457,7 +471,7 @@ fun UpgradedWoopPromptSheet(
                 Text(
                     text = preset,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = Color.White,
+                    color = NeuroFlowPaletteV2.TextPrimary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
                 )
             }
@@ -466,7 +480,7 @@ fun UpgradedWoopPromptSheet(
         Text(
             text = "2. Your automatic If-Then reflex:",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color.White.copy(alpha = 0.8f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         OutlinedTextField(
@@ -495,7 +509,7 @@ fun UpgradedWoopPromptSheet(
             },
             colors = ButtonDefaults.buttonColors(
                 containerColor = NeuroFlowPaletteV2.ReboundCyan,
-                contentColor = Color.Black
+                contentColor = Color.White
             ),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier
@@ -507,5 +521,15 @@ fun UpgradedWoopPromptSheet(
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
             )
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = "Maybe Later",
+            style = MaterialTheme.typography.labelMedium,
+            color = NeuroFlowPaletteV2.TextTertiary,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .clickable { onDismiss() }
+                .padding(8.dp)
+        )
     }
 }

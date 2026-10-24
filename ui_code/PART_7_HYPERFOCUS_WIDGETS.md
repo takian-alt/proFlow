@@ -1,10 +1,10 @@
 # neuroFlow UI Codebase — HyperFocus Lock Engine, Gateways & Home Screen Widgets
 
 **Description:** HyperFocusHomeScreen/Activity, BlockingOverlay, GateTaskScreen, PermissionSetup, and Glance App Widgets.  
-**Generated for Vice Head Review:** 2026-10-20 16:59:40  
+**Generated for Vice Head Review:** 2026-10-23 22:05:10  
 **Files:** 26  
-**Lines of Code:** 4,560  
-**Uncompressed Size:** 184.9 KB  
+**Lines of Code:** 4,597  
+**Uncompressed Size:** 186.5 KB  
 
 ---
 
@@ -45,8 +45,8 @@
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/HyperFocusActivity.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/HyperFocusActivity.kt`
-- **Lines of Code:** 179
-- **Size:** 8,138 bytes (7.9 KB)
+- **Lines of Code:** 187
+- **Size:** 8,497 bytes (8.3 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus
@@ -75,6 +75,7 @@ import com.neuroflow.app.feature.hyperfocus.screens.AllowlistSettingsScreen
 import com.neuroflow.app.feature.hyperfocus.screens.BlockingOverlayScreen
 import com.neuroflow.app.feature.hyperfocus.screens.HyperFocusActivationSheet
 import com.neuroflow.app.feature.hyperfocus.screens.PlanningPromptScreen
+import com.neuroflow.app.feature.hyperfocus.screens.RewardsScreen
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -191,6 +192,12 @@ class HyperFocusActivity : ComponentActivity() {
                         onStartSession = { showActivationSheet = true }
                     )
                 }
+                composable(DESTINATION_REWARDS) {
+                    RewardsScreen(
+                        onNavigateBack = { controller.popBackStack() },
+                        viewModel = viewModel
+                    )
+                }
             }
             if (showActivationSheet) {
                 HyperFocusActivationSheet(
@@ -226,6 +233,7 @@ class HyperFocusActivity : ComponentActivity() {
         const val DESTINATION_GATEWAY = "gateway"
         const val DESTINATION_LAUNCH = "launch_app"
         const val DESTINATION_SETUP = "setup"
+        const val DESTINATION_REWARDS = "rewards"
     }
 }
 ```
@@ -1860,7 +1868,7 @@ private fun OffPlaceholder(
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/home/HyperFocusHomeViewModel.kt`
 - **Lines of Code:** 189
-- **Size:** 7,858 bytes (7.7 KB)
+- **Size:** 7,943 bytes (7.8 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.home
@@ -1963,7 +1971,7 @@ class HyperFocusHomeViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val emergencyAvailable: StateFlow<Boolean> = hyperFocusDataStore.flow
-        .map { it.isActive && !it.emergencyUsed }
+        .map { it.isActive && !it.emergencyUsed && it.sessionMode != com.neuroflow.app.domain.model.HyperFocusSessionMode.TIME_BASED }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Called from the activity's `onCreate` and `onResume`; cheap and idempotent. */
@@ -2314,8 +2322,8 @@ private fun AppTierRow(
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/BlockingOverlayScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/BlockingOverlayScreen.kt`
-- **Lines of Code:** 687
-- **Size:** 31,059 bytes (30.3 KB)
+- **Lines of Code:** 690
+- **Size:** 31,205 bytes (30.5 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -2513,6 +2521,9 @@ fun BlockingOverlayScreen(
                     }
                     context.startActivity(focusIntent)
                     (context as? Activity)?.finish()
+                },
+                onRedeemEarnedPassClick = {
+                    navController.navigate(HyperFocusActivity.DESTINATION_REWARDS)
                 }
             )
 
@@ -3422,8 +3433,8 @@ fun HomeRoleSetupScreen(
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/HyperFocusActivationSheet.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/HyperFocusActivationSheet.kt`
-- **Lines of Code:** 410
-- **Size:** 17,069 bytes (16.7 KB)
+- **Lines of Code:** 434
+- **Size:** 17,985 bytes (17.6 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -3457,6 +3468,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -3544,6 +3556,12 @@ private fun ActivationSheetContent(
             if (selectedTaskIds[task.id] == null) {
                 selectedTaskIds[task.id] = false
             }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearActivationMessage()
         }
     }
 
@@ -3782,29 +3800,46 @@ private fun ActivationSheetContent(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Button(
-            onClick = {
-                if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                    viewModel.activateTimed(selectedDurationMinutes)
-                } else {
+        if (prefs.isActive) {
+            Button(
+                onClick = {
                     val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
-                    viewModel.activate(selectedTasks)
-                }
-                onDismiss()
-            },
-            enabled = confirmText == "FOCUS" && essentialCount > 0 &&
-                (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-        ) {
-            val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
-                "Activate ${selectedDurationMinutes}m Focus Lock"
-            } else {
-                "Activate Hyper Focus 🔒"
+                    viewModel.addTasksToActiveSession(selectedTasks)
+                    onDismiss()
+                },
+                enabled = selectedTaskCount > 0,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Text("Add $selectedTaskCount Task(s) to Focus Session 🔒", fontWeight = FontWeight.Bold)
             }
-            Text(label, fontWeight = FontWeight.Bold)
+        } else {
+            Button(
+                onClick = {
+                    if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                        viewModel.activateTimed(selectedDurationMinutes)
+                    } else {
+                        val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                        viewModel.activate(selectedTasks)
+                    }
+                    onDismiss()
+                },
+                enabled = confirmText == "FOCUS" && essentialCount > 0 &&
+                    (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                val label = if (sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                    "Activate ${selectedDurationMinutes}m Focus Lock"
+                } else {
+                    "Activate Hyper Focus 🔒"
+                }
+                Text(label, fontWeight = FontWeight.Bold)
+            }
         }
 
 
@@ -4061,8 +4096,8 @@ private fun PermissionRow(label: String, description: String, granted: Boolean) 
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/PlanningPromptScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/PlanningPromptScreen.kt`
-- **Lines of Code:** 139
-- **Size:** 5,465 bytes (5.3 KB)
+- **Lines of Code:** 127
+- **Size:** 4,997 bytes (4.9 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -4127,19 +4162,16 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                     fontWeight = FontWeight.Bold
                 )
 
-                IconButton(onClick = {
-                    viewModel.completePlanning(emptyList())
-                    onDismiss()
-                }) {
+                IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close and Unlock"
+                        contentDescription = "Close"
                     )
                 }
             }
 
             Text(
-                text = "Plan tasks for tomorrow (optional), or finish now to unlock all your apps.",
+                text = "Plan at least 1 task for tomorrow to complete your session and unlock apps.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -4150,7 +4182,7 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
                 OutlinedTextField(
                     value = value,
                     onValueChange = { taskTitles[index] = it },
-                    label = { Text("Task ${index + 1} (optional)") },
+                    label = { Text("Task ${index + 1}") },
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -4174,32 +4206,23 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.completePlanning((taskTitles + extraTitles).filter { it.isNotBlank() })
                     onDismiss()
                 },
+                enabled = hasAnyTask,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                val hasAnyTask = (taskTitles + extraTitles).any { it.isNotBlank() }
                 Text(
-                    text = if (hasAnyTask) "Save Tasks & Unlock Apps" else "Unlock Apps & Finish",
+                    text = "Save Tasks & Unlock Apps",
                     fontWeight = FontWeight.SemiBold
                 )
-            }
-
-            TextButton(
-                onClick = {
-                    viewModel.completePlanning(emptyList())
-                    onDismiss()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Skip & Unlock Apps Now", color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -4212,8 +4235,8 @@ fun PlanningPromptScreen(viewModel: HyperFocusViewModel, onDismiss: () -> Unit =
 ### File: `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/RewardSection.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/feature/hyperfocus/screens/RewardSection.kt`
-- **Lines of Code:** 197
-- **Size:** 8,928 bytes (8.7 KB)
+- **Lines of Code:** 211
+- **Size:** 9,543 bytes (9.3 KB)
 
 ```kotlin
 package com.neuroflow.app.feature.hyperfocus.screens
@@ -4393,6 +4416,20 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                                 fontSize = 28.sp,
                                 letterSpacing = 4.sp
                             )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.submitCode(code)
+                                viewModel.dismissClaimedCode()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Redeem Pass Now")
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

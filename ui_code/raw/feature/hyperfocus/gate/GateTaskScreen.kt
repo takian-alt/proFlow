@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -96,8 +98,12 @@ fun GateTaskScreen(
                 text = "Before you open it",
                 color = Color.White,
                 fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Button(
                 onClick = onBack,
                 colors = ButtonDefaults.buttonColors(
@@ -180,20 +186,29 @@ fun GateTaskScreen(
             Text(
                 text = "Mismatches: $mismatches/$maxMismatches",
                 color = if (mismatches >= maxMismatches) Color(0xFFFFB74D) else Color(0xFFAAAAAA),
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            Spacer(modifier = Modifier.width(8.dp))
             if (holdSeconds > 0) {
                 Text(
                     text = "Hold for $holdSeconds more second${if (holdSeconds == 1L) "" else "s"}",
                     color = Color(0xFFAAAAAA),
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             } else {
                 Text(
                     text = if (reason.trim().length < GateTaskEngine.MIN_REASON_CHARS)
                         "Write a reason to continue" else "Ready",
                     color = Color(0xFFAAAAAA),
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

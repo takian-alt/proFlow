@@ -30,9 +30,16 @@ object AnalyticsEngine {
     }
 
     fun computeWeightedMape(tasks: List<TaskEntity>): Float {
-        val valid = tasks.filter { it.estimatedDurationMinutes > 0 && it.actualDurationMinutes != null }
+        val valid = tasks.filter {
+            it.estimatedDurationMinutes > 0 &&
+                it.actualDurationMinutes != null &&
+                it.actualDurationMinutes!! > 0f &&
+                !it.actualDurationMinutes!!.isNaN() &&
+                !it.actualDurationMinutes!!.isInfinite()
+        }
         if (valid.isEmpty()) return 0f
         val totalWeight = valid.sumOf { it.estimatedDurationMinutes }.toFloat()
+        if (totalWeight <= 0f) return 0f
         val weightedSum = valid.sumOf {
             (computeMape(it.estimatedDurationMinutes.toFloat(), it.actualDurationMinutes!!) * it.estimatedDurationMinutes).toDouble()
         }
@@ -40,9 +47,16 @@ object AnalyticsEngine {
     }
 
     fun computeWeightedSmape(tasks: List<TaskEntity>): Float {
-        val valid = tasks.filter { it.estimatedDurationMinutes > 0 && it.actualDurationMinutes != null }
+        val valid = tasks.filter {
+            it.estimatedDurationMinutes > 0 &&
+                it.actualDurationMinutes != null &&
+                it.actualDurationMinutes!! > 0f &&
+                !it.actualDurationMinutes!!.isNaN() &&
+                !it.actualDurationMinutes!!.isInfinite()
+        }
         if (valid.isEmpty()) return 0f
         val totalWeight = valid.sumOf { it.estimatedDurationMinutes }.toFloat()
+        if (totalWeight <= 0f) return 0f
         val weightedSum = valid.sumOf {
             (computeSmape(it.estimatedDurationMinutes.toFloat(), it.actualDurationMinutes!!) * it.estimatedDurationMinutes).toDouble()
         }
@@ -193,18 +207,20 @@ object AnalyticsEngine {
         return if (normalized < 0) normalized + 24 else normalized
     }
 
-    private fun isHourInPeakWindow(hour: Int, peakStartHour: Int, peakEndHour: Int): Boolean {
+    internal fun isHourInPeakWindow(hour: Int, peakStartHour: Int, peakEndHour: Int): Boolean {
         val h = normalizeHour(hour)
         val start = normalizeHour(peakStartHour)
         val end = normalizeHour(peakEndHour)
-        return if (start <= end) {
-            h in start..end
+        return if (start < end) {
+            h in start until end
+        } else if (start > end) {
+            h >= start || h < end
         } else {
-            h >= start || h <= end
+            h == start
         }
     }
 
-    private fun peakWindowsForDay(dayStartMillis: Long, peakStartHour: Int, peakEndHour: Int): List<Pair<Long, Long>> {
+    internal fun peakWindowsForDay(dayStartMillis: Long, peakStartHour: Int, peakEndHour: Int): List<Pair<Long, Long>> {
         val start = normalizeHour(peakStartHour)
         val end = normalizeHour(peakEndHour)
         fun atHour(hour: Int): Long = Calendar.getInstance().apply {
@@ -220,13 +236,13 @@ object AnalyticsEngine {
         }.timeInMillis
 
         return if (start <= end) {
-            listOf(atHour(start) to atHour(end + 1))
+            listOf(atHour(start) to atHour(end))
         } else {
             // Night window: e.g. 22:00 to 02:00
             // Day 1: start hour to next local midnight; day 2: midnight through end hour.
             listOf(
                 atHour(start) to nextDayStart,
-                dayStartMillis to atHour(end + 1)
+                dayStartMillis to atHour(end)
             )
         }
     }
@@ -240,6 +256,8 @@ object AnalyticsEngine {
     ): List<Pair<String, Float>> {
         val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         val todayStart = startOfDay(nowMillis)
+        val closedSessions = sessions.filter { it.endedAt != null && it.durationMinutes > 0f }
+
         return (6 downTo 0).map { daysAgo ->
             val dayStart = Calendar.getInstance().apply {
                 timeInMillis = todayStart
@@ -249,10 +267,16 @@ object AnalyticsEngine {
                 timeInMillis = dayStart
                 add(Calendar.DAY_OF_YEAR, 1)
             }.timeInMillis
-            val daySessions = sessions.filter {
-                it.startedAt >= dayStart && it.startedAt < dayEnd && it.endedAt != null
-            }
-            val totalMins = daySessions.sumOf { it.durationMinutes.toDouble() }.toFloat()
+
+            // Bug 7 & Feature 4 (ADR-025): Proportionally slice cross-midnight sessions across day boundaries
+            val totalMins = closedSessions.sumOf { session ->
+                val sessionStart = session.startedAt
+                val sessionEnd = session.endedAt ?: session.startedAt
+                val overlapStart = maxOf(sessionStart, dayStart)
+                val overlapEnd = minOf(sessionEnd, dayEnd, nowMillis)
+                if (overlapEnd > overlapStart) ((overlapEnd - overlapStart) / 60_000.0) else 0.0
+            }.toFloat()
+
             val cal = Calendar.getInstance().apply { timeInMillis = dayStart }
             val label = dayLabels[(cal.get(Calendar.DAY_OF_WEEK) + 5) % 7]
             label to totalMins
@@ -335,23 +359,40 @@ object AnalyticsEngine {
 
         // ── Task counts ──────────────────────────────────────────────────────
         val todayStart = startOfDay(nowMillis)
-        val completedToday = completed.count { (it.completedAt ?: 0L) >= todayStart }
+        val todayEnd = Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+
+        // Bug 7 Part 1 (ADR-025) & Bug 9 (ADR-030): Clamp today metrics with upper bound <= nowMillis
+        val completedToday = completed.count {
+            val c = it.completedAt ?: 0L
+            c >= todayStart && c <= nowMillis
+        }
         val completionRate = if (allTasks.isNotEmpty()) completed.size.toFloat() / allTasks.size * 100f else 0f
 
         // ── Quadrant / priority ──────────────────────────────────────────────
         val tasksByQuadrant = Quadrant.entries.associateWith { q -> allTasks.count { it.quadrant == q } }
         val tasksByPriority = Priority.entries.associateWith { p -> allTasks.count { it.priority == p } }
         val completedTodayByQuadrant = Quadrant.entries.associateWith { q ->
-            completed.count { it.quadrant == q && (it.completedAt ?: 0L) >= todayStart }
+            completed.count {
+                val c = it.completedAt ?: 0L
+                it.quadrant == q && c >= todayStart && c <= nowMillis
+            }
         }
         val totalRemainingMinutes = active.sumOf { it.estimatedDurationMinutes }
 
         // ── Session stats ────────────────────────────────────────────────────
         val closedSessions = allSessions.filter { it.endedAt != null && it.durationMinutes > 0f }
-        val focusMinutesToday = closedSessions
-            .filter { it.startedAt >= todayStart }
-            .sumOf { it.durationMinutes.toDouble() }.toFloat()
-        val sessionsToday = closedSessions.count { it.startedAt >= todayStart }
+        // Bug 7 & Feature 4 (ADR-025): Proportionally slice cross-midnight sessions into today's focus minutes
+        val focusMinutesToday = closedSessions.sumOf { session ->
+            val sessionStart = session.startedAt
+            val sessionEnd = session.endedAt ?: session.startedAt
+            val overlapStart = maxOf(sessionStart, todayStart)
+            val overlapEnd = minOf(sessionEnd, todayEnd, nowMillis)
+            if (overlapEnd > overlapStart) ((overlapEnd - overlapStart) / 60_000.0) else 0.0
+        }.toFloat()
+        val sessionsToday = closedSessions.count { it.startedAt in todayStart..nowMillis }
         val focusMinutesTotal = closedSessions.sumOf { it.durationMinutes.toDouble() }.toFloat()
         val avgSessionMinutes = if (closedSessions.isNotEmpty())
             focusMinutesTotal / closedSessions.size else 0f
@@ -362,8 +403,13 @@ object AnalyticsEngine {
 
         val sevenDayTrend = sevenDayFocusTrend(allSessions, nowMillis)
 
-        // ── MAPE / SMAPE ─────────────────────────────────────────────────────
-        val tracked = completed.filter { it.estimatedDurationMinutes > 0 && it.actualDurationMinutes != null }
+        val tracked = completed.filter {
+            it.estimatedDurationMinutes > 0 &&
+                it.actualDurationMinutes != null &&
+                it.actualDurationMinutes!! > 0f &&
+                !it.actualDurationMinutes!!.isNaN() &&
+                !it.actualDurationMinutes!!.isInfinite()
+        }
         val overallMape = if (tracked.isNotEmpty())
             tracked.map { computeMape(it.estimatedDurationMinutes.toFloat(), it.actualDurationMinutes!!) }.average().toFloat()
         else 0f
@@ -437,11 +483,18 @@ object AnalyticsEngine {
             add(Calendar.DAY_OF_YEAR, -6)
         }.timeInMillis
         val totalXp = completed.sumOf { it.focusModePoints }
+        // Bug 9 Fix (ADR-030): Clamp XP metrics so future completions never leak into current period
         val xpToday = completed
-            .filter { (it.completedAt ?: 0L) >= todayStart }
+            .filter {
+                val c = it.completedAt ?: 0L
+                c >= todayStart && c <= nowMillis
+            }
             .sumOf { it.focusModePoints }
         val xpThisWeek = completed
-            .filter { (it.completedAt ?: 0L) >= weekStart }
+            .filter {
+                val c = it.completedAt ?: 0L
+                c >= weekStart && c <= nowMillis
+            }
             .sumOf { it.focusModePoints }
         val topXpTasks = completed
             .filter { it.focusModePoints > 0 }
@@ -449,9 +502,20 @@ object AnalyticsEngine {
             .take(5)
             .map { it.title to it.focusModePoints }
 
-        val useQuizPeak = prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0
-        val peakStartHour = if (useQuizPeak) prefs.effectivePeakStart else prefs.peakEnergyStart
-        val peakEndHour = if (useQuizPeak) prefs.effectivePeakEnd else prefs.peakEnergyEnd
+        val (peakStartHour, peakEndHour) = when {
+            prefs.manualPeakProfileEnabled -> {
+                val startH = (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
+                val durHours = maxOf(1, prefs.manualPeakWindow1DurationMinutes / 60)
+                val endH = (startH + durHours).coerceIn(0, 23)
+                startH to (if (endH == startH) (startH + 1).coerceIn(0, 23) else endH)
+            }
+            prefs.quizPeakEnabled && prefs.effectivePeakStart >= 0 && prefs.effectivePeakEnd >= 0 -> {
+                prefs.effectivePeakStart to prefs.effectivePeakEnd
+            }
+            else -> {
+                prefs.peakEnergyStart to prefs.peakEnergyEnd
+            }
+        }
 
         // ── Peak-hour productivity ────────────────────────────────────────────
         // Split each session's duration at peak window boundaries so only the

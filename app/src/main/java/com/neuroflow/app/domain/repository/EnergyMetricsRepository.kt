@@ -6,6 +6,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /**
  * Phase 2: Repository for energy telemetry and audit trails.
@@ -20,11 +21,9 @@ class EnergyMetricsRepository @Inject constructor(
 ) {
     companion object {
         private const val RAW_DATA_RETENTION_DAYS = 30L
-        private const val AGGREGATED_RETENTION_DAYS = 90L
         const val MIN_RETENTION_DAYS = 1
         const val MAX_RETENTION_DAYS = 90
         const val RAW_DATA_RETENTION_MILLIS = RAW_DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000L
-        const val AGGREGATED_RETENTION_MILLIS = AGGREGATED_RETENTION_DAYS * 24 * 60 * 60 * 1000L
     }
 
     private val energyPredictionDao = database.energyPredictionDao()
@@ -42,22 +41,22 @@ class EnergyMetricsRepository @Inject constructor(
         fatiguePercent: Int,
         momentAdjustment: Float,
         momentConfidence: Float,
-        momentSupportScore: Float,
-        momentPressureScore: Float,
-        adjustedRawEnergy: Float,
+        momentSupportScore: Float = 50f,
+        momentPressureScore: Float = 50f,
+        adjustedRawEnergy: Float = peakScore,
         usableEnergy: Int,
-        chronotype: String,
-        wakeUpHour: Int,
-        peakMinuteOfDay: Int,
-        peakConfidence: Float,
-        peakDetectionAgeMillis: Long,
-        sleepLogAgeMillis: Long,
-        sessionDataAgeMillis: Long,
-        recentFocusMinutes: Float,
-        recentInterruptionCount: Int,
-        recentAppSwitchCount: Int,
-        activeTaskCount: Int,
-        notificationCount: Int
+        chronotype: String = "INTERMEDIATE",
+        wakeUpHour: Int = 7,
+        peakMinuteOfDay: Int = 540,
+        peakConfidence: Float = 0.85f,
+        peakDetectionAgeMillis: Long = 0L,
+        sleepLogAgeMillis: Long = 0L,
+        sessionDataAgeMillis: Long = 0L,
+        recentFocusMinutes: Float = 0f,
+        recentInterruptionCount: Int = 0,
+        recentAppSwitchCount: Int = 0,
+        activeTaskCount: Int = 0,
+        notificationCount: Int = 0
     ) {
         val instant = java.time.Instant.ofEpochMilli(predictedAtMillis)
             .atZone(java.time.ZoneId.systemDefault())
@@ -158,8 +157,8 @@ class EnergyMetricsRepository @Inject constructor(
         val avgAdjusted = predictions.map { it.adjustedRawEnergy }.average().toFloat()
         val avgMomentAdjustment = predictions.map { it.momentAdjustment }.average().toFloat()
         val avgMomentConfidence = predictions.map { it.momentConfidence }.average().toFloat()
-        val avgFatiguePct = predictions.map { it.fatiguePercent }.average().toInt()
-        val avgUsableEnergy = predictions.map { it.usableEnergy }.average().toInt()
+        val avgFatiguePct = predictions.map { it.fatiguePercent }.average().roundToInt()
+        val avgUsableEnergy = predictions.map { it.usableEnergy }.average().roundToInt()
 
         // Minute-of-day analysis for peak clarity
         val peaksByHour = predictions.groupBy { it.predictedAtHourOfDay }

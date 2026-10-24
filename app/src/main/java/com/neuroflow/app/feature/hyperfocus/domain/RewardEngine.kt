@@ -105,15 +105,23 @@ object RewardEngine {
         prefs.activePassPackage != null && (prefs.activePassExpiresAt ?: 0L) > nowMillis
 
     /**
-     * An active pass stays alive until its deadline expires (activePassExpiresAt <= nowMillis),
-     * rather than getting nuked the second the user leaves the foreground.
+     * E1: Leaving the granted app ends the pass for that app, but the budget deadline
+     * in DataStore keeps ticking until it runs out.
      */
     fun endsPassOnForeground(
         packageName: String,
         prefs: HyperFocusPreferences,
         systemExempt: Set<String>,
         nowMillis: Long
-    ): Boolean = false
+    ): Boolean {
+        val granted = prefs.activePassPackage ?: return false
+        val deadline = prefs.activePassExpiresAt ?: return false
+        if (deadline <= nowMillis) return false
+        if (packageName == granted) return false
+        if (packageName in systemExempt) return false
+        if (packageName == com.neuroflow.app.BuildConfig.APPLICATION_ID) return false
+        return true
+    }
 
     fun passSecondsRemaining(prefs: HyperFocusPreferences, nowMillis: Long): Long? {
         if (!isPassActive(prefs, nowMillis)) return null

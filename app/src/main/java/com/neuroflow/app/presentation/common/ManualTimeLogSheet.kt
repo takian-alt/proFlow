@@ -3,11 +3,14 @@ package com.neuroflow.app.presentation.common
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -39,17 +42,34 @@ fun ManualTimeLogSheet(
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("⏱ Log Time Spent", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "⏱ Log Time Spent",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                IconButton(onClick = onSkip, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close sheet")
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 taskTitle,
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(24.dp))
 
-            // Hour + minute pickers side by side
+            // Hour + minute pickers side by side (optimized width for 360dp devices)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -68,7 +88,7 @@ fun ManualTimeLogSheet(
                             "$hours",
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp)
                         )
                         FilledTonalIconButton(
                             onClick = { if (hours < 23) hours++ },
@@ -77,9 +97,9 @@ fun ManualTimeLogSheet(
                     }
                 }
 
-                Spacer(Modifier.width(24.dp))
+                Spacer(Modifier.width(12.dp))
                 Text(":", fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(24.dp))
+                Spacer(Modifier.width(12.dp))
 
                 // Minutes
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -94,7 +114,7 @@ fun ManualTimeLogSheet(
                             minutes.toString().padStart(2, '0'),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp)
                         )
                         FilledTonalIconButton(
                             onClick = { if (minutes < 55) minutes += 5 else { minutes = 0; if (hours < 23) hours++ } },

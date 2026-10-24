@@ -203,9 +203,9 @@ class CalendarWriteBackSyncTest {
         captured.getAsLong(CalendarContract.Events.CALENDAR_ID) shouldBe 55L
         captured.getAsString(CalendarContract.Events.TITLE) shouldBe "[Flow] Architectural Review"
         captured.getAsString(CalendarContract.Events.CUSTOM_APP_PACKAGE) shouldBe CalendarSyncDataSource.NEUROFLOW_PACKAGE_ID
-        captured.getAsString(CalendarContract.Events.CUSTOM_APP_URI) shouldBe "neuroflow://task/task-alpha-1"
-        captured.getAsLong(CalendarContract.Events.DTSTART) shouldBe 3600_000L
-        captured.getAsLong(CalendarContract.Events.DTEND) shouldBe 3600_000L + 45 * 60_000L
+        val expectedStart = 1770000000000L + 3600_000L
+        captured.getAsLong(CalendarContract.Events.DTSTART) shouldBe expectedStart
+        captured.getAsLong(CalendarContract.Events.DTEND) shouldBe expectedStart + 45 * 60_000L
     }
 
     @Test

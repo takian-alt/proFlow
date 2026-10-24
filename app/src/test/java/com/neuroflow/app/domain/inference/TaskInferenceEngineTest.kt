@@ -82,4 +82,27 @@ class TaskInferenceEngineTest {
         val scanner = TaskInferenceEngine.inferFromInput("Order barcode scanner replacement")
         assertEquals(TaskType.ADMIN, scanner.taskType)
     }
+
+    @Test
+    fun testExplicitEisenhowerQuadrantInferenceAndTitleSanitization() {
+        val q1 = TaskInferenceEngine.inferFromInput("Ship hotfix !q1")
+        assertEquals(com.neuroflow.app.domain.model.Quadrant.DO_FIRST, q1.quadrant)
+        assertEquals("Ship hotfix", q1.sanitizedTitle)
+
+        val doFirst = TaskInferenceEngine.inferFromInput("Pay taxes !dofirst 30m")
+        assertEquals(com.neuroflow.app.domain.model.Quadrant.DO_FIRST, doFirst.quadrant)
+        assertEquals("Pay taxes", doFirst.sanitizedTitle)
+
+        val q2 = TaskInferenceEngine.inferFromInput("Study system design #q2")
+        assertEquals(com.neuroflow.app.domain.model.Quadrant.SCHEDULE, q2.quadrant)
+        assertEquals("Study system design", q2.sanitizedTitle)
+
+        val q3 = TaskInferenceEngine.inferFromInput("Sort utility invoices !delegate")
+        assertEquals(com.neuroflow.app.domain.model.Quadrant.DELEGATE, q3.quadrant)
+        assertEquals("Sort utility invoices", q3.sanitizedTitle)
+
+        val q4 = TaskInferenceEngine.inferFromInput("Clean ancient desktop icons !eliminate")
+        assertEquals(com.neuroflow.app.domain.model.Quadrant.ELIMINATE, q4.quadrant)
+        assertEquals("Clean ancient desktop icons", q4.sanitizedTitle)
+    }
 }

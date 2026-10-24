@@ -120,6 +120,17 @@ object TaskTagSchedulingProfile {
     }
 
     private fun normalize(tag: String): String = tag.trim().trimStart('@').lowercase(Locale.getDefault())
+
+    fun tagMatchesKeywords(tag: String, keywords: List<String>): Boolean {
+        val words = tag.split(Regex("[^a-zA-Z0-9_-]+")).filter { it.isNotBlank() }
+        return keywords.any { kw ->
+            if (kw.contains(' ') || kw.contains('-')) {
+                tag.equals(kw, ignoreCase = true) || tag.contains(kw)
+            } else {
+                words.any { it.equals(kw, ignoreCase = true) }
+            }
+        }
+    }
 }
 
 fun TaskEntity.determineCategory(): TaskCategory {
@@ -147,43 +158,44 @@ fun TaskEntity.determineCategory(): TaskCategory {
     // 2. Explicit keywords fallback (catches custom tags not in profilesByTag)
     return when {
         tagsList.any { tag ->
-            listOf("mindfulness", "meditation", "breathwork", "yoga", "reflection", "journaling", "journal", "mental health", "calm").any { tag.contains(it) }
+            TaskTagSchedulingProfile.tagMatchesKeywords(tag, listOf("mindfulness", "meditation", "breathwork", "yoga", "reflection", "journaling", "journal", "mental health", "calm"))
         } -> {
             TaskCategory.MINDFULNESS
         }
         tagsList.any { tag ->
-            listOf("exercise", "workout", "gym", "running", "run", "cardio", "fitness", "training", "sports", "stretching", "walking", "swim").any { tag.contains(it) }
+            TaskTagSchedulingProfile.tagMatchesKeywords(tag, listOf("exercise", "workout", "gym", "running", "run", "cardio", "fitness", "training", "sports", "stretching", "walking", "swim"))
         } -> {
             TaskCategory.EXERCISE
         }
         tagsList.any { tag ->
-            listOf("hard work", "deep work", "coding", "programming", "dev", "software", "writing", "study", "learning", "finance", "focus", "math", "research", "analysis").any { tag.contains(it) }
+            TaskTagSchedulingProfile.tagMatchesKeywords(tag, listOf("hard work", "deep work", "coding", "programming", "dev", "software", "writing", "study", "learning", "finance", "focus", "math", "research", "analysis"))
         } -> {
             TaskCategory.HARD_WORK
         }
         tagsList.any { tag ->
-            listOf("creative", "design", "art", "ui", "ux", "drafting", "music", "painting", "drawing", "brainstorm").any { tag.contains(it) }
+            TaskTagSchedulingProfile.tagMatchesKeywords(tag, listOf("creative", "design", "art", "ui", "ux", "drafting", "music", "painting", "drawing", "brainstorm"))
         } -> {
             TaskCategory.CREATIVE
         }
         tagsList.any { tag ->
-            listOf("physical", "chores", "errands", "household", "cleaning", "maintenance", "laundry", "repairs").any { tag.contains(it) }
+            TaskTagSchedulingProfile.tagMatchesKeywords(tag, listOf("physical", "chores", "errands", "household", "cleaning", "maintenance", "laundry", "repairs"))
         } -> {
             TaskCategory.PHYSICAL
         }
         tagsList.any { tag ->
-            listOf("admin", "meetings", "email", "bills", "invoices", "paperwork", "review", "planning", "organize").any { tag.contains(it) }
+            TaskTagSchedulingProfile.tagMatchesKeywords(tag, listOf("admin", "meetings", "email", "bills", "invoices", "paperwork", "review", "planning", "organize"))
         } -> {
             TaskCategory.ROUTINE
         }
         // 3. Fall back to TaskType mapping
+        // Bug 4 Fix (ADR-026): Map MINDFULNESS to MINDFULNESS and GENERAL to FLEXIBLE
         else -> when (taskType) {
             com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> TaskCategory.ANALYTICAL
             com.neuroflow.app.domain.model.TaskType.CREATIVE -> TaskCategory.CREATIVE
             com.neuroflow.app.domain.model.TaskType.ADMIN -> TaskCategory.ROUTINE
             com.neuroflow.app.domain.model.TaskType.PHYSICAL -> TaskCategory.PHYSICAL
-            com.neuroflow.app.domain.model.TaskType.GENERAL -> TaskCategory.ROUTINE
-            com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> TaskCategory.ROUTINE
+            com.neuroflow.app.domain.model.TaskType.GENERAL -> TaskCategory.FLEXIBLE
+            com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> TaskCategory.MINDFULNESS
         }
     }
 }
@@ -206,5 +218,5 @@ fun TaskEntity.isNonWorkOrErrandTask(): Boolean {
         "not work", "not-work", "off-hours"
     )
 
-    return tagsList.any { tag -> nonWorkKeywords.any { kw -> tag.contains(kw) } }
+    return tagsList.any { tag -> TaskTagSchedulingProfile.tagMatchesKeywords(tag, nonWorkKeywords) }
 }

@@ -159,7 +159,8 @@ class TaskSchedulerServiceTest {
             priority = 2,
             estimatedMinutes = 45,
             energyDemand = EnergyDemand.HIGH,
-            parentTaskId = "task_a"
+            parentTaskId = "task_a",
+            prerequisiteIds = setOf("task_a")
         )
         val taskC = SchedulableTask(
             id = "task_c",
@@ -168,7 +169,8 @@ class TaskSchedulerServiceTest {
             priority = 2,
             estimatedMinutes = 30,
             energyDemand = EnergyDemand.HIGH,
-            parentTaskId = "task_b"
+            parentTaskId = "task_b",
+            prerequisiteIds = setOf("task_b")
         )
 
         val placements = schedulerService.scheduleDay(
@@ -279,5 +281,54 @@ class TaskSchedulerServiceTest {
         // Must never overlap with the nap window [14:00, 15:00]
         val overlapsNap = placement.window.startMillis < napEnd && placement.window.endMillis > napStart
         assertFalse("Task must not be scheduled during nap window", overlapsNap)
+    }
+
+    @Test
+    fun testUltradianAutoChunkingSplitsLargeTaskWhenFreeSlotsFragmented() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        // Block everything except 10:00-10:50 (50m) and 14:00-14:50 (50m)
+        val busy1 = TimeSlotWindow(
+            today.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(10, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+        val busy2 = TimeSlotWindow(
+            today.atTime(LocalTime.of(10, 50)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+        val busy3 = TimeSlotWindow(
+            today.atTime(LocalTime.of(14, 50)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(22, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+
+        val task90m = SchedulableTask(
+            id = "deep90",
+            title = "Write Massive Engineering Spec",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 90,
+            energyDemand = EnergyDemand.HIGH,
+            fragmentationTolerance = 0.5f
+        )
+
+        val placements = schedulerService.scheduleDay(
+            tasks = listOf(task90m),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            busyWindows = listOf(busy1, busy2, busy3),
+            protectedSlots = emptyList(),
+            calibrationRatio = 1.0,
+            zoneId = zoneId
+        )
+
+        assertEquals("90m task should be split into 2 parts and scheduled in both 50m gaps", 2, placements.size)
+        assertEquals("deep90#part1", placements[0].task.id)
+        assertEquals("deep90#part2", placements[1].task.id)
+        assertTrue(placements[0].window.durationMinutes >= 25)
+        assertTrue(placements[1].window.durationMinutes >= 25)
     }
 }

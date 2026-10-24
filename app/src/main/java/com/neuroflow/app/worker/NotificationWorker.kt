@@ -3,7 +3,6 @@ package com.neuroflow.app.worker
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -11,19 +10,23 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferences
-import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
-import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
+import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.scheduler.determineCategory
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
+import java.time.ZoneId
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 const val CHANNEL_TASKS = "tasks"
 const val CHANNEL_FOCUS = "focus"
@@ -137,7 +140,8 @@ class DailyPlanWorker @AssistedInject constructor(
     private val taskRepository: TaskRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val taskSchedulerService: com.neuroflow.app.domain.service.TaskSchedulerService,
-    private val circadianEnergyService: com.neuroflow.app.domain.service.CircadianEnergyService
+    private val circadianEnergyService: com.neuroflow.app.domain.service.CircadianEnergyService,
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = try {
@@ -146,29 +150,42 @@ class DailyPlanWorker @AssistedInject constructor(
         else {
             val tasks = taskRepository.getActiveTasks()
             val nowMillis = System.currentTimeMillis()
-            val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-            val wakeHour = prefs.wakeUpHour
-            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-            val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
+            val zoneId = ZoneId.systemDefault()
+            val baseWakeMillis = ScheduleAutoTasksWorker.calculateWakeTimeMillis(nowMillis, prefs.wakeUpHour, zoneId)
+            val sleepSignal = sleepTelemetryRepository?.getLatestNormalizedSleep(
+                baseWakeMillis = baseWakeMillis,
+                baseSleepMinutes = 480.0
+            )
+            val wakeTimeMillis = sleepSignal?.normalizedWakeTimeMillis ?: baseWakeMillis
+            val sleepMinutes = sleepSignal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
+            val naps = sleepSignal?.daytimeNaps ?: emptyList()
+            val chronotype = ChronotypeProfile.fromString(prefs.manualChronotype ?: prefs.quizChronotype)
+
             val snapshot = circadianEnergyService.evaluateSnapshot(
                 timestampMillis = nowMillis,
                 wakeTimeMillis = wakeTimeMillis,
-                lastSleepDurationMinutes = 480
+                lastSleepDurationMinutes = sleepMinutes,
+                continuousActiveFocusMinutes = 0,
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = chronotype
             )
 
             val topTasks = tasks.map { task ->
+                val resolvedCategory = when (task.determineCategory()) {
+                    com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK,
+                    com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
+                    com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
+                    com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
+                    com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE,
+                    com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                    com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
+                    com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
+                }
                 val schedulable = com.neuroflow.app.domain.service.SchedulableTask(
                     id = task.id,
                     title = task.title,
-                    category = when (task.taskType) {
-                        com.neuroflow.app.domain.model.TaskType.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
-                        com.neuroflow.app.domain.model.TaskType.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
-                        com.neuroflow.app.domain.model.TaskType.ADMIN -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
-                        com.neuroflow.app.domain.model.TaskType.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
-                        com.neuroflow.app.domain.model.TaskType.GENERAL -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
-                        com.neuroflow.app.domain.model.TaskType.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
-                    },
+                    category = resolvedCategory,
                     priority = when (task.priority) {
                         com.neuroflow.app.domain.model.Priority.HIGH -> 2
                         com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
@@ -184,7 +201,11 @@ class DailyPlanWorker @AssistedInject constructor(
                     scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: nowMillis) + it },
                     deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
                     isLocked = task.isScheduleLocked,
-                    parentTaskId = task.parentTaskId
+                    parentTaskId = task.parentTaskId,
+                    impactScore = task.impactScore,
+                    postponeCount = task.postponeCount,
+                    isAnxietyTask = task.isAnxietyTask,
+                    hasImplementationIntention = task.ifThenPlan.isNotBlank()
                 )
                 val score = taskSchedulerService.evaluateTaskScore(schedulable, snapshot).totalScore
                 task to score
@@ -214,8 +235,6 @@ class DailyPlanWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
-        // Use a stable ID per worker type so daily plan notifications are updated in place
-        // rather than accumulating as separate notifications.
         manager.notify(NOTIFICATION_ID_DAILY_PLAN, notification)
     }
 
@@ -243,15 +262,11 @@ class StreakCheckWorker @AssistedInject constructor(
                 task.completedAt != null && task.completedAt >= today
             }
 
-            // If nothing was completed today AND last active was before yesterday → streak is broken
             if (!completedToday && prefs.lastActiveDate < yesterday && prefs.dailyStreak > 0) {
                 preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
                 prefs = prefs.copy(dailyStreak = 0)
             }
 
-            // Notify if streak is at risk (active streak, nothing done today yet, evening check)
-            // Only when there is actually something to complete — "complete 1 task" with an empty
-            // board sends the user to a screen with nothing to do.
             if (!completedToday && prefs.dailyStreak > 0 && taskRepository.getActiveTasks().isNotEmpty()) {
                 showNotification(
                     "Streak at risk! 🔥",
@@ -276,12 +291,10 @@ class StreakCheckWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        // Use a stable ID per worker type so the same notification is updated (not duplicated)
         manager.notify(NOTIFICATION_ID_STREAK, notification)
     }
 
     companion object {
-        // Stable notification ID: streak check always updates the same notification slot
         private const val NOTIFICATION_ID_STREAK = 10_001
     }
 }
@@ -299,7 +312,7 @@ class DeadlineEscalationWorker @AssistedInject constructor(
         if (!prefs.deadlineEscalationNotificationsEnabled) Result.success()
         else {
             val now = System.currentTimeMillis()
-            val threshold = 48 * 3_600_000L  // 48 hours in ms
+            val threshold = 48 * 3_600_000L
 
             val urgentTasks = taskRepository.getActiveTasks().filter { task ->
                 task.quadrant != com.neuroflow.app.domain.model.Quadrant.DO_FIRST &&
@@ -334,8 +347,6 @@ class DeadlineEscalationWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        // Use a stable ID per worker type so repeat escalation runs update the same notification
-        // instead of spamming a new one every 4 hours.
         manager.notify(NOTIFICATION_ID_ESCALATION, notification)
     }
 
@@ -366,13 +377,11 @@ class TaskReminderWorker @AssistedInject constructor(
 
             val actualTargetMs = task.effectiveReminderTargetMillis() ?: return Result.success()
 
-            // Skip stale reminder work if target moved significantly after scheduling.
             if (expectedTargetMs > 0 && kotlin.math.abs(actualTargetMs - expectedTargetMs) > 5 * 60_000L) {
                 return Result.success()
             }
 
             val now = System.currentTimeMillis()
-            // Do not emit reminder notifications once the task is already overdue for too long.
             if (actualTargetMs < now - 10 * 60_000L) return Result.success()
 
             val timeLabel = when (minutesBefore) {
@@ -405,8 +414,6 @@ class TaskReminderWorker @AssistedInject constructor(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        // Use a stable ID derived from the task ID so each task gets exactly one reminder
-        // notification slot that is updated (not duplicated) on re-delivery.
         val taskId = inputData.getString("taskId") ?: ""
         manager.notify(taskId.hashCode(), notification)
     }

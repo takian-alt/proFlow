@@ -10,26 +10,18 @@ import androidx.work.WorkerParameters
 import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.data.local.entity.buildNormalizedScheduleTimestamps
-import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
-import com.neuroflow.app.domain.model.EnergyLevel
-import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.TaskStatus
-import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.domain.scheduler.PlacementStability
+import com.neuroflow.app.domain.scheduler.SchedulePreparationOrchestrator
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.service.BehavioralSupportService
-import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
-import com.neuroflow.app.domain.service.EnergyDemand
-import com.neuroflow.app.domain.service.ProtectedLocalSlot
-import com.neuroflow.app.domain.service.SchedulableTask
 import com.neuroflow.app.domain.service.ScheduledPlacement
-import com.neuroflow.app.domain.service.TaskCategory
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.domain.service.TimeSlotWindow
 import dagger.assisted.Assisted
@@ -39,15 +31,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
-import kotlin.math.max
 
-/**
- * ADR-002: ScheduleAutoTasksWorker
- *
- * Background worker executing modern TaskSchedulerService decisions transactionally.
- * Eliminates legacy split-brain scheduling bugs by sharing identical Borbély math,
- * 4-vector scoring, and topological interval DAG scheduling as the UI presentation layer.
- */
 @HiltWorker
 class ScheduleAutoTasksWorker @AssistedInject constructor(
     @Assisted private val context: Context,
@@ -58,8 +42,15 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
     private val behavioralSupportService: BehavioralSupportService,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val sessionRepository: SessionRepository,
-    private val calendarSyncRepository: CalendarSyncRepository? = null
+    private val calendarSyncRepository: CalendarSyncRepository? = null,
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
 ) : CoroutineWorker(context, params) {
+
+    private val scheduleOrchestrator = SchedulePreparationOrchestrator(
+        taskSchedulerService = taskSchedulerService,
+        behavioralSupportService = behavioralSupportService,
+        sleepTelemetryRepository = sleepTelemetryRepository
+    )
 
     companion object {
         const val WORK_NAME = "schedule_auto_tasks_work"
@@ -85,11 +76,23 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 .build()
         }
 
-        internal fun calculateWakeTimeMillis(nowMillis: Long, wakeHour: Int): Long {
-            val nowCal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-            val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
-            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-            return nowMillis - (hoursAwake * 3600_000L)
+        /**
+         * Anchors wake time to the exact local `:00` minute of [wakeHour] using DST-safe ZonedDateTime,
+         * preventing the up-to-59-minute drift of raw hour subtraction.
+         */
+        internal fun calculateWakeTimeMillis(
+            nowMillis: Long,
+            wakeHour: Int,
+            zoneId: ZoneId = ZoneId.systemDefault()
+        ): Long {
+            val zonedNow = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+            var anchor = zonedNow.toLocalDate()
+                .atTime(wakeHour.coerceIn(0, 23), 0)
+                .atZone(zoneId)
+            if (anchor.toInstant().toEpochMilli() > nowMillis) {
+                anchor = anchor.minusDays(1)
+            }
+            return anchor.toInstant().toEpochMilli()
         }
 
         internal fun splitMillisToDateAndTime(millis: Long): Pair<Long, Long> {
@@ -193,76 +196,30 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val externalBusy = calendarSyncRepository?.getBusyWindows(dayStart, dayEnd) ?: emptyList()
             val totalBusyWindows = externalBusy + fixedWindows
 
-            // Resolve protected slots
-            val protectedSlots = prefs.protectedTimeSlots.filter { it.isEnabled }.map {
-                ProtectedLocalSlot(
-                    startHour = it.startMinuteOfDay / 60,
-                    startMinute = it.startMinuteOfDay % 60,
-                    durationMinutes = it.durationMinutes
-                )
+            val allSessions = runCatching {
+                sessionRepository.getAllSessions()
+            }.getOrDefault(emptyList())
+            val closedSessions = allSessions.filter { it.endedAt != null }
+            val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+            val microStepCounts = targetTasks.associate { task ->
+                val steps = taskRepository.getMicroSteps(task.id)
+                task.id to Pair(steps.count { it.isCompleted }, steps.size)
             }
+            val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
 
-            // Map target tasks to SchedulableTask
-            val schedulableTasks = targetTasks.map { task ->
-                SchedulableTask(
-                    id = task.id,
-                    title = task.title,
-                    category = when (task.taskType) {
-                        TaskType.ANALYTICAL -> TaskCategory.DEEP_WORK
-                        TaskType.CREATIVE -> TaskCategory.CREATIVE
-                        TaskType.ADMIN -> TaskCategory.ADMIN
-                        TaskType.PHYSICAL -> TaskCategory.EXERCISE
-                        TaskType.GENERAL -> TaskCategory.GENERAL
-                        TaskType.MINDFULNESS -> TaskCategory.MINDFULNESS
-                    },
-                    priority = when (task.priority) {
-                        Priority.HIGH -> 2
-                        Priority.MEDIUM -> 1
-                        else -> 0
-                    },
-                    estimatedMinutes = task.estimatedDurationMinutes,
-                    isDurationExplicit = false,
-                    energyDemand = when (task.energyLevel) {
-                        EnergyLevel.HIGH -> EnergyDemand.HIGH
-                        EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
-                        else -> EnergyDemand.LOW
-                    },
-                    isFrog = task.isFrog,
-                    scheduledStartMillis = task.resolveScheduledEpochMillis(),
-                    deadlineMillis = task.resolveDeadlineEpochMillis(),
-                    isLocked = task.isScheduleLocked,
-                    parentTaskId = task.parentTaskId,
-                    prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                    impactScore = task.impactScore,
-                    estimatedEnjoyment = task.enjoymentScore / 10,
-                    postponeCount = task.postponeCount
-                )
-            }
-
-            val preparedTasks = if (forceReplan) {
-                behavioralSupportService.resetScheduleAnchors(schedulableTasks)
-            } else {
-                schedulableTasks
-            }
-
-            // Wake time calculation
-            val wakeTimeMillis = calculateWakeTimeMillis(nowMillis, prefs.wakeUpHour)
-            val chronotype = ChronotypeProfile.fromString(prefs.manualChronotype ?: prefs.quizChronotype)
-            val manualPeakStartHour = if (prefs.manualPeakProfileEnabled) prefs.manualPeakAnchorMinuteOfDay / 60 else null
-
-            val placements = taskSchedulerService.scheduleDay(
-                tasks = preparedTasks,
+            val placements = scheduleOrchestrator.orchestrateDaySchedule(
+                candidateTasks = targetTasks,
+                allKnownTasks = allKnownTasks,
+                closedSessions = closedSessions,
+                sleepLogs = sleepLogs,
+                prefs = prefs,
                 dayDate = dayDate,
                 nowMillis = nowMillis,
-                wakeTimeMillis = wakeTimeMillis,
-                lastSleepDurationMinutes = 480,
                 busyWindows = totalBusyWindows,
-                protectedSlots = protectedSlots,
-                calibrationRatio = 1.20,
                 forceReplan = forceReplan,
                 zoneId = zoneId,
-                chronotype = chronotype,
-                manualPeakStartHour = manualPeakStartHour
+                activeTaskId = activeTaskId,
+                microStepCounts = microStepCounts
             )
 
             if (placements.isNotEmpty()) {
@@ -285,14 +242,12 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
     ) {
         val nowMillis = System.currentTimeMillis()
         val focusedTaskIds = sessionRepository.getOpenSessions().map { it.taskId }.toSet()
+        val placementsByBaseId = placements.groupBy { it.task.id.substringBefore("#part") }
 
-        for (placement in placements) {
-            val taskId = placement.task.id
-            val freshTask = taskRepository.getById(taskId) ?: continue
-
-            if (taskId in focusedTaskIds) {
-                continue
-            }
+        for ((baseTaskId, taskPlacements) in placementsByBaseId) {
+            val primaryPlacement = taskPlacements.first()
+            val freshTask = taskRepository.getById(baseTaskId) ?: continue
+            if (baseTaskId in focusedTaskIds) continue
 
             if (freshTask.status != TaskStatus.ACTIVE ||
                 !AutoSchedulingContracts.isMutableByAutoScheduler(freshTask, nowMillis)
@@ -300,24 +255,27 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 continue
             }
 
-            val (scheduledDate, scheduledTime) = splitMillisToDateAndTime(placement.window.startMillis)
+            val (scheduledDate, scheduledTime) = splitMillisToDateAndTime(primaryPlacement.window.startMillis)
             val previousStartMillis = freshTask.resolveScheduledEpochMillis()
-            val blockLengthChanged = freshTask.plannedBlockMinutes != placement.window.durationMinutes
+            val blockLengthChanged = freshTask.plannedBlockMinutes != primaryPlacement.window.durationMinutes
 
             if (!PlacementStability.isMoveWorthApplying(
                     previousStartMillis = previousStartMillis,
-                    nextStartMillis = placement.window.startMillis,
+                    nextStartMillis = primaryPlacement.window.startMillis,
                     nowMillis = nowMillis
                 ) && !blockLengthChanged
             ) {
                 continue
             }
 
+            val isSplit = taskPlacements.size > 1 || primaryPlacement.task.id.endsWith("#part1")
+            val titleToUse = if (isSplit && !freshTask.title.contains("(Part ")) "${freshTask.title} (Part 1/2)" else freshTask.title
             val updatedTask = freshTask.copy(
+                title = titleToUse,
                 scheduledDate = scheduledDate,
                 scheduledTime = scheduledTime,
                 isAutoScheduled = true,
-                plannedBlockMinutes = placement.window.durationMinutes,
+                plannedBlockMinutes = primaryPlacement.window.durationMinutes,
                 lastAutoScheduledAt = nowMillis,
                 updatedAt = nowMillis
             )
@@ -326,9 +284,37 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             if (updatedTask.isFrog) {
                 calendarSyncRepository?.upsertTaskEvent(
                     updatedTask,
-                    startMillis = placement.window.startMillis,
-                    durationMinutes = placement.window.durationMinutes
+                    startMillis = primaryPlacement.window.startMillis,
+                    durationMinutes = primaryPlacement.window.durationMinutes
                 )
+            }
+
+            // Persist Ultradian Split Part 2 as a linked continuation block if split occurred
+            val part2Placement = taskPlacements.getOrNull(1)
+            if (part2Placement != null && part2Placement.task.id.endsWith("#part2")) {
+                val (p2Date, p2Time) = splitMillisToDateAndTime(part2Placement.window.startMillis)
+                val part2Id = "${baseTaskId}_part2"
+                val existingPart2 = taskRepository.getById(part2Id)
+                val part2Title = if (!part2Placement.task.title.contains("(Part ")) "${freshTask.title.substringBefore(" (Part ")} (Part 2/2)" else part2Placement.task.title
+                val part2Entity = (existingPart2 ?: freshTask).copy(
+                    id = part2Id,
+                    title = part2Title,
+                    parentTaskId = baseTaskId,
+                    dependsOnTaskIds = baseTaskId,
+                    estimatedDurationMinutes = part2Placement.window.durationMinutes,
+                    plannedBlockMinutes = part2Placement.window.durationMinutes,
+                    scheduledDate = p2Date,
+                    scheduledTime = p2Time,
+                    isAutoScheduled = true,
+                    isFrog = false,
+                    lastAutoScheduledAt = nowMillis,
+                    updatedAt = nowMillis
+                )
+                if (existingPart2 != null) {
+                    taskRepository.update(part2Entity)
+                } else {
+                    taskRepository.insert(part2Entity)
+                }
             }
         }
     }
@@ -338,6 +324,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         allKnownTasks: List<TaskEntity> = emptyList()
     ): Set<String> {
         val taskMap = (allKnownTasks.ifEmpty { tasks }).associateBy { it.id }
+        val candidateIds = tasks.map { it.id }.toSet()
         return tasks.filter { task ->
             if (task.waitingFor.isNotBlank()) {
                 return@filter true
@@ -349,7 +336,13 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 .toSet()
             deps.any { depId ->
                 val depTask = taskMap[depId]
-                depTask == null || depTask.status != TaskStatus.COMPLETED
+                if (depTask == null) return@any true
+                if (depTask.status == TaskStatus.COMPLETED) return@any false
+                // Candidate tasks scheduled together are ordered by the topological DAG scheduler
+                if (depTask.status == TaskStatus.ACTIVE && depId in candidateIds) return@any false
+                // Split continuation parts are not blocked by their active parent task
+                if (task.parentTaskId == depId && depTask.status == TaskStatus.ACTIVE) return@any false
+                true
             }
         }.map { it.id }.toSet()
     }

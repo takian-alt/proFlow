@@ -16,4 +16,7 @@ interface HyperFocusSessionDao {
 
     @Query("SELECT * FROM hyperfocus_sessions WHERE id = :id")
     suspend fun getById(id: String): HyperFocusSessionEntity?
+
+    @Query("SELECT * FROM hyperfocus_sessions")
+    suspend fun getAll(): List<HyperFocusSessionEntity>
 }

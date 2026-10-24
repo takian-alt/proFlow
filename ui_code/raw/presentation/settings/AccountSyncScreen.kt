@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -219,8 +220,8 @@ private fun ProfileCard(state: GoogleAuthState.SignedIn, onSignOut: () -> Unit) 
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(state.displayName, fontWeight = FontWeight.SemiBold)
-                Text(state.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(state.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(state.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             TextButton(onClick = onSignOut) { Text("Sign out") }
         }
@@ -363,11 +364,13 @@ private fun BackupHistoryItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(formatTimestamp(meta.createdAt), fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                Text(formatTimestamp(meta.createdAt), fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     "${meta.taskCount} tasks · ${meta.goalCount} goals",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             TextButton(onClick = onRestore) { Text("Restore") }

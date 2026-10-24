@@ -21,6 +21,7 @@ class NeuralSoundscapeGenerator(
     companion object {
         const val CARRIER_HZ = 200.0
         const val GAMMA_BEAT_HZ = 40.0
+        const val BETA_BEAT_HZ = 16.0
         const val LEFT_FREQ = CARRIER_HZ
         const val RIGHT_FREQ = CARRIER_HZ + GAMMA_BEAT_HZ // 240.0 Hz
     }
@@ -28,6 +29,10 @@ class NeuralSoundscapeGenerator(
     // Phase accumulators for binaural carriers
     private var phaseLeft = 0.0
     private var phaseRight = 0.0
+
+    // Phase accumulators for monaural beats
+    private var monauralPhase1 = 0.0
+    private var monauralPhase2 = 0.0
 
     // Brownian motion state (independent stereo leaky random walks)
     private var brownLeft = 0.0f
@@ -47,6 +52,8 @@ class NeuralSoundscapeGenerator(
     fun reset() {
         phaseLeft = 0.0
         phaseRight = 0.0
+        monauralPhase1 = 0.0
+        monauralPhase2 = 0.0
         brownLeft = 0.0f
         brownRight = 0.0f
         b0L = 0f; b1L = 0f; b2L = 0f; b3L = 0f; b4L = 0f; b5L = 0f; b6L = 0f
@@ -99,6 +106,9 @@ class NeuralSoundscapeGenerator(
 
         val stepLeft = 2.0 * PI * LEFT_FREQ / sampleRate
         val stepRight = 2.0 * PI * RIGHT_FREQ / sampleRate
+        val stepMonauralCarrier = 2.0 * PI * CARRIER_HZ / sampleRate
+        val stepMonauralGammaOffset = 2.0 * PI * (CARRIER_HZ + GAMMA_BEAT_HZ) / sampleRate
+        val stepMonauralBetaOffset = 2.0 * PI * (CARRIER_HZ + BETA_BEAT_HZ) / sampleRate
         val volDelta = targetVol - startVol
 
         for (i in 0 until numFrames) {
@@ -117,6 +127,36 @@ class NeuralSoundscapeGenerator(
                     phaseRight += stepRight
                     if (phaseLeft >= 2.0 * PI) phaseLeft -= 2.0 * PI
                     if (phaseRight >= 2.0 * PI) phaseRight -= 2.0 * PI
+                }
+                SoundscapeType.MONAURAL_GAMMA_40HZ,
+                SoundscapeType.BETA_16HZ -> {
+                    val stepOffset = if (type == SoundscapeType.MONAURAL_GAMMA_40HZ) {
+                        stepMonauralGammaOffset
+                    } else {
+                        stepMonauralBetaOffset
+                    }
+                    monauralPhase1 += stepMonauralCarrier
+                    if (monauralPhase1 >= 2.0 * PI) monauralPhase1 -= 2.0 * PI
+                    monauralPhase2 += stepOffset
+                    if (monauralPhase2 >= 2.0 * PI) monauralPhase2 -= 2.0 * PI
+
+                    val monauralBeat = 0.5f * (sin(monauralPhase1).toFloat() + sin(monauralPhase2).toFloat())
+
+                    // Synthesize pink noise bed sample (Paul Kellet 1/f filter)
+                    val w = Random.nextFloat() * 2f - 1f
+                    b0L = 0.99886f * b0L + w * 0.0555179f
+                    b1L = 0.99332f * b1L + w * 0.0750759f
+                    b2L = 0.96900f * b2L + w * 0.1538520f
+                    b3L = 0.86650f * b3L + w * 0.3104856f
+                    b4L = 0.55000f * b4L + w * 0.5329522f
+                    b5L = -0.7616f * b5L - w * 0.0168980f
+                    val pinkNoiseSample = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+                    b6L = w * 0.115926f
+
+                    // 75% prominent monaural tone + 25% subtle pink noise cushion
+                    val mixedSample = (monauralBeat * 0.75f + pinkNoiseSample * 0.25f).coerceIn(-1.0f, 1.0f)
+                    leftSampleFloat = mixedSample
+                    rightSampleFloat = mixedSample
                 }
                 SoundscapeType.BROWN_NOISE -> {
                     val whiteL = Random.nextFloat() * 2f - 1f
@@ -161,6 +201,69 @@ class NeuralSoundscapeGenerator(
             outputBuffer[2 * i + 1] = rightPcm
         }
 
+        currentVolume = targetVol
+    }
+
+    /**
+     * Synthesizes monaural beat frames with customizable carrier, beat frequency, and noise bed.
+     * Delivers an identical acoustic interference envelope to Left and Right channels.
+     * Section 6.44 Ratified Formula.
+     */
+    fun generateMonauralBeatFrames(
+        beatFreqHz: Double,
+        outputBuffer: ShortArray,
+        numFrames: Int,
+        volumeMultiplier: Float = 0.7f,
+        carrierHz: Double = CARRIER_HZ,
+        pinkNoiseRatio: Float = 0.25f
+    ) {
+        require(numFrames >= 0) { "numFrames cannot be negative: $numFrames" }
+        require(outputBuffer.size >= numFrames * 2) {
+            "outputBuffer size (${outputBuffer.size}) is smaller than required frames (${numFrames * 2})"
+        }
+        if (numFrames == 0) return
+
+        val safeVolume = if (volumeMultiplier.isNaN()) 0f else volumeMultiplier
+        val targetVol = safeVolume.coerceIn(0f, 1f)
+        val startVol = if (currentVolume.isNaN()) 0f else currentVolume
+
+        if (targetVol <= 0.00001f && startVol <= 0.00001f) {
+            outputBuffer.fill(0, 0, numFrames * 2)
+            currentVolume = 0.0f
+            return
+        }
+
+        val stepCarrier = 2.0 * PI * carrierHz / sampleRate
+        val stepOffset = 2.0 * PI * (carrierHz + beatFreqHz) / sampleRate
+        val volDelta = targetVol - startVol
+        val toneRatio = (1.0f - pinkNoiseRatio).coerceIn(0f, 1f)
+
+        for (i in 0 until numFrames) {
+            val fraction = (i + 1).toFloat() / numFrames
+            val vol = (startVol + volDelta * fraction).coerceIn(0f, 1f)
+
+            monauralPhase1 += stepCarrier
+            if (monauralPhase1 >= 2.0 * PI) monauralPhase1 -= 2.0 * PI
+            monauralPhase2 += stepOffset
+            if (monauralPhase2 >= 2.0 * PI) monauralPhase2 -= 2.0 * PI
+
+            val monauralBeat = 0.5f * (sin(monauralPhase1).toFloat() + sin(monauralPhase2).toFloat())
+
+            val w = Random.nextFloat() * 2f - 1f
+            b0L = 0.99886f * b0L + w * 0.0555179f
+            b1L = 0.99332f * b1L + w * 0.0750759f
+            b2L = 0.96900f * b2L + w * 0.1538520f
+            b3L = 0.86650f * b3L + w * 0.3104856f
+            b4L = 0.55000f * b4L + w * 0.5329522f
+            b5L = -0.7616f * b5L - w * 0.0168980f
+            val pinkNoise = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+            b6L = w * 0.115926f
+
+            val mixedSample = (monauralBeat * toneRatio + pinkNoise * pinkNoiseRatio).coerceIn(-1.0f, 1.0f)
+            val pcm = (mixedSample * vol * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+            outputBuffer[2 * i] = pcm
+            outputBuffer[2 * i + 1] = pcm
+        }
         currentVolume = targetVol
     }
 }

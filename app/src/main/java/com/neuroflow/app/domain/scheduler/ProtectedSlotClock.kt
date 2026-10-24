@@ -96,8 +96,9 @@ object ProtectedSlotClock {
     /** The slots starting within the lead-in window, soonest first — the "Up Next" queue. */
     fun approaching(
         slots: List<ProtectedTimeSlot>,
-        nowMillis: Long
-    ): List<DueSlot> = dueSlots(slots, nowMillis).filter { it.phase == SlotPhase.LEAD_IN }
+        nowMillis: Long,
+        leadInMinutes: Int = DEFAULT_LEAD_IN_MINUTES
+    ): List<DueSlot> = dueSlots(slots, nowMillis, leadInMinutes = leadInMinutes).filter { it.phase == SlotPhase.LEAD_IN }
 
     private data class Span(val startMillis: Long, val endMillis: Long)
 
@@ -108,12 +109,17 @@ object ProtectedSlotClock {
     private fun occurrences(slot: ProtectedTimeSlot, nowMillis: Long): List<Span> {
         val todaysStart = startOfDay(nowMillis)
         return (-1..1).mapNotNull { offset ->
-            val dayStart = Calendar.getInstance().apply {
+            val cal = Calendar.getInstance().apply {
                 timeInMillis = todaysStart
                 add(Calendar.DAY_OF_YEAR, offset)
-            }.timeInMillis
+            }
+            val dayStart = cal.timeInMillis
             if (!occursOnDay(slot, dayStart)) return@mapNotNull null
-            val start = dayStart + slot.startMinuteOfDay * MINUTE_MILLIS
+            cal.set(Calendar.HOUR_OF_DAY, slot.startMinuteOfDay / 60)
+            cal.set(Calendar.MINUTE, slot.startMinuteOfDay % 60)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            val start = cal.timeInMillis
             Span(start, start + slot.durationMinutes * MINUTE_MILLIS)
         }
     }

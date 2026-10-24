@@ -132,18 +132,18 @@ fun CodeEntrySection(
             )
         } else {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.offset { IntOffset(shakeOffset.value.roundToInt(), 0) }
             ) {
                 chars.forEachIndexed { index, value ->
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = androidx.compose.foundation.BorderStroke(
                             width = if (value.isNotEmpty()) 2.dp else 1.dp,
                             color = if (value.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                         ),
-                        modifier = Modifier.size(width = 48.dp, height = 58.dp)
+                        modifier = Modifier.size(width = 42.dp, height = 54.dp)
                     ) {
                         BasicTextField(
                             value = value,

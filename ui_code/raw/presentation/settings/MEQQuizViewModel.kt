@@ -264,6 +264,7 @@ class MEQQuizViewModel @Inject constructor(
                     effectivePeakStart = peakHourOfDay,
                     effectivePeakEnd = peakWindowEndHourOfDay,
                     effectivePeakMinuteOfDay = peakMinuteOfDay,
+                    meqScore = meqScore,
                     quizProgress = "{}"  // Clear progress on completion
                 )
             }

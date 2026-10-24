@@ -135,11 +135,11 @@ class CircadianAdversarialStressTest {
         println("Bessel I0(800.0) = $i0_800")
         assertTrue("I0(800.0) overflows to Infinity in double precision", i0_800.isInfinite())
 
-        // Von Mises density with extreme kappa
+        // Von Mises density with extreme kappa (now safe via computeVonMisesDensitySafe)
         val densityExtreme = AdaptiveCircadianLearner.computeVonMisesDensity(14.0, 14.0, kappa = 800.0)
         println("Von Mises density with kappa=800: $densityExtreme")
-        // exp(800) / (2*PI*Infinity) -> Infinity / Infinity = NaN!
-        assertTrue("Von Mises density becomes NaN when kappa > 709 due to exp(x) overflow", densityExtreme.isNaN())
+        assertFalse("Von Mises density must not be NaN even when kappa > 709 due to safe scaling", densityExtreme.isNaN())
+        assertTrue("Von Mises density is non-negative", densityExtreme >= 0.0)
 
         // However, hourly multipliers do NOT use besselI0 and do NOT become NaN
         val multipliersExtreme = AdaptiveCircadianLearner.computeVonMisesHourlyMultipliers(14.0, kappa = 800.0)
@@ -214,14 +214,14 @@ class CircadianAdversarialStressTest {
         )
 
         val duringImpulse = PhysiologicalImpulseCalculator.computeExerciseImpulse(630, listOf(workout))
-        // Minute 661 is post-workout (1 min after end at 660)
-        val postImpulse = PhysiologicalImpulseCalculator.computeExerciseImpulse(661, listOf(workout))
-
-        println("During workout impulse: $duringImpulse (spec calls for -15.0, code has -8.0)")
-        println("Immediately post-workout impulse: $postImpulse (spec calls for +10.0, code has +12.0)")
+        // Minute 661 is post-workout (1 min after end at 660, in 15-minute autonomic ramp)
+        val postImpulseRamp = PhysiologicalImpulseCalculator.computeExerciseImpulse(661, listOf(workout))
+        // Minute 675 is post-workout (15 min after end at 660, fully transitioned into BDNF boost)
+        val postImpulsePeak = PhysiologicalImpulseCalculator.computeExerciseImpulse(675, listOf(workout))
 
         // Documenting the empirically observed values in implementation:
         assertEquals(-8.0, duringImpulse, 1e-4)
-        assertTrue("Post-workout impulse should be positive (~11.7)", postImpulse > 11.0)
+        assertTrue("Autonomic transition at 1m should be recovering from -8.0", postImpulseRamp > -8.0 && postImpulseRamp < 0.0)
+        assertTrue("Post-workout boost at 15m should be strong positive (> 8.0)", postImpulsePeak > 8.0)
     }
 }

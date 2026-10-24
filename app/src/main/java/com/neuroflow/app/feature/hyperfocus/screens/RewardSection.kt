@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -26,6 +27,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.model.RewardTier
@@ -107,7 +109,7 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
                             Text(
                                 text = label,
                                 fontWeight = FontWeight.SemiBold,
@@ -115,7 +117,9 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                                 color = if (isEarned)
                                     MaterialTheme.colorScheme.onPrimaryContainer
                                 else
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = when {
@@ -125,10 +129,12 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                                     else -> "Earned — ready to claim"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-
+                        Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -175,6 +181,20 @@ fun RewardSection(viewModel: HyperFocusViewModel, modifier: Modifier = Modifier)
                                 fontSize = 28.sp,
                                 letterSpacing = 4.sp
                             )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.submitCode(code)
+                                viewModel.dismissClaimedCode()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Redeem Pass Now")
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

@@ -24,6 +24,7 @@ import com.neuroflow.app.feature.hyperfocus.screens.AllowlistSettingsScreen
 import com.neuroflow.app.feature.hyperfocus.screens.BlockingOverlayScreen
 import com.neuroflow.app.feature.hyperfocus.screens.HyperFocusActivationSheet
 import com.neuroflow.app.feature.hyperfocus.screens.PlanningPromptScreen
+import com.neuroflow.app.feature.hyperfocus.screens.RewardsScreen
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -140,6 +141,12 @@ class HyperFocusActivity : ComponentActivity() {
                         onStartSession = { showActivationSheet = true }
                     )
                 }
+                composable(DESTINATION_REWARDS) {
+                    RewardsScreen(
+                        onNavigateBack = { controller.popBackStack() },
+                        viewModel = viewModel
+                    )
+                }
             }
             if (showActivationSheet) {
                 HyperFocusActivationSheet(
@@ -175,5 +182,6 @@ class HyperFocusActivity : ComponentActivity() {
         const val DESTINATION_GATEWAY = "gateway"
         const val DESTINATION_LAUNCH = "launch_app"
         const val DESTINATION_SETUP = "setup"
+        const val DESTINATION_REWARDS = "rewards"
     }
 }

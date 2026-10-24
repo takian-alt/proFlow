@@ -581,8 +581,8 @@ class SleepPressureRepositoryBehaviorTest : StringSpec({
             val repository = SleepPressureRepository(preferencesDataStore, sleepLogRepository)
             val snapshot = repository.refreshCurrentPressure(now)
 
-            // Manual log is respected, auto default fallback is skipped.
-            snapshot.pressurePoints shouldBe 2550
+            // Manual log is respected (15m * 3.1 = 47 recovery points applied), auto default fallback is skipped.
+            snapshot.pressurePoints shouldBe 2518
             coVerify(exactly = 0) {
                 sleepLogRepository.addLog(any(), any(), any(), any())
             }

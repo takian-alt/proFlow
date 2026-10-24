@@ -172,7 +172,10 @@ private fun InfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title
         ) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(title, fontWeight = FontWeight.Bold)
                 Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 20.sp)
             }

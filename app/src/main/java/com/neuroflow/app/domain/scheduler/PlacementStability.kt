@@ -29,7 +29,8 @@ object PlacementStability {
         DEADLINE_RESCUE(true),
         POSTPONE_PATTERN(true),
         FAR_FUTURE_PULL_IN(true),
-        PERIODIC_REFRESH(true)
+        PERIODIC_REFRESH(true),
+        PAST_EXPIRED_RESCUE(true)
     }
 
     /**
@@ -42,9 +43,18 @@ object PlacementStability {
         prefs: UserPreferences,
         forceReplan: Boolean
     ): ReplanVerdict {
+        if (task.isScheduleLocked) return ReplanVerdict.KEEP
+
         val scheduledMillis = task.resolveScheduledEpochMillis()
             ?: return ReplanVerdict.KEEP
         val hoursUntilScheduled = (scheduledMillis - nowMillis) / 3_600_000f
+
+        // Bug 2 & Feature 3 (ADR-026): Expired-Block Auto-Rescue
+        // If a task's reserved block has ended and the 15-minute grace period has passed,
+        // it is eligible for same-day rescue rescheduling rather than stranded permanently in the past.
+        if (TaskBlockPlan.blockHasExpired(task, scheduledMillis, nowMillis, gracePeriodMillis = 15 * 60_000L)) {
+            return ReplanVerdict.PAST_EXPIRED_RESCUE
+        }
 
         if (scheduledMillis - nowMillis < NEAR_TERM_FREEZE_MILLIS) return ReplanVerdict.NEAR_TERM_FREEZE
 

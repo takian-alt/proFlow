@@ -240,6 +240,7 @@ class NeuralSoundscapePlayer(
     private fun startPlaybackThread() {
         stopPlaybackThread()
         playbackThread = thread(name = "NeuralSoundscapeAudio", isDaemon = true) {
+            val thisThread = Thread.currentThread()
             val buffer = ShortArray(CHUNK_FRAMES * 2)
             var fadeStartVol = currentVolume
             var fadeStartTime = 0L
@@ -305,12 +306,14 @@ class NeuralSoundscapePlayer(
                     }
                 }
             } finally {
-                isPlaying.set(false)
-                isFadingOut.set(false)
-                abandonAudioFocus()
-                try {
-                    audioTrack?.stop()
-                } catch (_: Throwable) {}
+                if (playbackThread == thisThread || playbackThread == null) {
+                    isPlaying.set(false)
+                    isFadingOut.set(false)
+                    abandonAudioFocus()
+                    try {
+                        audioTrack?.stop()
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }

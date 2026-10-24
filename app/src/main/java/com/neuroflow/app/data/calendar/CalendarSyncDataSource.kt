@@ -8,6 +8,7 @@ import android.database.Cursor
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.service.TimeSlotWindow
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -281,7 +282,7 @@ class CalendarSyncDataSource @Inject constructor(
         val calendarId = findPrimaryWritableCalendarId() ?: return@withContext null
 
         val effectiveStart = startMillis
-            ?: task.scheduledTime
+            ?: task.resolveScheduledEpochMillis()
             ?: task.scheduledDate
             ?: System.currentTimeMillis()
 

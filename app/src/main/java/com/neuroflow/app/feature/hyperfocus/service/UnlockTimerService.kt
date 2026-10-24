@@ -43,6 +43,7 @@ class UnlockTimerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        pollingJob?.cancel()
         pollingJob = serviceScope.launch {
             while (true) {
                 delay(1_000L) // Check every second for accurate expiry

@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.NoteEntity
@@ -32,11 +34,33 @@ fun QuickNotesBottomSheet(
     onSaveNote: (title: String, content: String) -> Unit,
     onDismiss: () -> Unit,
     onOpenFullNotes: () -> Unit = {},
-    onCreateTask: ((title: String, description: String) -> Unit)? = null
+    onCreateTask: ((title: String, description: String) -> Unit)? = null,
+    onSynthesizeNote: (suspend (String) -> com.neuroflow.app.domain.service.QuickNoteSynthesis)? = null
 ) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
+    var synthesis by remember { mutableStateOf<com.neuroflow.app.domain.service.QuickNoteSynthesis?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(content, title) {
+        if (content.isNotBlank()) {
+            val full = if (title.isNotBlank()) "$title: $content" else content
+            if (onSynthesizeNote != null) {
+                synthesis = onSynthesizeNote(full)
+            } else {
+                val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
+                synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                    extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+                    suggestedCategory = inferred.taskType.name,
+                    estimatedMinutes = inferred.durationMinutes,
+                    tags = inferred.contextTags,
+                    firstActionStep = "Review note: ${content.take(20)}..."
+                )
+            }
+        } else {
+            synthesis = null
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -56,32 +80,48 @@ fun QuickNotesBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = "📝 Scratchpad & Working Memory",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary
+                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Jot down ideas, research findings, and brain dumps without distraction",
                         style = MaterialTheme.typography.labelSmall,
-                        color = NeuroFlowThemeV2Colors.TextSecondary
+                        color = NeuroFlowThemeV2Colors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                IconButton(
-                    onClick = {
-                        onDismiss()
-                        onOpenFullNotes()
-                    },
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = "Open Full Notes Workspace",
-                        tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenFullNotes()
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Open Full Notes Workspace",
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close sheet",
+                            tint = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+                    }
                 }
             }
 
@@ -148,24 +188,15 @@ fun QuickNotesBottomSheet(
             }
 
             // Quick Note AI Task Extraction Preview
-            if (content.isNotBlank()) {
-                val synthesis = remember(content, title) {
-                    com.neuroflow.app.domain.service.QuickNoteSynthesis(
-                        extractedTaskTitle = title.ifBlank { content.take(35) },
-                        suggestedCategory = "DEEP_WORK",
-                        estimatedMinutes = 25,
-                        tags = emptyList(),
-                        firstActionStep = "Review note: ${content.take(20)}..."
-                    )
-                }
+            synthesis?.let { syn ->
                 com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
-                    synthesis = synthesis,
-                    onConvertToTaskClick = { syn ->
+                    synthesis = syn,
+                    onConvertToTaskClick = { finalSyn ->
                         if (onCreateTask != null) {
-                            onCreateTask(syn.extractedTaskTitle, content)
-                            onSaveNote(syn.extractedTaskTitle, content)
+                            onCreateTask(finalSyn.extractedTaskTitle, content)
+                            onSaveNote(finalSyn.extractedTaskTitle, content)
                         } else {
-                            onSaveNote(syn.extractedTaskTitle, content)
+                            onSaveNote(finalSyn.extractedTaskTitle, content)
                         }
                         title = ""
                         content = ""
@@ -213,9 +244,13 @@ fun QuickNotesBottomSheet(
                                         text = note.title.ifBlank { "Untitled Note" },
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = NeuroFlowThemeV2Colors.TextPrimary
+                                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     if (note.isPinned) {
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Icon(
                                             imageVector = Icons.Default.PushPin,
                                             contentDescription = "Pinned",
@@ -232,12 +267,45 @@ fun QuickNotesBottomSheet(
                                     maxLines = 3
                                 )
 
-                                Text(
-                                    text = dateFormatted,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeuroFlowThemeV2Colors.TextTertiary,
-                                    fontSize = 10.sp
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = dateFormatted,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextTertiary,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (onCreateTask != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            modifier = Modifier.clickable {
+                                                onCreateTask(note.title, note.content)
+                                            },
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
+                                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "⚡ Convert to Task",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

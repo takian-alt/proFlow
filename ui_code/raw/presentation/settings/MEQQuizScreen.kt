@@ -104,7 +104,7 @@ fun MEQQuizScreen(
                     }
                 }
                 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 // Navigation buttons
                 Row(
@@ -152,7 +152,7 @@ private fun AnswerOptionCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp),
+            .heightIn(min = 60.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) 
@@ -263,15 +263,29 @@ private fun QuizCompletionScreen(
         Spacer(modifier = Modifier.weight(1f))
         
         // Action buttons
-        Button(
-            onClick = onBack,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
-            shape = RoundedCornerShape(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Done")
+            OutlinedButton(
+                onClick = onReset,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Retake Quiz")
+            }
+            Button(
+                onClick = onBack,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Done")
+            }
         }
     }
 }

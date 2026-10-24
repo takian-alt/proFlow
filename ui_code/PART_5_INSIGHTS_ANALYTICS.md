@@ -1,10 +1,10 @@
 # neuroFlow UI Codebase — Insights Hub, Chronobiology Analytics & Velocity Reports
 
 **Description:** InsightsScreenV2, InsightsViewModelV2, InsightsTabbedUpgradesV2, AnalyticsScreen/ViewModel, and HistoryScreen.  
-**Generated for Vice Head Review:** 2026-10-20 16:59:40  
+**Generated for Vice Head Review:** 2026-10-23 22:05:10  
 **Files:** 7  
-**Lines of Code:** 4,385  
-**Uncompressed Size:** 189.4 KB  
+**Lines of Code:** 4,404  
+**Uncompressed Size:** 190.5 KB  
 
 ---
 
@@ -26,8 +26,8 @@
 ### File: `app/src/main/java/com/neuroflow/app/presentation/analytics/AnalyticsScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/analytics/AnalyticsScreen.kt`
-- **Lines of Code:** 1,705
-- **Size:** 78,455 bytes (76.6 KB)
+- **Lines of Code:** 1,708
+- **Size:** 78,523 bytes (76.7 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.analytics
@@ -645,8 +645,12 @@ private fun MapeCard(s: AnalyticsEngine.AnalyticsSummary, onReset: () -> Unit) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.DeadlineCard)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("Time Estimation Accuracy (MAPE)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -670,7 +674,7 @@ private fun MapeCard(s: AnalyticsEngine.AnalyticsSummary, onReset: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                     Text("Weighted MAPE:", fontSize = 13.sp)
-                    Text("${String.format("%.1f", s.weightedMape)}%", color = Color(0xFF1565C0), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("${String.format("%.1f", s.weightedMape)}%", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("Estimation Breakdown", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -699,8 +703,12 @@ private fun SmapeCard(s: AnalyticsEngine.AnalyticsSummary) {
     val hasData = s.overallSmape != 0f || s.weightedSmape != 0f
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = NeuroFlowColors.ScheduledCard)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("Symmetric Estimation (SMAPE)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -733,11 +741,6 @@ private fun SmapeCard(s: AnalyticsEngine.AnalyticsSummary) {
                 Text(
                     "SMAPE is more balanced for small tasks that significantly overrun.",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "To reset estimation data, use the button in the MAPE card above.",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -1967,8 +1970,8 @@ internal fun buildAbstentionRateTrend7d(
 ### File: `app/src/main/java/com/neuroflow/app/presentation/history/HistoryScreen.kt`
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/history/HistoryScreen.kt`
-- **Lines of Code:** 479
-- **Size:** 21,455 bytes (21.0 KB)
+- **Lines of Code:** 495
+- **Size:** 22,354 bytes (21.8 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.history
@@ -1982,6 +1985,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
@@ -2012,6 +2016,7 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     hideTopBar: Boolean = false,
+    onNavigateToLogTime: () -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -2026,9 +2031,15 @@ fun HistoryScreen(
             if (!hideTopBar) {
                 TopAppBar(
                     title = { Text("History") },
+                    actions = {
+                        IconButton(onClick = onNavigateToLogTime) {
+                            Icon(Icons.Default.Add, contentDescription = "Log Time Manually")
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
             }
@@ -2042,15 +2053,23 @@ fun HistoryScreen(
                 }
             }
             uiState.completedTasks.isEmpty() -> {
-                Box(
+                Column(
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         "No completed tasks yet.\nStart completing tasks to see them here!",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onNavigateToLogTime) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Log Past Focus Time")
+                    }
                 }
             }
             else -> {
@@ -2603,7 +2622,7 @@ class HistoryViewModel @Inject constructor(
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/insights/InsightsScreenV2.kt`
 - **Lines of Code:** 1,181
-- **Size:** 50,579 bytes (49.4 KB)
+- **Size:** 50,602 bytes (49.4 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.insights
@@ -2726,7 +2745,7 @@ fun InsightsScreenV2(
                         shape = SegmentedButtonDefaults.itemShape(index = idx, count = tabs.size),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            activeContentColor = Color.White,
+                            activeContentColor = NeuroFlowThemeV2Colors.TextPrimary,
                             inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurface,
                             inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -3796,7 +3815,7 @@ fun WeeklyAiFrictionAuditCard(
 
 - **Path:** `app/src/main/java/com/neuroflow/app/presentation/v2/insights/InsightsTabbedUpgradesV2.kt`
 - **Lines of Code:** 362
-- **Size:** 14,711 bytes (14.4 KB)
+- **Size:** 14,757 bytes (14.4 KB)
 
 ```kotlin
 package com.neuroflow.app.presentation.v2.insights
@@ -3879,7 +3898,7 @@ fun UpgradedInsightsHubV2(
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium
                         ),
-                        color = if (active) Color.White else NeuroFlowThemeV2Colors.TextSecondary
+                        color = if (active) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextSecondary
                     )
                 }
             }
@@ -4109,7 +4128,7 @@ private fun ForensicAvoidanceAuditDigest(
                         Text(
                             text = "Refresh Audit",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White,
+                            color = NeuroFlowThemeV2Colors.TextPrimary,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }

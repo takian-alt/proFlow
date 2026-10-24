@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -118,7 +119,7 @@ fun InsightsScreenV2(
                         shape = SegmentedButtonDefaults.itemShape(index = idx, count = tabs.size),
                         colors = SegmentedButtonDefaults.colors(
                             activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            activeContentColor = Color.White,
+                            activeContentColor = NeuroFlowThemeV2Colors.TextPrimary,
                             inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurface,
                             inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
@@ -567,14 +568,19 @@ fun BorbelyTwoProcessDeepDiveCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         "Process S (Sleep Pressure): $pressure pts",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = NeuroFlowThemeV2Colors.WarmAmber
+                        color = NeuroFlowThemeV2Colors.WarmAmber,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         "Zone: ${zone.name}",
                         style = MaterialTheme.typography.labelSmall,
@@ -795,6 +801,7 @@ fun CircadianDensityHeatmapCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f, fill = false),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -803,14 +810,18 @@ fun CircadianDensityHeatmapCard(
                         text = "24-Hr Circadian Focus Density Heatmap",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary
+                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Peak: ${String.format("%02d:00", peakStart)}–${String.format("%02d:00", peakEnd)}",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.WarmAmber
+                    color = NeuroFlowThemeV2Colors.WarmAmber,
+                    maxLines = 1
                 )
             }
 
@@ -895,6 +906,7 @@ fun IdentityAffirmationsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f, fill = false),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -903,9 +915,12 @@ fun IdentityAffirmationsCard(
                         text = "Subliminal Identity Affirmations",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary
+                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 TextButton(onClick = onNavigateToIdentity) {
                     Text(
                         "Manage",
@@ -1044,6 +1059,7 @@ fun WeeklyAiFrictionAuditCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f, fill = false),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1057,9 +1073,12 @@ fun WeeklyAiFrictionAuditCard(
                         text = "AI Chrono-Coach & Avoidance Audit",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary
+                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
 
                 FilledTonalButton(
                     onClick = onCalibrateCoach,

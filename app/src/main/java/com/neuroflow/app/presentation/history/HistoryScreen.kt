@@ -9,7 +9,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,6 +41,7 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     hideTopBar: Boolean = false,
+    onNavigateToLogTime: () -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -53,9 +56,15 @@ fun HistoryScreen(
             if (!hideTopBar) {
                 TopAppBar(
                     title = { Text("History") },
+                    actions = {
+                        IconButton(onClick = onNavigateToLogTime) {
+                            Icon(Icons.Default.Add, contentDescription = "Log Time Manually")
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
             }
@@ -69,15 +78,23 @@ fun HistoryScreen(
                 }
             }
             uiState.completedTasks.isEmpty() -> {
-                Box(
+                Column(
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         "No completed tasks yet.\nStart completing tasks to see them here!",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onNavigateToLogTime) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Log Past Focus Time")
+                    }
                 }
             }
             else -> {
@@ -283,7 +300,10 @@ private fun HistoryTaskRow(task: TaskEntity, onClick: () -> Unit, onDelete: () -
 
                 if (task.tags.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         task.tags.split(",").filter { it.isNotBlank() }.take(3).forEach { tag ->
                             TagChip(tag.trim())
                         }
@@ -316,7 +336,23 @@ private fun HistoryDetailSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp)
         ) {
-            Text(task.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    task.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close sheet")
+                }
+            }
             if (task.description.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(task.description, style = MaterialTheme.typography.bodyMedium,
@@ -352,7 +388,10 @@ private fun HistoryDetailSheet(
                     Spacer(Modifier.height(4.dp))
                     Text("Tags", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         task.tags.split(",").filter { it.isNotBlank() }.forEach { TagChip(it.trim()) }
                     }
                 }

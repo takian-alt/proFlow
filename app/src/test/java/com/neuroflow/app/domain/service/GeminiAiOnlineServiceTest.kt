@@ -152,7 +152,8 @@ class GeminiAiOnlineServiceTest {
         val models = DefaultGeminiAiOnlineService.CANDIDATE_MODELS
         assertTrue("Primary must be gemini-flash-latest", models.contains("gemini-flash-latest"))
         assertTrue("Must have flash-lite fallback", models.contains("gemini-flash-lite-latest"))
-        assertTrue("Must have 3.5-flash fallback", models.contains("gemini-3.5-flash"))
+        assertTrue("Must have 2.5-flash fallback", models.contains("gemini-2.5-flash"))
+        assertTrue("Must have 2.0-flash fallback", models.contains("gemini-2.0-flash"))
     }
 
     @Test

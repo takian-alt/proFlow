@@ -46,7 +46,8 @@ class SettingsViewModel @Inject constructor(
     private val databaseCleaner: DatabaseCleaner,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
-    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService
+    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService,
+    val passiveSleepSyncRepository: com.neuroflow.app.domain.repository.PassiveSleepSyncRepository? = null
 ) : ViewModel() {
 
     // Test convenience constructor
@@ -66,8 +67,47 @@ class SettingsViewModel @Inject constructor(
         databaseCleaner,
         circadianEnergyService,
         sleepTelemetryRepository,
-        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService()
+        com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService(),
+        null
     )
+
+    val isPassiveSyncing = MutableStateFlow(false)
+    val passiveSyncStatus = MutableStateFlow<String?>(null)
+
+    fun syncWearableSleep() {
+        viewModelScope.launch {
+            val repo = passiveSleepSyncRepository
+            if (repo == null) {
+                passiveSyncStatus.value = "Health Connect integration not active on this device"
+                return@launch
+            }
+            isPassiveSyncing.value = true
+            try {
+                val now = System.currentTimeMillis()
+                val sevenDaysAgo = now - 7L * 24 * 60 * 60 * 1000L
+                val result = repo.syncPassiveSleep(sevenDaysAgo, now)
+                passiveSyncStatus.value = when (result) {
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.Success ->
+                        if (result.importedLogs.isNotEmpty()) "Imported ${result.importedLogs.size} wearable sleep logs"
+                        else "Wearable data is already synchronized"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.PermissionRequired ->
+                        "Permission required: ${result.missingPermissions.firstOrNull() ?: "READ_SLEEP"}"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.ProviderUnavailable ->
+                        "Health Provider: ${result.reason}"
+                    is com.neuroflow.app.domain.repository.PassiveSleepSyncRepository.SyncResult.Failure ->
+                        "Sync failed: ${result.throwable.message}"
+                }
+            } catch (e: Exception) {
+                passiveSyncStatus.value = "Sync error: ${e.message}"
+            } finally {
+                isPassiveSyncing.value = false
+            }
+        }
+    }
+
+    fun clearPassiveSyncStatus() {
+        passiveSyncStatus.value = null
+    }
 
     data class LaunchableApp(val packageName: String, val label: String)
 

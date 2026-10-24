@@ -42,10 +42,6 @@ import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.service.QuickNoteSynthesis
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 
-/**
- * 1. Dopamine-Safe HyperFocus Gate Card (For BlockingOverlayScreen.kt & HyperFocusHomeScreen.kt)
- * Replaces punitive app-block walls with a RewardTier progress ring and a 2-minute starter step pivot.
- */
 @Composable
 fun DopamineSafeBlockingGateCard(
     blockedAppName: String,
@@ -62,7 +58,10 @@ fun DopamineSafeBlockingGateCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.5f)),
+        border = BorderStroke(
+            1.5.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 1f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -85,19 +84,18 @@ fun DopamineSafeBlockingGateCard(
             Text(
                 text = "$blockedAppName is paused right now",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White,
+                color = NeuroFlowPaletteV2.TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "Complete $tasksNeeded more task(s) to unlock a ${nextRewardTier.unlockMinutes}-minute ${nextRewardTier.name} reward pass.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.72f),
+                color = NeuroFlowPaletteV2.TextSecondary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2-Minute Low-Friction Pivot Card
             Surface(
                 color = NeuroFlowPaletteV2.SurfaceElevated,
                 shape = RoundedCornerShape(16.dp),
@@ -114,7 +112,7 @@ fun DopamineSafeBlockingGateCard(
                     Text(
                         text = topTaskFirstStep.ifBlank { topTaskTitle },
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                 }
             }
@@ -124,7 +122,7 @@ fun DopamineSafeBlockingGateCard(
                 onClick = onStartTwoMinuteStepClick,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                    contentColor = Color.Black
+                    contentColor = Color(0xFF0A0B0E)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -158,9 +156,6 @@ fun DopamineSafeBlockingGateCard(
     }
 }
 
-/**
- * 2. Quick Note to Structured Task Synthesizer (For QuickNotesBottomSheet.kt)
- */
 @Composable
 fun QuickNoteAiSynthesizerCard(
     synthesis: QuickNoteSynthesis,
@@ -170,7 +165,10 @@ fun QuickNoteAiSynthesizerCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceElevated,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -199,12 +197,12 @@ fun QuickNoteAiSynthesizerCard(
                 Text(
                     text = synthesis.extractedTaskTitle,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+                    color = NeuroFlowPaletteV2.TextPrimary
                 )
                 Text(
                     text = "Starter: ${synthesis.firstActionStep}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.68f)
+                    color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
             Spacer(modifier = Modifier.width(10.dp))
@@ -216,7 +214,7 @@ fun QuickNoteAiSynthesizerCard(
                 Text(
                     text = "+ Add Task",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = Color.Black,
+                    color = Color.White,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                 )
             }
@@ -224,9 +222,6 @@ fun QuickNoteAiSynthesizerCard(
     }
 }
 
-/**
- * 3. Categorized Settings Hub (For SettingsScreen.kt)
- */
 @Composable
 fun CategorizedSettingsHubV2(
     chronotypeSummary: String,
@@ -285,7 +280,7 @@ private fun SettingsCategoryRowCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(accent, 0.7f)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -320,20 +315,20 @@ private fun SettingsCategoryRowCard(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = NeuroFlowPaletteV2.TextSecondary
                     )
                 }
             }
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.4f)
+                tint = NeuroFlowPaletteV2.TextTertiary
             )
         }
     }

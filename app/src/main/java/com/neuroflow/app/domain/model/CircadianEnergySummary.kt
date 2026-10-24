@@ -25,6 +25,9 @@ fun buildCircadianEnergySummary(
     dailySummary: DailyCircadianSummary?,
     snapshot: CircadianSnapshot,
     sleepPressurePoints: Int = 450,
+    dailyDeepWorkTargetMinutes: Int? = null,
+    sleepHour: Int = 23,
+    completedDeepWorkMinutes: Int = 0
 ): CircadianEnergySummary {
     val peakStart = dailySummary?.let { LocalTime.of(it.peakWindowStartHour.coerceIn(0, 23), 0) }
         ?: LocalTime.of(9, 30)
@@ -34,14 +37,21 @@ fun buildCircadianEnergySummary(
         ?: LocalTime.of(13, 30)
     val dipEnd = dailySummary?.let { LocalTime.of(it.dipWindowEndHour.coerceIn(0, 23), 0) }
         ?: LocalTime.of(15, 30)
-    val windDownStart = LocalTime.of(21, 30)
-    val sleepPressureNormalized = (sleepPressurePoints / 1000f).coerceIn(0f, 1f)
-    val cognitiveBudget = dailySummary?.recommendedDeepWorkMinutes ?: 240
+    val targetWindDownHour = ((sleepHour - 2) % 24 + 24) % 24
+    val windDownStart = LocalTime.of(targetWindDownHour, 0)
+    val sleepPressureNormalized = if (snapshot.homeostaticPressureS > 0.0 && !snapshot.homeostaticPressureS.isNaN()) {
+        snapshot.homeostaticPressureS.toFloat().coerceIn(0f, 1f)
+    } else {
+        (sleepPressurePoints / 1000f).coerceIn(0f, 1f)
+    }
+    val totalBudget = dailyDeepWorkTargetMinutes?.takeIf { it > 0 } ?: dailySummary?.recommendedDeepWorkMinutes ?: 240
+    val cognitiveBudget = kotlin.math.max(0, totalBudget - completedDeepWorkMinutes)
+    val confidence = snapshot.predictionConfidence.toFloat().coerceIn(0.1f, 1.0f)
 
     return CircadianEnergySummary(
         currentEnergyScore = snapshot.usableEnergy,
         currentPhase = snapshot.phase,
-        phaseConfidence = 0.92f,
+        phaseConfidence = confidence,
         peakStart = peakStart,
         peakEnd = peakEnd,
         dipStart = dipStart,
@@ -49,6 +59,6 @@ fun buildCircadianEnergySummary(
         windDownStart = windDownStart,
         sleepPressureNormalized = sleepPressureNormalized,
         cognitiveBudgetMinutesRemaining = cognitiveBudget,
-        calibrationQuality = 0.88f
+        calibrationQuality = confidence
     )
 }

@@ -16,11 +16,13 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.presentation.v2.focus.audio.NeuralSoundscapePlayer
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -70,7 +72,10 @@ data class FocusUiStateV2(
     val isDecompressionSighActive: Boolean = false,
     val decompressionSighRemainingSeconds: Int = 0,
     val isDecompressionBypassed: Boolean = false,
-    val skippedMicroStepIndices: Set<Int> = emptySet()
+    val skippedMicroStepIndices: Set<Int> = emptySet(),
+    val showSprintCompletionSheet: Boolean = false,
+    val isSprintCompleted: Boolean = false,
+    val completionAffirmation: String? = null
 ) {
     val isSessionActive: Boolean get() = isRunning
 }
@@ -95,6 +100,8 @@ class FocusViewModelV2 @Inject constructor(
     private var timerJob: Job? = null
     private var pauseCount: Int = 0
     private var hasNotifiedCompletion = false
+    private var autoTrackerJob: Job? = null
+    private var autoTrackerTriggered = false
 
     val soundscapePlayer: NeuralSoundscapePlayer by lazy {
         NeuralSoundscapePlayer(context)
@@ -106,10 +113,17 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     private fun loadTask() {
+        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
         viewModelScope.launch {
             val task = taskRepository.getById(taskId)
             val woop = woopRepository.getByTaskId(taskId)
-            val steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            var steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            if (steps.isEmpty() && task != null) {
+                val dbSteps = taskRepository.getMicroSteps(task.id)
+                if (dbSteps.isNotEmpty()) {
+                    steps = dbSteps.map { StepByStepPlanStep(it.title, it.isCompleted) }
+                }
+            }
 
             // Find next task
             val activeTasks = taskRepository.getActiveTasks()
@@ -180,18 +194,41 @@ class FocusViewModelV2 @Inject constructor(
     private fun observePreferences() {
         viewModelScope.launch {
             preferencesDataStore.preferencesFlow
-                .distinctUntilChanged { old, new ->
-                    old.dndEnabled == new.dndEnabled &&
-                    old.totalFocusMinutes == new.totalFocusMinutes
-                }
                 .collect { prefs ->
                     _uiState.update { it.copy(preferences = prefs) }
+                    checkAutoTracker(prefs)
                 }
         }
     }
 
+    private fun checkAutoTracker(prefs: UserPreferences) {
+        if (!prefs.autoTrackerEnabled || autoTrackerTriggered || _uiState.value.isRunning || _uiState.value.isPaused) return
+        if (autoTrackerJob == null || autoTrackerJob?.isActive == false) {
+            autoTrackerJob = viewModelScope.launch {
+                delay(8000L)
+                if (!_uiState.value.isRunning && !_uiState.value.isPaused && !autoTrackerTriggered) {
+                    autoTrackerTriggered = true
+                    startTimer()
+                }
+            }
+        }
+    }
+
+    fun markWoopPromptShown() {
+        viewModelScope.launch {
+            val task = _uiState.value.task ?: return@launch
+            if (!task.woopPromptShown) {
+                val updated = task.copy(woopPromptShown = true, updatedAt = System.currentTimeMillis())
+                taskRepository.update(updated)
+                _uiState.update { it.copy(task = updated) }
+            }
+        }
+    }
+
     fun selectTimerMode(mode: FocusTimerModeV2) {
-        if (_uiState.value.isRunning) return
+        if (_uiState.value.isRunning || _uiState.value.isPaused) return
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
         hasNotifiedCompletion = false
         _uiState.update {
             it.copy(
@@ -200,7 +237,9 @@ class FocusViewModelV2 @Inject constructor(
                 elapsedSeconds = 0L,
                 startedAtMillis = 0L,
                 accumulatedPauseMillis = 0L,
-                pausedAtMillis = null
+                pausedAtMillis = null,
+                isSprintCompleted = false,
+                showSprintCompletionSheet = false
             )
         }
     }
@@ -224,7 +263,9 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     fun onScreenExit() {
-        if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
+        if (!_uiState.value.isSessionActive && _uiState.value.selectedSoundscape != SoundscapeType.NONE) {
             soundscapePlayer.pauseWithFadeOut()
         }
     }
@@ -250,10 +291,18 @@ class FocusViewModelV2 @Inject constructor(
             )
             woopRepository.upsert(entity)
             _uiState.update { it.copy(woopData = entity) }
+
+            val task = _uiState.value.task
+            if (task != null && (task.ifThenPlan.isNullOrBlank() || !task.ifThenPlan!!.contains("["))) {
+                taskRepository.update(task.copy(ifThenPlan = plan, updatedAt = now))
+            }
         }
     }
 
     fun startTimer() {
+        autoTrackerJob?.cancel()
+        autoTrackerJob = null
+        autoTrackerTriggered = true
         if (_uiState.value.isRunning && !_uiState.value.isPaused) return
 
         if (_uiState.value.isPaused) {
@@ -262,7 +311,8 @@ class FocusViewModelV2 @Inject constructor(
         }
 
         val now = System.currentTimeMillis()
-        val sessionId = _uiState.value.activeSessionId ?: UUID.randomUUID().toString()
+        val isFreshOrFinished = _uiState.value.isSprintCompleted || _uiState.value.isCompleted || _uiState.value.activeSessionId == null
+        val sessionId = if (isFreshOrFinished) UUID.randomUUID().toString() else (_uiState.value.activeSessionId ?: UUID.randomUUID().toString())
         hasNotifiedCompletion = false
 
         _uiState.update {
@@ -272,7 +322,11 @@ class FocusViewModelV2 @Inject constructor(
                 activeSessionId = sessionId,
                 startedAtMillis = now,
                 accumulatedPauseMillis = 0L,
-                pausedAtMillis = null
+                pausedAtMillis = null,
+                elapsedSeconds = 0L,
+                remainingSeconds = if (it.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 0L else it.timerMode.durationSeconds,
+                isSprintCompleted = false,
+                showSprintCompletionSheet = false
             )
         }
 
@@ -337,14 +391,43 @@ class FocusViewModelV2 @Inject constructor(
 
             if (isExpired) {
                 countdownHitZero = true
+                current.copy(
+                    isRunning = false,
+                    isPaused = false,
+                    elapsedSeconds = current.timerMode.durationSeconds,
+                    remainingSeconds = 0L,
+                    isSprintCompleted = true,
+                    showSprintCompletionSheet = true
+                )
+            } else {
+                current.copy(
+                    elapsedSeconds = elapsed,
+                    remainingSeconds = remaining
+                )
             }
-            current.copy(
-                elapsedSeconds = elapsed,
-                remainingSeconds = remaining
-            )
         }
         if (countdownHitZero) {
+            timerJob?.cancel()
+            timerJob = null
+            disableDnd()
             soundscapePlayer.pauseWithFadeOut()
+            FocusService.stopService(context)
+
+            val durationSec = _uiState.value.elapsedSeconds
+            val actualMinutes = max(1, (durationSec / 60).toInt())
+
+            updateSessionRecord(isOpen = false)
+
+            viewModelScope.launch {
+                val currentTask = _uiState.value.task
+                if (currentTask != null) {
+                    val updatedTask = currentTask.copy(
+                        totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                    )
+                    taskRepository.update(updatedTask)
+                }
+            }
+
             if (!hasNotifiedCompletion) {
                 hasNotifiedCompletion = true
                 focusCompletionNotifier?.playCompletionChimeAndHaptics(viewModelScope)
@@ -471,6 +554,7 @@ class FocusViewModelV2 @Inject constructor(
         disableDnd()
         soundscapePlayer.pauseWithFadeOut()
         FocusService.stopService(context)
+        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
 
         val now = System.currentTimeMillis()
         val durationSec = _uiState.value.elapsedSeconds
@@ -491,12 +575,26 @@ class FocusViewModelV2 @Inject constructor(
             }
 
             val currentTask = _uiState.value.task ?: return@launch
+            val finalTracked = currentTask.totalTimeTrackedMinutes + actualMinutes
+            val est = currentTask.estimatedDurationMinutes.toFloat()
+            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+
+            val points = 50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2)
+
             val updatedTask = currentTask.copy(
-                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                totalTimeTrackedMinutes = finalTracked,
+                actualDurationMinutes = finalTracked,
+                sessionCount = currentTask.sessionCount + 1,
+                lastSessionDurationMinutes = actualMinutes.toFloat(),
+                estimationErrorMape = mape,
+                estimationErrorSmape = smape,
+                focusModePoints = points,
+                status = TaskStatus.COMPLETED,
+                completedAt = now,
+                updatedAt = now
             )
             taskRepository.update(updatedTask)
-
-            val points = 50 + if (updatedTask.isFrog) 50 else 0 + (updatedTask.impactScore / 2)
             taskRepository.completeAndRecur(updatedTask, now)
 
             preferencesDataStore.updatePreferences { prefs ->
@@ -521,6 +619,9 @@ class FocusViewModelV2 @Inject constructor(
                 )
             }
 
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val affirmation = if (prefs.affirmations.isNotEmpty()) prefs.affirmations.random() else null
+
             _uiState.update {
                 it.copy(
                     isRunning = false,
@@ -532,7 +633,8 @@ class FocusViewModelV2 @Inject constructor(
                     decompressionRemainingSeconds = 180,
                     isDecompressionSighActive = false,
                     decompressionSighRemainingSeconds = 0,
-                    isDecompressionBypassed = false
+                    isDecompressionBypassed = false,
+                    completionAffirmation = affirmation
                 )
             }
         }
@@ -553,6 +655,36 @@ class FocusViewModelV2 @Inject constructor(
 
     fun dismissAffordanceRating() {
         _uiState.update { it.copy(showAffordanceRating = false) }
+    }
+
+    fun keepGoing(nextMode: FocusTimerModeV2 = FocusTimerModeV2.POMODORO_25) {
+        _uiState.update {
+            it.copy(
+                timerMode = nextMode,
+                showSprintCompletionSheet = false,
+                isSprintCompleted = false
+            )
+        }
+        startTimer()
+    }
+
+    fun takeDecompressionRest() {
+        _uiState.update {
+            it.copy(
+                showSprintCompletionSheet = false,
+                isSprintCompleted = false,
+                showDecompressionZone = true,
+                decompressionRemainingSeconds = 180,
+                isDecompressionSighActive = false,
+                decompressionSighRemainingSeconds = 0,
+                isDecompressionBypassed = false
+            )
+        }
+        startDecompressionTicker()
+    }
+
+    fun dismissSprintCompletionSheet() {
+        _uiState.update { it.copy(showSprintCompletionSheet = false) }
     }
 
     private var decompressionJob: Job? = null
@@ -691,6 +823,10 @@ class FocusViewModelV2 @Inject constructor(
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            if (index in roomSteps.indices) {
+                taskRepository.toggleMicroStepCompleted(roomSteps[index])
+            }
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -717,6 +853,17 @@ class FocusViewModelV2 @Inject constructor(
 
         val task = _uiState.value.task ?: return
         viewModelScope.launch {
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            val nextOrder = (roomSteps.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            taskRepository.insertMicroStep(
+                TaskMicroStepEntity(
+                    taskId = task.id,
+                    title = stepText.trim(),
+                    sortOrder = nextOrder,
+                    isCompleted = false,
+                    estimatedMinutes = 5
+                )
+            )
             taskRepository.update(task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -740,10 +887,11 @@ class FocusViewModelV2 @Inject constructor(
         timerJob?.cancel()
         decompressionJob?.cancel()
         disableDnd()
-        soundscapePlayer.release()
-        FocusService.stopService(context)
-        if (_uiState.value.isRunning && !_uiState.value.isCompleted) {
-            updateSessionRecord(isOpen = false)
+        if (!_uiState.value.isRunning || _uiState.value.isCompleted) {
+            soundscapePlayer.release()
+            FocusService.stopService(context)
+        } else {
+            soundscapePlayer.pauseWithFadeOut()
         }
     }
 }

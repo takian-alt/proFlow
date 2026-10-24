@@ -2,7 +2,9 @@ package com.neuroflow.app.presentation.v2.flow
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,12 +28,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
-
 import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.EnergyPhase
 
 @Composable
 fun EnergyTimelineStream(
@@ -40,6 +45,7 @@ fun EnergyTimelineStream(
     onDeferTask: (TaskEntity) -> Unit = {},
     onBreakDownTask: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {},
+    onShiftToPeak: ((TaskEntity) -> Unit)? = null,
     timeline: List<CircadianSnapshot> = emptyList(),
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
@@ -89,18 +95,109 @@ fun EnergyTimelineStream(
                 }
             }
         } else {
-            scheduledTasks.forEach { task ->
-                key(task.id) {
-                    TimelineTaskCard(
-                        task = task,
-                        onTaskClick = { onTaskClick(task) },
-                        onComplete = { onCompleteTask(task) },
-                        onDefer = { onDeferTask(task) },
-                        onBreakDown = { onBreakDownTask(task) },
-                        onEdit = { onEditTask(task) },
-                        onLogPastTime = { taskToLogTime = task },
-                        timeline = timeline
-                    )
+            val nowMillis = System.currentTimeMillis()
+            val activeOrNextIndex = scheduledTasks.indexOfFirst { task ->
+                val start = task.resolveScheduledEpochMillis() ?: task.scheduledDate ?: 0L
+                val end = start + task.estimatedDurationMinutes * 60_000L
+                end >= nowMillis
+            }
+            var cumulativeMinutes = 0
+
+            scheduledTasks.forEachIndexed { index, task ->
+                val scheduledMillis = task.resolveScheduledEpochMillis() ?: task.scheduledDate
+                val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
+                    timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - scheduledMillis) }?.phase ?: EnergyPhase.PEAK
+                } else EnergyPhase.PEAK
+                val phaseColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+
+                if (index == activeOrNextIndex) {
+                    // Pulsing "NOW" playhead indicator
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(NeuroFlowPaletteV2.ReboundCyan, CircleShape)
+                        )
+                        Text(
+                            text = "NOW",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = NeuroFlowPaletteV2.ReboundCyan,
+                            letterSpacing = 1.sp
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(1.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(NeuroFlowPaletteV2.ReboundCyan, Color.Transparent)
+                                    )
+                                )
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Phase-colored vertical time-rail node & track
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 18.dp)
+                                .size(10.dp)
+                                .background(phaseColor, CircleShape)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .weight(1f, fill = false)
+                                .heightIn(min = 40.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(phaseColor.copy(alpha = 0.5f), phaseColor.copy(alpha = 0.15f))
+                                    )
+                                )
+                        )
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        key(task.id) {
+                            TimelineTaskCard(
+                                task = task,
+                                onTaskClick = { onTaskClick(task) },
+                                onComplete = { onCompleteTask(task) },
+                                onDefer = { onDeferTask(task) },
+                                onBreakDown = { onBreakDownTask(task) },
+                                onEdit = { onEditTask(task) },
+                                onShiftToPeak = onShiftToPeak?.let { shift -> { shift(task) } },
+                                onLogPastTime = { taskToLogTime = task },
+                                timeline = timeline
+                            )
+                        }
+                    }
+                }
+
+                cumulativeMinutes += task.estimatedDurationMinutes
+                val hasNext = index < scheduledTasks.size - 1
+                if (hasNext) {
+                    val nextTask = scheduledTasks[index + 1]
+                    val isBetweenSplitParts = (task.id.contains("#part1") || task.id.contains("_part1") || task.title.contains("(Part 1/2)")) &&
+                            (nextTask.id.contains("#part2") || nextTask.id.contains("_part2") || nextTask.title.contains("(Part 2/2)"))
+                    if (isBetweenSplitParts || cumulativeMinutes >= 90) {
+                        UltradianRecoveryDivider()
+                        cumulativeMinutes = 0
+                    }
                 }
             }
         }
@@ -128,6 +225,7 @@ fun TimelineTaskCard(
     onDefer: () -> Unit,
     onBreakDown: () -> Unit = {},
     onEdit: () -> Unit = {},
+    onShiftToPeak: (() -> Unit)? = null,
     onLogPastTime: () -> Unit = {},
     timeline: List<CircadianSnapshot> = emptyList()
 ) {
@@ -237,6 +335,7 @@ fun TimelineTaskCard(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = NeuroFlowThemeV2Colors.TextPrimary,
+                            modifier = Modifier.weight(1f, fill = false),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -245,6 +344,9 @@ fun TimelineTaskCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -291,15 +393,48 @@ fun TimelineTaskCard(
                                 )
                             }
                         }
+
+                        val isUltradianPart = task.id.contains("#part") || task.title.contains("(Part ")
+                        if (isUltradianPart) {
+                            val partLabel = if (task.id.contains("#part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                            Box(
+                                modifier = Modifier
+                                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = partLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        if (task.postponeCount >= 3) {
+                            Box(
+                                modifier = Modifier
+                                    .background(NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "⚡ Dopamine Warm-Up",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.WarmAmber,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
 
-                    val scheduledMillis = task.scheduledTime ?: task.scheduledDate
+                    val scheduledMillis = task.resolveScheduledEpochMillis() ?: task.scheduledDate
                     if (scheduledMillis != null && timeline.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         TaskSlotEnergyFitBadge(
                             taskScheduledMillis = scheduledMillis,
                             taskEnergyDemand = task.energyLevel,
-                            timeline = timeline
+                            timeline = timeline,
+                            onShiftToPeakClick = onShiftToPeak
                         )
                     }
                 }

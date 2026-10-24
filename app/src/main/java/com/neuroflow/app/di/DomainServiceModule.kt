@@ -64,12 +64,6 @@ abstract class DomainServiceModule {
 
     @Binds
     @Singleton
-    abstract fun bindAndroidCalendarSyncRepository(
-        impl: com.neuroflow.app.data.calendar.CalendarSyncDataSource
-    ): com.neuroflow.app.data.calendar.AndroidCalendarSyncRepository
-
-    @Binds
-    @Singleton
     abstract fun bindSleepTelemetryRepository(
         impl: com.neuroflow.app.data.sleep.DefaultSleepTelemetryRepository
     ): com.neuroflow.app.data.sleep.SleepTelemetryRepository

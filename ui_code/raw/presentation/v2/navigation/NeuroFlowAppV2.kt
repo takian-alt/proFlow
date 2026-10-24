@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,7 @@ import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
 import com.neuroflow.app.presentation.v2.focus.FocusScreenV2
 import com.neuroflow.app.presentation.v2.insights.InsightsScreenV2
 import com.neuroflow.app.presentation.v2.plan.PlanScreenV2
+import com.neuroflow.app.presentation.v2.plan.PlanViewModelV2
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.presentation.v2.theme.MiniFocusSessionBar
@@ -54,6 +56,12 @@ fun NeuroFlowAppV2(
     onInitialTaskConsumed: () -> Unit = {},
     initialOpenComposer: Boolean = false,
     onInitialComposerConsumed: () -> Unit = {},
+    initialWoopTaskId: String? = null,
+    onInitialWoopConsumed: () -> Unit = {},
+    initialGuideOpen: Boolean = false,
+    onInitialGuideConsumed: () -> Unit = {},
+    initialScheduleOpen: Boolean = false,
+    onInitialScheduleConsumed: () -> Unit = {},
     darkTheme: Boolean = true,
     amoledDark: Boolean = false
 ) {
@@ -72,6 +80,27 @@ fun NeuroFlowAppV2(
         }
     }
 
+    LaunchedEffect(initialWoopTaskId) {
+        if (!initialWoopTaskId.isNullOrBlank()) {
+            navController.navigate("focus_v2/$initialWoopTaskId?openWoop=true")
+            onInitialWoopConsumed()
+        }
+    }
+
+    LaunchedEffect(initialGuideOpen) {
+        if (initialGuideOpen) {
+            navController.navigate("app_guide")
+            onInitialGuideConsumed()
+        }
+    }
+
+    LaunchedEffect(initialScheduleOpen) {
+        if (initialScheduleOpen) {
+            navController.navigate(NavHubsV2.Plan.route)
+            onInitialScheduleConsumed()
+        }
+    }
+
     val isAmoled = darkTheme && (amoledDark || MaterialTheme.colorScheme.background == Color.Black)
     val activeFocusSessionState by FocusService.activeSession.collectAsState()
     val session = activeFocusSessionState
@@ -79,6 +108,7 @@ fun NeuroFlowAppV2(
 
     NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled) {
         val flowViewModel: FlowViewModelV2 = hiltViewModel()
+        val planViewModel: PlanViewModelV2 = hiltViewModel()
         val flowState by flowViewModel.uiState.collectAsState()
         val now = System.currentTimeMillis()
         val livePhase = flowState.energyTimeline.minByOrNull {
@@ -160,7 +190,8 @@ fun NeuroFlowAppV2(
                     PlanScreenV2(
                         onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
                         onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") },
-                        onNavigateToNotes = { navController.navigate("notes") }
+                        onNavigateToNotes = { navController.navigate("notes") },
+                        viewModel = planViewModel
                     )
                 }
 
@@ -183,7 +214,8 @@ fun NeuroFlowAppV2(
                         onNavigateToPrivacyPermissions = { navController.navigate("privacy_permissions") },
                         onNavigateToMEQQuiz = { navController.navigate("meq_quiz") },
                         onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
-                        onNavigateToAccountSync = { navController.navigate("account_sync") }
+                        onNavigateToAccountSync = { navController.navigate("account_sync") },
+                        onNavigateToLogTime = { navController.navigate("log_time") }
                     )
                 }
 
@@ -208,7 +240,10 @@ fun NeuroFlowAppV2(
                 composable("weekly_schedule") {
                     WeeklyScheduleScreen(
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToDay = { navController.popBackStack() },
+                        onNavigateToDay = { dayMillis ->
+                            planViewModel.selectDate(dayMillis)
+                            navController.popBackStack()
+                        },
                         onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
                     )
                 }
@@ -253,6 +288,14 @@ fun NeuroFlowAppV2(
                                         )
                                     }
                                 },
+                                actions = {
+                                    IconButton(onClick = { navController.navigate("log_time") }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Log Time"
+                                        )
+                                    }
+                                },
                                 colors = TopAppBarDefaults.topAppBarColors(
                                     containerColor = MaterialTheme.colorScheme.surface,
                                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -262,7 +305,10 @@ fun NeuroFlowAppV2(
                         }
                     ) { innerPadding ->
                         Box(modifier = Modifier.padding(innerPadding)) {
-                            HistoryScreen(hideTopBar = true)
+                            HistoryScreen(
+                                hideTopBar = true,
+                                onNavigateToLogTime = { navController.navigate("log_time") }
+                            )
                         }
                     }
                 }
@@ -309,13 +355,17 @@ fun NeuroFlowAppV2(
                     )
                 }
 
+                // Parity route: "focus_v2/{taskId}" with optional openWoop query parameter
                 composable(
-                    route = "focus_v2/{taskId}",
+                    route = "focus_v2/{taskId}?openWoop={openWoop}",
                     arguments = listOf(
-                        navArgument("taskId") { type = NavType.StringType }
+                        navArgument("taskId") { type = NavType.StringType },
+                        navArgument("openWoop") { type = NavType.BoolType; defaultValue = false }
                     )
-                ) {
+                ) { backStackEntry ->
+                    val openWoop = backStackEntry.arguments?.getBoolean("openWoop") ?: false
                     FocusScreenV2(
+                        initialOpenWoop = openWoop,
                         onNavigateBack = { navController.popBackStack() },
                         onNavigateToNextTask = { nextTaskId ->
                             navController.navigate("focus_v2/$nextTaskId") {

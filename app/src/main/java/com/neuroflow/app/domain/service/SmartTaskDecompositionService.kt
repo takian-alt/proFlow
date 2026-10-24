@@ -1,14 +1,10 @@
 package com.neuroflow.app.domain.service
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URL
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
-import javax.net.ssl.HttpsURLConnection
 import kotlin.math.max
 import kotlin.math.min
 
@@ -63,17 +59,7 @@ class DefaultSmartTaskDecompositionService @Inject constructor(
     }
 
     override fun decomposeTaskLocally(title: String, durationMinutes: Int): List<MicroStepSuggestion> {
-        val clean = title.trim().take(40).ifBlank { "Task" }
-        val boundedDuration = durationMinutes.coerceAtLeast(15)
-        val s1 = min(10, max(5, boundedDuration / 4))
-        val s3 = min(10, max(5, boundedDuration / 4))
-        val s2 = max(5, boundedDuration - s1 - s3)
-
-        return listOf(
-            MicroStepSuggestion("Open workspace & gather materials for $clean", s1),
-            MicroStepSuggestion("Spend 5 uninterrupted minutes on the very first sub-step", s2),
-            MicroStepSuggestion("Review progress & polish final result", s3)
-        )
+        return buildArchetypeMicroSteps(title, durationMinutes)
     }
 
     companion object {
@@ -95,6 +81,56 @@ class DefaultSmartTaskDecompositionService @Inject constructor(
                 hasAny("email", "call", "invoice", "taxes", "schedule", "file", "bill", "bank", "form", "application", "submit", "register", "renew", "pay", "book", "flight", "appointment") ->
                     TaskArchetype.ADMIN_LOGISTICS
                 else -> TaskArchetype.GENERAL
+            }
+        }
+
+        fun buildArchetypeMicroSteps(title: String, durationMinutes: Int): List<MicroStepSuggestion> {
+            val clean = title.trim().take(50).ifBlank { "Task" }
+            val boundedDuration = durationMinutes.coerceIn(10, 240)
+            val archetype = classifyArchetype(clean)
+
+            // Step 1 is ALWAYS a 2-to-4 minute zero-friction physical activation doorway
+            val doorwayMins = min(4, max(2, boundedDuration / 12))
+            val reviewMins = min(10, max(3, boundedDuration / 6))
+            val coreMins = max(5, boundedDuration - doorwayMins - reviewMins)
+            val part1Mins = max(5, coreMins / 2)
+            val part2Mins = max(5, coreMins - part1Mins)
+
+            return when (archetype) {
+                TaskArchetype.CODING_TECH -> listOf(
+                    MicroStepSuggestion("Open IDE, checkout branch & locate target file for $clean", doorwayMins),
+                    MicroStepSuggestion("Write failing test or stub signature for core logic", part1Mins),
+                    MicroStepSuggestion("Implement happy-path logic without premature optimization", part2Mins),
+                    MicroStepSuggestion("Run local test suite & clean up compiler warnings", reviewMins)
+                )
+                TaskArchetype.WRITING_RESEARCH -> listOf(
+                    MicroStepSuggestion("Open blank doc & type 3 messy bullet headings for $clean", doorwayMins),
+                    MicroStepSuggestion("Draft rough body paragraphs without editing or backspacing", part1Mins),
+                    MicroStepSuggestion("Fill in supporting data points, citations, or examples", part2Mins),
+                    MicroStepSuggestion("Read aloud once & polish formatting", reviewMins)
+                )
+                TaskArchetype.STUDY_ACADEMIC -> listOf(
+                    MicroStepSuggestion("Open study material to exact page & clear phone from desk", doorwayMins),
+                    MicroStepSuggestion("Skim section headers & summarize key concepts in own words", part1Mins),
+                    MicroStepSuggestion("Work through active recall questions or practice problems", part2Mins),
+                    MicroStepSuggestion("Flag 2 weak areas for tomorrow's spaced repetition", reviewMins)
+                )
+                TaskArchetype.CHORE_MAINTENANCE -> listOf(
+                    MicroStepSuggestion("Put on headphones/timer & clear one small surface for $clean", doorwayMins),
+                    MicroStepSuggestion("Complete the highest-visibility 50% of $clean", part1Mins + part2Mins),
+                    MicroStepSuggestion("Put away tools & do a 2-minute final reset", reviewMins)
+                )
+                TaskArchetype.ADMIN_LOGISTICS -> listOf(
+                    MicroStepSuggestion("Open browser tab, portal, or document needed for $clean", doorwayMins),
+                    MicroStepSuggestion("Fill in required fields or draft message body", part1Mins + part2Mins),
+                    MicroStepSuggestion("Verify attachments/numbers & hit submit/send", reviewMins)
+                )
+                TaskArchetype.GENERAL -> listOf(
+                    MicroStepSuggestion("Open workspace & do 2 minutes of setup for $clean", doorwayMins),
+                    MicroStepSuggestion("Complete the first concrete milestone of $clean", part1Mins),
+                    MicroStepSuggestion("Push through the main execution block of $clean", part2Mins),
+                    MicroStepSuggestion("Review progress & polish final result", reviewMins)
+                )
             }
         }
 

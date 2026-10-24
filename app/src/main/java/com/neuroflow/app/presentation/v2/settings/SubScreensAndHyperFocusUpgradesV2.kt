@@ -1,8 +1,8 @@
 package com.neuroflow.app.presentation.v2.settings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.model.PtsCategory
@@ -41,10 +42,6 @@ import com.neuroflow.app.domain.service.PriorityWeightProfile
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
-/**
- * 1. Sleep Pressure & Provenance Header Card (For SleepLogsScreen.kt)
- * Displays SleepPressureRepository.Snapshot alongside Health Connect / Manual / Auto-Default provenance.
- */
 @Composable
 fun UpgradedSleepPressureOverviewCard(
     snapshot: SleepPressureRepository.Snapshot,
@@ -55,7 +52,10 @@ fun UpgradedSleepPressureOverviewCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.DipIndigo, 0.8f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -64,7 +64,10 @@ fun UpgradedSleepPressureOverviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Bedtime,
                         contentDescription = null,
@@ -75,9 +78,12 @@ fun UpgradedSleepPressureOverviewCard(
                     Text(
                         text = "HOMEOSTATIC SLEEP PRESSURE (PROCESS S)",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        color = NeuroFlowPaletteV2.ReboundCyan
+                        color = NeuroFlowPaletteV2.ReboundCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Surface(
                     color = if (hasHealthConnectSync)
                         NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.15f)
@@ -118,7 +124,7 @@ private fun SleepStatColumn(label: String, value: String, color: Color) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.55f)
+            color = NeuroFlowPaletteV2.TextSecondary
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
@@ -129,10 +135,6 @@ private fun SleepStatColumn(label: String, value: String, color: Color) {
     }
 }
 
-/**
- * 2. Protected Slot Physiological Effect Selector (For ProtectedSlotBottomSheet.kt & WeeklyScheduleScreen.kt)
- * Explains how Meal, Exercise, and Mindfulness slots dynamically alter the circadian energy curve.
- */
 @Composable
 fun ProtectedSlotPhysiologicalPreviewBar(
     selectedCategory: PtsCategory,
@@ -149,7 +151,7 @@ fun ProtectedSlotPhysiologicalPreviewBar(
         Text(
             text = "PHYSIOLOGICAL CURVE IMPACT",
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = Color.White.copy(alpha = 0.65f),
+            color = NeuroFlowPaletteV2.TextSecondary,
             letterSpacing = 0.8.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -160,7 +162,7 @@ fun ProtectedSlotPhysiologicalPreviewBar(
             categories.forEach { (category, label, icon) ->
                 val isSelected = selectedCategory == category
                 Surface(
-                    color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceElevated,
+                    color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.16f) else NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(
                         1.dp,
@@ -177,14 +179,14 @@ fun ProtectedSlotPhysiologicalPreviewBar(
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else Color.White.copy(alpha = 0.7f),
+                            tint = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else NeuroFlowPaletteV2.TextSecondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else Color.White.copy(alpha = 0.8f),
+                            color = if (isSelected) NeuroFlowPaletteV2.ReboundCyan else NeuroFlowPaletteV2.TextPrimary,
                             fontSize = 10.sp
                         )
                     }
@@ -194,10 +196,6 @@ fun ProtectedSlotPhysiologicalPreviewBar(
     }
 }
 
-/**
- * 3. Scheduler Priority Weights Tuner Card (For PriorityWeightsScreen.kt)
- * Interactive normalized weight sliders for TaskSchedulerService.PriorityWeightProfile.
- */
 @Composable
 fun UpgradedPriorityWeightsTunerCard(
     weights: PriorityWeightProfile,
@@ -207,7 +205,7 @@ fun UpgradedPriorityWeightsTunerCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -261,7 +259,7 @@ private fun WeightSliderRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Text(
                 text = "${"%.1f".format(value)}x",
@@ -281,10 +279,6 @@ private fun WeightSliderRow(
     }
 }
 
-/**
- * 4. Minimalist HyperFocus Home Launcher & Cloud Sync Status Bar
- * (For HyperFocusHomeScreen.kt, GateTaskScreen.kt & AccountSyncScreen.kt)
- */
 @Composable
 fun HyperFocusLauncherStatusHeader(
     sessionModeLabel: String,
@@ -294,9 +288,12 @@ fun HyperFocusLauncherStatusHeader(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = Color(0xFF07080C),
+        color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.3f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.8f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -306,7 +303,10 @@ fun HyperFocusLauncherStatusHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -322,20 +322,25 @@ fun HyperFocusLauncherStatusHeader(
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = sessionModeLabel.uppercase(),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                         color = NeuroFlowPaletteV2.ReboundCyan,
-                        letterSpacing = 1.sp
+                        letterSpacing = 1.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = remainingTasksOrMinutesLabel,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

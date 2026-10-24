@@ -7,29 +7,17 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +47,8 @@ import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DaytimeNapBout
 import com.neuroflow.app.domain.service.EnergyDemand
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowPalette
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -76,6 +66,7 @@ fun EnhancedCircadianEnergyGraph(
     isFallbackSleep: Boolean = false,
     learnedSampleCount: Double = 0.0,
     zoneId: ZoneId = ZoneId.systemDefault(),
+    embeddedInHeroCard: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (timeline.size < 2) return
@@ -83,6 +74,9 @@ fun EnhancedCircadianEnergyGraph(
     val textMeasurer = rememberTextMeasurer()
     var scrubbedIndex by remember { mutableStateOf<Int?>(null) }
     var lastHapticPhase by remember { mutableStateOf<EnergyPhase?>(null) }
+
+    val palette = LocalNeuroFlowPalette.current
+    val isDark = palette.isDark
 
     val startMillis = timeline.first().timestampMillis
     val endMillis = timeline.last().timestampMillis
@@ -92,78 +86,94 @@ fun EnhancedCircadianEnergyGraph(
         ?: timeline.minByOrNull { abs(it.timestampMillis - currentMillis) }
         ?: timeline.first()
 
-    val PeakGold = Color(0xFFFFB300)
-    val ReboundCyan = Color(0xFF00E5FF)
-    val DipIndigo = Color(0xFF7C4DFF)
-    val RecoveryRose = Color(0xFFFF5252)
-    val SurfaceDark = Color(0xFF12131A)
-    val GridLineColor = Color(0xFF262938)
+    val PeakEmerald = palette.energyPeakMint
+    val ReboundIndigo = palette.primaryIndigo
+    val DipAmber = palette.energyModerateAmber
+    val RecoveryRose = palette.energyLowCoral
+    val WindDownViolet = palette.hyperFocusViolet
+    val GridLineColor = palette.border.copy(alpha = if (isDark) 0.4f else 0.55f)
+    val TextPrimary = palette.textPrimary
+    val TextSecondary = palette.textSecondary
 
-    Column(
-        modifier = modifier
+    fun resolvePhaseColor(phase: EnergyPhase): Color = when (phase) {
+        EnergyPhase.PEAK -> PeakEmerald
+        EnergyPhase.REBOUND -> ReboundIndigo
+        EnergyPhase.DIP -> DipAmber
+        EnergyPhase.RECOVERY_NEEDED -> RecoveryRose
+        EnergyPhase.WIND_DOWN -> WindDownViolet
+    }
+
+    val activeAccent = resolvePhaseColor(activeSnapshot.phase)
+
+    val containerModifier = if (embeddedInHeroCard) {
+        modifier.fillMaxWidth()
+    } else {
+        modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(SurfaceDark)
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .background(palette.surface)
+            .border(1.dp, NeuroFlowPaletteV2.specularBorderBrush(activeAccent), RoundedCornerShape(22.dp))
             .padding(16.dp)
-    ) {
-        // 1. Header & Calibration Status Badge
+    }
+
+    Column(modifier = containerModifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
                 Text(
-                    text = if (scrubbedIndex != null) "INSPECTING TIMELINE" else "BIOLOGICAL & LOAD PACING",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.55f),
-                    letterSpacing = 1.1.sp
+                    text = if (scrubbedIndex != null) "SCRUBBING BIO-TIMELINE" else "CIRCADIAN ENERGY HORIZON",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (scrubbedIndex != null) activeAccent else TextSecondary,
+                    letterSpacing = 1.0.sp
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        text = "${activeSnapshot.usableEnergy}%",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                        color = phaseColor(activeSnapshot.phase)
+                        text = "${activeSnapshot.usableEnergy}",
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Black
+                        ),
+                        color = activeAccent
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = phaseLabel(activeSnapshot.phase),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(bottom = 3.dp)
+                        text = "%",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = activeAccent.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(bottom = 4.dp, start = 2.dp)
                     )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    PhaseBadge(phase = activeSnapshot.phase, accent = activeAccent)
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // Fast-Learner Calibration Pill
             val calibrationText = when {
-                isFallbackSleep -> "Est. Wake • Tap to Log"
+                isFallbackSleep -> "Est. Wake • Log Sleep"
                 learnedSampleCount >= 3.0 -> "AI Calibrated (${(activeSnapshot.predictionConfidence * 100).roundToInt()}%)"
-                learnedSampleCount > 0.0 -> "Learning Rhythm (${learnedSampleCount.roundToInt()}/3)"
-                else -> "Baseline Chronotype"
+                learnedSampleCount > 0.0 -> "Learning (${learnedSampleCount.roundToInt()}/3)"
+                else -> "Baseline Model"
             }
+            val pillAccent = if (isFallbackSleep) RecoveryRose else ReboundIndigo
             Surface(
-                color = if (isFallbackSleep) RecoveryRose.copy(alpha = 0.16f) else ReboundCyan.copy(alpha = 0.12f),
+                color = pillAccent.copy(alpha = 0.12f),
                 shape = RoundedCornerShape(50),
-                border = BorderStroke(
-                    1.dp,
-                    if (isFallbackSleep) RecoveryRose.copy(alpha = 0.4f) else ReboundCyan.copy(alpha = 0.35f)
-                )
+                border = BorderStroke(1.dp, pillAccent.copy(alpha = 0.35f))
             ) {
                 Text(
                     text = calibrationText,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (isFallbackSleep) RecoveryRose else ReboundCyan,
+                    color = pillAccent,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // 2. Interactive Factor Decomposition Callout
         AnimatedVisibility(
             visible = scrubbedIndex != null || activeSnapshot.focusDepletionPenalty > 0.01 || abs(activeSnapshot.learnedAdjustmentPoints) >= 1.5,
             enter = fadeIn(),
@@ -171,17 +181,19 @@ fun EnhancedCircadianEnergyGraph(
         ) {
             FactorDecompositionStrip(
                 snapshot = activeSnapshot,
-                zoneId = zoneId
+                zoneId = zoneId,
+                textPrimary = TextPrimary,
+                textSecondary = TextSecondary,
+                surfaceSubtle = palette.surfaceElevated
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // 3. Interactive Dual-Curve Canvas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(190.dp)
+                .height(196.dp)
                 .pointerInput(timeline) {
                     detectTapGestures(
                         onPress = { offset ->
@@ -225,7 +237,7 @@ fun EnhancedCircadianEnergyGraph(
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val padTop = 16.dp.toPx()
+                val padTop = 18.dp.toPx()
                 val padBottom = 26.dp.toPx()
                 val chartHeight = (size.height - padTop - padBottom).coerceAtLeast(1f)
                 val chartWidth = size.width
@@ -236,7 +248,6 @@ fun EnhancedCircadianEnergyGraph(
                 fun energyToY(score: Float): Float =
                     padTop + chartHeight * (1f - (score.coerceIn(0f, 100f) / 100f))
 
-                // A. Horizontal Reference Grid (25%, 50%, 75%)
                 listOf(25f, 50f, 75f).forEach { level ->
                     val y = energyToY(level)
                     drawLine(
@@ -248,10 +259,8 @@ fun EnhancedCircadianEnergyGraph(
                     )
                 }
 
-                // B. Peak & Dip Phase Background Bands
-                drawPhaseBands(timeline, chartWidth, padTop, chartHeight, PeakGold, DipIndigo)
+                drawPhaseBands(timeline, chartWidth, padTop, chartHeight, PeakEmerald, DipAmber)
 
-                // C. Scheduled Cognitive Task & Nap Blocks on Bottom Track
                 val blockTrackY = padTop + chartHeight - 6.dp.toPx()
                 val dayStartMillis = Instant.ofEpochMilli(startMillis).atZone(zoneId).toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
 
@@ -264,17 +273,17 @@ fun EnhancedCircadianEnergyGraph(
                         dayStartMillis + endMin * 60_000L
                     }
                     val x1 = timeToX(bStartMillis)
-                    val x2 = timeToX(bEndMillis).coerceAtLeast(x1 + 4.dp.toPx())
+                    val x2 = timeToX(bEndMillis).coerceAtLeast(x1 + 5.dp.toPx())
                     val blockEnergy = timeline.minByOrNull { abs(it.timestampMillis - bStartMillis) }?.usableEnergy ?: 60
                     val isMismatch = block.demand == EnergyDemand.HIGH && blockEnergy < 50
                     val blockColor = when {
                         isMismatch -> RecoveryRose
-                        block.isFrog -> PeakGold
-                        block.demand == EnergyDemand.HIGH -> ReboundCyan
-                        else -> DipIndigo
+                        block.isFrog -> DipAmber
+                        block.demand == EnergyDemand.HIGH -> ReboundIndigo
+                        else -> WindDownViolet
                     }
                     drawRoundRect(
-                        color = blockColor.copy(alpha = if (block.isCompleted) 0.45f else 0.85f),
+                        color = blockColor.copy(alpha = if (block.isCompleted) 0.45f else 0.9f),
                         topLeft = Offset(x1, blockTrackY),
                         size = Size(x2 - x1, 5.dp.toPx()),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
@@ -283,16 +292,15 @@ fun EnhancedCircadianEnergyGraph(
 
                 naps.forEach { nap ->
                     val x1 = timeToX(nap.startMillis)
-                    val x2 = timeToX(nap.endMillis).coerceAtLeast(x1 + 4.dp.toPx())
+                    val x2 = timeToX(nap.endMillis).coerceAtLeast(x1 + 5.dp.toPx())
                     drawRoundRect(
-                        color = Color(0xFF00E676).copy(alpha = 0.75f),
+                        color = PeakEmerald.copy(alpha = 0.8f),
                         topLeft = Offset(x1, blockTrackY),
                         size = Size(x2 - x1, 5.dp.toPx()),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                     )
                 }
 
-                // Build coordinates for Monotone Cubic Hermite Splines
                 val usablePoints = timeline.mapIndexed { i, snap ->
                     val x = (i.toFloat() / (timeline.size - 1)) * chartWidth
                     val y = energyToY(snap.usableEnergy.toFloat())
@@ -304,14 +312,13 @@ fun EnhancedCircadianEnergyGraph(
                     Offset(x, y)
                 }
 
-                // D. Uncertainty Confidence Ribbon around Usable Energy
                 val ribbonPath = Path().apply {
                     val upperPoints = timeline.mapIndexed { i, snap ->
-                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 16f
+                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 14f
                         Offset(usablePoints[i].x, energyToY((snap.usableEnergy + spread).coerceAtMost(100f)))
                     }
                     val lowerPoints = timeline.mapIndexed { i, snap ->
-                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 16f
+                        val spread = (1.0 - snap.predictionConfidence).toFloat() * 14f
                         Offset(usablePoints[i].x, energyToY((snap.usableEnergy - spread).coerceAtLeast(0f)))
                     }.reversed()
 
@@ -324,22 +331,20 @@ fun EnhancedCircadianEnergyGraph(
                 }
                 drawPath(
                     path = ribbonPath,
-                    color = ReboundCyan.copy(alpha = 0.08f)
+                    color = ReboundIndigo.copy(alpha = if (isDark) 0.08f else 0.06f)
                 )
 
-                // E. Ghosted Biological Potential Curve (Dashed)
                 val baselinePath = buildMonotoneCubicPath(baselinePoints)
                 drawPath(
                     path = baselinePath,
-                    color = Color.White.copy(alpha = 0.28f),
+                    color = TextSecondary.copy(alpha = 0.35f),
                     style = Stroke(
                         width = 1.5.dp.toPx(),
                         cap = StrokeCap.Round,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f))
                     )
                 )
 
-                // F. Primary Load-Adjusted Usable Energy Curve & Area Gradient
                 val usablePath = buildMonotoneCubicPath(usablePoints)
                 val fillPath = Path().apply {
                     addPath(usablePath)
@@ -348,19 +353,32 @@ fun EnhancedCircadianEnergyGraph(
                     close()
                 }
                 val horizontalBrush = Brush.horizontalGradient(
-                    colors = timeline.map { phaseColor(it.phase) }
+                    colors = timeline.map { resolvePhaseColor(it.phase) }
                 )
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            phaseColor(activeSnapshot.phase).copy(alpha = 0.30f),
+                            activeAccent.copy(alpha = if (isDark) 0.28f else 0.18f),
+                            activeAccent.copy(alpha = 0.03f),
                             Color.Transparent
                         ),
                         startY = padTop,
                         endY = padTop + chartHeight
                     )
                 )
+
+                drawPath(
+                    path = usablePath,
+                    brush = horizontalBrush,
+                    alpha = if (isDark) 0.25f else 0.15f,
+                    style = Stroke(
+                        width = 8.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+
                 drawPath(
                     path = usablePath,
                     brush = horizontalBrush,
@@ -372,13 +390,12 @@ fun EnhancedCircadianEnergyGraph(
                     )
                 )
 
-                // G. Current Time ("NOW") or Active Scrubber Indicator
                 val targetMillis = activeSnapshot.timestampMillis
                 val markerX = timeToX(targetMillis)
                 val markerY = energyToY(activeSnapshot.usableEnergy.toFloat())
 
                 drawLine(
-                    color = Color.White.copy(alpha = if (scrubbedIndex != null) 0.55f else 0.28f),
+                    color = if (scrubbedIndex != null) activeAccent.copy(alpha = 0.7f) else TextSecondary.copy(alpha = 0.35f),
                     start = Offset(markerX, padTop),
                     end = Offset(markerX, padTop + chartHeight),
                     strokeWidth = 1.5.dp.toPx(),
@@ -386,44 +403,43 @@ fun EnhancedCircadianEnergyGraph(
                 )
 
                 drawCircle(
-                    color = phaseColor(activeSnapshot.phase).copy(alpha = 0.3f),
-                    radius = 9.dp.toPx(),
+                    color = activeAccent.copy(alpha = 0.28f),
+                    radius = 11.dp.toPx(),
                     center = Offset(markerX, markerY)
                 )
                 drawCircle(
-                    color = phaseColor(activeSnapshot.phase),
-                    radius = 5.dp.toPx(),
+                    color = activeAccent,
+                    radius = 5.5.dp.toPx(),
                     center = Offset(markerX, markerY)
                 )
                 drawCircle(
-                    color = SurfaceDark,
-                    radius = 2.dp.toPx(),
+                    color = palette.surface,
+                    radius = 2.2.dp.toPx(),
                     center = Offset(markerX, markerY)
                 )
 
-                // H. X-Axis Hour Labels (Every 4 hours)
                 drawHourAxisLabels(
                     startMillis = startMillis,
                     totalSpanMillis = totalSpanMillis,
                     chartWidth = chartWidth,
                     labelY = padTop + chartHeight + 6.dp.toPx(),
                     zoneId = zoneId,
+                    labelColor = TextSecondary.copy(alpha = 0.65f),
                     textMeasurer = textMeasurer
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // 4. Compact Legend
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            LegendItem(color = ReboundCyan, label = "Usable Energy")
-            LegendItem(color = Color.White.copy(alpha = 0.45f), label = "Bio Potential (Unloaded)", isDashed = true)
-            LegendItem(color = PeakGold, label = "Frog / Deep Block")
+            LegendItem(color = PeakEmerald, label = "Usable Energy", textColor = TextSecondary)
+            LegendItem(color = TextSecondary.copy(alpha = 0.5f), label = "Bio Potential", isDashed = true, textColor = TextSecondary)
+            LegendItem(color = DipAmber, label = "Frog / Deep Work", textColor = TextSecondary)
         }
     }
 }
@@ -431,7 +447,10 @@ fun EnhancedCircadianEnergyGraph(
 @Composable
 private fun FactorDecompositionStrip(
     snapshot: CircadianSnapshot,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    textPrimary: Color,
+    textSecondary: Color,
+    surfaceSubtle: Color
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()) }
     val timeText = Instant.ofEpochMilli(snapshot.timestampMillis).atZone(zoneId).format(timeFormatter)
@@ -444,35 +463,36 @@ private fun FactorDecompositionStrip(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.05f))
+            .background(surfaceSubtle)
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = timeText,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = textPrimary
         )
-        FactorChip(label = "Circadian", value = "+$cPoints", color = Color(0xFF00E5FF))
-        FactorChip(label = "Sleep Debt", value = "$sDebtPenalty", color = Color(0xFFFF8A65))
+        FactorChip(label = "Drive", value = "+$cPoints", color = NeuroFlowPaletteV2.OptimalEmerald, labelColor = textSecondary)
+        FactorChip(label = "Sleep Debt", value = "$sDebtPenalty", color = NeuroFlowPaletteV2.PeakAmber, labelColor = textSecondary)
         if (focusPenalty < 0) {
-            FactorChip(label = "Focus Load", value = "$focusPenalty", color = Color(0xFFFF5252))
+            FactorChip(label = "Load", value = "$focusPenalty", color = NeuroFlowPaletteV2.RecoveryRose, labelColor = textSecondary)
         }
         if (learnedAdj != 0) {
             val signPrefix = if (learnedAdj > 0) "+" else ""
-            FactorChip(label = "Learned", value = "$signPrefix$learnedAdj", color = Color(0xFFB388FF))
+            FactorChip(label = "AI", value = "$signPrefix$learnedAdj", color = NeuroFlowPaletteV2.DipIndigo, labelColor = textSecondary)
         }
     }
 }
 
 @Composable
-private fun FactorChip(label: String, value: String, color: Color) {
+private fun FactorChip(label: String, value: String, color: Color, labelColor: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "$label: ",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.6f)
+            color = labelColor
         )
         Text(
             text = value,
@@ -483,7 +503,7 @@ private fun FactorChip(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String, isDashed: Boolean = false) {
+private fun LegendItem(color: Color, label: String, textColor: Color, isDashed: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -495,16 +515,12 @@ private fun LegendItem(color: Color, label: String, isDashed: Boolean = false) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.6f),
+            color = textColor,
             fontSize = 10.sp
         )
     }
 }
 
-/**
- * Builds a Monotone Cubic Hermite Spline (Fritsch-Carlson method) so the energy curve
- * never overshoots [0..100] around sharp transitions like morning wake or power naps.
- */
 private fun buildMonotoneCubicPath(points: List<Offset>): Path {
     val path = Path()
     val n = points.size
@@ -583,7 +599,7 @@ private fun DrawScope.drawPhaseBands(
         when (snap.phase) {
             EnergyPhase.PEAK -> {
                 drawRect(
-                    color = peakColor.copy(alpha = 0.045f),
+                    color = peakColor.copy(alpha = 0.05f),
                     topLeft = Offset(x, padTop),
                     size = Size(slotWidth + 1f, chartHeight)
                 )
@@ -606,10 +622,11 @@ private fun DrawScope.drawHourAxisLabels(
     chartWidth: Float,
     labelY: Float,
     zoneId: ZoneId,
+    labelColor: Color,
     textMeasurer: TextMeasurer
 ) {
     val labelStyle = TextStyle(
-        color = Color.White.copy(alpha = 0.45f),
+        color = labelColor,
         fontSize = 10.sp,
         fontWeight = FontWeight.Medium
     )
@@ -634,20 +651,4 @@ private fun DrawScope.drawHourAxisLabels(
             )
         }
     }
-}
-
-private fun phaseColor(phase: EnergyPhase): Color = when (phase) {
-    EnergyPhase.PEAK -> Color(0xFFFFB300)
-    EnergyPhase.REBOUND -> Color(0xFF00E5FF)
-    EnergyPhase.DIP -> Color(0xFF7C4DFF)
-    EnergyPhase.RECOVERY_NEEDED -> Color(0xFFFF5252)
-    EnergyPhase.WIND_DOWN -> Color(0xFF5C6BC0)
-}
-
-private fun phaseLabel(phase: EnergyPhase): String = when (phase) {
-    EnergyPhase.PEAK -> "Peak Cognitive Zone"
-    EnergyPhase.REBOUND -> "Associative Rebound"
-    EnergyPhase.DIP -> "Circadian Afternoon Dip"
-    EnergyPhase.RECOVERY_NEEDED -> "Synaptic Recovery Needed"
-    EnergyPhase.WIND_DOWN -> "Melatonin Wind-Down"
 }

@@ -69,6 +69,14 @@ class SmartTaskDecompositionServiceTest {
     }
 
     @Test
+    fun testArchetypeDecompositionPhysicalDoorwayStep() {
+        val steps = service.decomposeTaskLocally("Fix SQL migration bug", 45)
+        assertEquals(4, steps.size)
+        assertTrue("Step 1 must be doorway action", steps[0].title.startsWith("Open IDE, checkout branch"))
+        assertTrue("Step 1 estimated minutes must be <= 4", steps[0].estimatedMinutes <= 4)
+    }
+
+    @Test
     fun testParseGeminiResponseStandardJson() {
         val json = """
             {

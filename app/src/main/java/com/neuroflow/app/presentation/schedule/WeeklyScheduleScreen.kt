@@ -187,7 +187,11 @@ fun WeeklyScheduleScreen(
                             text = weekRangeText,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
 
                         IconButton(
@@ -430,7 +434,8 @@ fun WeeklyScheduleScreen(
                                                 color = Color.Black,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
-                                                fontSize = 10.sp
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.weight(1f, fill = false)
                                             )
                                         }
                                         if (slotHeight >= 36f) {

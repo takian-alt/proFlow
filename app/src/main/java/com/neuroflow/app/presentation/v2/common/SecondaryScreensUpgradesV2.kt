@@ -39,10 +39,6 @@ import androidx.compose.ui.unit.sp
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
-/**
- * 1. Ulysses Pre-Commitment Contract Card (For UlyssesContractSheet.kt)
- * Locks a high-priority task to a strict deadline with clear visual accountability.
- */
 @Composable
 fun UpgradedUlyssesContractCard(
     taskTitle: String,
@@ -55,7 +51,10 @@ fun UpgradedUlyssesContractCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.5.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.55f)),
+        border = BorderStroke(
+            1.5.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.PeakAmber, 1f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -78,20 +77,20 @@ fun UpgradedUlyssesContractCard(
             Text(
                 text = taskTitle,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "\"$commitmentStatement\"",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f)
+                color = NeuroFlowPaletteV2.TextSecondary
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
+                    .background(NeuroFlowPaletteV2.SurfaceElevated)
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -100,7 +99,7 @@ fun UpgradedUlyssesContractCard(
                     Text(
                         text = "LOCKED DEADLINE",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = NeuroFlowPaletteV2.TextTertiary
                     )
                     Text(
                         text = deadlineFormatted,
@@ -112,7 +111,7 @@ fun UpgradedUlyssesContractCard(
                     Text(
                         text = "IF MISSED",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.55f)
+                        color = NeuroFlowPaletteV2.TextTertiary
                     )
                     Text(
                         text = consequenceText.ifBlank { "Mandatory schedule lock" },
@@ -129,7 +128,7 @@ fun UpgradedUlyssesContractCard(
                 onClick = onSignContractClick,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NeuroFlowPaletteV2.PeakAmber,
-                    contentColor = Color.Black
+                    contentColor = Color(0xFF0A0B0E)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -147,9 +146,6 @@ fun UpgradedUlyssesContractCard(
     }
 }
 
-/**
- * 2. Identity & Top Goals Alignment Card (For IdentityScreen.kt & TopGoalsRefillCard.kt)
- */
 @Composable
 fun UpgradedIdentityAndGoalsCard(
     identityStatement: String,
@@ -161,7 +157,10 @@ fun UpgradedIdentityAndGoalsCard(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.35f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.85f)
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -170,7 +169,10 @@ fun UpgradedIdentityAndGoalsCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Flag,
                         contentDescription = null,
@@ -182,9 +184,12 @@ fun UpgradedIdentityAndGoalsCard(
                         text = "IDENTITY & NORTH-STAR GOALS",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                         color = NeuroFlowPaletteV2.ReboundCyan,
-                        letterSpacing = 0.9.sp
+                        letterSpacing = 0.9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Edit",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
@@ -196,7 +201,7 @@ fun UpgradedIdentityAndGoalsCard(
             Text(
                 text = identityStatement.ifBlank { "I am someone who protects my peak focus hours and finishes what matters." },
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White
+                color = NeuroFlowPaletteV2.TextPrimary
             )
             Spacer(modifier = Modifier.height(12.dp))
             if (activeGoals.isEmpty()) {
@@ -227,19 +232,19 @@ fun UpgradedIdentityAndGoalsCard(
                             modifier = Modifier
                                 .size(20.dp)
                                 .clip(CircleShape)
-                                .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.28f))
+                                .background(NeuroFlowPaletteV2.DipIndigo.copy(alpha = 0.22f))
                         ) {
                             Text(
                                 text = "${index + 1}",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                color = NeuroFlowPaletteV2.DipIndigo
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = goal,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
                 }
@@ -248,9 +253,6 @@ fun UpgradedIdentityAndGoalsCard(
     }
 }
 
-/**
- * 3. Session History & Telemetry Row (For HistoryScreen.kt, LogTimeScreen.kt & ManualTimeLogSheet.kt)
- */
 @Composable
 fun UpgradedHistorySessionRow(
     taskTitle: String,
@@ -264,7 +266,7 @@ fun UpgradedHistorySessionRow(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -293,21 +295,24 @@ fun UpgradedHistorySessionRow(
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = taskTitle,
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White,
+                        color = NeuroFlowPaletteV2.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "$dateAndTimeText · Est ${estimatedMinutes}m → Actual ${durationMinutes.roundToInt()}m",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
+            Spacer(modifier = Modifier.width(6.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -341,7 +346,7 @@ fun UpgradedHistorySessionRow(
                 if (affectiveForecastError != null) {
                     val sign = if (affectiveForecastError > 0f) "+" else ""
                     Surface(
-                        color = Color.White.copy(alpha = 0.07f),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
@@ -357,9 +362,6 @@ fun UpgradedHistorySessionRow(
     }
 }
 
-/**
- * 4. Glassmorphic Note Card with 1-Tap AI Task Extraction (For NotesScreen.kt & NoteEditorScreen.kt)
- */
 @Composable
 fun UpgradedNoteCardV2(
     title: String,
@@ -373,7 +375,10 @@ fun UpgradedNoteCardV2(
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, noteAccentColor.copy(alpha = 0.38f)),
+        border = BorderStroke(
+            1.dp,
+            NeuroFlowPaletteV2.specularBorderBrush(noteAccentColor, 0.85f)
+        ),
         modifier = modifier
             .fillMaxWidth()
             .clickable { onNoteClick() }
@@ -387,11 +392,12 @@ fun UpgradedNoteCardV2(
                 Text(
                     text = title.ifBlank { "Untitled Note" },
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White,
+                    color = NeuroFlowPaletteV2.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Surface(
                     color = noteAccentColor.copy(alpha = 0.16f),
                     shape = RoundedCornerShape(8.dp),
@@ -421,7 +427,7 @@ fun UpgradedNoteCardV2(
                 Text(
                     text = contentPreview,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = NeuroFlowPaletteV2.TextSecondary,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -430,7 +436,7 @@ fun UpgradedNoteCardV2(
             Text(
                 text = updatedAtFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.45f),
+                color = NeuroFlowPaletteV2.TextTertiary,
                 fontSize = 10.sp
             )
         }

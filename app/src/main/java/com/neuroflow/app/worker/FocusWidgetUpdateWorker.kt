@@ -17,20 +17,22 @@ import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.FatigueZone
-import com.neuroflow.app.presentation.widget.CompleteTaskReceiver
 import com.neuroflow.app.domain.model.Priority
-import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.scheduler.determineCategory
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.EnergyDemand
 import com.neuroflow.app.domain.service.SchedulableTask
 import com.neuroflow.app.domain.service.TaskCategory
 import com.neuroflow.app.domain.service.TaskSchedulerService
+import com.neuroflow.app.presentation.widget.CompleteTaskReceiver
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
-import java.util.Calendar
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 @HiltWorker
@@ -40,7 +42,8 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
     private val taskRepository: TaskRepository,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val taskSchedulerService: TaskSchedulerService,
-    private val circadianEnergyService: CircadianEnergyService
+    private val circadianEnergyService: CircadianEnergyService,
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -48,30 +51,43 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             val tasks = taskRepository.getActiveTasks()
             val preferences = preferencesDataStore.preferencesFlow.first()
             val nowMillis = System.currentTimeMillis()
+            val zoneId = ZoneId.systemDefault()
 
-            val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-            val wakeHour = preferences.wakeUpHour
-            val hoursAwake = (currentHour - wakeHour).let { if (it < 0) it + 24 else it }
-            val wakeTimeMillis = nowMillis - (hoursAwake * 3600_000L)
+            val baseWakeMillis = ScheduleAutoTasksWorker.calculateWakeTimeMillis(nowMillis, preferences.wakeUpHour, zoneId)
+            val sleepSignal = sleepTelemetryRepository?.getLatestNormalizedSleep(
+                baseWakeMillis = baseWakeMillis,
+                baseSleepMinutes = 480.0
+            )
+            val wakeTimeMillis = sleepSignal?.normalizedWakeTimeMillis ?: baseWakeMillis
+            val sleepMinutes = sleepSignal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
+            val naps = sleepSignal?.daytimeNaps ?: emptyList()
+            val chronotype = ChronotypeProfile.fromString(preferences.manualChronotype ?: preferences.quizChronotype)
+
             val snapshot = circadianEnergyService.evaluateSnapshot(
                 timestampMillis = nowMillis,
                 wakeTimeMillis = wakeTimeMillis,
-                lastSleepDurationMinutes = 480
+                lastSleepDurationMinutes = sleepMinutes,
+                continuousActiveFocusMinutes = 0,
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = chronotype
             )
 
             val sortedWithScores = tasks.map { task ->
+                val resolvedCategory = when (task.determineCategory()) {
+                    com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK,
+                    com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> TaskCategory.DEEP_WORK
+                    com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> TaskCategory.CREATIVE
+                    com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> TaskCategory.ADMIN
+                    com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE,
+                    com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> TaskCategory.EXERCISE
+                    com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> TaskCategory.MINDFULNESS
+                    com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> TaskCategory.GENERAL
+                }
                 val schedulable = SchedulableTask(
                     id = task.id,
                     title = task.title,
-                    category = when (task.taskType) {
-                        TaskType.ANALYTICAL -> TaskCategory.DEEP_WORK
-                        TaskType.CREATIVE -> TaskCategory.CREATIVE
-                        TaskType.ADMIN -> TaskCategory.ADMIN
-                        TaskType.PHYSICAL -> TaskCategory.EXERCISE
-                        TaskType.GENERAL -> TaskCategory.GENERAL
-                        TaskType.MINDFULNESS -> TaskCategory.MINDFULNESS
-                    },
+                    category = resolvedCategory,
                     priority = when (task.priority) {
                         Priority.HIGH -> 2
                         Priority.MEDIUM -> 1
@@ -87,7 +103,11 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                     scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: nowMillis) + it },
                     deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
                     isLocked = task.isScheduleLocked,
-                    parentTaskId = task.parentTaskId
+                    parentTaskId = task.parentTaskId,
+                    impactScore = task.impactScore,
+                    postponeCount = task.postponeCount,
+                    isAnxietyTask = task.isAnxietyTask,
+                    hasImplementationIntention = task.ifThenPlan.isNotBlank()
                 )
                 val breakdown = taskSchedulerService.evaluateTaskScore(schedulable, snapshot)
                 task to breakdown

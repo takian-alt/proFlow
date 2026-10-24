@@ -26,4 +26,7 @@ interface TaskMicroStepDao {
 
     @Query("SELECT * FROM task_micro_steps WHERE taskId = :taskId ORDER BY sortOrder ASC")
     suspend fun getByTaskId(taskId: String): List<TaskMicroStepEntity>
+
+    @Query("SELECT * FROM task_micro_steps")
+    suspend fun getAll(): List<TaskMicroStepEntity>
 }

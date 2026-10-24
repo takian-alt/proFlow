@@ -135,8 +135,8 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         val CANDIDATE_MODELS = listOf(
             "gemini-flash-latest",
             "gemini-flash-lite-latest",
-            "gemini-3.5-flash",
-            "gemini-3.8-flash"
+            "gemini-2.5-flash",
+            "gemini-2.0-flash"
         )
         private const val TAG = "GeminiAiOnlineService"
     }
@@ -176,7 +176,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             return localTaskEnrichment(cleanTitle, boundedMinutes, energyDemand, currentHour, isFrog)
         }
 
-        val cacheKey = "enrich_${cleanTitle.lowercase()}_${boundedMinutes}_${energyDemand.name}_$currentHour"
+        val cacheKey = "enrich_${cleanTitle.lowercase()}_${boundedMinutes}_${energyDemand.name}_${currentHour}_${isFrog}_${userDirective.hashCode()}"
         val cached = checkCache(cacheKey)
         if (cached != null) {
             parseEnrichmentResponse(cached)?.let { return it }
@@ -229,7 +229,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             return decomposeTaskLocally(cleanTitle, boundedMinutes)
         }
 
-        val cacheKey = "decomp_${cleanTitle.lowercase()}_$boundedMinutes"
+        val cacheKey = "decomp_${cleanTitle.lowercase()}_${boundedMinutes}_${userDirective.hashCode()}"
         val cached = checkCache(cacheKey)
         if (cached != null) {
             val parsed = parseDecompositionResponse(cached)
@@ -284,7 +284,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             return localSlotRecommendation(firstWindow, energyDemand, isFrog)
         }
 
-        val cacheKey = "slot_${taskTitle.take(30).lowercase()}_${estimatedMinutes}_${energyDemand.name}"
+        val cacheKey = "slot_${taskTitle.take(30).lowercase()}_${estimatedMinutes}_${energyDemand.name}_${isFrog}_${firstWindow.startMillis}_${firstWindow.endMillis}_${userDirective.hashCode()}"
         val cached = checkCache(cacheKey)
         if (cached != null) {
             parseSlotResponse(cached, firstWindow)?.let { return it }
@@ -333,7 +333,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             return localEnergyAdvisory(phase, usableEnergyPercent, continuousFocusMinutes)
         }
 
-        val cacheKey = "energy_${phase.name}_${usableEnergyPercent / 10}_${continuousFocusMinutes / 30}"
+        val cacheKey = "energy_${phase.name}_${usableEnergyPercent / 10}_${continuousFocusMinutes / 30}_${hasSleepDebt}_${(hoursAwake * 2).toInt()}_${userDirective.hashCode()}"
         val cached = checkCache(cacheKey)
         if (cached != null) {
             parseEnergyResponse(cached)?.let { return it }
@@ -518,6 +518,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
 
         val requestBytes = reqObj.toString().toByteArray(Charsets.UTF_8)
 
+        var encountered429 = false
         for (model in CANDIDATE_MODELS) {
             val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
             var connection: HttpsURLConnection? = null
@@ -541,9 +542,9 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
                     Log.d(TAG, "[$model] Success (HTTP $code)")
                     return@withContext resp
                 } else if (code == 429) {
-                    Log.w(TAG, "[$model] Rate limited (HTTP 429). Cooldown 60s.")
-                    rateLimitedUntilMillis = System.currentTimeMillis() + 60_000L
-                    return@withContext null
+                    encountered429 = true
+                    val err = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    Log.w(TAG, "[$model] Rate limited (HTTP 429): $err. Cascading to next candidate model...")
                 } else if (code == 400) {
                     val err = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                     Log.e(TAG, "[$model] HTTP 400 Bad Request / Invalid Key: $err")
@@ -558,7 +559,12 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
                 connection?.disconnect()
             }
         }
-        Log.w(TAG, "All candidate Gemini models exhausted. Gracefully degrading to local heuristics.")
+        if (encountered429) {
+            Log.w(TAG, "All candidate Gemini models exhausted with rate limits (429). Engaging 60s cooldown.")
+            rateLimitedUntilMillis = System.currentTimeMillis() + 60_000L
+        } else {
+            Log.w(TAG, "All candidate Gemini models exhausted. Gracefully degrading to local heuristics.")
+        }
         null
     }
 
@@ -601,7 +607,9 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
                     val err = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                     return@withContext Result.failure(Exception("HTTP 400: API Key Invalid. Please check your key at aistudio.google.com/apikey"))
                 } else if (code == 429) {
-                    return@withContext Result.failure(Exception("HTTP 429: Rate limited or quota exhausted."))
+                    val err = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    lastError = "HTTP 429 on $model: Rate limited or quota exhausted: $err"
+                    Log.w(TAG, "[$model] Test connection rate limited (HTTP 429). Cascading to next candidate...")
                 } else {
                     val err = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                     lastError = "HTTP $code on $model: $err"
@@ -616,17 +624,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
     }
 
     override fun decomposeTaskLocally(title: String, durationMinutes: Int): List<MicroStepSuggestion> {
-        val clean = title.trim().take(40).ifBlank { "Task" }
-        val boundedDuration = durationMinutes.coerceAtLeast(15)
-        val s1 = min(10, max(5, boundedDuration / 4))
-        val s3 = min(10, max(5, boundedDuration / 4))
-        val s2 = max(5, boundedDuration - s1 - s3)
-
-        return listOf(
-            MicroStepSuggestion("Open workspace & gather materials for $clean", s1),
-            MicroStepSuggestion("Spend 5 uninterrupted minutes on the very first sub-step", s2),
-            MicroStepSuggestion("Review progress & polish final result", s3)
-        )
+        return DefaultSmartTaskDecompositionService.buildArchetypeMicroSteps(title, durationMinutes)
     }
 
     private fun localTaskEnrichment(
@@ -731,16 +729,45 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
 
     private fun extractCleanJson(raw: String): String {
         var clean = raw.trim()
-        val candIdx = clean.indexOf("\"text\":")
-        if (candIdx != -1) {
-            val textMatch = Regex(""""text"\s*:\s*"((?:\\.|[^"\\])*)"""").find(clean)
-            if (textMatch != null) {
-                clean = textMatch.groupValues[1].replace("\\\"", "\"").replace("\\n", "\n").replace("\\r", "")
+        if (clean.startsWith("{") && clean.contains("\"candidates\"")) {
+            try {
+                val envelope = JSONObject(clean)
+                val candidate = envelope.optJSONArray("candidates")?.optJSONObject(0)
+                val part = candidate?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)
+                val text = part?.optString("text")
+                if (!text.isNullOrBlank()) {
+                    clean = text.trim()
+                }
+            } catch (_: Exception) {
+                val textMatch = Regex(""""text"\s*:\s*"((?:\\.|[^"\\])*)"""").find(clean)
+                if (textMatch != null) {
+                    clean = textMatch.groupValues[1]
+                        .replace("\\\"", "\"")
+                        .replace("\\n", "\n")
+                        .replace("\\r", "")
+                        .replace("\\\\", "\\")
+                }
             }
         }
+
         if (clean.startsWith("```json")) clean = clean.removePrefix("```json").trim()
         if (clean.startsWith("```")) clean = clean.removePrefix("```").trim()
         if (clean.endsWith("```")) clean = clean.removeSuffix("```").trim()
+
+        val firstBrace = clean.indexOf('{')
+        val firstBracket = clean.indexOf('[')
+        val startIdx = when {
+            firstBrace != -1 && firstBracket != -1 -> minOf(firstBrace, firstBracket)
+            firstBrace != -1 -> firstBrace
+            firstBracket != -1 -> firstBracket
+            else -> 0
+        }
+        val lastBrace = clean.lastIndexOf('}')
+        val lastBracket = clean.lastIndexOf(']')
+        val endIdx = maxOf(lastBrace, lastBracket)
+        if (startIdx >= 0 && endIdx > startIdx) {
+            clean = clean.substring(startIdx, endIdx + 1)
+        }
         return clean
     }
 
@@ -781,7 +808,12 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
     private fun parseDecompositionResponse(raw: String): List<MicroStepSuggestion> {
         return try {
             val clean = extractCleanJson(raw)
-            val arr = JSONArray(clean)
+            val arr = if (clean.startsWith("[")) {
+                JSONArray(clean)
+            } else {
+                val obj = JSONObject(clean)
+                obj.optJSONArray("microSteps") ?: obj.optJSONArray("steps") ?: JSONArray()
+            }
             val result = mutableListOf<MicroStepSuggestion>()
             for (i in 0 until arr.length()) {
                 val item = arr.getJSONObject(i)
