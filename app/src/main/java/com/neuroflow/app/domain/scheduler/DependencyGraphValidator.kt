@@ -20,14 +20,45 @@ object DependencyGraphValidator {
      * Guarantees 100% of input tasks reach the priority queue during `scheduleDay`.
      */
     fun sanitizeDag(tasks: List<SchedulableTask>): SanitizedDagResult {
-        if (tasks.size <= 1) return SanitizedDagResult(tasks, emptyList())
+        if (tasks.size <= 1) {
+            val sanitized = tasks.map { task ->
+                val cleanPrereqs = task.prerequisiteIds.filter { it != task.id }.toSet()
+                task.copy(prerequisiteIds = cleanPrereqs)
+            }
+            return SanitizedDagResult(sanitized, emptyList())
+        }
 
-        val taskMap = tasks.associateBy { it.id }
+        // BUG-330 Fix: If a task has a continuation part present in tasks (_part or #part),
+        // ensure any other downstream task waiting on the parent task also waits for the continuation part.
+        val continuationPartMap = tasks
+            .filter { it.id.contains("_part") || it.id.contains("#part") }
+            .groupBy { it.parentTaskId ?: it.id.substringBefore("#part").substringBefore("_part") }
+            .mapValues { (_, parts) -> parts.maxByOrNull { it.id }!! }
+
+        val chainedTasks = if (continuationPartMap.isNotEmpty()) {
+            tasks.map { task ->
+                var updatedPrereqs = task.prerequisiteIds
+                for ((parent, finalPart) in continuationPartMap) {
+                    if (task.id != finalPart.id && task.id != parent && parent in updatedPrereqs) {
+                        updatedPrereqs = updatedPrereqs + finalPart.id
+                    }
+                }
+                if (updatedPrereqs != task.prerequisiteIds) {
+                    task.copy(prerequisiteIds = updatedPrereqs)
+                } else {
+                    task
+                }
+            }
+        } else {
+            tasks
+        }
+
+        val taskMap = chainedTasks.associateBy { it.id }
         val adj = mutableMapOf<String, MutableSet<String>>() // prereq -> dependent
         val inDegree = mutableMapOf<String, Int>()
         val prereqMap = mutableMapOf<String, MutableSet<String>>()
 
-        for (t in tasks) {
+        for (t in chainedTasks) {
             val validPrereqs = t.prerequisiteIds
                 .filter { it != t.id && it in taskMap }
                 .toMutableSet()
@@ -44,7 +75,7 @@ object DependencyGraphValidator {
         val visited = mutableSetOf<String>()
         val brokenEdges = mutableListOf<Pair<String, String>>()
 
-        while (visited.size < tasks.size) {
+        while (visited.size < chainedTasks.size) {
             while (queue.isNotEmpty()) {
                 val curr = queue.removeFirst()
                 if (!visited.add(curr)) continue
@@ -57,10 +88,10 @@ object DependencyGraphValidator {
                 }
             }
 
-            if (visited.size < tasks.size) {
+            if (visited.size < chainedTasks.size) {
                 // Cycle detected among unvisited nodes!
                 // Deterministically select the highest-leverage unvisited task and sever its unvisited incoming edges.
-                val victim = tasks
+                val victim = chainedTasks
                     .filter { it.id !in visited }
                     .maxWithOrNull(
                         compareBy<SchedulableTask> { it.isFrog }
@@ -80,8 +111,13 @@ object DependencyGraphValidator {
             }
         }
 
-        val sanitizedTasks = tasks.map { task ->
-            val cleanPrereqs = prereqMap[task.id].orEmpty()
+        val severedPairs = brokenEdges.toSet()
+        val sanitizedTasks = chainedTasks.map { task ->
+            // BUG-246 Fix: preserve all external / cross-day prerequisites not in taskMap.
+            // Only sever direct self-references and edges specifically broken during cycle elimination.
+            val cleanPrereqs = task.prerequisiteIds
+                .filter { it != task.id && (it to task.id) !in severedPairs }
+                .toSet()
             task.copy(
                 prerequisiteIds = cleanPrereqs,
                 parentTaskId = task.parentTaskId

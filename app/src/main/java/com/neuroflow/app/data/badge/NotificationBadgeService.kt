@@ -82,6 +82,7 @@ class NotificationBadgeService : NotificationListenerService() {
             val counts = mutableMapOf<String, Int>()
 
             for (sbn in activeNotifications) {
+                if (sbn.isOngoing) continue
                 val packageName = sbn.packageName
                 if (packageName != null) {
                     counts[packageName] = (counts[packageName] ?: 0) + 1

@@ -153,8 +153,8 @@ fun InsightsScreenV2(
                         // C. 24-Hr Empirical Focus Density Heatmap
                         CircadianDensityHeatmapCard(
                             density = metrics.hourlyDensity,
-                            peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9,
-                            peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
+                            peakStart = state.preferences.peakEnergyStart.coerceIn(0, 23),
+                            peakEnd = state.preferences.peakEnergyEnd.coerceIn(0, 23)
                         )
 
                         // D. Actionable Neuroscience Interventions

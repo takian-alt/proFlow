@@ -82,29 +82,50 @@ class SessionRepository @Inject constructor(
 
     private suspend fun syncFocusSession(session: TimeSessionEntity) {
         val dao = focusSessionDao ?: return
-        val durationSec = (session.durationMinutes * 60).toInt()
+        val durationSec = if (session.durationMinutes > 0f) {
+            (session.durationMinutes * 60).toInt()
+        } else if (session.endedAt != null) {
+            (session.trackedMinutes(session.endedAt) * 60).toInt()
+        } else {
+            0
+        }
         val interruptions = session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
-        dao.insert(
-            FocusSessionEntity(
-                id = session.id,
-                taskId = session.taskId,
-                startedAt = session.startedAt,
-                endedAt = session.endedAt,
-                durationSeconds = durationSec,
-                interruptionCount = interruptions,
-                energyAtStart = 50,
-                wasCompleted = session.endedAt != null
+        runCatching {
+            dao.insert(
+                FocusSessionEntity(
+                    id = session.id,
+                    taskId = session.taskId,
+                    startedAt = session.startedAt,
+                    endedAt = session.endedAt,
+                    durationSeconds = durationSec,
+                    interruptionCount = interruptions,
+                    energyAtStart = 50,
+                    wasCompleted = session.endedAt != null
+                )
             )
-        )
+        }
     }
 
     suspend fun delete(session: TimeSessionEntity) {
         timeSessionDao.delete(session)
-        val entity = focusSessionDao?.getById(session.id)
-        if (entity != null) {
-            focusSessionDao.delete(entity)
+        runCatching {
+            val entity = focusSessionDao?.getById(session.id)
+            if (entity != null) {
+                focusSessionDao.delete(entity)
+            }
         }
     }
 
-    suspend fun deleteAll() = timeSessionDao.deleteAll()
+    suspend fun deleteOpenSessionsByTaskId(taskId: String) {
+        timeSessionDao.deleteOpenSessionsByTaskId(taskId)
+    }
+
+    suspend fun deleteByTaskId(taskId: String) {
+        timeSessionDao.deleteByTaskId(taskId)
+    }
+
+    suspend fun deleteAll() {
+        timeSessionDao.deleteAll()
+        runCatching { focusSessionDao?.deleteAll() }
+    }
 }

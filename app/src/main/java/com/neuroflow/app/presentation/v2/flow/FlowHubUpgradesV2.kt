@@ -231,8 +231,13 @@ fun FlowSpotlightHeroCard(
             if (topTaskMicroSteps.isNotEmpty()) {
                 val completedCount = topTaskMicroSteps.count { it.completed }
                 val totalCount = topTaskMicroSteps.size
-                val currentStep = topTaskMicroSteps.firstOrNull { !it.completed } ?: topTaskMicroSteps.first()
+                val currentStep = topTaskMicroSteps.firstOrNull { !it.completed } ?: topTaskMicroSteps.last()
                 val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
+                val stepLabel = if (completedCount >= totalCount) {
+                    "🪜 2m Doorway: All $totalCount steps completed"
+                } else {
+                    "🪜 2m Doorway: Step ${completedCount + 1} of $totalCount"
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Column(
@@ -250,7 +255,7 @@ fun FlowSpotlightHeroCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "🪜 2m Doorway: Step ${completedCount + 1} of $totalCount",
+                            text = stepLabel,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                             color = NeuroFlowPaletteV2.ReboundCyan,
                             modifier = Modifier.weight(1f, fill = false),

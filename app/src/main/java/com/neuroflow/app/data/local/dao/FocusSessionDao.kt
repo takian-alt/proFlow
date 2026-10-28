@@ -29,4 +29,7 @@ interface FocusSessionDao {
 
     @Query("SELECT * FROM focus_sessions WHERE endedAt IS NULL")
     suspend fun getOpenSessions(): List<FocusSessionEntity>
+
+    @Query("DELETE FROM focus_sessions")
+    suspend fun deleteAll()
 }

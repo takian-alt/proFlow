@@ -10,6 +10,7 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.model.HyperFocusState
 
 class Converters {
     private companion object {
@@ -17,58 +18,70 @@ class Converters {
     }
 
     @TypeConverter fun fromQuadrant(value: Quadrant): String = value.name
-    @TypeConverter fun toQuadrant(value: String): Quadrant =
-        try {
-            Quadrant.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown Quadrant: '$value', defaulting to SCHEDULE", e)
-            Quadrant.SCHEDULE
-        }
+    @TypeConverter fun toQuadrant(value: String?): Quadrant =
+        value?.let {
+            try {
+                Quadrant.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown Quadrant: '$it', defaulting to SCHEDULE", e)
+                Quadrant.SCHEDULE
+            }
+        } ?: Quadrant.SCHEDULE
 
     @TypeConverter fun fromPriority(value: Priority): String = value.name
-    @TypeConverter fun toPriority(value: String): Priority =
-        try {
-            Priority.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown Priority: '$value', defaulting to MEDIUM", e)
-            Priority.MEDIUM
-        }
+    @TypeConverter fun toPriority(value: String?): Priority =
+        value?.let {
+            try {
+                Priority.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown Priority: '$it', defaulting to MEDIUM", e)
+                Priority.MEDIUM
+            }
+        } ?: Priority.MEDIUM
 
     @TypeConverter fun fromTaskStatus(value: TaskStatus): String = value.name
-    @TypeConverter fun toTaskStatus(value: String): TaskStatus =
-        try {
-            TaskStatus.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown TaskStatus: '$value', defaulting to ACTIVE", e)
-            TaskStatus.ACTIVE
-        }
+    @TypeConverter fun toTaskStatus(value: String?): TaskStatus =
+        value?.let {
+            try {
+                TaskStatus.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown TaskStatus: '$it', defaulting to ACTIVE", e)
+                TaskStatus.ACTIVE
+            }
+        } ?: TaskStatus.ACTIVE
 
     @TypeConverter fun fromRecurrence(value: Recurrence): String = value.name
-    @TypeConverter fun toRecurrence(value: String): Recurrence =
-        try {
-            Recurrence.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown Recurrence: '$value', defaulting to NONE", e)
-            Recurrence.NONE
-        }
+    @TypeConverter fun toRecurrence(value: String?): Recurrence =
+        value?.let {
+            try {
+                Recurrence.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown Recurrence: '$it', defaulting to NONE", e)
+                Recurrence.NONE
+            }
+        } ?: Recurrence.NONE
 
     @TypeConverter fun fromEnergyLevel(value: EnergyLevel): String = value.name
-    @TypeConverter fun toEnergyLevel(value: String): EnergyLevel =
-        try {
-            EnergyLevel.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown EnergyLevel: '$value', defaulting to MEDIUM", e)
-            EnergyLevel.MEDIUM
-        }
+    @TypeConverter fun toEnergyLevel(value: String?): EnergyLevel =
+        value?.let {
+            try {
+                EnergyLevel.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown EnergyLevel: '$it', defaulting to MEDIUM", e)
+                EnergyLevel.MEDIUM
+            }
+        } ?: EnergyLevel.MEDIUM
 
     @TypeConverter fun fromTaskType(value: TaskType): String = value.name
-    @TypeConverter fun toTaskType(value: String): TaskType =
-        try {
-            TaskType.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown TaskType: '$value', defaulting to ANALYTICAL", e)
-            TaskType.ANALYTICAL
-        }
+    @TypeConverter fun toTaskType(value: String?): TaskType =
+        value?.let {
+            try {
+                TaskType.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown TaskType: '$it', defaulting to ANALYTICAL", e)
+                TaskType.ANALYTICAL
+            }
+        } ?: TaskType.ANALYTICAL
 
     @TypeConverter fun fromContractOutcome(value: ContractOutcome?): String? = value?.name
     @TypeConverter fun toContractOutcome(value: String?): ContractOutcome? =
@@ -82,11 +95,24 @@ class Converters {
         }
 
     @TypeConverter fun fromRewardTier(value: RewardTier): String = value.name
-    @TypeConverter fun toRewardTier(value: String): RewardTier =
-        try {
-            RewardTier.valueOf(value)
-        } catch (e: Exception) {
-            Log.w(TAG, "Unknown RewardTier: '$value', defaulting to NONE", e)
-            RewardTier.NONE
-        }
+    @TypeConverter fun toRewardTier(value: String?): RewardTier =
+        value?.let {
+            try {
+                RewardTier.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown RewardTier: '$it', defaulting to NONE", e)
+                RewardTier.NONE
+            }
+        } ?: RewardTier.NONE
+
+    @TypeConverter fun fromHyperFocusState(value: HyperFocusState): String = value.name
+    @TypeConverter fun toHyperFocusState(value: String?): HyperFocusState =
+        value?.let {
+            try {
+                HyperFocusState.valueOf(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Unknown HyperFocusState: '$it', defaulting to INACTIVE", e)
+                HyperFocusState.INACTIVE
+            }
+        } ?: HyperFocusState.INACTIVE
 }

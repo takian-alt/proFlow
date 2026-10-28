@@ -119,7 +119,7 @@ object TaskTagSchedulingProfile {
             .mapNotNull { profileFor(it) }
     }
 
-    private fun normalize(tag: String): String = tag.trim().trimStart('@').lowercase(Locale.getDefault())
+    private fun normalize(tag: String): String = tag.trim().trimStart('@', '#').lowercase(Locale.getDefault())
 
     fun tagMatchesKeywords(tag: String, keywords: List<String>): Boolean {
         val words = tag.split(Regex("[^a-zA-Z0-9_-]+")).filter { it.isNotBlank() }
@@ -144,7 +144,7 @@ fun TaskEntity.determineCategory(): TaskCategory {
     }
 
     val tagsList = tags.split(',')
-        .map { it.trim().trimStart('@').lowercase(Locale.getDefault()) }
+        .map { it.trim().trimStart('@', '#').lowercase(Locale.getDefault()) }
         .filter { it.isNotBlank() }
 
     // 1. Try to find a matching tag and use its profile category if available
@@ -207,7 +207,7 @@ fun TaskEntity.isNonWorkOrErrandTask(): Boolean {
     }
 
     val tagsList = tags.split(',')
-        .map { it.trim().trimStart('@').lowercase(Locale.getDefault()) }
+        .map { it.trim().trimStart('@', '#').lowercase(Locale.getDefault()) }
         .filter { it.isNotBlank() }
 
     val nonWorkKeywords = listOf(

@@ -311,13 +311,19 @@ fun SettingsScreen(
                     viewModel.updatePreferences { p -> p.copy(sleepHour = it) }
                 }
                 SettingsNumberRow("Peak Energy Start", prefs.peakEnergyStart, 0, 23, formatHour = true) {
-                    viewModel.updatePreferences { p -> p.copy(peakEnergyStart = it) }
+                    viewModel.updatePreferences { p ->
+                        val newStart = it
+                        val newEnd = if (p.peakEnergyEnd != 0 && p.peakEnergyEnd <= newStart) minOf(23, newStart + 1) else p.peakEnergyEnd
+                        p.copy(peakEnergyStart = newStart, peakEnergyEnd = newEnd)
+                    }
                 }
                 SettingsNumberRow("Peak Energy End", prefs.peakEnergyEnd, 0, 23, formatHour = true) {
-                    // Must be after peak start
-                    viewModel.updatePreferences { p -> p.copy(peakEnergyEnd = maxOf(it, p.peakEnergyStart + 1)) }
+                    viewModel.updatePreferences { p ->
+                        val newEnd = if (it == 0) 0 else if (p.peakEnergyStart < 23) maxOf(it, p.peakEnergyStart + 1) else it
+                        p.copy(peakEnergyEnd = newEnd)
+                    }
                 }
-                if (prefs.peakEnergyEnd <= prefs.peakEnergyStart) {
+                if (prefs.peakEnergyEnd != 0 && prefs.peakEnergyEnd <= prefs.peakEnergyStart) {
                     Text(
                         "Peak end must be after peak start",
                         color = MaterialTheme.colorScheme.error,
@@ -329,21 +335,28 @@ fun SettingsScreen(
             // Work Schedule
             SettingsCompactBox(title = "Work Schedule", collapsedByDefault = true) {
                 SettingsNumberRow("Work Day Start", prefs.workDayStart, 0, 23, formatHour = true) {
-                    viewModel.updatePreferences { p -> p.copy(workDayStart = it) }
+                    viewModel.updatePreferences { p ->
+                        val newStart = it
+                        val newEnd = if (p.workDayEnd != 0 && p.workDayEnd <= newStart) minOf(23, newStart + 1) else p.workDayEnd
+                        p.copy(workDayStart = newStart, workDayEnd = newEnd)
+                    }
                 }
                 SettingsNumberRow("Work Day End", prefs.workDayEnd, 0, 23, formatHour = true) {
-                    // Must be after work start
-                    viewModel.updatePreferences { p -> p.copy(workDayEnd = maxOf(it, p.workDayStart + 1)) }
+                    viewModel.updatePreferences { p ->
+                        val newEnd = if (it == 0) 0 else maxOf(it, p.workDayStart + 1)
+                        p.copy(workDayEnd = newEnd)
+                    }
                 }
-                if (prefs.workDayEnd <= prefs.workDayStart) {
+                if (prefs.workDayEnd != 0 && prefs.workDayEnd <= prefs.workDayStart) {
                     Text(
                         "Work end must be after work start",
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 12.sp
                     )
                 } else {
+                    val endLabel = if (prefs.workDayEnd == 0) "12:00 AM (midnight)" else hourLabel(prefs.workDayEnd)
                     Text(
-                        "Work window: ${hourLabel(prefs.workDayStart)} – ${hourLabel(prefs.workDayEnd)}",
+                        "Work window: ${hourLabel(prefs.workDayStart)} – $endLabel",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1121,9 +1134,9 @@ private fun SettingsDeepWorkTargetRow(minutes: Int, onChange: (Int) -> Unit) {
         360 to "6 h"
     )
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Daily deep-work target", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text("Daily deep-work target (Cognitive Budget)", fontSize = 14.sp, fontWeight = FontWeight.Medium)
         Text(
-            "The Today card measures your logged focus blocks against this and says whether another one still fits.",
+            "Sets your daily cognitive budget across the Plan timeline and Flow circadian hero barometer. Measures logged focus and scheduled blocks against this capacity.",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

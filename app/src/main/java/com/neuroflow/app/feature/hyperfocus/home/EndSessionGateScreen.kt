@@ -1,5 +1,6 @@
 package com.neuroflow.app.feature.hyperfocus.home
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,10 @@ fun EndSessionGateScreen(
     var reason by remember { mutableStateOf("") }
     var startedAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var elapsed by remember { mutableLongStateOf(0L) }
+
+    BackHandler {
+        onCancel()
+    }
 
     LaunchedEffect(Unit) {
         while (true) {

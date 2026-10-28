@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.presentation.v2.focus.components.KeepScreenOnEffect
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.StepByStepPlanStep
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
@@ -67,13 +68,18 @@ fun FocusScreenV2(
     var newStepText by remember { mutableStateOf("") }
     var showWoopDetails by remember { mutableStateOf(false) }
     var showWoopPromptSheet by remember { mutableStateOf(initialOpenWoop) }
+    var initialWoopHandled by remember { mutableStateOf(false) }
     var showFrogConfetti by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.task, state.preferences, initialOpenWoop) {
         val task = state.task
         val prefs = state.preferences
         if (task != null) {
-            if (initialOpenWoop || (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null)) {
+            if (!initialWoopHandled && initialOpenWoop) {
+                initialWoopHandled = true
+                showWoopPromptSheet = true
+                viewModel.markWoopPromptShown()
+            } else if (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null) {
                 showWoopPromptSheet = true
                 viewModel.markWoopPromptShown()
             }
@@ -85,7 +91,9 @@ fun FocusScreenV2(
     val context = LocalContext.current
     DisposableEffect(Unit) {
         onDispose {
-            val activity = context as? Activity
+            val activity = generateSequence(context) { if (it is android.content.ContextWrapper) it.baseContext else null }
+                .filterIsInstance<Activity>()
+                .firstOrNull()
             if (activity?.isChangingConfigurations != true) {
                 viewModel.onScreenExit()
             }
@@ -148,7 +156,9 @@ fun FocusScreenV2(
             // Mode Selector Chips
             if (!state.isRunning && !state.isPaused && !state.isCompleted) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FocusTimerModeV2.entries.forEach { mode ->
@@ -169,9 +179,16 @@ fun FocusScreenV2(
             }
 
             // Hero Task Card: Full prominence for Task Title, Frog status, and Next Micro-Step
+            val nextStepForHero = if (state.isRunning && !state.isPaused) null else {
+                val activeSteps = state.microSteps
+                val nextIdx = activeSteps.indices.firstOrNull { idx ->
+                    !activeSteps[idx].completed && idx !in state.skippedMicroStepIndices
+                } ?: activeSteps.indexOfFirst { !it.completed }.takeIf { it != -1 }
+                if (nextIdx != null) activeSteps.getOrNull(nextIdx) else null
+            }
             HeroTaskCard(
                 task = state.task,
-                nextStep = if (state.isRunning && !state.isPaused) null else state.microSteps.firstOrNull { !it.completed }
+                nextStep = nextStepForHero
             )
 
             // Bioluminescent Radial Timer Ring (focused strictly on digits & flow status)
@@ -180,65 +197,85 @@ fun FocusScreenV2(
                 remainingSeconds = state.remainingSeconds,
                 elapsedSeconds = state.elapsedSeconds,
                 isRunning = state.isRunning,
-                isPaused = state.isPaused
+                isPaused = state.isPaused,
+                isCompleted = state.isCompleted
             )
 
             // Primary Control Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Play / Pause Button (min 64dp)
-                Button(
-                    onClick = {
-                        if (!state.isRunning) {
-                            viewModel.startTimer()
-                        } else if (state.isPaused) {
-                            viewModel.resumeTimer()
-                        } else {
-                            viewModel.pauseTimer()
-                        }
-                    },
-                    modifier = Modifier.size(68.dp),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
-                ) {
-                    Icon(
-                        imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
-                        tint = NeuroFlowThemeV2Colors.TextPrimary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                // Complete Task Button (touch target >= 48dp)
-                Button(
-                    onClick = {
-                        if (state.task?.isFrog == true) showFrogConfetti = true
-                        viewModel.completeTask()
-                    },
-                    modifier = Modifier.heightIn(min = 52.dp),
+            if (state.isCompleted) {
+                Surface(
+                    color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.25f),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Complete", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Task Completed", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
+                    }
                 }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Park Thought Button (touch target >= 48dp)
-                OutlinedIconButton(
-                    onClick = { showParkThoughtSheet = true },
-                    modifier = Modifier.size(52.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber)
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Lightbulb, contentDescription = "Park Thought", tint = NeuroFlowThemeV2Colors.WarmAmber)
+                    // Play / Pause Button (min 64dp)
+                    Button(
+                        onClick = {
+                            if (state.isPaused) {
+                                viewModel.resumeTimer()
+                            } else if (!state.isRunning) {
+                                viewModel.startTimer()
+                            } else {
+                                viewModel.pauseTimer()
+                            }
+                        },
+                        modifier = Modifier.size(68.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+                    ) {
+                        Icon(
+                            imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
+                            tint = NeuroFlowThemeV2Colors.TextPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // Complete Task Button (touch target >= 48dp)
+                    Button(
+                        onClick = {
+                            if (state.task?.isFrog == true) showFrogConfetti = true
+                            viewModel.completeTask()
+                        },
+                        modifier = Modifier.heightIn(min = 52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Complete", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Park Thought Button (touch target >= 48dp)
+                    OutlinedIconButton(
+                        onClick = { showParkThoughtSheet = true },
+                        modifier = Modifier.size(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber)
+                    ) {
+                        Icon(Icons.Default.Lightbulb, contentDescription = "Park Thought", tint = NeuroFlowThemeV2Colors.WarmAmber)
+                    }
                 }
             }
 
@@ -252,17 +289,18 @@ fun FocusScreenV2(
             val activeMicroSteps = state.microSteps
             val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
                 !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
-            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 } ?: 0
-            val currentMicroStep = activeMicroSteps.getOrNull(firstIncompleteIndex)
+            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 }
+            val currentMicroStep = if (firstIncompleteIndex != null) activeMicroSteps.getOrNull(firstIncompleteIndex) else null
 
             if (state.isRunning && !state.isPaused && currentMicroStep != null) {
+                val stepIdx = firstIncompleteIndex ?: 0
                 ZenMicroStepSpotlightCard(
-                    currentStepIndex = firstIncompleteIndex,
+                    currentStepIndex = stepIdx,
                     totalSteps = activeMicroSteps.size,
                     currentStepTitle = currentMicroStep.text,
-                    currentStepEstimatedMinutes = (state.task?.estimatedDurationMinutes ?: 25) / activeMicroSteps.size.coerceAtLeast(1),
-                    onCompleteCurrentStep = { viewModel.toggleMicroStep(firstIncompleteIndex) },
-                    onSkipStep = { viewModel.skipCurrentMicroStep(firstIncompleteIndex) }
+                    currentStepEstimatedMinutes = maxOf(1, (state.task?.let { TaskBlockPlan.plannedMinutes(it) } ?: 25) / activeMicroSteps.size.coerceAtLeast(1)),
+                    onCompleteCurrentStep = { viewModel.toggleMicroStep(stepIdx) },
+                    onSkipStep = { viewModel.skipCurrentMicroStep(stepIdx) }
                 )
             }
 
@@ -343,8 +381,8 @@ fun FocusScreenV2(
                         }
                     }
 
-                    // Headphone hint for 40Hz Gamma waves
-                    AnimatedVisibility(visible = state.selectedSoundscape == SoundscapeType.GAMMA_40HZ) {
+                    // Contextual Soundscape Usage Hint (When to use & neuro-profile)
+                    AnimatedVisibility(visible = state.selectedSoundscape != SoundscapeType.NONE && state.selectedSoundscape.usageTag.isNotBlank()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -354,19 +392,34 @@ fun FocusScreenV2(
                                 )
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Headphones,
-                                contentDescription = null,
-                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                "Stereo headphones recommended for 40 Hz binaural entrainment",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            )
+                            if (state.selectedSoundscape == SoundscapeType.GAMMA_40HZ) {
+                                Icon(
+                                    imageVector = Icons.Default.Headphones,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Text(
+                                    state.selectedSoundscape.emoji.ifBlank { "🎧" },
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = state.selectedSoundscape.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Best for: ${state.selectedSoundscape.usageTag}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                )
+                            }
                         }
                     }
 
@@ -624,13 +677,13 @@ fun FocusScreenV2(
     }
 
     // Executive Transition Buffer (Decompression Zone)
-    LaunchedEffect(state.showDecompressionZone) {
-        if (state.showDecompressionZone) {
+    LaunchedEffect(state.showDecompressionZone, state.showAffordanceRating, state.affordanceRatingSubmitted) {
+        if (state.showDecompressionZone && (!state.showAffordanceRating || state.affordanceRatingSubmitted)) {
             viewModel.startDecompressionTicker()
         }
     }
 
-    if (state.showDecompressionZone) {
+    if (state.showDecompressionZone && (!state.showAffordanceRating || state.affordanceRatingSubmitted)) {
         val mins = state.decompressionRemainingSeconds / 60
         val secs = state.decompressionRemainingSeconds % 60
         val timeDisplay = String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
@@ -727,9 +780,9 @@ fun FocusScreenV2(
     }
 
     // Completion Celebration Overlay
-    if (state.isCompleted && !state.showDecompressionZone) {
+    if (state.showCompletionCelebration && !state.showDecompressionZone && (!state.showAffordanceRating || state.affordanceRatingSubmitted)) {
         AlertDialog(
-            onDismissRequest = onNavigateBack,
+            onDismissRequest = { viewModel.dismissCompletionCelebration() },
             title = {
                 Text("🎉 Focus Session Completed!", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
             },
@@ -749,19 +802,25 @@ fun FocusScreenV2(
             confirmButton = {
                 if (state.nextTaskId != null) {
                     Button(
-                        onClick = { onNavigateToNextTask(state.nextTaskId!!) },
+                        onClick = {
+                            viewModel.dismissCompletionCelebration()
+                            onNavigateToNextTask(state.nextTaskId!!)
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
                     ) {
                         Text("Start Next Task")
                     }
                 } else {
-                    Button(onClick = onNavigateBack) {
+                    Button(onClick = {
+                        viewModel.dismissCompletionCelebration()
+                        onNavigateBack()
+                    }) {
                         Text("Return to Flow")
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = onNavigateBack) {
+                TextButton(onClick = { viewModel.dismissCompletionCelebration() }) {
                     Text("Close")
                 }
             }
@@ -863,7 +922,10 @@ fun FocusScreenV2(
             SprintCompletionSheet(
                 taskTitle = state.task?.title ?: "Deep Focus",
                 timerMode = state.timerMode,
-                onKeepGoing = { viewModel.keepGoing(FocusTimerModeV2.POMODORO_25) },
+                onKeepGoing = {
+                    val targetNextMode = if (state.timerMode == FocusTimerModeV2.JUST_5_MIN) FocusTimerModeV2.POMODORO_25 else state.timerMode
+                    viewModel.keepGoing(targetNextMode)
+                },
                 onDecompress = { viewModel.takeDecompressionRest() },
                 onCompleteTask = {
                     if (state.task?.isFrog == true) showFrogConfetti = true
@@ -889,7 +951,8 @@ fun RadialTimerGauge(
     remainingSeconds: Long,
     elapsedSeconds: Long,
     isRunning: Boolean,
-    isPaused: Boolean
+    isPaused: Boolean,
+    isCompleted: Boolean = false
 ) {
     val totalSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 3600L else timerMode.durationSeconds
     val currentSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) elapsedSeconds else remainingSeconds
@@ -917,8 +980,16 @@ fun RadialTimerGauge(
     val timeDisplay = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
 
     val trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
-    val ringColor = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigo
-    val ringGlow = if (isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigoGlow
+    val ringColor = when {
+        isCompleted -> NeuroFlowThemeV2Colors.SageGreen
+        isPaused -> NeuroFlowThemeV2Colors.WarmAmber
+        else -> NeuroFlowThemeV2Colors.ElectricIndigo
+    }
+    val ringGlow = when {
+        isCompleted -> NeuroFlowThemeV2Colors.SageGreen
+        isPaused -> NeuroFlowThemeV2Colors.WarmAmber
+        else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
+    }
 
     Box(
         modifier = Modifier
@@ -1016,6 +1087,7 @@ fun RadialTimerGauge(
             )
             Spacer(modifier = Modifier.height(4.dp))
             val statusLabel = when {
+                isCompleted -> "TASK COMPLETED"
                 !isRunning && !isPaused -> "READY FOR DEEP WORK"
                 isPaused -> "SESSION PAUSED"
                 else -> "FLOW STATE ACTIVE"
@@ -1197,7 +1269,7 @@ fun HeroTaskCard(
                     color = NeuroFlowThemeV2Colors.SlateSurfaceAlt
                 ) {
                     Text(
-                        "${task.estimatedDurationMinutes}m",
+                        "${TaskBlockPlan.plannedMinutes(task)}m",
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.labelSmall,
                         color = NeuroFlowThemeV2Colors.TextSecondary
@@ -1292,8 +1364,13 @@ fun SprintCompletionSheet(
         ) {
             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
             Spacer(modifier = Modifier.width(8.dp))
+            val keepGoingText = if (isMicroStart) {
+                "Keep Going (+25m Pomodoro)"
+            } else {
+                "Keep Going (+${timerMode.durationSeconds / 60}m ${timerMode.title})"
+            }
             Text(
-                "Keep Going (+25m Pomodoro)",
+                keepGoingText,
                 fontWeight = FontWeight.Bold,
                 color = NeuroFlowThemeV2Colors.TextPrimary
             )

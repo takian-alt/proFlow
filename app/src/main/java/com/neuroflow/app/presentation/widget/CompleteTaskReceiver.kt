@@ -27,14 +27,18 @@ class CompleteTaskReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent == null || intent.action != ACTION_COMPLETE_TASK) return
         val taskId = intent.getStringExtra(EXTRA_TASK_ID)
+            ?: intent.getStringExtra("taskId")
+            ?: intent.getStringExtra("task_id")
         if (taskId.isNullOrBlank()) return
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 CompleteTaskWidgetAction.execute(context, taskId)
+            } catch (_: Throwable) {
+                // Defensive: prevent process crash on background widget action failure
             } finally {
-                pendingResult.finish()
+                pendingResult?.finish()
             }
         }
     }

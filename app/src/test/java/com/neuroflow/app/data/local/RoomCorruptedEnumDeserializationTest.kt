@@ -9,6 +9,7 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.RewardTier
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.model.HyperFocusState
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -110,6 +111,23 @@ class RoomCorruptedEnumDeserializationTest {
             val codes = db.unlockCodeDao().getUnusedBySession("session_1")
             assertEquals(1, codes.size)
             assertEquals("Unknown tier must deserialize to RewardTier.NONE", RewardTier.NONE, codes[0].tier)
+        }
+    }
+
+    @Test
+    fun testRoomDeserializesCorruptedHyperFocusStateWithoutCrashing() {
+        runBlocking {
+            db.openHelper.writableDatabase.execSQL("""
+                INSERT INTO hyperfocus_sessions (
+                    id, startedAt, state, blockedPackages, dailyTaskTarget, tasksCompletedAtStart, currentTier
+                ) VALUES (
+                    'hf_session_1', 10000, 'CORRUPTED_UNKNOWN_STATE_99', '[]', 5, 1, 'NONE'
+                )
+            """.trimIndent())
+
+            val session = db.hyperFocusSessionDao().getById("hf_session_1")
+            assertNotNull(session)
+            assertEquals("Corrupted HyperFocusState must deserialize to INACTIVE fallback", HyperFocusState.INACTIVE, session?.state)
         }
     }
 }

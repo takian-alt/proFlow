@@ -12,7 +12,9 @@ import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.receiver.NudgeSnoozeReceiver
 import dagger.assisted.Assisted
@@ -36,13 +38,29 @@ class AutonomyNudgeWorker @AssistedInject constructor(
         return try {
             val task = taskRepository.getById(taskId)
 
-            // Idempotent: skip if task gone or already started
+            // Idempotent: skip if task gone or already started or not active
             if (task == null || task.status != TaskStatus.ACTIVE || task.sessionCount > 0) return Result.success()
+
+            // Skip if task is in the Icebox (Quadrant.ELIMINATE)
+            if (task.quadrant == Quadrant.ELIMINATE) return Result.success()
 
             val now = System.currentTimeMillis()
             val dueAt = task.effectiveReminderTargetMillis()
-            // Don't nudge tasks that are clearly in the future.
-            if (dueAt != null && dueAt > now + 10 * 60_000L) return Result.success()
+            // Don't nudge tasks that are clearly in the future. Re-enqueue for the actual due/start time.
+            if (dueAt != null && dueAt > now + 10 * 60_000L) {
+                runCatching { com.neuroflow.app.domain.engine.AutonomyNudgeEngine.scheduleNudge(appContext, task) }
+                return Result.success()
+            }
+            val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(now) - 1
+            val sDate = task.effectiveScheduledDateMillis()
+
+            // Skip unscheduled backlog tasks (no scheduled date and no deadline)
+            if (sDate == null && task.deadlineDate == null) return Result.success()
+
+            if ((sDate != null && sDate > dayEnd) ||
+                (sDate == null && task.deadlineDate != null && task.deadlineDate > dayEnd)) {
+                return Result.success()
+            }
 
             val notificationId = taskId.hashCode()
 
@@ -70,6 +88,18 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            val contentIntent = Intent(appContext, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_FOCUS"
+                putExtra("taskId", taskId)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                appContext,
+                (taskId.hashCode() * 31) xor 0x1F,
+                contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             val notification = NotificationCompat.Builder(appContext, "autonomy_nudge")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle(appContext.getString(R.string.autonomy_nudge_title))
@@ -82,6 +112,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
                     )
                 )
                 .setAutoCancel(true)
+                .setContentIntent(contentPendingIntent)
                 .addAction(0, appContext.getString(R.string.autonomy_nudge_action_not_ready), notReadyPendingIntent)
                 .addAction(0, appContext.getString(R.string.autonomy_nudge_action_woop), woopReflectPendingIntent)
                 .build()
@@ -98,6 +129,7 @@ class AutonomyNudgeWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Result.retry()
         }
     }

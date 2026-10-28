@@ -36,8 +36,11 @@ class HyperFocusHomeViewModel @Inject constructor(
     private val appCatalogRepository: AppCatalogRepository,
     private val systemExempt: SystemExempt,
     private val gateRequestLogger: GateRequestLogger,
-    private val realHomeResolver: RealHomeResolver
+    private val realHomeResolver: RealHomeResolver,
+    private val badgeManager: com.neuroflow.app.data.badge.NotificationBadgeManager? = null
 ) : ViewModel() {
+
+    val badgeCounts: StateFlow<Map<String, Int>> = badgeManager?.badgeCounts ?: MutableStateFlow(emptyMap())
 
     private val tick = MutableStateFlow(System.currentTimeMillis())
     private val labels = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -162,20 +165,6 @@ class HyperFocusHomeViewModel @Inject constructor(
             }
         }
         return willEnd
-    }
-
-    fun endSessionImmediately() {
-        viewModelScope.launch {
-            gateRequestLogger.log(
-                packageName = "",
-                statedReason = "Direct end session",
-                taskType = "DIRECT",
-                mismatchCount = 0,
-                elapsedMillis = 0,
-                grantSource = GateGrantSource.ABANDONED
-            )
-            hyperFocusManager.deactivate()
-        }
     }
 
     fun openHomeAppSettings() {

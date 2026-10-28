@@ -343,5 +343,20 @@ class HyperFocusManagerTest : StringSpec({
             coVerify(exactly = 0) { hyperFocusDataStore.update(any()) }
         }
     }
+
+    "addTasksToSession rejects adding tasks when in TIME_BASED session mode" {
+        runTest {
+            val prefs = HyperFocusPreferences(
+                isActive = true,
+                sessionMode = com.neuroflow.app.domain.model.HyperFocusSessionMode.TIME_BASED,
+                lockedTaskIds = emptySet()
+            )
+            coEvery { hyperFocusDataStore.current() } returns prefs
+
+            manager.addTasksToSession(setOf("task-1", "task-2"))
+
+            coVerify(exactly = 0) { hyperFocusDataStore.update(any()) }
+        }
+    }
 })
 

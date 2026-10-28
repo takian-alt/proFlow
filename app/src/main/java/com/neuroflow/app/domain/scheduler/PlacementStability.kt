@@ -45,24 +45,27 @@ object PlacementStability {
     ): ReplanVerdict {
         if (task.isScheduleLocked) return ReplanVerdict.KEEP
 
-        val scheduledMillis = task.resolveScheduledEpochMillis()
+        // BUG-296 Fix: Anchor scheduled epoch resolution to parameterized nowMillis instead of real-time system clock
+        val scheduledMillis = task.resolveScheduledEpochMillis(nowMillis)
             ?: return ReplanVerdict.KEEP
         val hoursUntilScheduled = (scheduledMillis - nowMillis) / 3_600_000f
 
         // Bug 2 & Feature 3 (ADR-026): Expired-Block Auto-Rescue
         // If a task's reserved block has ended and the 15-minute grace period has passed,
         // it is eligible for same-day rescue rescheduling rather than stranded permanently in the past.
-        if (TaskBlockPlan.blockHasExpired(task, scheduledMillis, nowMillis, gracePeriodMillis = 15 * 60_000L)) {
+        // Date-only tasks without a specific scheduled time of day represent intraday intent,
+        // not an event that started and expired at 00:00:00 local midnight.
+        if (task.scheduledTime != null && TaskBlockPlan.blockHasExpired(task, scheduledMillis, nowMillis, gracePeriodMillis = 15 * 60_000L)) {
             return ReplanVerdict.PAST_EXPIRED_RESCUE
         }
 
-        if (scheduledMillis - nowMillis < NEAR_TERM_FREEZE_MILLIS) return ReplanVerdict.NEAR_TERM_FREEZE
-
         if (forceReplan) return ReplanVerdict.FORCED
+
+        if (task.scheduledTime != null && scheduledMillis - nowMillis < NEAR_TERM_FREEZE_MILLIS) return ReplanVerdict.NEAR_TERM_FREEZE
 
         val deadlineMillis = task.resolveDeadlineEpochMillis()
 
-        val taskAge = nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt)
+        val taskAge = maxOf(0L, nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt))
         val isUrgentDeadline = deadlineMillis?.let { (it - nowMillis) < 6 * 60 * 60 * 1000L } ?: false
         val cooldownMillis = when {
             isUrgentDeadline -> 60 * 60 * 1000L

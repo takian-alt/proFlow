@@ -63,6 +63,39 @@ class DrawerWeeklyPlanSectionTest : StringSpec({
 
         isTaskOnDay(scheduledTask, dayStart, dayEnd) shouldBe true
         isTaskOnDay(otherDayTask, dayStart, dayEnd) shouldBe false
+
+        // BUG-185: Dual-representation deadline-only task with deadlineTime >= ONE_DAY_MILLIS
+        val dualRepDeadlineTask = TaskEntity(
+            id = "t3-dual-deadline",
+            title = "Dual Rep Deadline Task",
+            deadlineDate = null,
+            deadlineTime = dayStart + 15 * 3600_000L // 3:00 PM on target day
+        )
+        isTaskOnDay(dualRepDeadlineTask, dayStart, dayEnd) shouldBe true
+
+        // BUG-192: Future deadline task with intraday scheduledTime offset does not leak to today
+        val futureDeadlineTask = TaskEntity(
+            id = "t4-future-deadline",
+            title = "Future Deadline Task",
+            scheduledDate = null,
+            scheduledTime = 10 * 3600_000L, // 10:00 AM intraday offset
+            deadlineDate = dayEnd + 10_000L // Tomorrow
+        )
+        isTaskOnDay(futureDeadlineTask, dayStart, dayEnd) shouldBe false
+        isTaskOnDay(futureDeadlineTask, dayEnd, dayEnd + 24 * 3600_000L) shouldBe true
+
+        // BUG-199: Untimed scheduled task with intraday scheduledTime and no deadline falls back to today
+        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        val todayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(todayStart)
+        val untimedScheduledTask = TaskEntity(
+            id = "t5-untimed-scheduled",
+            title = "Untimed Scheduled Task",
+            scheduledDate = null,
+            scheduledTime = 14 * 3600_000L, // 2:00 PM
+            deadlineDate = null
+        )
+        isTaskOnDay(untimedScheduledTask, todayStart, todayEnd) shouldBe true
+        isTaskOnDay(untimedScheduledTask, todayEnd, todayEnd + 24 * 3600_000L) shouldBe false
     }
 
     "isProtectedSlotOnDay should match recurrence correctly" {

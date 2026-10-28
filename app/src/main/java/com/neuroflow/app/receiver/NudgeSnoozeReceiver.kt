@@ -1,5 +1,6 @@
 package com.neuroflow.app.receiver
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -11,6 +12,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.neuroflow.app.MainActivity
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.R
 import com.neuroflow.app.worker.AutonomyNudgeWorker
@@ -48,10 +50,22 @@ class NudgeSnoozeReceiver : BroadcastReceiver() {
             ) == PackageManager.PERMISSION_GRANTED
 
         if (canNotify) {
+            val contentIntent = Intent(context, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_SCHEDULE"
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                context,
+                (taskId.hashCode() * 37) xor 0x2A,
+                contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             val confirmation = NotificationCompat.Builder(context, "autonomy_nudge")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle(context.getString(R.string.autonomy_snooze_confirmation_title))
                 .setContentText(context.getString(R.string.autonomy_snooze_confirmation_body))
+                .setContentIntent(contentPendingIntent)
                 .setAutoCancel(true)
                 .build()
 

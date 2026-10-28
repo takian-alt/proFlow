@@ -1,5 +1,8 @@
 package com.neuroflow.app.domain.engine
 
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+
 object FreshStartEngine {
     private const val THREE_DAYS_MS = 3L * 24 * 60 * 60 * 1000
 
@@ -11,9 +14,10 @@ object FreshStartEngine {
         lastFreshStartShownWeek: Int,
         lastFreshStartShownYear: Int
     ): Boolean {
-        // Guard: already shown this ISO week
-        if (isoWeekNumber(nowMillis) == lastFreshStartShownWeek &&
-            isoYear(nowMillis) == lastFreshStartShownYear) return false
+        // Guard: already shown this Sunday-to-Saturday schedule week
+        val anchorMillis = sundayWeekAnchorMillis(nowMillis)
+        if (isoWeekNumber(anchorMillis) == lastFreshStartShownWeek &&
+            isoYear(anchorMillis) == lastFreshStartShownYear) return false
 
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
         val dayOfWeek = cal.get(java.util.Calendar.DAY_OF_WEEK)
@@ -29,6 +33,24 @@ object FreshStartEngine {
         val isLongAbsence = lastOpenMillis > 0L && (nowMillis - lastOpenMillis) >= THREE_DAYS_MS
 
         return isMonday || isFirstOfMonth || isAfterStreakBreak || isLongAbsence
+    }
+
+    /**
+     * In Sunday-to-Saturday schedules, mid-week Thursday canonically anchors the ISO-8601
+     * week number so all days from Sunday through Saturday resolve to the identical ISO week.
+     */
+    fun sundayWeekAnchorMillis(millis: Long): Long {
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = millis
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            val currentDayOfWeek = get(java.util.Calendar.DAY_OF_WEEK)
+            val daysFromSunday = currentDayOfWeek - java.util.Calendar.SUNDAY
+            add(java.util.Calendar.DAY_OF_YEAR, -daysFromSunday + 4) // Thursday
+        }
+        return cal.timeInMillis
     }
 
     fun isoWeekNumber(millis: Long): Int {
@@ -72,15 +94,22 @@ object FreshStartEngine {
             set(java.util.Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        // Find active tasks scheduled today or in the past
+        // Find active tasks scheduled today or in the past, or overdue by deadline/postpone/habit
         val scheduledOverdueOrToday = activeTasks.filter { task ->
-            task.scheduledDate != null && task.scheduledDate!! <= todayStart && !task.isScheduleLocked
+            if (task.isScheduleLocked) return@filter false
+            val isScheduledTodayOrPast = task.scheduledDate != null && task.scheduledDate!! <= todayStart
+            val isTimedTodayOrPast = task.resolveScheduledEpochMillis()?.let { it <= nowMillis } == true
+            val isOverdueDeadline = task.deadlineDate != null && task.resolveDeadlineEpochMillis()?.let { it <= nowMillis } == true
+            val isChronicPostpone = task.postponeCount >= 2
+            val isHabitTodayOrPast = task.habitDate != null && task.habitDate!! <= todayStart
+            isScheduledTodayOrPast || isTimedTodayOrPast || isOverdueDeadline || isChronicPostpone || isHabitTodayOrPast
         }
 
         // Partition by urgency: High-impact (isFrog, impactScore >= 70, or urgent deadline) vs low-impact
         val (highPriority, lowPriority) = scheduledOverdueOrToday.partition { task ->
+            val resolvedDeadline = task.resolveDeadlineEpochMillis()
             task.isFrog || task.impactScore >= 70 ||
-                (task.deadlineDate != null && (task.deadlineDate!! - nowMillis) <= 24 * 60 * 60 * 1000L)
+                (resolvedDeadline != null && (resolvedDeadline - nowMillis) <= 24 * 60 * 60 * 1000L)
         }
 
         // Keep top 2 high-priority tasks for today, push the rest to backlog (clear scheduleDate/Time)

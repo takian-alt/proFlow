@@ -17,6 +17,9 @@ data class WeeklyScheduleUiState(
     val activeTasks: List<TaskEntity> = emptyList(),
     val protectedSlots: List<ProtectedTimeSlot> = emptyList(),
     val weeklyIntent: String = "",
+    val weeklyIntentIsoWeek: Int = 0,
+    val weeklyIntentIsoYear: Int = 0,
+    val currentReferenceMillis: Long = System.currentTimeMillis(),
     val workDayStart: Int = 8,
     val workDayEnd: Int = 20,
     val isLoading: Boolean = false
@@ -66,7 +69,7 @@ class WeeklyScheduleViewModel @Inject constructor(
     private fun observeWeekDays() {
         viewModelScope.launch {
             currentReferenceMillis.collect { refMillis ->
-                _uiState.update { it.copy(weekDays = getSundayWeekDays(refMillis)) }
+                _uiState.update { it.copy(weekDays = getSundayWeekDays(refMillis), currentReferenceMillis = refMillis) }
             }
         }
     }
@@ -85,6 +88,8 @@ class WeeklyScheduleViewModel @Inject constructor(
                 .distinctUntilChanged { old, new ->
                     old.protectedTimeSlots == new.protectedTimeSlots &&
                     old.weeklyIntent == new.weeklyIntent &&
+                    old.weeklyIntentIsoWeek == new.weeklyIntentIsoWeek &&
+                    old.weeklyIntentIsoYear == new.weeklyIntentIsoYear &&
                     old.workDayStart == new.workDayStart &&
                     old.workDayEnd == new.workDayEnd
                 }
@@ -93,6 +98,8 @@ class WeeklyScheduleViewModel @Inject constructor(
                         it.copy(
                             protectedSlots = prefs.protectedTimeSlots,
                             weeklyIntent = prefs.weeklyIntent,
+                            weeklyIntentIsoWeek = prefs.weeklyIntentIsoWeek,
+                            weeklyIntentIsoYear = prefs.weeklyIntentIsoYear,
                             workDayStart = prefs.workDayStart,
                             workDayEnd = prefs.workDayEnd
                         )
@@ -123,7 +130,18 @@ class WeeklyScheduleViewModel @Inject constructor(
 
     fun saveWeeklyIntent(intent: String) {
         viewModelScope.launch {
-            preferencesDataStore.updatePreferences { it.copy(weeklyIntent = intent) }
+            val weekDays = _uiState.value.weekDays
+            // In ISO-8601, Thursday (weekDays[4]) canonically defines the week number for Sunday-Saturday schedules (BUG-132)
+            val anchorMillis = weekDays.getOrNull(4) ?: weekDays.getOrNull(3) ?: currentReferenceMillis.value
+            val isoWeek = com.neuroflow.app.domain.engine.FreshStartEngine.isoWeekNumber(anchorMillis)
+            val isoYear = com.neuroflow.app.domain.engine.FreshStartEngine.isoYear(anchorMillis)
+            preferencesDataStore.updatePreferences {
+                it.copy(
+                    weeklyIntent = intent,
+                    weeklyIntentIsoWeek = isoWeek,
+                    weeklyIntentIsoYear = isoYear
+                )
+            }
         }
     }
 

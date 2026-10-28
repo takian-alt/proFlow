@@ -22,6 +22,9 @@ class UnlockTimerService : Service() {
     @Inject
     lateinit var hyperFocusDataStore: HyperFocusDataStore
 
+    @Inject
+    lateinit var hyperFocusManager: dagger.Lazy<com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager>
+
     private val serviceScope = CoroutineScope(Dispatchers.IO)
     private var pollingJob: Job? = null
 
@@ -52,6 +55,7 @@ class UnlockTimerService : Service() {
                 if (expiresAt == null || expiresAt <= System.currentTimeMillis()) {
                     // Clear the pass and broadcast expiry so AppBlockingService re-blocks immediately
                     hyperFocusDataStore.update { it.copy(activePassPackage = null, activePassExpiresAt = null) }
+                    runCatching { hyperFocusManager.get().resyncSuspension(true) }
                     sendBroadcast(Intent(ACTION_UNLOCK_EXPIRED).setPackage(packageName))
                     stopSelf()
                     break

@@ -12,6 +12,8 @@ import android.provider.CalendarContract
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -443,5 +445,293 @@ class CalendarWriteBackSyncTest {
         windows.size shouldBe 1
         windows[0].startMillis shouldBe start
         windows[0].endMillis shouldBe end
+    }
+
+    @Test
+    fun `queryInstances filters out all-day events`() = runTest {
+        val cursor = MatrixCursor(arrayOf(
+            CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END,
+            CalendarContract.Instances.TITLE,
+            CalendarContract.Instances.DESCRIPTION,
+            CalendarContract.Instances.AVAILABILITY,
+            CalendarContract.Instances.SELF_ATTENDEE_STATUS,
+            CalendarContract.Instances.STATUS,
+            CalendarContract.Instances.ORGANIZER,
+            CalendarContract.Instances.ALL_DAY,
+            CalendarContract.Events.CUSTOM_APP_PACKAGE,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+
+        val start = 1770000000000L
+        val end = start + 3600_000L
+
+        // Row 1: All-Day event (should be filtered out even if AVAILABILITY_BUSY)
+        cursor.addRow(arrayOf(
+            start,
+            start + 86_400_000L,
+            "National Holiday",
+            "Public holiday banner",
+            CalendarContract.Events.AVAILABILITY_BUSY,
+            CalendarContract.Attendees.ATTENDEE_STATUS_ACCEPTED,
+            CalendarContract.Events.STATUS_CONFIRMED,
+            "system@calendar.google.com",
+            1, // ALL_DAY = 1
+            "",
+            ""
+        ))
+
+        // Row 2: Standard meeting (ALL_DAY = 0, should be returned)
+        cursor.addRow(arrayOf(
+            start,
+            end,
+            "Sprint Planning",
+            "Bi-weekly sprint planning",
+            CalendarContract.Events.AVAILABILITY_BUSY,
+            CalendarContract.Attendees.ATTENDEE_STATUS_ACCEPTED,
+            CalendarContract.Events.STATUS_CONFIRMED,
+            "lead@corp.com",
+            0, // ALL_DAY = 0
+            "",
+            ""
+        ))
+
+        every {
+            contentResolver.query(any(), any(), any(), any(), any())
+        } returns cursor
+
+        val windows = dataSource.queryInstances(start, start + 10_000_000L)
+        windows.size shouldBe 1
+        windows[0].startMillis shouldBe start
+        windows[0].endMillis shouldBe end
+    }
+
+    @Test
+    fun `handleTaskStateChanged upserts recurring daily frog habit anchored on habitDate at 9am`() = runTest {
+        val baseDate = 1770000000000L
+        val habitTask = TaskEntity(
+            id = "habit-frog-1",
+            title = "Morning Meditation",
+            recurrence = Recurrence.DAILY,
+            habitDate = baseDate,
+            scheduledDate = null,
+            scheduledTime = null,
+            isFrog = true,
+            status = TaskStatus.ACTIVE
+        )
+
+        // Mock primary calendar
+        val calCursor = MatrixCursor(arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        ))
+        calCursor.addRow(arrayOf(55L, 1, CalendarContract.Calendars.CAL_ACCESS_OWNER))
+        every {
+            contentResolver.query(CalendarContract.Calendars.CONTENT_URI, any(), any(), any(), any())
+        } returns calCursor
+
+        // No existing event
+        val emptyEventCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), any(), any(), any())
+        } returns emptyEventCursor
+
+        val valuesSlot = slot<ContentValues>()
+        every {
+            contentResolver.insert(CalendarContract.Events.CONTENT_URI, capture(valuesSlot))
+        } returns Uri.parse("content://com.android.calendar/events/7711")
+
+        val result = dataSource.handleTaskStateChanged(habitTask)
+        result shouldBe true
+
+        val captured = valuesSlot.captured
+        captured.getAsString(CalendarContract.Events.TITLE) shouldBe "🎯 [Flow] Morning Meditation"
+        val expectedStart = startOfLocalDay(baseDate) + 9 * 3600_000L
+        captured.getAsLong(CalendarContract.Events.DTSTART) shouldBe expectedStart
+        captured.getAsInteger(CalendarContract.Events.AVAILABILITY) shouldBe CalendarContract.Events.AVAILABILITY_BUSY
+    }
+
+    @Test
+    fun `handleTaskStateChanged upserts recurring locked habit with timed offset`() = runTest {
+        val baseDate = 1770000000000L
+        val timedHabit = TaskEntity(
+            id = "habit-locked-2",
+            title = "Team Standup",
+            recurrence = Recurrence.DAILY,
+            habitDate = baseDate,
+            scheduledDate = null,
+            scheduledTime = 14 * 3600_000L, // 2:00 PM
+            isScheduleLocked = true,
+            status = TaskStatus.ACTIVE
+        )
+
+        val calCursor = MatrixCursor(arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        ))
+        calCursor.addRow(arrayOf(55L, 1, CalendarContract.Calendars.CAL_ACCESS_OWNER))
+        every {
+            contentResolver.query(CalendarContract.Calendars.CONTENT_URI, any(), any(), any(), any())
+        } returns calCursor
+
+        val emptyEventCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), any(), any(), any())
+        } returns emptyEventCursor
+
+        val valuesSlot = slot<ContentValues>()
+        every {
+            contentResolver.insert(CalendarContract.Events.CONTENT_URI, capture(valuesSlot))
+        } returns Uri.parse("content://com.android.calendar/events/7712")
+
+        val result = dataSource.handleTaskStateChanged(timedHabit)
+        result shouldBe true
+
+        val captured = valuesSlot.captured
+        captured.getAsString(CalendarContract.Events.TITLE) shouldBe "[Flow] Team Standup"
+        val expectedStart = startOfLocalDay(baseDate) + 14 * 3600_000L
+        captured.getAsLong(CalendarContract.Events.DTSTART) shouldBe expectedStart
+    }
+
+    @Test
+    fun `upsertTaskEvent updates existing event even when findPrimaryWritableCalendarId is null`() = runTest {
+        val task = TaskEntity(
+            id = "task-existing-99",
+            title = "Important Review",
+            status = TaskStatus.COMPLETED,
+            scheduledDate = 1770000000000L
+        )
+
+        // Mock NO writable primary calendar found
+        val emptyCalCursor = MatrixCursor(arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        ))
+        every {
+            contentResolver.query(CalendarContract.Calendars.CONTENT_URI, any(), any(), any(), any())
+        } returns emptyCalCursor
+
+        // But event exists in calendar provider
+        val existingEventCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        existingEventCursor.addRow(arrayOf(9999L, "neuroflow://task/task-existing-99"))
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), any(), any(), any())
+        } returns existingEventCursor
+
+        val valuesSlot = slot<ContentValues>()
+        val updateUriSlot = slot<Uri>()
+        every {
+            contentResolver.update(capture(updateUriSlot), capture(valuesSlot), any(), any())
+        } returns 1
+
+        val resultId = dataSource.upsertTaskEvent(task)
+        resultId shouldBe 9999L
+
+        updateUriSlot.captured shouldBe ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, 9999L)
+        valuesSlot.captured.containsKey(CalendarContract.Events.CALENDAR_ID) shouldBe false
+        valuesSlot.captured.getAsString(CalendarContract.Events.TITLE) shouldBe "✓ [Flow] Important Review"
+        valuesSlot.captured.getAsInteger(CalendarContract.Events.AVAILABILITY) shouldBe CalendarContract.Events.AVAILABILITY_FREE
+    }
+
+    @Test
+    fun `BUG-301 upsertTaskEvent anchors dateless timed task to effective date and uses TaskBlockPlan duration`() = runTest {
+        val futureDate = 1775000000000L
+        val timedTask = TaskEntity(
+            id = "task-dateless-timed-301",
+            title = "Crucial Future Meeting",
+            scheduledDate = null,
+            deadlineDate = futureDate,
+            scheduledTime = 14 * 3600_000L, // 2:00 PM
+            effortScore = 85, // TaskBlockPlan maps >=80 to 60m
+            estimatedDurationMinutes = 0, // Untimed
+            isFrog = true
+        )
+
+        // Mock primary calendar
+        val calCursor = MatrixCursor(arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        ))
+        calCursor.addRow(arrayOf(77L, 1, CalendarContract.Calendars.CAL_ACCESS_OWNER))
+        every {
+            contentResolver.query(CalendarContract.Calendars.CONTENT_URI, any(), any(), any(), any())
+        } returns calCursor
+
+        val emptyEventCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), any(), any(), any())
+        } returns emptyEventCursor
+
+        val valuesSlot = slot<ContentValues>()
+        every {
+            contentResolver.insert(CalendarContract.Events.CONTENT_URI, capture(valuesSlot))
+        } returns Uri.parse("content://com.android.calendar/events/30101")
+
+        val resultId = dataSource.upsertTaskEvent(timedTask)
+        resultId shouldBe 30101L
+
+        val captured = valuesSlot.captured
+        val expectedStart = startOfLocalDay(futureDate) + 14 * 3600_000L
+        captured.getAsLong(CalendarContract.Events.DTSTART) shouldBe expectedStart
+        // EffortScore 85 -> 60 minutes via TaskBlockPlan.plannedMinutes
+        captured.getAsLong(CalendarContract.Events.DTEND) shouldBe expectedStart + 60 * 60_000L
+        captured.getAsString(CalendarContract.Events.DESCRIPTION) shouldBe "[neuroflow] Managed focus block\n[neuroflow:task:${timedTask.id}]"
+    }
+
+    @Test
+    fun `BUG-336 findEventIdByTaskId falls back to DESCRIPTION marker when custom app columns are stripped`() = runTest {
+        val taskId = "task-cloud-synced-123"
+
+        // First query (by CUSTOM_APP_PACKAGE & CUSTOM_APP_URI) returns empty because Google Calendar Sync wiped custom columns
+        val emptyCustomCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+
+        // Second query (by DESCRIPTION LIKE '%[neuroflow:task:$taskId]%') finds the event
+        val descCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        descCursor.addRow(arrayOf(445566L, null))
+
+        every {
+            contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                any(),
+                match { it.contains(CalendarContract.Events.CUSTOM_APP_PACKAGE) },
+                any(),
+                any()
+            )
+        } returns emptyCustomCursor
+
+        every {
+            contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                any(),
+                match { it.contains(CalendarContract.Events.DESCRIPTION) },
+                match { it.firstOrNull()?.contains(taskId) == true },
+                any()
+            )
+        } returns descCursor
+
+        val eventId = dataSource.findEventIdByTaskId(taskId)
+        eventId shouldBe 445566L
     }
 }

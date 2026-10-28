@@ -19,6 +19,9 @@ interface QuickNoteDao {
     suspend fun getById(id: String): QuickNoteEntity?
 
     @Query("SELECT * FROM quick_notes ORDER BY isPinned DESC, updatedAt DESC")
+    suspend fun getAll(): List<QuickNoteEntity>
+
+    @Query("SELECT * FROM quick_notes ORDER BY isPinned DESC, updatedAt DESC")
     fun observeAll(): Flow<List<QuickNoteEntity>>
 
     @Query("SELECT * FROM quick_notes WHERE isPinned = 1 ORDER BY updatedAt DESC")

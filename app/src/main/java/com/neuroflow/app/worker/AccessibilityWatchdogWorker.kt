@@ -30,18 +30,20 @@ class AccessibilityWatchdogWorker @AssistedInject constructor(
     companion object {
         const val WORK_NAME = "accessibility_watchdog"
         private const val CHANNEL_ID = "accessibility_watchdog_silent"
-        private const val NOTIFICATION_ID = 3001
+        private const val NOTIFICATION_ID = 10_003
     }
 
     override suspend fun doWork(): Result {
         val prefs = hyperFocusDataStore.current()
-        if (!prefs.isActive) return Result.success()
+        val notificationManager =
+            appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        val accessibilityEnabled = isAccessibilityEnabled()
-        if (!accessibilityEnabled) {
-            showWarningNotification()
+        if (!prefs.isActive || isAccessibilityEnabled()) {
+            notificationManager.cancel(NOTIFICATION_ID)
+            return Result.success()
         }
 
+        showWarningNotification()
         return Result.success()
     }
 

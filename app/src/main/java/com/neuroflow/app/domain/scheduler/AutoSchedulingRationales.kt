@@ -2,6 +2,7 @@ package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import java.time.Instant
@@ -64,7 +65,9 @@ object AutoSchedulingEngineCoordinator {
         val deferrals = mutableListOf<DeferralRationale>()
 
         for (task in tasks) {
-            val duration = if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 25
+            // BUG-297 Fix: Use TaskBlockPlan.plannedMinutes to prevent cognitive meter inflation on split Part 2 tasks
+            val duration = TaskBlockPlan.plannedMinutes(task)
+            val remainingSlots = availableSlotsMinutes - usedMinutes
             if (usedMinutes + duration > dailyCognitiveCapacityMinutes) {
                 deferrals.add(
                     DeferralRationale(
@@ -74,12 +77,12 @@ object AutoSchedulingEngineCoordinator {
                         actionableSuggestion = "Schedule for tomorrow's morning peak window."
                     )
                 )
-            } else if (duration > availableSlotsMinutes) {
+            } else if (duration > remainingSlots) {
                 deferrals.add(
                     DeferralRationale(
                         taskId = task.id,
                         reasonCode = DeferralReasonCode.INSUFFICIENT_TIME,
-                        explanation = "Task duration (${duration}m) exceeds available slot (${availableSlotsMinutes}m).",
+                        explanation = "Task duration (${duration}m) exceeds available slot (${maxOf(0, remainingSlots)}m).",
                         actionableSuggestion = "Break this task into smaller 25m focus blocks."
                     )
                 )
@@ -125,7 +128,8 @@ object ConflictResolver {
         val sortedIntervals = occupiedIntervals.sortedBy { it.first }
         // Bug 5 Fix (ADR-030): Clamp suggested conflict-free start to workDayStart
         var candidate = maxOf(searchStartMinute, workDayStartHour.coerceIn(0, 23) * 60)
-        val maxMinute = workDayEndHour * 60
+        val effectiveEndHour = if (workDayEndHour == 0) 24 else workDayEndHour
+        val maxMinute = effectiveEndHour * 60
         while (candidate + duration <= maxMinute) {
             val overlapping = sortedIntervals.firstOrNull { (start, end) ->
                 maxOf(candidate, start) < minOf(candidate + duration, end)
@@ -147,7 +151,9 @@ object ConflictResolver {
         dayMillis: Long? = null,
         zoneId: ZoneId = ZoneId.systemDefault()
     ): List<ScheduleConflict> {
-        val scheduledTasks = tasks.filter { it.scheduledDate != null && it.scheduledTime != null }
+        val referenceNow = dayMillis ?: System.currentTimeMillis()
+        // Only tasks with an explicit scheduled time of day are placed on the intraday timeline (BUG-152)
+        val scheduledTasks = tasks.filter { it.scheduledTime != null && it.resolveScheduledEpochMillis(referenceNow) != null }
         if (scheduledTasks.isEmpty()) return emptyList()
 
         fun analyzeForSingleDay(
@@ -155,7 +161,7 @@ object ConflictResolver {
             targetDayMillis: Long
         ): List<ScheduleConflict> {
             val conflicts = mutableListOf<ScheduleConflict>()
-            val sortedTasks = dayTasks.sortedBy { taskStartMinuteOfDay(it) }
+            val sortedTasks = dayTasks.sortedBy { taskStartMinuteOfDay(it, zoneId, targetDayMillis) }
 
             val activeSlots = protectedSlots.filter { slot ->
                 slot.isEnabled && ProtectedSlotClock.occursOnDay(slot, targetDayMillis)
@@ -167,12 +173,12 @@ object ConflictResolver {
 
             for (i in sortedTasks.indices) {
                 val taskA = sortedTasks[i]
-                val aStart = taskStartMinuteOfDay(taskA)
+                val aStart = taskStartMinuteOfDay(taskA, zoneId, targetDayMillis)
                 val aDuration = TaskBlockPlan.plannedMinutes(taskA)
                 val aEnd = aStart + aDuration
 
                 val otherTasksForA = sortedTasks.filterIndexed { idx, _ -> idx != i }.map { t ->
-                    val start = taskStartMinuteOfDay(t)
+                    val start = taskStartMinuteOfDay(t, zoneId, targetDayMillis)
                     start to (start + TaskBlockPlan.plannedMinutes(t))
                 }
                 val occupiedForA = allSlotIntervals + otherTasksForA
@@ -192,10 +198,11 @@ object ConflictResolver {
                             workDayEndHour = workDayEnd,
                             occupiedIntervals = occupiedForA
                         )
+                        val effectiveEnd = if (workDayEnd == 0) 24 else workDayEnd
                         val suggestion = if (targetStart != null) {
                             "Move '${taskA.title}' to ${formatMinutesToTime(targetStart)} after protected slot ends."
                         } else {
-                            "No free slot remaining today before ${formatMinutesToTime(workDayEnd * 60)}; move to tomorrow."
+                            "No free slot remaining today before ${formatMinutesToTime(effectiveEnd * 60)}; move to tomorrow."
                         }
                         conflicts.add(
                             ScheduleConflict(
@@ -215,7 +222,7 @@ object ConflictResolver {
                 // Task vs Task collisions
                 for (j in (i + 1) until sortedTasks.size) {
                     val taskB = sortedTasks[j]
-                    val bStart = taskStartMinuteOfDay(taskB)
+                    val bStart = taskStartMinuteOfDay(taskB, zoneId, targetDayMillis)
                     val bDuration = TaskBlockPlan.plannedMinutes(taskB)
                     val bEnd = bStart + bDuration
 
@@ -223,7 +230,7 @@ object ConflictResolver {
                         val overlapStart = maxOf(aStart, bStart)
                         val overlapEnd = minOf(aEnd, bEnd)
                         val otherTasksForB = sortedTasks.filterIndexed { idx, _ -> idx != j }.map { t ->
-                            val start = taskStartMinuteOfDay(t)
+                            val start = taskStartMinuteOfDay(t, zoneId, targetDayMillis)
                             start to (start + TaskBlockPlan.plannedMinutes(t))
                         }
                         val occupiedForB = allSlotIntervals + otherTasksForB
@@ -234,10 +241,11 @@ object ConflictResolver {
                             workDayEndHour = workDayEnd,
                             occupiedIntervals = occupiedForB
                         )
+                        val effectiveEnd = if (workDayEnd == 0) 24 else workDayEnd
                         val suggestion = if (targetStart != null) {
                             "Reorder '${taskB.title}' to start at ${formatMinutesToTime(targetStart)} or re-run auto-schedule."
                         } else {
-                            "No free slot remaining today before ${formatMinutesToTime(workDayEnd * 60)}; move to tomorrow."
+                            "No free slot remaining today before ${formatMinutesToTime(effectiveEnd * 60)}; move to tomorrow."
                         }
                         conflicts.add(
                             ScheduleConflict(
@@ -259,13 +267,15 @@ object ConflictResolver {
 
         return if (dayMillis != null) {
             val targetDate = Instant.ofEpochMilli(dayMillis).atZone(zoneId).toLocalDate()
-            val dayTasks = scheduledTasks.filter {
-                Instant.ofEpochMilli(it.scheduledDate!!).atZone(zoneId).toLocalDate() == targetDate
+            val dayTasks = scheduledTasks.filter { task ->
+                val sMillis = task.resolveScheduledEpochMillis(dayMillis) ?: return@filter false
+                Instant.ofEpochMilli(sMillis).atZone(zoneId).toLocalDate() == targetDate
             }
             analyzeForSingleDay(dayTasks, dayMillis)
         } else {
-            val groups = scheduledTasks.groupBy {
-                Instant.ofEpochMilli(it.scheduledDate!!).atZone(zoneId).toLocalDate()
+            val groups = scheduledTasks.groupBy { task ->
+                val sMillis = task.resolveScheduledEpochMillis() ?: 0L
+                Instant.ofEpochMilli(sMillis).atZone(zoneId).toLocalDate()
             }
             groups.flatMap { (date, dateTasks) ->
                 val dateStartMillis = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
@@ -274,12 +284,18 @@ object ConflictResolver {
         }
     }
 
-    fun taskStartMinuteOfDay(task: TaskEntity): Int {
+    fun taskStartMinuteOfDay(
+        task: TaskEntity,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        referenceDateMillis: Long = System.currentTimeMillis()
+    ): Int {
         val rawTime = task.scheduledTime
         if (rawTime != null && rawTime in 0 until ONE_DAY_MILLIS) {
             return (rawTime / 60_000L).toInt().coerceIn(0, 1439)
         }
-        return task.timelineStartMinuteOfDay()
+        val anchorMillis = task.resolveScheduledEpochMillis(referenceDateMillis) ?: return 0
+        val zdt = Instant.ofEpochMilli(anchorMillis).atZone(zoneId)
+        return (zdt.hour * 60 + zdt.minute).coerceIn(0, 1439)
     }
 
     fun formatMinutesToTime(minuteOfDay: Int): String {

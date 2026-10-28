@@ -44,6 +44,13 @@ fun NotesScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var isSearchActive by remember { mutableStateOf(false) }
     val isDark = LocalIsDarkTheme.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        viewModel.userActionMessage.collect { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
 
     if (uiState.isEditing && uiState.editingNote != null) {
         NoteEditorScreen(
@@ -60,6 +67,7 @@ fun NotesScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -253,10 +261,10 @@ fun NoteCard(
     val formattedDate = remember(note.updatedAt) {
         val nowCal = java.util.Calendar.getInstance()
         val noteCal = java.util.Calendar.getInstance().apply { timeInMillis = note.updatedAt }
-        val isSameDay = nowCal.get(java.util.Calendar.YEAR) == noteCal.get(java.util.Calendar.YEAR) &&
-                nowCal.get(java.util.Calendar.DAY_OF_YEAR) == noteCal.get(java.util.Calendar.DAY_OF_YEAR)
-        val isYesterday = nowCal.get(java.util.Calendar.YEAR) == noteCal.get(java.util.Calendar.YEAR) &&
-                nowCal.get(java.util.Calendar.DAY_OF_YEAR) - noteCal.get(java.util.Calendar.DAY_OF_YEAR) == 1
+        val nowStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        val noteStart = com.neuroflow.app.data.local.entity.startOfLocalDay(note.updatedAt)
+        val isSameDay = noteStart == nowStart
+        val isYesterday = noteStart == com.neuroflow.app.data.local.entity.startOfPreviousLocalDay(nowStart)
         when {
             isSameDay -> "Today, " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(note.updatedAt))
             isYesterday -> "Yesterday, " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(note.updatedAt))

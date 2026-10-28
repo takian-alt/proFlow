@@ -13,7 +13,8 @@ interface SmartTaskDecompositionService {
         title: String,
         durationMinutes: Int,
         apiKey: String? = null,
-        useAi: Boolean = false
+        useAi: Boolean = false,
+        userDirective: String = ""
     ): List<MicroStepSuggestion>
 
     fun decomposeTaskLocally(
@@ -42,7 +43,8 @@ class DefaultSmartTaskDecompositionService @Inject constructor(
         title: String,
         durationMinutes: Int,
         apiKey: String?,
-        useAi: Boolean
+        useAi: Boolean,
+        userDirective: String
     ): List<MicroStepSuggestion> {
         val trimmedKey = apiKey?.trim().orEmpty()
         if (!useAi || trimmedKey.isBlank()) {
@@ -52,7 +54,7 @@ class DefaultSmartTaskDecompositionService @Inject constructor(
         return geminiAiOnlineService.decomposeTask(
             title = title,
             durationMinutes = durationMinutes,
-            userDirective = "",
+            userDirective = userDirective,
             apiKey = trimmedKey,
             useAi = useAi
         )

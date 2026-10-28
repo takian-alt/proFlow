@@ -39,7 +39,20 @@ import com.neuroflow.app.feature.hyperfocus.data.UnlockCodeEntity
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE tasks ADD COLUMN recurrenceIntervalDays INTEGER NOT NULL DEFAULT 1")
+        val cursor = db.query("PRAGMA table_info(tasks)")
+        var hasColumn = false
+        cursor.use { c ->
+            while (c.moveToNext()) {
+                val name = c.getString(1)
+                if (name.equals("recurrenceIntervalDays", ignoreCase = true)) {
+                    hasColumn = true
+                    break
+                }
+            }
+        }
+        if (!hasColumn) {
+            db.execSQL("ALTER TABLE tasks ADD COLUMN recurrenceIntervalDays INTEGER NOT NULL DEFAULT 1")
+        }
     }
 }
 
@@ -400,31 +413,40 @@ val MIGRATION_21_22 = object : Migration(21, 22) {
         db.execSQL(
             """
             INSERT OR IGNORE INTO `focus_sessions` (`id`, `taskId`, `startedAt`, `endedAt`, `durationSeconds`, `interruptionCount`, `energyAtStart`, `wasCompleted`)
-            SELECT s.id, s.taskId, s.startedAt, s.endedAt, CAST(ROUND(s.durationMinutes * 60) AS INTEGER), (s.pauseResumeCount + s.appSwitchCount + s.interruptionBurstCount), 50, CASE WHEN s.endedAt IS NOT NULL THEN 1 ELSE 0 END
+            SELECT s.id, s.taskId, s.startedAt, s.endedAt, 
+                   CASE 
+                       WHEN s.durationMinutes > 0 THEN CAST(ROUND(s.durationMinutes * 60) AS INTEGER)
+                       WHEN s.endedAt IS NOT NULL THEN CAST(MAX(0, (s.endedAt - s.startedAt - s.totalPausedMs) / 1000) AS INTEGER)
+                       ELSE 0 
+                   END, 
+                   (s.pauseResumeCount + s.appSwitchCount + s.interruptionBurstCount), 
+                   50, 
+                   CASE WHEN s.endedAt IS NOT NULL THEN 1 ELSE 0 END
             FROM `time_sessions` s
             WHERE s.taskId IN (SELECT id FROM `tasks`)
             """.trimIndent()
         )
 
-        // 7. Extract legacy micro-steps from tasks.ifThenPlan
+        // 7. Extract legacy micro-steps from tasks.ifThenPlan (idempotent deterministic step IDs)
         val cursor = db.query("SELECT id, ifThenPlan FROM `tasks` WHERE `ifThenPlan` IS NOT NULL AND `ifThenPlan` != ''")
         cursor.use { c ->
-            while (c.moveToNext()) {
-                val taskId = c.getString(0)
-                val ifThenPlan = c.getString(1)
-                val steps = StepByStepPlanCodec.parse(ifThenPlan)
-                steps.forEachIndexed { index, step ->
-                    val stepId = java.util.UUID.randomUUID().toString()
-                    val isCompleted = if (step.completed) 1 else 0
-                    val stmt = db.compileStatement(
-                        "INSERT INTO `task_micro_steps` (`id`, `taskId`, `title`, `sortOrder`, `isCompleted`, `estimatedMinutes`) VALUES (?, ?, ?, ?, ?, 5)"
-                    )
-                    stmt.bindString(1, stepId)
-                    stmt.bindString(2, taskId)
-                    stmt.bindString(3, step.text)
-                    stmt.bindLong(4, index.toLong())
-                    stmt.bindLong(5, isCompleted.toLong())
-                    stmt.executeInsert()
+            val insertSql = "INSERT OR IGNORE INTO `task_micro_steps` (`id`, `taskId`, `title`, `sortOrder`, `isCompleted`, `estimatedMinutes`) VALUES (?, ?, ?, ?, ?, 5)"
+            db.compileStatement(insertSql).use { stmt ->
+                while (c.moveToNext()) {
+                    val taskId = c.getString(0)
+                    val ifThenPlan = c.getString(1)
+                    val steps = StepByStepPlanCodec.parse(ifThenPlan)
+                    steps.forEachIndexed { index, step ->
+                        val stepId = "${taskId}_step_$index"
+                        val isCompleted = if (step.completed) 1L else 0L
+                        stmt.clearBindings()
+                        stmt.bindString(1, stepId)
+                        stmt.bindString(2, taskId)
+                        stmt.bindString(3, step.text)
+                        stmt.bindLong(4, index.toLong())
+                        stmt.bindLong(5, isCompleted)
+                        stmt.executeInsert()
+                    }
                 }
             }
         }

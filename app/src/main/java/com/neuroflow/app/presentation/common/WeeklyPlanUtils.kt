@@ -2,8 +2,11 @@ package com.neuroflow.app.presentation.common
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduleAnchorMillis
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
@@ -38,10 +41,22 @@ fun isSameCalendarDay(m1: Long, m2: Long): Boolean {
 }
 
 fun isTaskOnDay(task: TaskEntity, dayStart: Long, dayEnd: Long): Boolean {
-    val anchor = task.effectiveScheduleAnchorMillis()
-    if (anchor != null && anchor in dayStart until dayEnd) return true
-    val deadline = task.deadlineDate
-    if (anchor == null && deadline != null && deadline in dayStart until dayEnd) return true
+    val sDate = task.effectiveScheduledDateMillis()
+    if (sDate != null) {
+        return sDate in dayStart until dayEnd
+    }
+    val rawScheduledTime = task.scheduledTime
+    if (rawScheduledTime != null && rawScheduledTime >= ONE_DAY_MILLIS) {
+        return rawScheduledTime in dayStart until dayEnd
+    }
+    val deadline = task.resolveDeadlineEpochMillis()
+    if (deadline != null) {
+        return deadline in dayStart until dayEnd
+    }
+    if (rawScheduledTime != null && rawScheduledTime in 0 until ONE_DAY_MILLIS) {
+        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        if (todayStart in dayStart until dayEnd) return true
+    }
     return false
 }
 

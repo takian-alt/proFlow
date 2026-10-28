@@ -3,6 +3,7 @@ package com.neuroflow.app.feature.hyperfocus.domain
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.HyperFocusSessionMode
 import com.neuroflow.app.domain.model.HyperFocusState
@@ -142,9 +143,10 @@ class HyperFocusManagerImpl @Inject constructor(
         val now = System.currentTimeMillis()
         val validIds = taskRepository.getAllTasks()
             .filter { task ->
+                val sDate = task.effectiveScheduledDateMillis()
                 task.id in taskIds &&
                     task.status == TaskStatus.ACTIVE &&
-                    (task.scheduledDate == null || task.scheduledDate <= now)
+                    (sDate == null || sDate <= now)
             }
             .map { it.id }
             .toSet()
@@ -330,6 +332,8 @@ class HyperFocusManagerImpl @Inject constructor(
         if (match.tier != RewardTier.FULL) {
             runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
         }
+        // Resync Device Owner package suspension so newly unlocked tier apps are un-suspended (BUG-155)
+        runCatching { resyncSuspension(true) }
 
         return UnlockResult.Success(match.tier.unlockMinutes)
     }
@@ -381,18 +385,29 @@ class HyperFocusManagerImpl @Inject constructor(
         if (shouldStartTimer) {
             runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
         }
+        // Resync Device Owner suspension so the granted package is un-suspended by DPM (BUG-155)
+        runCatching { resyncSuspension(true) }
     }
 
     /** Leaving the granted app closes it, but the budget stays and keeps ticking (E1). */
     override suspend fun clearActivePass() {
         hyperFocusDataStore.update { it.copy(activePassPackage = null) }
+        runCatching { resyncSuspension(true) }
     }
 
     override suspend fun expirePassIfDue(nowMillis: Long) {
+        var didExpire = false
         hyperFocusDataStore.update { prefs ->
             val deadline = prefs.activePassExpiresAt
-            if (prefs.activePassPackage == null || deadline == null || deadline > nowMillis) prefs
-            else prefs.copy(activePassPackage = null, activePassExpiresAt = null)
+            if (prefs.activePassPackage == null || deadline == null || deadline > nowMillis) {
+                prefs
+            } else {
+                didExpire = true
+                prefs.copy(activePassPackage = null, activePassExpiresAt = null)
+            }
+        }
+        if (didExpire) {
+            runCatching { resyncSuspension(true) }
         }
     }
 
@@ -424,6 +439,8 @@ class HyperFocusManagerImpl @Inject constructor(
         if (shouldStartService) {
             runCatching { context.startForegroundService(Intent(context, UnlockTimerService::class.java)) }
         }
+        // Resync Device Owner suspension so emergency package is un-suspended by DPM immediately (BUG-155)
+        runCatching { resyncSuspension(true) }
     }
 }
 

@@ -2,10 +2,12 @@ package com.neuroflow.app.presentation.notes
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.repository.NoteRepository
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -25,8 +27,12 @@ data class NotesUiState(
 @HiltViewModel
 class NotesViewModel @Inject constructor(
     private val noteRepository: NoteRepository,
-    private val taskRepository: TaskRepository
+    private val taskRepository: TaskRepository,
+    private val calendarSyncRepository: CalendarSyncRepository? = null
 ) : ViewModel() {
+
+    private val _userActionMessage = MutableSharedFlow<String>()
+    val userActionMessage: SharedFlow<String> = _userActionMessage.asSharedFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -88,8 +94,10 @@ class NotesViewModel @Inject constructor(
     fun saveNote(title: String, content: String, colorHex: String, isPinned: Boolean) {
         val current = _editingNote.value ?: return
         if (title.isBlank() && content.isBlank()) {
-            // Don't save blank notes
-            closeEditor()
+            viewModelScope.launch {
+                noteRepository.deleteNoteById(current.id)
+                closeEditor()
+            }
             return
         }
         viewModelScope.launch {
@@ -128,17 +136,32 @@ class NotesViewModel @Inject constructor(
 
     fun createTaskFromNote(note: NoteEntity) {
         viewModelScope.launch {
-            val taskTitle = note.title.ifBlank { note.content.take(40).trim() }.ifBlank { "Task from Note" }
-            val taskDescription = note.content.trim()
+            val fullText = if (note.title.isNotBlank()) "${note.title}: ${note.content}" else note.content
+            val inferred = TaskInferenceEngine.inferFromInput(fullText)
+            val now = System.currentTimeMillis()
+            val tagsCombined = inferred.contextTags.distinct().filter { it.isNotBlank() }.joinToString(",")
+            val taskTitle = inferred.sanitizedTitle.ifBlank { note.title.ifBlank { note.content.take(40).trim() } }.ifBlank { "Task from Note" }
             val newTask = TaskEntity(
                 id = UUID.randomUUID().toString(),
                 title = taskTitle,
-                description = taskDescription,
-                estimatedDurationMinutes = 25,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
+                description = note.content.trim(),
+                estimatedDurationMinutes = inferred.durationMinutes,
+                energyLevel = inferred.energyDemand,
+                taskType = inferred.taskType,
+                tags = tagsCombined,
+                isFrog = inferred.isFrog,
+                quadrant = inferred.quadrant,
+                priority = inferred.priority,
+                deadlineDate = inferred.deadlineDate,
+                deadlineTime = inferred.deadlineTime,
+                scheduledDate = inferred.scheduledDate,
+                scheduledTime = inferred.scheduledTime,
+                createdAt = now,
+                updatedAt = now
             )
             taskRepository.insert(newTask)
+            calendarSyncRepository?.handleTaskStateChanged(newTask)
+            _userActionMessage.emit("Created task '${newTask.title.take(24)}' ⚡")
         }
     }
 }

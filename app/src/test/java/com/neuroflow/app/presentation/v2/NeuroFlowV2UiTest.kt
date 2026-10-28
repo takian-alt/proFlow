@@ -409,7 +409,7 @@ class NeuroFlowV2UiTest : StringSpec({
             viewModel.undoDeferTask()
             advanceUntilIdle()
 
-            coVerify { taskRepo.update(match { it.id == "defer-undo" && it.scheduledTime == 20_000_000L && it.postponeCount == 0 }) }
+            coVerify { taskRepo.update(match { it.id == "defer-undo" && it.scheduledTime == 20_000_000L && it.postponeCount == 1 }) }
             val undoMsg = viewModel.uiState.filter { it.lastActionMessage?.startsWith("Undid") == true }.first().lastActionMessage
             undoMsg shouldBe "Undid deferral for: Call Accountant"
         }
@@ -727,10 +727,18 @@ class NeuroFlowV2UiTest : StringSpec({
             val woopRepo = mockk<WoopRepository>(relaxed = true)
             val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
 
-            val openSession = TimeSessionEntity(id = "sess-1", taskId = "focus-sprint-1", startedAt = System.currentTimeMillis())
+            var openSession: TimeSessionEntity? = null
             coEvery { taskRepo.getById("focus-sprint-1") } returns task
             coEvery { taskRepo.getActiveTasks() } returns listOf(task)
-            coEvery { sessionRepo.getOpenSessionForTask("focus-sprint-1") } returns openSession
+            coEvery { sessionRepo.getOpenSessionForTask("focus-sprint-1") } answers { openSession }
+            coEvery { sessionRepo.insert(any()) } answers {
+                val s = firstArg<TimeSessionEntity>()
+                openSession = s
+            }
+            coEvery { sessionRepo.update(any()) } answers {
+                val s = firstArg<TimeSessionEntity>()
+                openSession = s
+            }
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
 
             val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
@@ -831,6 +839,90 @@ class NeuroFlowV2UiTest : StringSpec({
             state.showSprintCompletionSheet shouldBe false
             state.showDecompressionZone shouldBe true
             state.decompressionRemainingSeconds shouldBe 180
+        }
+    }
+
+    "FocusViewModelV2 pauseTimer sets isPaused=true and isRunning=false, and resumeTimer preserves elapsed seconds (BUG-186)" {
+        runTest(testDispatcher) {
+            val task = makeTask(id = "focus-resume-1", title = "Focus Resume Test")
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "focus-resume-1"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            coEvery { taskRepo.getById("focus-resume-1") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            viewModel.selectTimerMode(FocusTimerModeV2.POMODORO_25)
+            viewModel.startTimer()
+            repeat(30) { viewModel.tickSecond() }
+
+            viewModel.uiState.value.elapsedSeconds shouldBe 30L
+            viewModel.uiState.value.isRunning shouldBe true
+            viewModel.uiState.value.isPaused shouldBe false
+
+            // Pause timer
+            viewModel.pauseTimer()
+            val pausedState = viewModel.uiState.value
+            pausedState.isPaused shouldBe true
+            pausedState.isRunning shouldBe false
+            pausedState.elapsedSeconds shouldBe 30L
+
+            // Resume timer
+            viewModel.resumeTimer()
+            val resumedState = viewModel.uiState.value
+            resumedState.isPaused shouldBe false
+            resumedState.isRunning shouldBe true
+            // Must preserve elapsedSeconds without resetting to 0
+            resumedState.elapsedSeconds shouldBe 30L
+            resumedState.remainingSeconds shouldBe (1500L - 30L)
+        }
+    }
+
+    "FocusViewModelV2 loadTask reconnecting to expired session terminates immediately without ghost audio (BUG-188)" {
+        runTest(testDispatcher) {
+            val task = makeTask(id = "focus-expired-1", title = "Focus Expired Reconnection")
+            val savedStateHandle = SavedStateHandle(mapOf("taskId" to "focus-expired-1"))
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+            val woopRepo = mockk<WoopRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            // Open session started 40 minutes ago (Pomodoro duration is 25m = 1500s)
+            val startedAt = System.currentTimeMillis() - (40 * 60 * 1000L)
+            val openSession = TimeSessionEntity(
+                id = "expired-session-1",
+                taskId = "focus-expired-1",
+                startedAt = startedAt,
+                totalPausedMs = 0L,
+                pausedAt = null
+            )
+
+            coEvery { taskRepo.getById("focus-expired-1") } returns task
+            coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+            coEvery { sessionRepo.getOpenSessionForTask("focus-expired-1") } returns openSession
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FocusViewModelV2(savedStateHandle, taskRepo, sessionRepo, woopRepo, prefsDataStore)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            state.isRunning shouldBe false
+            state.isPaused shouldBe false
+            state.isSprintCompleted shouldBe true
+            state.showSprintCompletionSheet shouldBe true
+            state.remainingSeconds shouldBe 0L
+            state.elapsedSeconds shouldBe 1500L
+
+            // Session record in Room must be closed
+            coVerify { sessionRepo.update(match { it.id == "expired-session-1" && it.endedAt != null }) }
+            // Task tracked minutes must be credited
+            coVerify { taskRepo.update(match { it.id == "focus-expired-1" && it.totalTimeTrackedMinutes > 0f }) }
         }
     }
 })

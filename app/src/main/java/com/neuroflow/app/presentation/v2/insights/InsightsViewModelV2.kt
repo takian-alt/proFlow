@@ -6,6 +6,7 @@ import androidx.work.WorkManager
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
@@ -153,15 +154,29 @@ class InsightsViewModelV2 @Inject constructor(
         val frogsToday = completedToday.count { it.isFrog }
 
         // Circadian alignment: % of high energy tasks executed or completed during peak window
-        val peakStart = prefs.peakEnergyStart.takeIf { it > 0 } ?: 9
-        val peakEnd = prefs.peakEnergyEnd.takeIf { it > 0 } ?: 12
+        val peakStart = prefs.peakEnergyStart.coerceIn(0, 23)
+        val peakEnd = prefs.peakEnergyEnd.coerceIn(0, 23)
         val highEnergyTasks = allTasks.filter { it.energyLevel == EnergyLevel.HIGH }
-        val alignedHighEnergy = highEnergyTasks.count { task ->
-            val scheduledH = task.scheduledTime?.let { (it / 3600_000L).toInt() }
-            scheduledH == null || scheduledH in peakStart until peakEnd
+        val evaluatedTasks = highEnergyTasks.filter {
+            (it.scheduledTime != null && it.resolveScheduledEpochMillis() != null) || it.completedAt != null
         }
-        val alignmentRate = if (highEnergyTasks.isNotEmpty()) {
-            ((alignedHighEnergy.toFloat() / highEnergyTasks.size) * 100).toInt().coerceIn(40, 100)
+        val alignedHighEnergy = evaluatedTasks.count { task ->
+            val timestamp = if (task.completedAt != null) {
+                task.completedAt
+            } else if (task.scheduledTime != null) {
+                task.resolveScheduledEpochMillis()
+            } else null
+            val taskHour = timestamp?.let {
+                java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).hour
+            }
+            when {
+                taskHour == null -> false
+                peakStart <= peakEnd -> taskHour in peakStart until peakEnd
+                else -> taskHour >= peakStart || taskHour < peakEnd
+            }
+        }
+        val alignmentRate = if (evaluatedTasks.isNotEmpty()) {
+            ((alignedHighEnergy.toFloat() / evaluatedTasks.size) * 100).toInt().coerceIn(40, 100)
         } else 85
 
         val totalMinutes = todaySessions.sumOf { it.trackedMinutes(now).toDouble() }
@@ -281,7 +296,10 @@ class InsightsViewModelV2 @Inject constructor(
                     Calendar.getInstance().apply { timeInMillis = task.completedAt }.get(Calendar.HOUR_OF_DAY)
                 }
                 task.scheduledTime != null -> {
-                    ((task.scheduledTime / 3600_000L) % 24).toInt()
+                    val epoch = task.resolveScheduledEpochMillis()
+                    epoch?.let {
+                        java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).hour
+                    } ?: ((task.scheduledTime / 3600_000L) % 24).toInt()
                 }
                 else -> {
                     Calendar.getInstance().apply { timeInMillis = task.updatedAt }.get(Calendar.HOUR_OF_DAY)
@@ -293,10 +311,15 @@ class InsightsViewModelV2 @Inject constructor(
             }
         }
         if (map.isEmpty()) {
-            val pStart = prefs.peakEnergyStart.takeIf { it > 0 } ?: 9
-            val pEnd = prefs.peakEnergyEnd.takeIf { it > 0 } ?: 12
-            for (h in pStart until pEnd) {
-                map[h] = 45
+            val pStart = prefs.peakEnergyStart.coerceIn(0, 23)
+            val pEnd = prefs.peakEnergyEnd.coerceIn(0, 23)
+            if (pStart <= pEnd) {
+                for (h in pStart until pEnd) {
+                    map[h] = 45
+                }
+            } else {
+                for (h in pStart..23) map[h] = 45
+                for (h in 0 until pEnd) map[h] = 45
             }
         }
         val hourlyDensity = BehavioralInsightsEngine.calculateHourlyCircadianDensity(map)

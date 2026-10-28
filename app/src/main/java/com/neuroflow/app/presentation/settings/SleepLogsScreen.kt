@@ -33,6 +33,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.neuroflow.app.data.local.entity.localStartOfDayToUtcDateMillis
+import com.neuroflow.app.data.local.entity.utcDateMillisToLocalStartOfDay
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -76,7 +78,7 @@ fun SleepLogsScreen(
     val isPassiveSyncing by viewModel.isPassiveSyncing.collectAsStateWithLifecycle()
     val sleepLogInputError by viewModel.sleepLogInputError.collectAsStateWithLifecycle()
 
-    var logDateMillis by rememberSaveable { mutableStateOf(todayUtcDateMillis()) }
+    var logDateMillis by rememberSaveable { mutableStateOf(com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())) }
     var showDatePicker by remember { mutableStateOf(false) }
     var logStartHour by remember { mutableStateOf(23) }
     var logStartMinute by remember { mutableStateOf(0) }
@@ -97,12 +99,16 @@ fun SleepLogsScreen(
     }
 
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = logDateMillis)
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = localStartOfDayToUtcDateMillis(logDateMillis)
+        )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    logDateMillis = datePickerState.selectedDateMillis ?: logDateMillis
+                    logDateMillis = datePickerState.selectedDateMillis?.let {
+                        utcDateMillisToLocalStartOfDay(it)
+                    } ?: logDateMillis
                     showDatePicker = false
                     viewModel.clearSleepLogInputError()
                 }) {
@@ -392,7 +398,7 @@ private fun hourLabel(hour: Int) = when {
 
 private fun sleepLogStartMillis(dateMillis: Long, startHour: Int, startMinute: Int): Long {
     val selectedDate = Instant.ofEpochMilli(dateMillis)
-        .atZone(ZoneOffset.UTC)
+        .atZone(ZoneId.systemDefault())
         .toLocalDate()
 
     return selectedDate
@@ -423,7 +429,7 @@ private fun formatDateTime(millis: Long): String {
 
 private fun formatDateOnly(millis: Long): String {
     val date = Instant.ofEpochMilli(millis)
-        .atZone(ZoneOffset.UTC)
+        .atZone(ZoneId.systemDefault())
         .toLocalDate()
     return date.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault()))
 }

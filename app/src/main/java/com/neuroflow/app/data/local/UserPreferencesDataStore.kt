@@ -371,7 +371,11 @@ class UserPreferencesDataStore @Inject constructor(
             effectivePeakMinuteOfDay = prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] ?: -1,
             quizPeakEnabled = prefs[Keys.QUIZ_PEAK_ENABLED] ?: true,
             affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
-            tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
+            tagCatalog = if (prefs.contains(Keys.TAG_CATALOG)) {
+                parseAffirmations(prefs[Keys.TAG_CATALOG])
+            } else {
+                TaskTagSchedulingProfile.starterTags
+            },
             autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
             isAutoScheduleToggleOn = prefs[Keys.IS_AUTO_SCHEDULE_TOGGLE_ON] ?: false,
             autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(1, 7),
@@ -581,7 +585,11 @@ class UserPreferencesDataStore @Inject constructor(
                 effectivePeakMinuteOfDay = prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] ?: -1,
                 quizPeakEnabled = prefs[Keys.QUIZ_PEAK_ENABLED] ?: true,
                 affirmations = parseAffirmations(prefs[Keys.AFFIRMATIONS]),
-                tagCatalog = withStarterTagCatalog(parseAffirmations(prefs[Keys.TAG_CATALOG])),
+                tagCatalog = if (prefs.contains(Keys.TAG_CATALOG)) {
+                    parseAffirmations(prefs[Keys.TAG_CATALOG])
+                } else {
+                    TaskTagSchedulingProfile.starterTags
+                },
                 autoSchedulingEnabled = prefs[Keys.AUTO_SCHEDULING_ENABLED] ?: true,
                 isAutoScheduleToggleOn = prefs[Keys.IS_AUTO_SCHEDULE_TOGGLE_ON] ?: false,
                 autoSchedulingHorizonDays = (prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] ?: 3).coerceIn(1, 7),
@@ -712,7 +720,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.EFFECTIVE_PEAK_MINUTE_OF_DAY] = updated.effectivePeakMinuteOfDay
             prefs[Keys.QUIZ_PEAK_ENABLED] = updated.quizPeakEnabled
             prefs[Keys.AFFIRMATIONS] = encodeAffirmations(updated.affirmations)
-            prefs[Keys.TAG_CATALOG] = encodeAffirmations(withStarterTagCatalog(updated.tagCatalog))
+            prefs[Keys.TAG_CATALOG] = encodeAffirmations(updated.tagCatalog)
             prefs[Keys.AUTO_SCHEDULING_ENABLED] = updated.autoSchedulingEnabled
             prefs[Keys.IS_AUTO_SCHEDULE_TOGGLE_ON] = updated.isAutoScheduleToggleOn
             prefs[Keys.AUTO_SCHEDULING_HORIZON_DAYS] = updated.autoSchedulingHorizonDays.coerceIn(1, 7)
@@ -854,14 +862,24 @@ class UserPreferencesDataStore @Inject constructor(
         }
         protectedSlotDao?.let { dao ->
             runCatching {
+                val currentIds = slots.map { it.id }.toSet()
+                val existing = dao.getAll()
+                existing.filter { it.id !in currentIds }.forEach { dao.delete(it) }
                 dao.insertAll(slots.map { slot ->
+                    val mask = when (slot.recurrence) {
+                        com.neuroflow.app.domain.model.PtsRecurrence.DAILY -> 0b1111111
+                        com.neuroflow.app.domain.model.PtsRecurrence.WEEKDAYS -> 0b0111110
+                        com.neuroflow.app.domain.model.PtsRecurrence.WEEKENDS -> 0b1000001
+                        com.neuroflow.app.domain.model.PtsRecurrence.CUSTOM -> slot.weekdayBitmask
+                        com.neuroflow.app.domain.model.PtsRecurrence.SPECIFIC_DATE -> slot.weekdayBitmask
+                    }
                     com.neuroflow.app.data.local.entity.ProtectedSlotEntity(
                         id = slot.id,
                         title = slot.label,
                         startHour = slot.startMinuteOfDay / 60,
                         startMinute = slot.startMinuteOfDay % 60,
                         durationMinutes = slot.durationMinutes,
-                        daysOfWeekMask = slot.weekdayBitmask,
+                        daysOfWeekMask = mask,
                         isEnabled = slot.isEnabled
                     )
                 })
@@ -870,7 +888,8 @@ class UserPreferencesDataStore @Inject constructor(
     }
 
     suspend fun mergeTagCatalog(tags: Collection<String>) {
-        val cleaned = tags.mapNotNull { it.trim().takeIf(String::isNotBlank) }
+        val cleaned = tags.flatMap { it.split(",") }
+            .mapNotNull { it.trim().removePrefix("#").removePrefix("@").takeIf(String::isNotBlank) }
         if (cleaned.isEmpty()) return
 
         updatePreferences { prefs ->
@@ -879,7 +898,7 @@ class UserPreferencesDataStore @Inject constructor(
     }
 
     suspend fun removeTagFromCatalog(tag: String) {
-        val cleaned = tag.trim()
+        val cleaned = tag.trim().removePrefix("#").removePrefix("@")
         if (cleaned.isBlank()) return
 
         updatePreferences { prefs ->
@@ -892,15 +911,17 @@ class UserPreferencesDataStore @Inject constructor(
         val seen = mutableSetOf<String>()
 
         fun addTag(tag: String) {
-            val key = tag.lowercase()
+            val cleaned = tag.trim().removePrefix("#").removePrefix("@")
+            if (cleaned.isBlank()) return
+            val key = cleaned.lowercase()
             if (seen.add(key)) {
-                merged += tag
+                merged += cleaned
             }
         }
 
         existing.forEach(::addTag)
         incoming.forEach(::addTag)
-        return withStarterTagCatalog(merged)
+        return merged.sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 
     private fun withStarterTagCatalog(existing: List<String>): List<String> {

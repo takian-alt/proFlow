@@ -105,4 +105,66 @@ class TaskInferenceEngineTest {
         assertEquals(com.neuroflow.app.domain.model.Quadrant.ELIMINATE, q4.quadrant)
         assertEquals("Clean ancient desktop icons", q4.sanitizedTitle)
     }
+
+    @Test
+    fun testDueNextDayParsingPreservesDeadlinesAndDoesNotPolluteScheduledDate() {
+        val result = TaskInferenceEngine.inferFromInput("Submit quarterly report due next friday at 5pm")
+        org.junit.Assert.assertNotNull(result.deadlineDate)
+        org.junit.Assert.assertNotNull(result.deadlineTime)
+        assertEquals(17 * 3600_000L, result.deadlineTime)
+        org.junit.Assert.assertNull(result.scheduledDate)
+        org.junit.Assert.assertNull(result.scheduledTime)
+        assertEquals("Submit quarterly report", result.sanitizedTitle)
+    }
+
+    @Test
+    fun testScheduleForNextDayParsingSetsScheduledDate() {
+        val result = TaskInferenceEngine.inferFromInput("Team sync scheduled for next monday at 10am")
+        org.junit.Assert.assertNotNull(result.scheduledDate)
+        assertEquals(10 * 3600_000L, result.scheduledTime)
+        org.junit.Assert.assertNull(result.deadlineDate)
+        assertEquals("Team sync", result.sanitizedTitle)
+    }
+
+    @Test
+    fun testDueTomorrowAfternoonPreservesDeadlineAndDoesNotScheduleForToday() {
+        val result = TaskInferenceEngine.inferFromInput("Submit quarterly taxes due tomorrow afternoon")
+        org.junit.Assert.assertNotNull(result.deadlineDate)
+        org.junit.Assert.assertNotNull(result.deadlineTime)
+        assertEquals(14 * 3600_000L, result.deadlineTime)
+        org.junit.Assert.assertNull(result.scheduledDate)
+        org.junit.Assert.assertNull(result.scheduledTime)
+        assertEquals("Submit quarterly taxes", result.sanitizedTitle)
+    }
+
+    @Test
+    fun testDueFridayMorningPreservesDeadlineAndDoesNotScheduleForToday() {
+        val result = TaskInferenceEngine.inferFromInput("Pay server bills due next friday morning")
+        org.junit.Assert.assertNotNull(result.deadlineDate)
+        org.junit.Assert.assertNotNull(result.deadlineTime)
+        assertEquals(9 * 3600_000L + 30 * 60_000L, result.deadlineTime)
+        org.junit.Assert.assertNull(result.scheduledDate)
+        org.junit.Assert.assertNull(result.scheduledTime)
+        assertEquals("Pay server bills", result.sanitizedTitle)
+    }
+
+    @Test
+    fun testDueInRelativeOffsetPreservesDeadline() {
+        val result = TaskInferenceEngine.inferFromInput("Submit incident report due in 2 hours")
+        org.junit.Assert.assertNotNull(result.deadlineDate)
+        org.junit.Assert.assertNotNull(result.deadlineTime)
+        org.junit.Assert.assertNull(result.scheduledDate)
+        org.junit.Assert.assertNull(result.scheduledTime)
+        assertEquals("Submit incident report", result.sanitizedTitle)
+    }
+
+    @Test
+    fun testScheduleInRelativeOffsetSchedulesTask() {
+        val result = TaskInferenceEngine.inferFromInput("Team catchup in 2 hours")
+        org.junit.Assert.assertNotNull(result.scheduledDate)
+        org.junit.Assert.assertNotNull(result.scheduledTime)
+        org.junit.Assert.assertNull(result.deadlineDate)
+        org.junit.Assert.assertNull(result.deadlineTime)
+        assertEquals("Team catchup", result.sanitizedTitle)
+    }
 }

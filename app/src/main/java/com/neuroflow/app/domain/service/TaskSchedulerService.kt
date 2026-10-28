@@ -151,7 +151,9 @@ interface TaskSchedulerService {
         physiologicalBlocks: List<CognitiveBlockWindow> = emptyList(),
         stimulantDoses: List<StimulantDoseBout> = emptyList(),
         socialJetlagLagHours: Double = 0.0,
-        activeUncompletedTaskIds: Set<String> = emptySet()
+        activeUncompletedTaskIds: Set<String> = emptySet(),
+        workDayStartHour: Int? = null,
+        workDayEndHour: Int? = null
     ): List<ScheduledPlacement>
 
     fun scheduleDayWithOutcome(
@@ -174,7 +176,9 @@ interface TaskSchedulerService {
         physiologicalBlocks: List<CognitiveBlockWindow> = emptyList(),
         stimulantDoses: List<StimulantDoseBout> = emptyList(),
         socialJetlagLagHours: Double = 0.0,
-        activeUncompletedTaskIds: Set<String> = emptySet()
+        activeUncompletedTaskIds: Set<String> = emptySet(),
+        workDayStartHour: Int? = null,
+        workDayEndHour: Int? = null
     ): SchedulingOutcome
 
     companion object {
@@ -284,7 +288,7 @@ class DefaultTaskSchedulerService @Inject constructor(
         val woopBonus = if (task.hasImplementationIntention) {
             12.0 * weights.planBoostWeight.coerceIn(0.1, 3.0)
         } else 0.0
-        val lowFrictionBonus = (15.0 * exp(-task.estimatedMinutes / 45.0)) * weights.durationWeight.coerceIn(0.2, 3.0)
+        val lowFrictionBonus = (15.0 * exp(-max(5, task.estimatedMinutes) / 45.0)) * weights.durationWeight.coerceIn(0.2, 3.0)
         val enjoymentBonus = if (task.estimatedEnjoyment != 5) {
             (task.estimatedEnjoyment - 5) * 2.0 * weights.enjoymentWeight.coerceIn(0.2, 3.0)
         } else 0.0
@@ -353,7 +357,9 @@ class DefaultTaskSchedulerService @Inject constructor(
         physiologicalBlocks: List<CognitiveBlockWindow>,
         stimulantDoses: List<StimulantDoseBout>,
         socialJetlagLagHours: Double,
-        activeUncompletedTaskIds: Set<String>
+        activeUncompletedTaskIds: Set<String>,
+        workDayStartHour: Int?,
+        workDayEndHour: Int?
     ): List<ScheduledPlacement> = scheduleDayWithOutcome(
         tasks = tasks,
         dayDate = dayDate,
@@ -374,7 +380,9 @@ class DefaultTaskSchedulerService @Inject constructor(
         physiologicalBlocks = physiologicalBlocks,
         stimulantDoses = stimulantDoses,
         socialJetlagLagHours = socialJetlagLagHours,
-        activeUncompletedTaskIds = activeUncompletedTaskIds
+        activeUncompletedTaskIds = activeUncompletedTaskIds,
+        workDayStartHour = workDayStartHour,
+        workDayEndHour = workDayEndHour
     ).placements
 
     override fun scheduleDayWithOutcome(
@@ -397,24 +405,43 @@ class DefaultTaskSchedulerService @Inject constructor(
         physiologicalBlocks: List<CognitiveBlockWindow>,
         stimulantDoses: List<StimulantDoseBout>,
         socialJetlagLagHours: Double,
-        activeUncompletedTaskIds: Set<String>
+        activeUncompletedTaskIds: Set<String>,
+        workDayStartHour: Int?,
+        workDayEndHour: Int?
     ): SchedulingOutcome {
         if (tasks.isEmpty()) return SchedulingOutcome(emptyList())
 
         // 0. Cycle-Safe DAG Sanitization (ADR-020): guarantees circular dependencies never starve Kahn's queue
         val sanitizedTasks = DependencyGraphValidator.sanitizeDag(tasks).tasks
 
-        // 1. Construct DST-safe day horizon [max(now, 06:00, wakeTime + 15m), 22:30]
+        // 1. Construct DST-safe day horizon respecting user's workDayStart and workDayEnd preferences
         val nowLocalDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
         val isToday = dayDate == nowLocalDate
         val isPast = dayDate < nowLocalDate
 
-        val earliestDayStart = dayDate.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli()
-        val latestDayEnd = dayDate.atTime(LocalTime.of(22, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        val earliestDayStart = if (workDayStartHour != null) {
+            dayDate.atTime(LocalTime.of(workDayStartHour.coerceIn(0, 23), 0)).atZone(zoneId).toInstant().toEpochMilli()
+        } else {
+            dayDate.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        }
+        val latestDayEnd = if (workDayEndHour != null) {
+            val endHour = workDayEndHour.coerceIn(0, 23)
+            if (endHour == 0) {
+                dayDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+            } else {
+                dayDate.atTime(LocalTime.of(endHour, 0)).atZone(zoneId).toInstant().toEpochMilli()
+            }
+        } else {
+            dayDate.atTime(LocalTime.of(22, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        }
         val zonedWake = Instant.ofEpochMilli(wakeTimeMillis).atZone(zoneId)
-        val wakeTodayMillis = dayDate.atTime(zonedWake.toLocalTime()).atZone(zoneId).toInstant().toEpochMilli()
-        val effectiveWakeStart = max(earliestDayStart, wakeTodayMillis + 15 * 60_000L)
-        val dayEndMillis = max(latestDayEnd, effectiveWakeStart + 4 * 3600_000L)
+        val effectiveWakeTimeMillis = if (zonedWake.toLocalDate() != dayDate) {
+            dayDate.atTime(zonedWake.toLocalTime()).atZone(zoneId).toInstant().toEpochMilli()
+        } else {
+            wakeTimeMillis
+        }
+        val effectiveWakeStart = max(earliestDayStart, effectiveWakeTimeMillis + 15 * 60_000L)
+        val dayEndMillis = if (workDayEndHour != null) latestDayEnd else max(latestDayEnd, effectiveWakeStart + 4 * 3600_000L)
         val dayStartMillis = when {
             isPast -> dayEndMillis
             isToday -> max(nowMillis + 5 * 60_000L, effectiveWakeStart)
@@ -489,7 +516,7 @@ class DefaultTaskSchedulerService @Inject constructor(
             if (isHysteresisCandidate && prereqsSatisfied) {
                 val snap = circadianService.evaluateSnapshotWithStimulants(
                     timestampMillis = existingWindow!!.startMillis,
-                    wakeTimeMillis = wakeTimeMillis,
+                    wakeTimeMillis = effectiveWakeTimeMillis,
                     lastSleepDurationMinutes = lastSleepDurationMinutes,
                     continuousActiveFocusMinutes = 0,
                     zoneId = zoneId,
@@ -507,11 +534,22 @@ class DefaultTaskSchedulerService @Inject constructor(
                     referenceNowMillis = nowMillis
                 )
                 placements.add(ScheduledPlacement(task, existingWindow, breakdown))
+                val isPart1 = task.id.endsWith("#part1") || task.id.endsWith("_part1") || task.title.contains("(Part 1/")
+                val bufferMins = if (isPart1) ULTRADIAN_RECOVERY_BUFFER_MINUTES else TRANSITION_BUFFER_MINUTES
+                val nextLockedStart = sanitizedTasks.filter { it.isLocked && it.scheduledStartMillis != null }
+                    .mapNotNull { it.scheduledStartMillis }
+                    .filter { it >= existingWindow.endMillis }
+                    .minOrNull()
+                val effectiveBufferMillis = if (nextLockedStart != null) {
+                    min(bufferMins * 60_000L, max(0L, nextLockedStart - existingWindow.endMillis))
+                } else {
+                    bufferMins * 60_000L
+                }
                 freeIntervals = subtractInterval(
                     freeIntervals,
                     TimeSlotWindow(
                         existingWindow.startMillis,
-                        existingWindow.endMillis + TRANSITION_BUFFER_MINUTES * 60_000L
+                        existingWindow.endMillis + effectiveBufferMillis
                     )
                 )
                 completionEndMap[task.id] = existingWindow.endMillis
@@ -522,15 +560,25 @@ class DefaultTaskSchedulerService @Inject constructor(
 
         // Feature 2 (ADR-024): Reverse-DAG Deadline & Locked-Dependent Ceiling Propagation
         val latestAllowedEndMap = mutableMapOf<String, Long>()
+        val structuralCeilingMap = mutableMapOf<String, Long>()
         for (task in sanitizedTasks) {
             val deadlineCeiling = task.deadlineMillis ?: Long.MAX_VALUE
+            val taskBufferedMins = computeBufferedDuration(task, calibrationRatio)
+            val taskDurationMillis = taskBufferedMins * 60_000L
             val placedWindow = placements.firstOrNull { it.task.id == task.id }?.window
             val directCeiling = when {
-                placedWindow != null -> placedWindow.startMillis
-                task.isLocked && task.scheduledStartMillis != null -> task.scheduledStartMillis!!
+                placedWindow != null -> placedWindow.endMillis
+                task.isLocked && task.scheduledStartMillis != null -> task.scheduledStartMillis!! + taskDurationMillis
                 else -> deadlineCeiling
             }
             latestAllowedEndMap[task.id] = min(deadlineCeiling, directCeiling)
+
+            val directStructural = when {
+                placedWindow != null -> placedWindow.startMillis
+                task.isLocked && task.scheduledStartMillis != null -> task.scheduledStartMillis!!
+                else -> Long.MAX_VALUE
+            }
+            structuralCeilingMap[task.id] = directStructural
         }
 
         var dagCeilingChanged = true
@@ -540,27 +588,52 @@ class DefaultTaskSchedulerService @Inject constructor(
             dagIterations++
             for (task in sanitizedTasks) {
                 val childCeiling = latestAllowedEndMap[task.id] ?: Long.MAX_VALUE
-                if (childCeiling == Long.MAX_VALUE) continue
+                val childStructural = structuralCeilingMap[task.id] ?: Long.MAX_VALUE
 
                 val childBufferedMins = computeBufferedDuration(task, calibrationRatio)
                 val childDurationMillis = childBufferedMins * 60_000L
                 val placedWindow = placements.firstOrNull { it.task.id == task.id }?.window
+                val isLockedWithStart = task.isLocked && task.scheduledStartMillis != null
+                val childLockedStart = if (isLockedWithStart) task.scheduledStartMillis!! else null
+
                 val childLatestStart = when {
                     placedWindow != null -> placedWindow.startMillis
-                    task.isLocked && task.scheduledStartMillis != null -> task.scheduledStartMillis!!
-                    else -> childCeiling - childDurationMillis
+                    childLockedStart != null -> childLockedStart
+                    childCeiling != Long.MAX_VALUE -> childCeiling - childDurationMillis
+                    else -> Long.MAX_VALUE
                 }
-                val isUltradianDep = task.id.endsWith("#part2") ||
-                    task.prerequisiteIds.any { it.endsWith("#part1") }
+
+                val childStructuralStart = when {
+                    placedWindow != null -> placedWindow.startMillis
+                    childLockedStart != null -> childLockedStart
+                    childStructural != Long.MAX_VALUE -> childStructural - childDurationMillis
+                    else -> Long.MAX_VALUE
+                }
+
+                // BUG-329 Fix: Support both _part2 and #part2 (and parentTaskId) for ultradian dependencies
+                val isUltradianDep = task.id.endsWith("#part2") || task.id.endsWith("_part2") ||
+                    task.parentTaskId != null ||
+                    task.prerequisiteIds.any { it.endsWith("#part1") || it.endsWith("_part1") }
                 val bufferBeforeChild = if (isUltradianDep) ULTRADIAN_RECOVERY_BUFFER_MINUTES else TRANSITION_BUFFER_MINUTES
-                val parentMaxEnd = childLatestStart - bufferBeforeChild * 60_000L
+                val bufferMillis = bufferBeforeChild * 60_000L
 
                 val allPrereqs = task.prerequisiteIds
                 for (prereqId in allPrereqs) {
-                    val currentParentCeiling = latestAllowedEndMap[prereqId] ?: Long.MAX_VALUE
-                    if (parentMaxEnd < currentParentCeiling) {
-                        latestAllowedEndMap[prereqId] = parentMaxEnd
-                        dagCeilingChanged = true
+                    if (childLatestStart != Long.MAX_VALUE) {
+                        val parentMaxEnd = childLatestStart - bufferMillis
+                        val currentParentCeiling = latestAllowedEndMap[prereqId] ?: Long.MAX_VALUE
+                        if (parentMaxEnd < currentParentCeiling) {
+                            latestAllowedEndMap[prereqId] = parentMaxEnd
+                            dagCeilingChanged = true
+                        }
+                    }
+                    if (childStructuralStart != Long.MAX_VALUE) {
+                        val parentStructuralEnd = childStructuralStart - bufferMillis
+                        val currentParentStructural = structuralCeilingMap[prereqId] ?: Long.MAX_VALUE
+                        if (parentStructuralEnd < currentParentStructural) {
+                            structuralCeilingMap[prereqId] = parentStructuralEnd
+                            dagCeilingChanged = true
+                        }
                     }
                 }
             }
@@ -607,7 +680,7 @@ class DefaultTaskSchedulerService @Inject constructor(
 
         val nowSnapshot = circadianService.evaluateSnapshotWithStimulants(
             timestampMillis = dayStartMillis,
-            wakeTimeMillis = wakeTimeMillis,
+            wakeTimeMillis = effectiveWakeTimeMillis,
             lastSleepDurationMinutes = lastSleepDurationMinutes,
             continuousActiveFocusMinutes = 0,
             zoneId = zoneId,
@@ -645,41 +718,59 @@ class DefaultTaskSchedulerService @Inject constructor(
             val rawDurationMillis = max(5, current.estimatedMinutes) * 60_000L
 
             val allPrereqs = current.prerequisiteIds
-            val isUltradianPrereq = current.id.endsWith("#part2") || allPrereqs.any { it.endsWith("#part1") }
+            val isUltradianPrereq = current.id.endsWith("#part2") || current.id.endsWith("_part2") ||
+                current.parentTaskId != null ||
+                allPrereqs.any { it.endsWith("#part1") || it.endsWith("_part1") }
             val prereqBufferMinutes = if (isUltradianPrereq) ULTRADIAN_RECOVERY_BUFFER_MINUTES else TRANSITION_BUFFER_MINUTES
-            val maxPrereqEnd = allPrereqs.mapNotNull { completionEndMap[it] }.maxOrNull() ?: dayStartMillis
-            val earliestStart = max(dayStartMillis, maxPrereqEnd + prereqBufferMinutes * 60_000L)
+            val maxPrereqEnd = allPrereqs.mapNotNull { completionEndMap[it] }.maxOrNull()
+            val earliestStart = if (maxPrereqEnd != null) {
+                max(dayStartMillis, maxPrereqEnd + prereqBufferMinutes * 60_000L)
+            } else {
+                dayStartMillis
+            }
 
             val taskCeiling = latestAllowedEndMap[current.id] ?: Long.MAX_VALUE
-            val bestSlot = findBestCircadianWindow(
-                task = current,
-                durationMillis = durationMillis,
-                earliestStartMillis = earliestStart,
-                freeIntervals = freeIntervals,
-                wakeTimeMillis = wakeTimeMillis,
-                lastSleepDurationMinutes = lastSleepDurationMinutes,
-                dependentCount = dependentsMap[current.id]?.size ?: 0,
-                calibrationRatio = calibrationRatio,
-                zoneId = zoneId,
-                naps = naps,
-                chronotype = chronotype,
-                manualPeakStartHour = manualPeakStartHour,
-                priorityWeights = priorityWeights,
-                placements = placements,
-                learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
-                physiologicalBlocks = physiologicalBlocks,
-                stimulantDoses = stimulantDoses,
-                socialJetlagLagHours = socialJetlagLagHours,
-                latestAllowedEndMillis = taskCeiling,
-                referenceNowMillis = nowMillis
-            ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
+            val structuralCeiling = structuralCeilingMap[current.id] ?: Long.MAX_VALUE
+            val lockedStart = current.scheduledStartMillis
+            val lockedWindow = if (current.isLocked && lockedStart != null && lockedStart >= earliestStart) {
+                val candidateWindow = TimeSlotWindow(lockedStart, lockedStart + durationMillis)
+                if (candidateWindow.endMillis <= taskCeiling && fitsInFreeIntervals(freeIntervals, candidateWindow)) {
+                    val snap = circadianService.evaluateSnapshotWithStimulants(
+                        timestampMillis = candidateWindow.startMillis + durationMillis / 2,
+                        wakeTimeMillis = effectiveWakeTimeMillis,
+                        lastSleepDurationMinutes = lastSleepDurationMinutes,
+                        continuousActiveFocusMinutes = computeSimulatedFocusLoadAt(candidateWindow.startMillis, placements),
+                        zoneId = zoneId,
+                        naps = naps,
+                        chronotype = chronotype,
+                        manualPeakStartHour = manualPeakStartHour,
+                        learnedProfile = learnedProfile,
+                        rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                        cognitiveBlocks = physiologicalBlocks,
+                        stimulantDoses = stimulantDoses,
+                        socialJetlagLagHours = socialJetlagLagHours
+                    )
+                    val slotBreakdown = evaluateTaskScoreWithWeights(
+                        task = current,
+                        snapshot = snap,
+                        dependentCount = dependentsMap[current.id]?.size ?: 0,
+                        calibrationRatio = calibrationRatio,
+                        weights = priorityWeights,
+                        referenceNowMillis = nowMillis
+                    )
+                    candidateWindow to slotBreakdown
+                } else null
+            } else null
+
+            val primarySlot = if (current.isLocked) {
+                lockedWindow
+            } else {
                 findBestCircadianWindow(
                     task = current,
-                    durationMillis = rawDurationMillis,
+                    durationMillis = durationMillis,
                     earliestStartMillis = earliestStart,
                     freeIntervals = freeIntervals,
-                    wakeTimeMillis = wakeTimeMillis,
+                    wakeTimeMillis = effectiveWakeTimeMillis,
                     lastSleepDurationMinutes = lastSleepDurationMinutes,
                     dependentCount = dependentsMap[current.id]?.size ?: 0,
                     calibrationRatio = calibrationRatio,
@@ -696,8 +787,86 @@ class DefaultTaskSchedulerService @Inject constructor(
                     socialJetlagLagHours = socialJetlagLagHours,
                     latestAllowedEndMillis = taskCeiling,
                     referenceNowMillis = nowMillis
-                )
+                ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
+                    findBestCircadianWindow(
+                        task = current,
+                        durationMillis = rawDurationMillis,
+                        earliestStartMillis = earliestStart,
+                        freeIntervals = freeIntervals,
+                        wakeTimeMillis = effectiveWakeTimeMillis,
+                        lastSleepDurationMinutes = lastSleepDurationMinutes,
+                        dependentCount = dependentsMap[current.id]?.size ?: 0,
+                        calibrationRatio = calibrationRatio,
+                        zoneId = zoneId,
+                        naps = naps,
+                        chronotype = chronotype,
+                        manualPeakStartHour = manualPeakStartHour,
+                        priorityWeights = priorityWeights,
+                        placements = placements,
+                        learnedProfile = learnedProfile,
+                        rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                        physiologicalBlocks = physiologicalBlocks,
+                        stimulantDoses = stimulantDoses,
+                        socialJetlagLagHours = socialJetlagLagHours,
+                        latestAllowedEndMillis = taskCeiling,
+                        referenceNowMillis = nowMillis
+                    )
+                } else null
+            }
+
+            // BUG-247 Fix: If task cannot fit before its deadline (or is overdue), fall back to best
+            // available circadian slot before structural dependent constraints with deadline breach penalty.
+            val fallbackStructuralSlot = if (primarySlot == null && !current.isLocked && structuralCeiling > taskCeiling) {
+                findBestCircadianWindow(
+                    task = current,
+                    durationMillis = durationMillis,
+                    earliestStartMillis = earliestStart,
+                    freeIntervals = freeIntervals,
+                    wakeTimeMillis = effectiveWakeTimeMillis,
+                    lastSleepDurationMinutes = lastSleepDurationMinutes,
+                    dependentCount = dependentsMap[current.id]?.size ?: 0,
+                    calibrationRatio = calibrationRatio,
+                    zoneId = zoneId,
+                    naps = naps,
+                    chronotype = chronotype,
+                    manualPeakStartHour = manualPeakStartHour,
+                    priorityWeights = priorityWeights,
+                    placements = placements,
+                    learnedProfile = learnedProfile,
+                    rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                    physiologicalBlocks = physiologicalBlocks,
+                    stimulantDoses = stimulantDoses,
+                    socialJetlagLagHours = socialJetlagLagHours,
+                    latestAllowedEndMillis = structuralCeiling,
+                    referenceNowMillis = nowMillis
+                ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
+                    findBestCircadianWindow(
+                        task = current,
+                        durationMillis = rawDurationMillis,
+                        earliestStartMillis = earliestStart,
+                        freeIntervals = freeIntervals,
+                        wakeTimeMillis = effectiveWakeTimeMillis,
+                        lastSleepDurationMinutes = lastSleepDurationMinutes,
+                        dependentCount = dependentsMap[current.id]?.size ?: 0,
+                        calibrationRatio = calibrationRatio,
+                        zoneId = zoneId,
+                        naps = naps,
+                        chronotype = chronotype,
+                        manualPeakStartHour = manualPeakStartHour,
+                        priorityWeights = priorityWeights,
+                        placements = placements,
+                        learnedProfile = learnedProfile,
+                        rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                        physiologicalBlocks = physiologicalBlocks,
+                        stimulantDoses = stimulantDoses,
+                        socialJetlagLagHours = socialJetlagLagHours,
+                        latestAllowedEndMillis = structuralCeiling,
+                        referenceNowMillis = nowMillis
+                    )
+                } else null
             } else null
+
+            val bestSlot = primarySlot ?: fallbackStructuralSlot
 
             if (bestSlot != null) {
                 val (window, slotBreakdown) = bestSlot
@@ -708,8 +877,12 @@ class DefaultTaskSchedulerService @Inject constructor(
                 }
                 placements.add(ScheduledPlacement(current, window, finalBreakdown))
                 completionEndMap[current.id] = window.endMillis
-                if (current.id.endsWith("#part2")) {
-                    completionEndMap[current.id.removeSuffix("#part2")] = window.endMillis
+                val isSplitContinuation = current.id.endsWith("#part2") || current.id.endsWith("_part2")
+                val parentId = if (isSplitContinuation) {
+                    current.parentTaskId ?: cleanSplitTaskId(current.id)
+                } else null
+                if (parentId != null && parentId != current.id) {
+                    completionEndMap[parentId] = window.endMillis
                 }
 
                 val isCognitiveHeavy = current.energyDemand == EnergyDemand.HIGH ||
@@ -723,7 +896,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                     0
                 }
 
-                val bufferMins = if (current.id.endsWith("#part1")) {
+                val isPart1 = current.id.endsWith("#part1") || current.id.endsWith("_part1") || current.title.contains("(Part 1/")
+                val bufferMins = if (isPart1) {
                     ULTRADIAN_RECOVERY_BUFFER_MINUTES
                 } else if (contiguousCognitiveMins >= 90) {
                     15
@@ -731,22 +905,28 @@ class DefaultTaskSchedulerService @Inject constructor(
                     TRANSITION_BUFFER_MINUTES
                 }
 
+                val nextLockedStart = sanitizedTasks.filter { it.isLocked && it.scheduledStartMillis != null }
+                    .mapNotNull { it.scheduledStartMillis }
+                    .filter { it >= window.endMillis }
+                    .minOrNull()
+                val effectiveBufferMillis = if (nextLockedStart != null) {
+                    min(bufferMins * 60_000L, max(0L, nextLockedStart - window.endMillis))
+                } else {
+                    bufferMins * 60_000L
+                }
+
                 freeIntervals = subtractInterval(
                     freeIntervals,
-                    TimeSlotWindow(window.startMillis, window.endMillis + bufferMins * 60_000L)
+                    TimeSlotWindow(window.startMillis, window.endMillis + effectiveBufferMillis)
                 )
 
-                val unlockKey = if (current.id.endsWith("#part2")) current.id.removeSuffix("#part2") else current.id
-                children[unlockKey]?.forEach { child ->
-                    val newDeg = (inDegree[child.id] ?: 1) - 1
-                    inDegree[child.id] = newDeg
-                    if (newDeg <= 0) readyQueue.add(child)
-                }
-                if (unlockKey != current.id) {
-                    children[current.id]?.forEach { child ->
+                // Decrement in-degree of direct children and (for split continuation parts) parent's downstream dependents
+                val childrenToUnlock = (children[current.id].orEmpty() + (if (parentId != null && parentId != current.id) children[parentId].orEmpty() else emptyList())).distinctBy { it.id }
+                childrenToUnlock.forEach { child ->
+                    if (child.id != current.id) {
                         val newDeg = (inDegree[child.id] ?: 1) - 1
                         inDegree[child.id] = newDeg
-                        if (newDeg <= 0) readyQueue.add(child)
+                        if (newDeg == 0) readyQueue.add(child)
                     }
                 }
             } else {
@@ -758,35 +938,47 @@ class DefaultTaskSchedulerService @Inject constructor(
                     val p1DurationMillis = max(5, part1.estimatedMinutes) * 60_000L
                     val p2DurationMillis = max(5, part2.estimatedMinutes) * 60_000L
                     val currentCeiling = latestAllowedEndMap[current.id] ?: Long.MAX_VALUE
+                    val structuralCeil = structuralCeilingMap[current.id] ?: Long.MAX_VALUE
 
-                    // Phase 1: Test if part1 can fit in current freeIntervals
-                    val p1Slot = findBestCircadianWindow(
-                        task = part1,
-                        durationMillis = p1DurationMillis,
-                        earliestStartMillis = earliestStart,
-                        freeIntervals = freeIntervals,
-                        wakeTimeMillis = wakeTimeMillis,
-                        lastSleepDurationMinutes = lastSleepDurationMinutes,
-                        dependentCount = 1,
-                        calibrationRatio = 1.0,
-                        zoneId = zoneId,
-                        naps = naps,
-                        chronotype = chronotype,
-                        manualPeakStartHour = manualPeakStartHour,
-                        priorityWeights = priorityWeights,
-                        placements = placements,
-                        learnedProfile = learnedProfile,
-                        rollingAverageSleepMinutes = rollingAverageSleepMinutes,
-                        physiologicalBlocks = physiologicalBlocks,
-                        stimulantDoses = stimulantDoses,
-                        socialJetlagLagHours = socialJetlagLagHours,
-                        latestAllowedEndMillis = currentCeiling
-                    )
+                    fun attemptSplitPlacement(ceilingToUse: Long): Boolean {
+                        // Phase 1: Test if part1 can fit in current freeIntervals.
+                        // BUG-294 Fix: Require part1 to finish with enough headroom for the 15m ultradian buffer + part2 duration
+                        // before ceilingToUse. Otherwise, part1 will consume the slot and make placing part2 impossible.
+                        val p1BufferMins = 15
+                        val p1Ceiling = if (ceilingToUse != Long.MAX_VALUE) {
+                            ceilingToUse - (p1BufferMins * 60_000L + p2DurationMillis)
+                        } else {
+                            Long.MAX_VALUE
+                        }
+                        if (p1Ceiling < earliestStart + p1DurationMillis) return false
 
-                    if (p1Slot != null) {
+                        // BUG-250 Fix: Pass referenceNowMillis = nowMillis to prevent anchor drift
+                        val p1Slot = findBestCircadianWindow(
+                            task = part1,
+                            durationMillis = p1DurationMillis,
+                            earliestStartMillis = earliestStart,
+                            freeIntervals = freeIntervals,
+                            wakeTimeMillis = effectiveWakeTimeMillis,
+                            lastSleepDurationMinutes = lastSleepDurationMinutes,
+                            dependentCount = 1,
+                            calibrationRatio = 1.0,
+                            zoneId = zoneId,
+                            naps = naps,
+                            chronotype = chronotype,
+                            manualPeakStartHour = manualPeakStartHour,
+                            priorityWeights = priorityWeights,
+                            placements = placements,
+                            learnedProfile = learnedProfile,
+                            rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                            physiologicalBlocks = physiologicalBlocks,
+                            stimulantDoses = stimulantDoses,
+                            socialJetlagLagHours = socialJetlagLagHours,
+                            latestAllowedEndMillis = p1Ceiling,
+                            referenceNowMillis = nowMillis
+                        ) ?: return false
+
                         val (p1Window, p1Breakdown) = p1Slot
                         // Require at least a 15-minute ultradian recovery buffer between part1 and part2
-                        val p1BufferMins = 15
                         val simulatedIntervalsAfterP1 = subtractInterval(
                             freeIntervals,
                             TimeSlotWindow(p1Window.startMillis, p1Window.endMillis + p1BufferMins * 60_000L)
@@ -800,7 +992,7 @@ class DefaultTaskSchedulerService @Inject constructor(
                             durationMillis = p2DurationMillis,
                             earliestStartMillis = earliestP2Start,
                             freeIntervals = simulatedIntervalsAfterP1,
-                            wakeTimeMillis = wakeTimeMillis,
+                            wakeTimeMillis = effectiveWakeTimeMillis,
                             lastSleepDurationMinutes = lastSleepDurationMinutes,
                             dependentCount = dependentsMap[current.id]?.size ?: 0,
                             calibrationRatio = 1.0,
@@ -815,46 +1007,59 @@ class DefaultTaskSchedulerService @Inject constructor(
                             physiologicalBlocks = physiologicalBlocks,
                             stimulantDoses = stimulantDoses,
                             socialJetlagLagHours = socialJetlagLagHours,
-                            latestAllowedEndMillis = currentCeiling
+                            latestAllowedEndMillis = ceilingToUse,
+                            referenceNowMillis = nowMillis
+                        ) ?: return false
+
+                        // Both parts verified! Commit both atomically to placements.
+                        val (p2Window, p2Breakdown) = p2Slot
+                        placements.add(ScheduledPlacement(part1, p1Window, p1Breakdown))
+                        placements.add(ScheduledPlacement(part2, p2Window, p2Breakdown))
+
+                        val p2ContiguousMins = computeSimulatedFocusLoadAt(p2Window.startMillis, simulatedPlacementsWithP1) + p2Window.durationMinutes
+                        val p2BufferMins = if (p2ContiguousMins >= 90) 15 else TRANSITION_BUFFER_MINUTES
+                        freeIntervals = subtractInterval(
+                            simulatedIntervalsAfterP1,
+                            TimeSlotWindow(p2Window.startMillis, p2Window.endMillis + p2BufferMins * 60_000L)
                         )
 
-                        if (p2Slot != null) {
-                            // Both parts verified! Commit both atomically to placements.
-                            val (p2Window, p2Breakdown) = p2Slot
-                            placements.add(ScheduledPlacement(part1, p1Window, p1Breakdown))
-                            placements.add(ScheduledPlacement(part2, p2Window, p2Breakdown))
+                        completionEndMap[part1.id] = p1Window.endMillis
+                        completionEndMap[part2.id] = p2Window.endMillis
+                        completionEndMap[current.id] = p2Window.endMillis
 
-                            val p2ContiguousMins = computeSimulatedFocusLoadAt(p2Window.startMillis, simulatedPlacementsWithP1) + p2Window.durationMinutes
-                            val p2BufferMins = if (p2ContiguousMins >= 90) 15 else TRANSITION_BUFFER_MINUTES
-                            freeIntervals = subtractInterval(
-                                simulatedIntervalsAfterP1,
-                                TimeSlotWindow(p2Window.startMillis, p2Window.endMillis + p2BufferMins * 60_000L)
-                            )
-
-                            completionEndMap[part1.id] = p1Window.endMillis
-                            completionEndMap[part2.id] = p2Window.endMillis
-                            completionEndMap[current.id] = p2Window.endMillis
-
-                            val unlockKey = current.id
-                            children[unlockKey]?.forEach { child ->
-                                val newDeg = (inDegree[child.id] ?: 1) - 1
-                                inDegree[child.id] = newDeg
-                                if (newDeg <= 0) readyQueue.add(child)
-                            }
-                            splitSuccess = true
+                        val unlockKey = current.id
+                        children[unlockKey]?.forEach { child ->
+                            val newDeg = (inDegree[child.id] ?: 1) - 1
+                            inDegree[child.id] = newDeg
+                            if (newDeg <= 0) readyQueue.add(child)
                         }
+                        return true
                     }
+
+                    splitSuccess = attemptSplitPlacement(currentCeiling) ||
+                        (structuralCeil > currentCeiling && attemptSplitPlacement(structuralCeil))
                 }
 
                 if (!splitSuccess) {
-                    val baseId = current.id.substringBefore("#part")
+                    val baseId = cleanSplitTaskId(current.id)
                     if (deferrals.none { it.taskId == baseId }) {
+                        val isDepBlocked = current.isLocked && earliestStart > (current.scheduledStartMillis ?: 0L)
+                        val reasonCode = if (isDepBlocked) DeferralReasonCode.DEPENDENCY_BLOCKED else DeferralReasonCode.INSUFFICIENT_TIME
+                        val explanation = if (current.isLocked) {
+                            if (isDepBlocked) {
+                                "Locked task '${current.title}' was blocked because a prerequisite completed after its pinned slot."
+                            } else {
+                                "Locked task '${current.title}' could not be placed in its pinned time window due to calendar conflict."
+                            }
+                        } else {
+                            "Task '${current.title}' (${breakdown.bufferedDurationMinutes}m) could not find sufficient contiguous time or two-phase ultradian split slots today."
+                        }
                         deferrals.add(
                             DeferralRationale(
                                 taskId = baseId,
-                                reasonCode = DeferralReasonCode.INSUFFICIENT_TIME,
-                                explanation = "Task '${current.title}' (${breakdown.bufferedDurationMinutes}m) could not find sufficient contiguous time or two-phase ultradian split slots today.",
-                                actionableSuggestion = "Free up calendar slots or move to tomorrow's schedule."
+                                reasonCode = reasonCode,
+                                explanation = explanation,
+                                actionableSuggestion = if (current.isLocked) "Adjust the pinned slot or prerequisite schedules." else "Free up calendar slots or move to tomorrow's schedule."
                             )
                         )
                     }
@@ -863,16 +1068,16 @@ class DefaultTaskSchedulerService @Inject constructor(
         }
 
         // Invariant Safeguard (ADR-024): ensure no orphaned partial split remains in placements
-        val orphanedPart1 = placements.filter { it.task.id.endsWith("#part1") }
+        val orphanedPart1 = placements.filter { it.task.id.endsWith("#part1") || it.task.id.endsWith("_part1") }
             .filter { p1 ->
-                val p2Id = p1.task.id.replace("#part1", "#part2")
+                val p2Id = if (p1.task.id.endsWith("#part1")) p1.task.id.replace("#part1", "#part2") else p1.task.id.replace("_part1", "_part2")
                 placements.none { it.task.id == p2Id }
             }
         if (orphanedPart1.isNotEmpty()) {
             val orphanIds = orphanedPart1.map { it.task.id }.toSet()
             placements.removeAll { it.task.id in orphanIds }
             for (orphan in orphanedPart1) {
-                val baseId = orphan.task.id.substringBefore("#part")
+                val baseId = cleanSplitTaskId(orphan.task.id)
                 if (deferrals.none { it.taskId == baseId }) {
                     deferrals.add(
                         DeferralRationale(
@@ -886,19 +1091,56 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
-        // Clean deferral task IDs so none carry #part suffixes
+        // Bug 1 & Bug 15 Fix: Sweep remaining unplaced tasks in schedulableTodayTasks whose prerequisites failed placement or were omitted
+        val schedulableTodayBaseIds = schedulableTodayTasks.map { cleanSplitTaskId(it.id) }.toSet()
+        for (task in schedulableTodayTasks) {
+            val baseId = cleanSplitTaskId(task.id)
+            val isPlaced = placements.any { cleanSplitTaskId(it.task.id) == baseId }
+            val isDeferred = deferrals.any { it.taskId == baseId }
+            if (!isPlaced && !isDeferred) {
+                val missingPrereq = task.prerequisiteIds.firstOrNull { prereqId ->
+                    val cleanPrereq = cleanSplitTaskId(prereqId)
+                    val isPlacedPrereq = placements.any { cleanSplitTaskId(it.task.id) == cleanPrereq }
+                    if (isPlacedPrereq) return@firstOrNull false
+                    if (activeUncompletedTaskIds.isNotEmpty()) {
+                        cleanPrereq in activeUncompletedTaskIds || cleanPrereq in schedulableTodayBaseIds
+                    } else {
+                        true
+                    }
+                } ?: task.prerequisiteIds.firstOrNull { prereqId ->
+                    placements.none { cleanSplitTaskId(it.task.id) == cleanSplitTaskId(prereqId) }
+                }
+                deferrals.add(
+                    DeferralRationale(
+                        taskId = baseId,
+                        reasonCode = DeferralReasonCode.DEPENDENCY_BLOCKED,
+                        explanation = if (missingPrereq != null) {
+                            "Prerequisite task '$missingPrereq' could not be scheduled today."
+                        } else {
+                            "Task '${task.title}' could not be scheduled due to unmet dependency constraints."
+                        },
+                        actionableSuggestion = "Resolve prerequisite dependencies or adjust schedule."
+                    )
+                )
+            }
+        }
+
+        // Clean deferral task IDs so none carry #part or _part suffixes
         val sanitizedDeferrals = deferrals.map { d ->
-            if (d.taskId.contains("#part")) d.copy(taskId = d.taskId.substringBefore("#part")) else d
+            if (d.taskId.contains("#part") || d.taskId.contains("_part")) d.copy(taskId = cleanSplitTaskId(d.taskId)) else d
         }.distinctBy { it.taskId }
 
         return SchedulingOutcome(placements.sortedBy { it.window.startMillis }, sanitizedDeferrals)
     }
 
+    internal fun cleanSplitTaskId(id: String): String =
+        id.substringBefore("#part").substringBefore("_part")
+
     internal fun splitIntoUltradianParts(
         task: SchedulableTask,
         totalDurationMinutes: Int
     ): Pair<SchedulableTask, SchedulableTask>? {
-        if (totalDurationMinutes < 60 || task.isLocked || task.id.contains("#part")) return null
+        if (totalDurationMinutes < 60 || task.isLocked || task.id.contains("#part") || task.id.contains("_part") || task.title.contains("(Part ") || task.parentTaskId != null) return null
         if (task.fragmentationTolerance < 0.15f) return null
 
         val part1Mins = (totalDurationMinutes / 2).coerceAtLeast(25)
@@ -919,6 +1161,7 @@ class DefaultTaskSchedulerService @Inject constructor(
             title = "${task.title} (Part 2/2)",
             estimatedMinutes = part2Mins,
             isDurationExplicit = true,
+            parentTaskId = task.id,
             prerequisiteIds = task.prerequisiteIds + part1Id
         )
         return part1 to part2
@@ -1136,6 +1379,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         intervals: List<TimeSlotWindow>,
         blocked: TimeSlotWindow
     ): MutableList<TimeSlotWindow> {
+        // BUG-298 Fix: Zero-width or inverted blocked windows must not artificially fragment free intervals
+        if (blocked.startMillis >= blocked.endMillis) return intervals.toMutableList()
         val result = mutableListOf<TimeSlotWindow>()
         for (current in intervals) {
             if (blocked.endMillis <= current.startMillis || blocked.startMillis >= current.endMillis) {

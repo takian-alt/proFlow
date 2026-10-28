@@ -104,6 +104,7 @@ class SchedulePreparationOrchestrator @Inject constructor(
         val planningCalibration = AnalyticsEngine.PlanningCalibration.from(allKnownTasks)
         val enjoymentCalibration = AnalyticsEngine.EnjoymentCalibration.from(allKnownTasks)
         val globalCalibrationRatio = planningCalibration.globalFactor.toDouble().coerceIn(0.8, 1.6)
+        val dayStartMillis = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
 
         val rawSchedulable = candidateTasks.map { task ->
             val resolvedCategory = when (task.determineCategory()) {
@@ -123,12 +124,29 @@ class SchedulePreparationOrchestrator @Inject constructor(
             }
             val calibratedEnjoyment = (enjoymentCalibration.forecast(task.enjoymentScore) / 10.0).roundToInt().coerceIn(0, 10)
 
-            val expectedDuration = TaskBlockPlan.expectedMinutes(task)
-            val isDurationExplicit = task.isScheduleLocked
+            val isPart2Continuation = task.id.endsWith("_part2") ||
+                task.id.contains("#part2") ||
+                task.parentTaskId != null ||
+                task.title.contains("(Part 2/")
+
+            val cleanTitle = if (!isPart2Continuation) {
+                task.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").replace(Regex("""\s*#part\d+"""), "").trim()
+            } else {
+                task.title
+            }
+            // BUG-328 Fix: Only wipe plannedBlockMinutes on Part 1 tasks to re-evaluate the full estimate.
+            // Part 2 continuation tasks must retain their allocated continuation duration and Part 2 title.
+            val taskToEstimate = if (!isPart2Continuation && !task.isScheduleLocked && (task.title.contains("(Part 1/") || task.title.contains("#part1"))) {
+                task.copy(title = cleanTitle, plannedBlockMinutes = 0)
+            } else {
+                task
+            }
+            val expectedDuration = TaskBlockPlan.expectedMinutes(taskToEstimate)
+            val isDurationExplicit = task.isScheduleLocked || isPart2Continuation
 
             SchedulableTask(
                 id = task.id,
-                title = task.title,
+                title = if (!task.isScheduleLocked && !isPart2Continuation) cleanTitle else task.title,
                 category = resolvedCategory,
                 priority = when (task.priority) {
                     Priority.HIGH -> 2
@@ -143,8 +161,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
                     else -> EnergyDemand.LOW
                 },
                 isFrog = task.isFrog,
-                scheduledStartMillis = task.resolveScheduledEpochMillis(),
-                deadlineMillis = task.resolveDeadlineEpochMillis(),
+                scheduledStartMillis = task.resolveScheduledEpochMillis(dayStartMillis),
+                deadlineMillis = task.resolveDeadlineEpochMillis(dayStartMillis),
                 isLocked = task.isScheduleLocked,
                 parentTaskId = task.parentTaskId,
                 completedMicroSteps = microStepCounts[task.id]?.first ?: 0,
@@ -174,9 +192,13 @@ class SchedulePreparationOrchestrator @Inject constructor(
         }
 
         val zonedNow = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
-        var wakeAnchor = zonedNow.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(zoneId)
-        if (wakeAnchor.toInstant().toEpochMilli() > nowMillis) {
-            wakeAnchor = wakeAnchor.minusDays(1)
+        val isToday = dayDate == zonedNow.toLocalDate()
+        var wakeAnchor = dayDate.atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(zoneId)
+        val todayWakeMillis = wakeAnchor.toInstant().toEpochMilli()
+        if (isToday && todayWakeMillis > nowMillis) {
+            if (todayWakeMillis - nowMillis > 2 * 3600_000L) {
+                wakeAnchor = wakeAnchor.minusDays(1)
+            }
         }
         val baseWakeMillis = wakeAnchor.toInstant().toEpochMilli()
 
@@ -188,8 +210,6 @@ class SchedulePreparationOrchestrator @Inject constructor(
         val wakeTimeMillis = sleepSignal?.normalizedWakeTimeMillis ?: baseWakeMillis
         val lastSleepDurationMinutes = sleepSignal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
         val rollingAvgSleep = computeRollingDailySleepAverage(sleepLogs, nowMillis, zoneId)
-
-        val dayStartMillis = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
 
         // Bug 1 Fix: filter protected slots by day of week & add recovery buffer
         val protectedSlots = prefs.protectedTimeSlots
@@ -314,7 +334,9 @@ class SchedulePreparationOrchestrator @Inject constructor(
             physiologicalBlocks = physiologicalBlocks,
             stimulantDoses = stimulantDoses,
             socialJetlagLagHours = socialJetlagLagHours,
-            activeUncompletedTaskIds = activeUncompletedTaskIds
+            activeUncompletedTaskIds = activeUncompletedTaskIds,
+            workDayStartHour = prefs.workDayStart,
+            workDayEndHour = prefs.workDayEnd
         )
 
         return OrchestrationOutcome(outcome.placements, outcome.deferrals)

@@ -16,11 +16,17 @@ import androidx.work.WorkerParameters
 import com.neuroflow.app.MainActivity
 import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.FatigueZone
 import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
@@ -52,6 +58,9 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             val preferences = preferencesDataStore.preferencesFlow.first()
             val nowMillis = System.currentTimeMillis()
             val zoneId = ZoneId.systemDefault()
+            val dayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
+            val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(dayStart) - 1
+            val candidateTasks = filterCandidateTasks(tasks, dayEnd)
 
             val baseWakeMillis = ScheduleAutoTasksWorker.calculateWakeTimeMillis(nowMillis, preferences.wakeUpHour, zoneId)
             val sleepSignal = sleepTelemetryRepository?.getLatestNormalizedSleep(
@@ -61,7 +70,7 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             val wakeTimeMillis = sleepSignal?.normalizedWakeTimeMillis ?: baseWakeMillis
             val sleepMinutes = sleepSignal?.blendedDurationMinutes?.roundToInt()?.coerceIn(60, 960) ?: 480
             val naps = sleepSignal?.daytimeNaps ?: emptyList()
-            val chronotype = ChronotypeProfile.fromString(preferences.manualChronotype ?: preferences.quizChronotype)
+            val chronotype = ChronotypeProfile.fromString(preferences.quizChronotype ?: preferences.manualChronotype)
 
             val snapshot = circadianEnergyService.evaluateSnapshot(
                 timestampMillis = nowMillis,
@@ -73,7 +82,7 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                 chronotype = chronotype
             )
 
-            val sortedWithScores = tasks.map { task ->
+            val sortedWithScores = candidateTasks.map { task ->
                 val resolvedCategory = when (task.determineCategory()) {
                     com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK,
                     com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> TaskCategory.DEEP_WORK
@@ -93,35 +102,54 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                         Priority.MEDIUM -> 1
                         else -> 0
                     },
-                    estimatedMinutes = task.estimatedDurationMinutes,
+                    estimatedMinutes = TaskBlockPlan.plannedMinutes(task),
                     energyDemand = when (task.energyLevel) {
                         EnergyLevel.HIGH -> EnergyDemand.HIGH
                         EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
                         else -> EnergyDemand.LOW
                     },
                     isFrog = task.isFrog,
-                    scheduledStartMillis = task.scheduledTime?.let { (task.scheduledDate ?: nowMillis) + it },
-                    deadlineMillis = task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) },
+                    scheduledStartMillis = task.resolveScheduledEpochMillis(nowMillis),
+                    deadlineMillis = task.resolveDeadlineEpochMillis(),
                     isLocked = task.isScheduleLocked,
                     parentTaskId = task.parentTaskId,
+                    prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
                     impactScore = task.impactScore,
                     postponeCount = task.postponeCount,
                     isAnxietyTask = task.isAnxietyTask,
                     hasImplementationIntention = task.ifThenPlan.isNotBlank()
                 )
                 val breakdown = taskSchedulerService.evaluateTaskScore(schedulable, snapshot)
-                task to breakdown
-            }.sortedByDescending { it.second.totalScore }
+                val baseLeverage = (if (task.isFrog) 1000.0 else 0.0) + task.impactScore
+                val totalPriority = baseLeverage + breakdown.totalScore
+                Triple(task, breakdown, totalPriority)
+            }.sortedByDescending { it.third }
 
-            val topPair = sortedWithScores.firstOrNull()
-            val topTask = topPair?.first
-            val topScore = topPair?.second?.totalScore?.roundToInt() ?: 0
+            val topTriple = sortedWithScores.firstOrNull()
+            val topTask = topTriple?.first
+            val topScore = topTriple?.second?.totalScore?.roundToInt() ?: 0
 
             val appWidgetManager = AppWidgetManager.getInstance(appContext)
 
             // 1. Update FocusWidgetProvider (widget_focus)
             val focusViews = RemoteViews(appContext.packageName, R.layout.widget_focus)
+            val focusContainerIntent = Intent(appContext, MainActivity::class.java).apply {
+                if (topTask != null) {
+                    action = "com.procus.ACTION_OPEN_FOCUS"
+                    putExtra("taskId", topTask.id)
+                } else {
+                    action = "com.procus.ACTION_OPEN_NEW_TASK"
+                }
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val focusContainerPendingIntent = PendingIntent.getActivity(
+                appContext, 1002, focusContainerIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            focusViews.setOnClickPendingIntent(R.id.widget_focus_container, focusContainerPendingIntent)
+
             if (topTask != null) {
+                focusViews.setViewVisibility(R.id.widget_start_button, android.view.View.VISIBLE)
                 focusViews.setTextViewText(R.id.widget_task_title, topTask.title)
                 focusViews.setTextViewText(
                     R.id.widget_task_score,
@@ -139,6 +167,7 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                 )
                 focusViews.setOnClickPendingIntent(R.id.widget_start_button, startPendingIntent)
             } else {
+                focusViews.setViewVisibility(R.id.widget_start_button, android.view.View.GONE)
                 focusViews.setTextViewText(R.id.widget_task_title, "No tasks — add one in neuroFlow")
                 focusViews.setTextViewText(R.id.widget_task_score, "Score: —")
             }
@@ -156,7 +185,8 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
 
             if (topTask != null) {
                 nextActionViews.setTextViewText(R.id.widget_next_task_title, topTask.title)
-                val durationText = if (topTask.estimatedDurationMinutes > 0) "${topTask.estimatedDurationMinutes}m" else "Quick"
+                val plannedMins = TaskBlockPlan.plannedMinutes(topTask)
+                val durationText = if (plannedMins > 0) "${plannedMins}m" else "Quick"
                 val quadrantText = topTask.quadrant.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
                 nextActionViews.setTextViewText(R.id.widget_next_task_meta, "$quadrantText · $durationText")
                 nextActionViews.setViewVisibility(R.id.widget_button_row, android.view.View.VISIBLE)
@@ -188,6 +218,12 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             }
 
             val containerIntent = Intent(appContext, MainActivity::class.java).apply {
+                if (topTask != null) {
+                    action = "com.procus.ACTION_OPEN_FOCUS"
+                    putExtra("taskId", topTask.id)
+                } else {
+                    action = "com.procus.ACTION_OPEN_NEW_TASK"
+                }
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             val containerPendingIntent = PendingIntent.getActivity(
@@ -202,7 +238,8 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             )
             appWidgetManager.updateAppWidget(nextActionComponentName, nextActionViews)
 
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // Stale widget preferred over crash
         }
 
@@ -210,6 +247,37 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
     }
 
     companion object {
+        internal fun filterCandidateTasks(tasks: List<TaskEntity>, dayEnd: Long): List<TaskEntity> {
+            val activeTaskIds = tasks.map { it.id }.toSet()
+            return tasks.filter { task ->
+                val sDate = task.effectiveScheduledDateMillis()
+                val dDate = task.resolveDeadlineEpochMillis()
+                val isNotFuture = (sDate != null && sDate <= dayEnd) ||
+                    (sDate == null && dDate != null && dDate <= dayEnd) ||
+                    (sDate == null && dDate == null)
+
+                // Part 2 is blocked only if its parent task is still active in the database
+                val isPart2Blocked = task.id.endsWith("_part2") && (
+                    (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                    task.id.removeSuffix("_part2") in activeTaskIds
+                )
+
+                // Prerequisites check: blocked if any prerequisite is still active
+                val isBlockedByPrereq = task.dependsOnTaskIds.isNotBlank() &&
+                    task.dependsOnTaskIds.split(',')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .any { it in activeTaskIds }
+
+                task.status == TaskStatus.ACTIVE &&
+                    task.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE &&
+                    !isPart2Blocked &&
+                    !isBlockedByPrereq &&
+                    task.waitingFor.isBlank() &&
+                    isNotFuture
+            }
+        }
+
         fun enqueueImmediateUpdate(context: Context) {
             runCatching {
                 val request = OneTimeWorkRequestBuilder<FocusWidgetUpdateWorker>()

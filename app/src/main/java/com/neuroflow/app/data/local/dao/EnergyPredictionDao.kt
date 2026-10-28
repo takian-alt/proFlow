@@ -2,13 +2,14 @@ package com.neuroflow.app.data.local.dao
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface EnergyPredictionDao {
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: EnergyPredictionEntity)
 
     @Query("SELECT * FROM energy_predictions ORDER BY predictedAtMillis DESC LIMIT :limit")

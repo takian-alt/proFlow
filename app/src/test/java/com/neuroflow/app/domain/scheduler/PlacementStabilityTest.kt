@@ -6,6 +6,7 @@ import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.TaskStatus
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import java.util.Calendar
 
 /**
@@ -62,12 +63,24 @@ class PlacementStabilityTest : StringSpec({
 
     val stablePrefs = UserPreferences(autoSchedulingEnabled = true, isAutoScheduleToggleOn = true)
 
-    "a block starting within two hours survives a forced re-plan" {
+    "a block starting within two hours is frozen during normal auto-scheduling but replanned on forceReplan" {
         val task = placedTask(now + hours, lastAutoScheduledAt = now - 3 * hours)
 
-        PlacementStability.verdict(task, now, stablePrefs, forceReplan = true) shouldBe
+        PlacementStability.verdict(task, now, stablePrefs, forceReplan = false) shouldBe
             PlacementStability.ReplanVerdict.NEAR_TERM_FREEZE
-        PlacementStability.verdict(task, now, stablePrefs, forceReplan = true).allowsReplan shouldBe false
+        PlacementStability.verdict(task, now, stablePrefs, forceReplan = false).allowsReplan shouldBe false
+
+        PlacementStability.verdict(task, now, stablePrefs, forceReplan = true) shouldBe
+            PlacementStability.ReplanVerdict.FORCED
+        PlacementStability.verdict(task, now, stablePrefs, forceReplan = true).allowsReplan shouldBe true
+    }
+
+    "an in-progress block that has not expired is frozen during normal auto-scheduling" {
+        val ongoingTask = placedTask(now - 15 * minutes, lastAutoScheduledAt = now - 5 * hours)
+
+        PlacementStability.verdict(ongoingTask, now, stablePrefs, forceReplan = false) shouldBe
+            PlacementStability.ReplanVerdict.NEAR_TERM_FREEZE
+        PlacementStability.verdict(ongoingTask, now, stablePrefs, forceReplan = false).allowsReplan shouldBe false
     }
 
     "a deadline rescue respects the cooldown instead of firing every pass" {
@@ -126,5 +139,21 @@ class PlacementStabilityTest : StringSpec({
     "a block already in the past always takes the new slot" {
         PlacementStability.isMoveWorthApplying(now - 10 * minutes, now + 2 * hours, now) shouldBe true
         PlacementStability.isMoveWorthApplying(null, now + 2 * hours, now) shouldBe true
+    }
+
+    "date-only task with scheduledTime == null is not marked PAST_EXPIRED_RESCUE (BUG-018) or NEAR_TERM_FREEZE (BUG-032)" {
+        val dateOnlyTask = TaskEntity(
+            id = "date-only-1",
+            title = "Intraday un-timed task",
+            status = TaskStatus.ACTIVE,
+            scheduledDate = now - 9 * hours,
+            scheduledTime = null,
+            isAutoScheduled = true,
+            lastAutoScheduledAt = now - 5 * hours
+        )
+        val verdict = PlacementStability.verdict(dateOnlyTask, now, stablePrefs, forceReplan = false)
+        verdict shouldNotBe PlacementStability.ReplanVerdict.PAST_EXPIRED_RESCUE
+        verdict shouldNotBe PlacementStability.ReplanVerdict.NEAR_TERM_FREEZE
+        verdict.allowsReplan shouldBe true
     }
 })

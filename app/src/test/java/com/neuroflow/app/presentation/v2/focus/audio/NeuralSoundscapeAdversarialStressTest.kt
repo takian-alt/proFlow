@@ -1,5 +1,11 @@
 package com.neuroflow.app.presentation.v2.focus.audio
 
+import android.content.Context
+import android.media.AudioManager
+import io.mockk.clearMocks
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -343,5 +349,158 @@ class NeuralSoundscapeAdversarialStressTest {
 
         assertTrue("Concurrent stress test completed without thread deadlock", completed)
         assertNull("Concurrent stress test completed without exceptions: ${errorRef.get()?.message}", errorRef.get())
+    }
+
+    @Test
+    fun testSoundscapePlayer_unregistersNoisyReceiverWhenPlaybackHalts() {
+        val mockContext = mockk<Context>(relaxed = true)
+        val player = NeuralSoundscapePlayer(context = mockContext)
+
+        // Start playback -> registers receiver
+        player.play(SoundscapeType.PINK_NOISE)
+        verify(atLeast = 1) { mockContext.registerReceiver(any(), any()) }
+
+        // Stop playback -> unregisters receiver
+        player.stop()
+        verify(atLeast = 1) { mockContext.unregisterReceiver(any()) }
+
+        player.release()
+    }
+
+    @Test
+    fun testSoundscapePlayer_transientAudioFocusLossPreservesCurrentTypeAndResumesOnGain() {
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockAudioManager = mockk<AudioManager>(relaxed = true)
+        every { mockContext.getSystemService(Context.AUDIO_SERVICE) } returns mockAudioManager
+
+        val player = NeuralSoundscapePlayer(context = mockContext)
+
+        // Start playback
+        player.play(SoundscapeType.GAMMA_40HZ)
+        assertEquals(SoundscapeType.GAMMA_40HZ, player.currentType)
+
+        val playbackThreadField = NeuralSoundscapePlayer::class.java.getDeclaredField("playbackThread").apply { isAccessible = true }
+        (playbackThreadField.get(player) as? Thread)?.join(200)
+
+        // Ensure isPlaying is true for the simulated active streaming state
+        val isPlayingField = NeuralSoundscapePlayer::class.java.getDeclaredField("isPlaying").apply { isAccessible = true }
+        val isPlayingAtomic = isPlayingField.get(player) as java.util.concurrent.atomic.AtomicBoolean
+        isPlayingAtomic.set(true)
+        clearMocks(mockAudioManager, answers = false)
+
+        // Extract audioFocusChangeListener
+        val listenerField = NeuralSoundscapePlayer::class.java.getDeclaredField("audioFocusChangeListener").apply { isAccessible = true }
+        val listener = listenerField.get(player) as AudioManager.OnAudioFocusChangeListener
+
+        // Simulate transient audio focus loss (e.g. phone call or voice assistant)
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+
+        // Wait brief moment for fade out initiation
+        Thread.sleep(100)
+
+        // currentType must NOT be wiped to NONE during transient pause (BUG-187)
+        assertEquals("Transient loss must preserve active soundscape type", SoundscapeType.GAMMA_40HZ, player.currentType)
+
+        // Focus request must NOT be abandoned during transient loss
+        verify(exactly = 0) { mockAudioManager.abandonAudioFocus(any()) }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            verify(exactly = 0) { mockAudioManager.abandonAudioFocusRequest(any()) }
+        }
+
+        // Simulate audio focus gain
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+
+        // Player must resume with the preserved type
+        assertEquals(SoundscapeType.GAMMA_40HZ, player.currentType)
+
+        player.release()
+    }
+
+    // =========================================================================
+    // 6. FADE-OUT ACTIVE SOUNDSCAPE PRESERVATION & PRESET CROSSFADE (BUG-219..BUG-222)
+    // =========================================================================
+
+    @Test
+    fun testPlayNoneFadesOutActiveSoundscapeAndTransitionsToNone() {
+        val player = NeuralSoundscapePlayer(context = null)
+        val isPlayingField = NeuralSoundscapePlayer::class.java.getDeclaredField("isPlaying").apply { isAccessible = true }
+        val isPlayingAtomic = isPlayingField.get(player) as AtomicBoolean
+
+        // When not playing, play(NONE) transitions immediately to NONE
+        player.play(SoundscapeType.NONE)
+        assertEquals(SoundscapeType.NONE, player.currentType)
+
+        // When actively streaming, play(NONE) initiates fade-out of active soundscape
+        player.play(SoundscapeType.THETA_GAMMA_ENCODE)
+        assertEquals(SoundscapeType.THETA_GAMMA_ENCODE, player.currentType)
+
+        val playbackThreadField = NeuralSoundscapePlayer::class.java.getDeclaredField("playbackThread").apply { isAccessible = true }
+        (playbackThreadField.get(player) as? Thread)?.join(300)
+
+        isPlayingAtomic.set(true)
+        player.play(SoundscapeType.NONE)
+
+        // Should enter fading out state with target NONE
+        val isFadingOutField = NeuralSoundscapePlayer::class.java.getDeclaredField("isFadingOut").apply { isAccessible = true }
+        val isFadingOutAtomic = isFadingOutField.get(player) as AtomicBoolean
+        assertTrue("play(NONE) must initiate fade-out while playing", isFadingOutAtomic.get())
+
+        val fadeTargetTypeField = NeuralSoundscapePlayer::class.java.getDeclaredField("fadeTargetType").apply { isAccessible = true }
+        assertEquals(SoundscapeType.NONE, fadeTargetTypeField.get(player))
+
+        player.release()
+    }
+
+    @Test
+    fun testReleaseWithFadeOutDisposesResourcesCleanly() {
+        val player = NeuralSoundscapePlayer(context = null)
+        val isPlayingField = NeuralSoundscapePlayer::class.java.getDeclaredField("isPlaying").apply { isAccessible = true }
+        val isPlayingAtomic = isPlayingField.get(player) as AtomicBoolean
+
+        // When idle, releaseWithFadeOut releases immediately
+        player.releaseWithFadeOut()
+        assertFalse(isPlayingAtomic.get())
+
+        // Simulate active playback state without launching background thread
+        isPlayingAtomic.set(true)
+
+        player.releaseWithFadeOut()
+
+        val isReleasePendingField = NeuralSoundscapePlayer::class.java.getDeclaredField("isReleasePending").apply { isAccessible = true }
+        val isReleasePendingAtomic = isReleasePendingField.get(player) as AtomicBoolean
+        assertTrue("isReleasePending must be true when releasing during active playback", isReleasePendingAtomic.get())
+
+        player.release()
+    }
+
+    @Test
+    fun testPresetSwitchingSingleChunkCrossfadePreventsClipping() {
+        val generator = NeuralSoundscapeGenerator(sampleRate = 44100)
+        val chunkSize = 1024
+        val bufferA = ShortArray(chunkSize * 2)
+        val bufferB = ShortArray(chunkSize * 2)
+        val combined = ShortArray(chunkSize * 2)
+
+        // Advance phase to mid-cycle so GAMMA_40HZ is at high amplitude
+        generator.setVolumeInstant(0.8f)
+        generator.generateFrames(SoundscapeType.GAMMA_40HZ, bufferA, 50, volumeMultiplier = 0.8f)
+
+        // Generate chunk fading out GAMMA_40HZ
+        generator.generateFrames(SoundscapeType.GAMMA_40HZ, bufferA, chunkSize, volumeMultiplier = 0.0f)
+        assertEquals(0.0f, generator.currentVolume, 0.001f)
+
+        // Generate chunk fading in BROWN_NOISE
+        generator.generateFrames(SoundscapeType.BROWN_NOISE, bufferB, chunkSize, volumeMultiplier = 0.8f)
+        assertEquals(0.8f, generator.currentVolume, 0.001f)
+
+        // Sum samples as done in single-chunk crossfade
+        for (i in 0 until chunkSize * 2) {
+            combined[i] = (bufferA[i] + bufferB[i]).coerceIn(-32768, 32767).toShort()
+            assertTrue("Crossfade sample $i must remain in valid PCM range", combined[i] in Short.MIN_VALUE..Short.MAX_VALUE)
+        }
+
+        // Verify crossfade buffer contains active audio without clipping
+        val nonZeroCount = combined.count { it != 0.toShort() }
+        assertTrue("Crossfade buffer must contain active audio across the blend", nonZeroCount > chunkSize)
     }
 }

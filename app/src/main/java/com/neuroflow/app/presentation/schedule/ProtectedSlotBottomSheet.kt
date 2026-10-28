@@ -28,6 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
+import com.neuroflow.app.data.local.entity.localStartOfDayToUtcDateMillis
+import com.neuroflow.app.data.local.entity.utcDateMillisToLocalStartOfDay
 import com.neuroflow.app.domain.model.PtsCategory
 import com.neuroflow.app.domain.model.PtsRecurrence
 import java.text.SimpleDateFormat
@@ -165,7 +167,12 @@ fun ProtectedSlotBottomSheet(
             endHour = (endTotal / 60) % 24
             endMinute = endTotal % 60
             recurrence = slot.recurrence
-            selectedWeekdayBitmask = slot.weekdayBitmask
+            selectedWeekdayBitmask = when (slot.recurrence) {
+                PtsRecurrence.CUSTOM -> slot.weekdayBitmask
+                PtsRecurrence.WEEKDAYS -> 0b0111110
+                PtsRecurrence.WEEKENDS -> 0b1000001
+                else -> slot.weekdayBitmask
+            }
             recoveryBufferMinutes = slot.recoveryBufferMinutes
             selectedDateMillis = slot.dateMillis ?: initialDate
         } else {
@@ -190,8 +197,8 @@ fun ProtectedSlotBottomSheet(
     var showEndTimePicker by remember { mutableStateOf(false) }
 
     val startMinuteOfDay = startHour * 60 + startMinute
-    val endMinuteOfDay = endHour * 60 + endMinute
-    val durationMinutes = endMinuteOfDay - startMinuteOfDay
+    val effectiveEndMinuteOfDay = if (endHour == 0 && endMinute == 0 && startMinuteOfDay > 0) 1440 else endHour * 60 + endMinute
+    val durationMinutes = effectiveEndMinuteOfDay - startMinuteOfDay
     val isDurationValid = durationMinutes >= 15
     val isCustomDaysValid = recurrence != PtsRecurrence.CUSTOM || selectedWeekdayBitmask != 0
     val canSave = isDurationValid && isCustomDaysValid
@@ -499,8 +506,8 @@ fun ProtectedSlotBottomSheet(
                             ).forEach { (mins, lbl) ->
                                 AssistChip(
                                     onClick = {
-                                        val newEnd = (startHour * 60 + startMinute + mins).coerceAtMost(1439)
-                                        endHour = newEnd / 60
+                                        val newEnd = (startHour * 60 + startMinute + mins).coerceAtMost(1440)
+                                        endHour = (newEnd / 60) % 24
                                         endMinute = newEnd % 60
                                     },
                                     label = { Text(lbl, fontSize = 11.sp) }
@@ -698,13 +705,23 @@ fun ProtectedSlotBottomSheet(
                         Button(
                             enabled = canSave,
                             onClick = {
+                                val calculatedWeekdayBitmask = when (recurrence) {
+                                    PtsRecurrence.DAILY -> 0b1111111
+                                    PtsRecurrence.WEEKDAYS -> 0b0111110
+                                    PtsRecurrence.WEEKENDS -> 0b1000001
+                                    PtsRecurrence.CUSTOM -> selectedWeekdayBitmask
+                                    PtsRecurrence.SPECIFIC_DATE -> {
+                                        val c = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
+                                        1 shl (c.get(Calendar.DAY_OF_WEEK) - 1)
+                                    }
+                                }
                                 val savedSlot = ProtectedTimeSlot(
                                     id = editingSlotId ?: UUID.randomUUID().toString(),
                                     label = if (label.isNotBlank()) label.trim() else "${getPtsCategoryEmoji(category)} ${category.name.lowercase().replaceFirstChar { it.uppercase() }}",
                                     startMinuteOfDay = startMinuteOfDay,
                                     durationMinutes = durationMinutes,
                                     recurrence = recurrence,
-                                    weekdayBitmask = if (recurrence == PtsRecurrence.CUSTOM) selectedWeekdayBitmask else 0b1111111,
+                                    weekdayBitmask = calculatedWeekdayBitmask,
                                     category = category,
                                     recoveryBufferMinutes = recoveryBufferMinutes,
                                     isEnabled = if (editingSlotId != null) (protectedSlots.find { it.id == editingSlotId }?.isEnabled ?: true) else true,
@@ -727,86 +744,95 @@ fun ProtectedSlotBottomSheet(
 
     // Date Picker Dialog
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = selectedDateMillis
-        )
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { selectedDateMillis = it }
-                    showDatePicker = false
-                }) {
-                    Text("OK")
+        key(selectedDateMillis) {
+            val datePickerState = rememberDatePickerState(
+                initialSelectedDateMillis = selectedDateMillis?.let { localStartOfDayToUtcDateMillis(it) }
+            )
+            DatePickerDialog(
+                onDismissRequest = { showDatePicker = false },
+                confirmButton = {
+                    TextButton(onClick = {
+                        datePickerState.selectedDateMillis?.let {
+                            selectedDateMillis = utcDateMillisToLocalStartOfDay(it)
+                        }
+                        showDatePicker = false
+                    }) {
+                        Text("OK")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDatePicker = false }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
-                    Text("Cancel")
-                }
+            ) {
+                DatePicker(state = datePickerState)
             }
-        ) {
-            DatePicker(state = datePickerState)
         }
     }
 
     // Start Time Picker Dialog
     if (showStartTimePicker) {
-        val timePickerState = rememberTimePickerState(
-            initialHour = startHour,
-            initialMinute = startMinute
-        )
-        AlertDialog(
-            onDismissRequest = { showStartTimePicker = false },
-            title = { Text("Select Start Time") },
-            text = { TimePicker(state = timePickerState) },
-            confirmButton = {
-                TextButton(onClick = {
-                    startHour = timePickerState.hour
-                    startMinute = timePickerState.minute
-                    if (endHour * 60 + endMinute <= startHour * 60 + startMinute) {
-                        val newEnd = (startHour * 60 + startMinute + 60).coerceAtMost(1439)
-                        endHour = newEnd / 60
-                        endMinute = newEnd % 60
+        key(startHour, startMinute) {
+            val timePickerState = rememberTimePickerState(
+                initialHour = startHour,
+                initialMinute = startMinute
+            )
+            AlertDialog(
+                onDismissRequest = { showStartTimePicker = false },
+                title = { Text("Select Start Time") },
+                text = { TimePicker(state = timePickerState) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        startHour = timePickerState.hour
+                        startMinute = timePickerState.minute
+                        val currentEffectiveEnd = if (endHour == 0 && endMinute == 0 && (startHour * 60 + startMinute) > 0) 1440 else endHour * 60 + endMinute
+                        if (currentEffectiveEnd <= startHour * 60 + startMinute) {
+                            val newEnd = (startHour * 60 + startMinute + 60).coerceAtMost(1440)
+                            endHour = (newEnd / 60) % 24
+                            endMinute = newEnd % 60
+                        }
+                        showStartTimePicker = false
+                    }) {
+                        Text("OK")
                     }
-                    showStartTimePicker = false
-                }) {
-                    Text("OK")
+                },
+                dismissButton = {
+                    TextButton(onClick = { showStartTimePicker = false }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showStartTimePicker = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
+            )
+        }
     }
 
     // End Time Picker Dialog
     if (showEndTimePicker) {
-        val timePickerState = rememberTimePickerState(
-            initialHour = endHour,
-            initialMinute = endMinute
-        )
-        AlertDialog(
-            onDismissRequest = { showEndTimePicker = false },
-            title = { Text("Select End Time") },
-            text = { TimePicker(state = timePickerState) },
-            confirmButton = {
-                TextButton(onClick = {
-                    endHour = timePickerState.hour
-                    endMinute = timePickerState.minute
-                    showEndTimePicker = false
-                }) {
-                    Text("OK")
+        key(endHour, endMinute) {
+            val timePickerState = rememberTimePickerState(
+                initialHour = endHour,
+                initialMinute = endMinute
+            )
+            AlertDialog(
+                onDismissRequest = { showEndTimePicker = false },
+                title = { Text("Select End Time") },
+                text = { TimePicker(state = timePickerState) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        endHour = timePickerState.hour
+                        endMinute = timePickerState.minute
+                        showEndTimePicker = false
+                    }) {
+                        Text("OK")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEndTimePicker = false }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEndTimePicker = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
+            )
+        }
     }
 }
 

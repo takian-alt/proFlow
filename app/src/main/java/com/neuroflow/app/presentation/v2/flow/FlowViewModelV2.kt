@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.v2.flow
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.NoteEntity
@@ -10,8 +11,11 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.buildNormalizedScheduleTimestamps
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
 import com.neuroflow.app.data.local.parseStimulantLogs
 import com.neuroflow.app.data.local.PhysiologicalEventType
 import com.neuroflow.app.data.local.parsePhysiologicalLogs
@@ -26,6 +30,8 @@ import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.repository.EnergyMetricsRepository
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.EnergyUiModel
+import com.neuroflow.app.domain.model.CircadianEnergySummary
+import com.neuroflow.app.domain.model.buildCircadianEnergySummary
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
@@ -83,6 +89,7 @@ data class FlowUiStateV2(
     val completedTasks: List<TaskEntity> = emptyList(),
     val energyUi: EnergyUiModel? = null,
     val circadianSummary: DailyCircadianSummary? = null,
+    val circadianEnergySummary: CircadianEnergySummary? = null,
     val dayTimeline: List<CircadianSnapshot> = emptyList(),
     val energyTimeline: List<CircadianSnapshot> = emptyList(),
     val dailyCognitiveBlocks: List<CognitiveBlockWindow> = emptyList(),
@@ -122,13 +129,15 @@ class FlowViewModelV2 @Inject constructor(
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
     @ApplicationContext private val context: Context? = null,
     private val geminiAiOnlineService: GeminiAiOnlineService? = null,
-    private val energyMetricsRepository: EnergyMetricsRepository? = null
+    private val energyMetricsRepository: EnergyMetricsRepository? = null,
+    private val calendarSyncRepository: CalendarSyncRepository? = null
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
     private val _selectedTag = MutableStateFlow<String?>(null)
     private val _eveningShutdownDismissed = MutableStateFlow(false)
     private val _lastCompletedTask = MutableStateFlow<TaskEntity?>(null)
+    private val _lastSpawnedRecurringTaskId = MutableStateFlow<String?>(null)
     private val _lastDeferredTask = MutableStateFlow<Pair<TaskEntity, Long>?>(null)
     private val _lastActionMessage = MutableStateFlow<String?>(null)
 
@@ -141,6 +150,11 @@ class FlowViewModelV2 @Inject constructor(
             preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
                 old.wakeUpHour == new.wakeUpHour &&
                     old.sleepHour == new.sleepHour &&
+                    old.peakEnergyStart == new.peakEnergyStart &&
+                    old.peakEnergyEnd == new.peakEnergyEnd &&
+                    old.effectivePeakStart == new.effectivePeakStart &&
+                    old.effectivePeakEnd == new.effectivePeakEnd &&
+                    old.detectedPeakMinuteOfDay == new.detectedPeakMinuteOfDay &&
                     old.sleepPressurePoints == new.sleepPressurePoints &&
                     old.onboardingCompleted == new.onboardingCompleted &&
                     old.tagCatalog == new.tagCatalog &&
@@ -151,7 +165,8 @@ class FlowViewModelV2 @Inject constructor(
                     old.manualChronotype == new.manualChronotype &&
                     old.meqScore == new.meqScore &&
                     old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
-                    old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay
+                    old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay &&
+                    old.dailyDeepWorkTargetMinutes == new.dailyDeepWorkTargetMinutes
             },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { active, completed, prefs, sleepLogs ->
@@ -325,21 +340,46 @@ class FlowViewModelV2 @Inject constructor(
         }
 
         val overdueTasks = activeTasks.filter { task ->
-            task.postponeCount >= 3 ||
-                (task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
-                (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
+            task.postponeCount >= 2 ||
+                (task.scheduledTime != null && task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
+                (task.effectiveScheduledDateMillis() != null && task.effectiveScheduledDateMillis()!! < now - 86_400_000L) ||
+                (task.deadlineDate != null && task.resolveDeadlineEpochMillis()?.let { it < now } == true)
         }
         val showZeroGuilt = overdueTasks.size >= 3 && !dismissedGuilt
 
         val defaultTags = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin")
-        val dynamicTags = (prefs.tagCatalog + activeTasks.flatMap { it.tags.split(",") })
-            .map { it.trim().removePrefix("#") }
+        val dynamicTags = (prefs.tagCatalog + activeTasks.flatMap { task ->
+            (task.tags.split(",") + task.contextTag)
+        })
+            .map { it.trim().removePrefix("#").removePrefix("@") }
             .filter { it.isNotBlank() }
             .map { "#$it" }
         val mergedTags = (defaultTags + dynamicTags).distinctBy { it.lowercase() }
 
-        val matchingTasks = activeTasks.filter { it.energyLevel == currentEnergyZone }
-        val candidatePool = if (matchingTasks.isNotEmpty()) matchingTasks else activeTasks
+        val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(dayStart) - 1
+        val completedIds = completedTasks.map { it.id }.toSet()
+        val activeTaskIds = activeTasks.map { it.id }.toSet()
+        val actionableActiveTasks = activeTasks.filter { task ->
+            val sDate = task.effectiveScheduledDateMillis()
+                ?: task.scheduledTime?.takeIf { it >= com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS }?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+            val dDate = task.resolveDeadlineEpochMillis()
+            val isNotFuture = (sDate != null && sDate <= dayEnd) ||
+                (sDate == null && dDate != null && dDate <= dayEnd) ||
+                (sDate == null && dDate == null)
+            val dependenciesMet = task.dependsOnTaskIds.isBlank() ||
+                task.dependsOnTaskIds.split(",").map { it.trim() }.all { it in completedIds }
+            val isPart2Blocked = task.id.endsWith("_part2") && (
+                (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                task.id.removeSuffix("_part2") in activeTaskIds
+            )
+            task.quadrant != Quadrant.ELIMINATE &&
+                !isPart2Blocked &&
+                task.waitingFor.isBlank() &&
+                isNotFuture &&
+                dependenciesMet
+        }
+        val matchingTasks = actionableActiveTasks.filter { it.energyLevel == currentEnergyZone }
+        val candidatePool = if (matchingTasks.isNotEmpty()) matchingTasks else actionableActiveTasks
         val effectiveSnapshot = snapshot.copy(usableEnergy = battery)
         val recommended = candidatePool.maxByOrNull { task ->
             val schedulable = SchedulableTask(
@@ -379,13 +419,35 @@ class FlowViewModelV2 @Inject constructor(
             baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
         }
 
+        val todayActiveTasks = activeTasks.filter { task ->
+            val sDate = task.effectiveScheduledDateMillis()
+                ?: task.scheduledTime?.takeIf { it >= com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS }?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+            val dDate = task.resolveDeadlineEpochMillis()
+            val isPart2Blocked = task.id.endsWith("_part2") && (
+                (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                task.id.removeSuffix("_part2") in activeTaskIds
+            )
+            task.quadrant != Quadrant.ELIMINATE &&
+                ((sDate != null && sDate <= dayEnd) || (sDate == null && dDate != null && dDate <= dayEnd) || (sDate == null && dDate == null && !isPart2Blocked))
+        }.sortedWith(
+            // Timed tasks sort chronologically first; date-only untimed tasks (scheduledTime == null) sort after (BUG-235)
+            compareBy<TaskEntity> { it.scheduledTime == null }
+                .thenBy { it.resolveScheduledEpochMillis() ?: Long.MAX_VALUE }
+                .thenByDescending { it.isFrog }
+                .thenByDescending { it.createdAt }
+        )
+
         val filtered = if (tag.isNullOrBlank() || tag.equals("All", ignoreCase = true)) {
-            activeTasks
+            todayActiveTasks
         } else {
-            val query = tag.removePrefix("#").trim()
-            activeTasks.filter { task ->
-                task.tags.contains(query, ignoreCase = true) ||
-                    task.title.contains(query, ignoreCase = true)
+            val query = tag.removePrefix("#").removePrefix("@").trim()
+            val wordRegex = Regex("""(?i)(?:^|\s)[#@]?\Q$query\E(?=\s|$)""")
+            todayActiveTasks.filter { task ->
+                val hasMatchingTag = (task.tags.split(",") + task.contextTag)
+                    .map { it.trim().removePrefix("#").removePrefix("@") }
+                    .filter { it.isNotBlank() }
+                    .any { it.equals(query, ignoreCase = true) }
+                hasMatchingTag || wordRegex.containsMatchIn(task.title)
             }
         }
 
@@ -444,12 +506,37 @@ class FlowViewModelV2 @Inject constructor(
             )
         }.getOrElse { emptyList() }
 
+        val todayCompletedDeepWorkMinutes = completedTasks.filter { task ->
+            val completionTime = task.completedAt ?: task.updatedAt
+            completionTime in dayStart..dayEnd && (
+                task.energyLevel == EnergyLevel.HIGH ||
+                task.isFrog ||
+                task.taskType == TaskType.ANALYTICAL ||
+                task.tags.contains("deepwork", ignoreCase = true) ||
+                task.contextTag.equals("deepwork", ignoreCase = true)
+            )
+        }.sumOf { task ->
+            (task.actualDurationMinutes?.roundToInt()
+                ?: task.totalTimeTrackedMinutes.roundToInt().takeIf { it > 0 }
+                ?: task.estimatedDurationMinutes).coerceAtLeast(1)
+        }
+
+        val circadianEnergySummary = buildCircadianEnergySummary(
+            dailySummary = circadianSummary,
+            snapshot = effectiveSnapshot,
+            sleepPressurePoints = prefs.sleepPressurePoints,
+            dailyDeepWorkTargetMinutes = prefs.dailyDeepWorkTargetMinutes,
+            sleepHour = prefs.sleepHour,
+            completedDeepWorkMinutes = todayCompletedDeepWorkMinutes
+        )
+
         FlowUiStateV2(
             activeTasks = activeTasks,
             filteredTasks = filtered,
             completedTasks = completedTasks,
             energyUi = energyUi,
             circadianSummary = circadianSummary,
+            circadianEnergySummary = circadianEnergySummary,
             dayTimeline = dayTimeline,
             energyTimeline = dayTimeline,
             dailyCognitiveBlocks = dailyBlocks,
@@ -484,8 +571,22 @@ class FlowViewModelV2 @Inject constructor(
 
     fun addTask(task: TaskEntity) {
         viewModelScope.launch {
-            taskRepository.insert(task)
-            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
+            val dayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+            val boundTask = if (task.scheduledDate == null) {
+                task.copy(
+                    scheduledDate = dayStart,
+                    habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) dayStart else task.habitDate
+                )
+            } else {
+                task
+            }
+            taskRepository.insert(boundTask)
+            val newTags = (boundTask.tags.split(",") + boundTask.contextTag).map { it.trim().removePrefix("#").removePrefix("@") }.filter { it.isNotBlank() }
+            if (newTags.isNotEmpty()) {
+                preferencesDataStore.mergeTagCatalog(newTags)
+            }
+            calendarSyncRepository?.handleTaskStateChanged(boundTask)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, boundTask) }
         }
     }
 
@@ -556,21 +657,34 @@ class FlowViewModelV2 @Inject constructor(
         }
     }
 
-    fun addTaskFromNote(title: String, content: String) {
+    fun addTaskFromNote(
+        synthesis: com.neuroflow.app.domain.service.QuickNoteSynthesis,
+        rawContent: String
+    ) {
         viewModelScope.launch {
-            val fullText = if (title.isNotBlank()) "$title: $content" else content
+            val fullText = if (synthesis.extractedTaskTitle.isNotBlank()) "${synthesis.extractedTaskTitle}: $rawContent" else rawContent
             val inferred = TaskInferenceEngine.inferFromInput(fullText)
             val now = System.currentTimeMillis()
+            val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(now)
+            val tagsCombined = (synthesis.tags + inferred.contextTags).distinct().filter { it.isNotBlank() }.joinToString(",")
+            val stepList: List<com.neuroflow.app.domain.model.StepByStepPlanStep> = if (synthesis.firstActionStep.isNotBlank()) {
+                listOf(com.neuroflow.app.domain.model.StepByStepPlanStep(synthesis.firstActionStep, completed = false))
+            } else emptyList()
+            val ifThenPlanStr = if (stepList.isNotEmpty()) {
+                com.neuroflow.app.domain.model.StepByStepPlanCodec.serialize(stepList)
+            } else ""
+
             val newTask = TaskEntity(
-                title = inferred.sanitizedTitle.ifBlank { title.ifBlank { "Quick Task" } },
-                description = content,
-                estimatedDurationMinutes = inferred.durationMinutes,
+                title = synthesis.extractedTaskTitle.ifBlank { inferred.sanitizedTitle.ifBlank { "Quick Task" } },
+                description = rawContent,
+                estimatedDurationMinutes = if (synthesis.estimatedMinutes > 0) synthesis.estimatedMinutes else inferred.durationMinutes,
                 priority = inferred.priority,
                 energyLevel = inferred.energyDemand,
                 taskType = inferred.taskType,
                 quadrant = inferred.quadrant,
-                tags = inferred.contextTags.joinToString(","),
-                scheduledDate = inferred.scheduledDate ?: now,
+                tags = tagsCombined,
+                ifThenPlan = ifThenPlanStr,
+                scheduledDate = inferred.scheduledDate ?: todayStart,
                 scheduledTime = inferred.scheduledTime,
                 deadlineDate = inferred.deadlineDate,
                 deadlineTime = inferred.deadlineTime,
@@ -579,24 +693,46 @@ class FlowViewModelV2 @Inject constructor(
                 updatedAt = now
             )
             taskRepository.insert(newTask)
+            val newTags = (newTask.tags.split(",") + newTask.contextTag).map { it.trim().removePrefix("#").removePrefix("@") }.filter { it.isNotBlank() }
+            if (newTags.isNotEmpty()) {
+                preferencesDataStore.mergeTagCatalog(newTags)
+            }
+            calendarSyncRepository?.handleTaskStateChanged(newTask)
             context?.let { AutonomyNudgeEngine.scheduleNudge(it, newTask) }
             _lastActionMessage.value = "Created task from note: ${newTask.title.take(24)} ⚡"
         }
     }
 
+    fun addTaskFromNote(title: String, content: String) {
+        val inferred = TaskInferenceEngine.inferFromInput(if (title.isNotBlank()) "$title: $content" else content)
+        val syn = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+            extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+            suggestedCategory = inferred.taskType.name,
+            estimatedMinutes = inferred.durationMinutes,
+            tags = inferred.contextTags,
+            firstActionStep = ""
+        )
+        addTaskFromNote(syn, content)
+    }
+
     fun shiftTaskToPeak(task: TaskEntity) {
         viewModelScope.launch {
-            val peakHour = uiState.value.circadianSummary?.peakWindowStartHour
-                ?: uiState.value.preferences.peakEnergyStart.takeIf { it > 0 } ?: 10
-            val peakEndHour = uiState.value.circadianSummary?.peakWindowEndHour ?: (peakHour + 3)
-            val dipEndHour = uiState.value.circadianSummary?.dipWindowEndHour ?: 16
-            val usableEnergy = uiState.value.circadianSummary?.currentSnapshot?.usableEnergy ?: 60
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val summary = uiState.value.circadianSummary
+            val manualPeak = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
+            val peakHour = manualPeak ?: summary?.peakWindowStartHour
+                ?: (if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart else prefs.peakEnergyStart).coerceIn(0, 23)
+            val peakEndHour = summary?.peakWindowEndHour ?: ((peakHour + 3) % 24)
+            val dipEndHour = summary?.dipWindowEndHour ?: 16
+            val usableEnergy = summary?.currentSnapshot?.usableEnergy ?: 60
 
             val now = System.currentTimeMillis()
             val cal = Calendar.getInstance().apply { timeInMillis = now }
             val currentHour = cal.get(Calendar.HOUR_OF_DAY)
+            val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(now)
 
-            val baseDate = task.scheduledDate ?: now
+            val baseDate = task.effectiveScheduledDateMillis()
+                ?: (if (task.scheduledTime != null && task.scheduledTime >= com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) task.scheduledTime else now)
             val baseCal = Calendar.getInstance().apply {
                 timeInMillis = baseDate
                 set(Calendar.HOUR_OF_DAY, 0)
@@ -604,36 +740,52 @@ class FlowViewModelV2 @Inject constructor(
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }
-            val isToday = baseCal.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
-                baseCal.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR)
+            val baseDayStart = baseCal.timeInMillis
 
             val targetDate: Long
             val targetHour: Int
             val messageLabel: String
 
-            if (!isToday || currentHour < peakEndHour) {
-                targetDate = baseCal.timeInMillis
+            val isPeakActive = if (peakHour <= peakEndHour) currentHour in peakHour until peakEndHour else (currentHour >= peakHour || currentHour < peakEndHour)
+
+            if (baseDayStart > todayStart) {
+                // Future scheduled date: preserve future day and place at peak hour
+                targetDate = baseDayStart
                 targetHour = peakHour
                 messageLabel = "Peak Window (${peakHour}:00)"
-            } else if (currentHour < 18 && usableEnergy >= 55) {
-                targetDate = baseCal.timeInMillis
-                targetHour = maxOf(currentHour + 1, dipEndHour).coerceAtMost(17)
-                messageLabel = "Afternoon Rebound (${targetHour}:00)"
             } else {
-                baseCal.add(Calendar.DAY_OF_YEAR, 1)
-                targetDate = baseCal.timeInMillis
-                targetHour = peakHour
-                messageLabel = "Tomorrow's Peak (${peakHour}:00)"
+                // Today or overdue past task: schedule for today's active/future window, or tomorrow if passed
+                if (currentHour < peakHour && peakHour <= peakEndHour) {
+                    targetDate = todayStart
+                    targetHour = peakHour
+                    messageLabel = "Peak Window (${peakHour}:00)"
+                } else if (isPeakActive) {
+                    targetDate = todayStart
+                    targetHour = currentHour
+                    messageLabel = "Peak Window (${currentHour}:00 Active)"
+                } else if (currentHour < 18 && usableEnergy >= 55) {
+                    targetDate = todayStart
+                    targetHour = maxOf(currentHour + 1, dipEndHour).coerceAtMost(17)
+                    messageLabel = "Afternoon Rebound (${targetHour}:00)"
+                } else {
+                    targetDate = com.neuroflow.app.data.local.entity.startOfNextLocalDay(todayStart)
+                    targetHour = peakHour
+                    messageLabel = "Tomorrow's Peak (${peakHour}:00)"
+                }
             }
 
             val millisInDay = targetHour * 3600_000L
             val updated = task.copy(
                 scheduledDate = targetDate,
                 scheduledTime = millisInDay,
+                isAutoScheduled = false,
                 isScheduleLocked = true,
+                habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) targetDate else task.habitDate,
                 updatedAt = System.currentTimeMillis()
             )
             taskRepository.update(updated)
+            calendarSyncRepository?.handleTaskStateChanged(updated)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
             _lastActionMessage.value = "Shifted '${task.title.take(20)}' to $messageLabel ⚡"
         }
     }
@@ -641,32 +793,73 @@ class FlowViewModelV2 @Inject constructor(
     fun updateTask(task: TaskEntity) {
         viewModelScope.launch {
             taskRepository.update(task)
+            val newTags = (task.tags.split(",") + task.contextTag).map { it.trim().removePrefix("#").removePrefix("@") }.filter { it.isNotBlank() }
+            if (newTags.isNotEmpty()) {
+                preferencesDataStore.mergeTagCatalog(newTags)
+            }
+            calendarSyncRepository?.handleTaskStateChanged(task)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
         }
     }
 
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
+            _lastDeferredTask.value = null
             _lastCompletedTask.value = task
+            val now = System.currentTimeMillis()
             val prefs = preferencesDataStore.preferencesFlow.first()
             val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {
                 " • \"${prefs.affirmations.random()}\""
             } else ""
             _lastActionMessage.value = "Completed: ${task.title}$affirmationSuffix"
             context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
-            taskRepository.completeAndRecur(task, System.currentTimeMillis())
+            val spawnedId = taskRepository.completeAndRecur(task, now)
+            _lastSpawnedRecurringTaskId.value = spawnedId
+            calendarSyncRepository?.handleTaskStateChanged(
+                task.copy(status = TaskStatus.COMPLETED)
+            )
+
+            val newCompleted = prefs.totalTasksCompleted + 1
+            val lastActive = prefs.lastActiveDate
+            val todayStart = startOfLocalDay(now)
+            val isNewDay = lastActive < todayStart
+            val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+            val newStreak = when {
+                isConsecutive -> prefs.dailyStreak + 1
+                isNewDay -> 1
+                else -> prefs.dailyStreak
+            }
+            val longest = maxOf(prefs.longestStreak, newStreak)
+            preferencesDataStore.updatePreferences {
+                it.copy(
+                    totalTasksCompleted = newCompleted,
+                    dailyStreak = newStreak,
+                    longestStreak = longest,
+                    lastActiveDate = now
+                )
+            }
         }
     }
 
     fun undoCompleteTask() {
         val task = _lastCompletedTask.value ?: return
         viewModelScope.launch {
-            taskRepository.update(
-                task.copy(
-                    status = TaskStatus.ACTIVE,
-                    completedAt = null,
-                    updatedAt = System.currentTimeMillis()
-                )
+            val spawnedId = _lastSpawnedRecurringTaskId.value
+            if (spawnedId != null) {
+                taskRepository.getById(spawnedId)?.let { taskRepository.delete(it) }
+                _lastSpawnedRecurringTaskId.value = null
+            }
+            val updated = task.copy(
+                status = TaskStatus.ACTIVE,
+                completedAt = null,
+                updatedAt = System.currentTimeMillis()
             )
+            taskRepository.update(updated)
+            calendarSyncRepository?.handleTaskStateChanged(updated)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(totalTasksCompleted = maxOf(0, prefs.totalTasksCompleted - 1))
+            }
             _lastCompletedTask.value = null
             _lastActionMessage.value = "Restored: ${task.title}"
         }
@@ -674,21 +867,34 @@ class FlowViewModelV2 @Inject constructor(
 
     fun deferTask(task: TaskEntity, hours: Int = 2) {
         viewModelScope.launch {
+            _lastCompletedTask.value = null
+            _lastSpawnedRecurringTaskId.value = null
             val now = System.currentTimeMillis()
             val currentEpoch = task.resolveScheduledEpochMillis(now) ?: now
             _lastDeferredTask.value = Pair(task, task.scheduledTime ?: 0L)
             val newEpoch = currentEpoch + hours * 3600_000L
             val (newDate, newTime) = buildNormalizedScheduleTimestamps(newEpoch)
-            taskRepository.update(
-                task.copy(
-                    scheduledDate = newDate,
-                    scheduledTime = newTime,
-                    postponeCount = task.postponeCount + 1,
-                    updatedAt = now
-                )
+            val updated = task.copy(
+                scheduledDate = newDate,
+                scheduledTime = newTime,
+                isAutoScheduled = false,
+                isScheduleLocked = true,
+                postponeCount = task.postponeCount + 1,
+                habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) newDate else task.habitDate,
+                updatedAt = now
             )
-            context?.let { AutonomyNudgeEngine.scheduleNudge(it, task) }
+            taskRepository.update(updated)
+            calendarSyncRepository?.handleTaskStateChanged(updated)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
             _lastActionMessage.value = "Deferred by ${hours}h: ${task.title}"
+        }
+    }
+
+    fun undoLastAction() {
+        if (_lastDeferredTask.value != null) {
+            undoDeferTask()
+        } else if (_lastCompletedTask.value != null) {
+            undoCompleteTask()
         }
     }
 
@@ -696,14 +902,16 @@ class FlowViewModelV2 @Inject constructor(
         val pair = _lastDeferredTask.value ?: return
         val (originalTask, _) = pair
         viewModelScope.launch {
-            taskRepository.update(
-                originalTask.copy(
-                    scheduledDate = originalTask.scheduledDate,
-                    scheduledTime = originalTask.scheduledTime,
-                    postponeCount = (originalTask.postponeCount - 1).coerceAtLeast(0),
-                    updatedAt = System.currentTimeMillis()
-                )
+            val restored = originalTask.copy(
+                scheduledDate = originalTask.scheduledDate,
+                scheduledTime = originalTask.scheduledTime,
+                postponeCount = originalTask.postponeCount,
+                habitDate = originalTask.habitDate,
+                updatedAt = System.currentTimeMillis()
             )
+            taskRepository.update(restored)
+            calendarSyncRepository?.handleTaskStateChanged(restored)
+            context?.let { AutonomyNudgeEngine.scheduleNudge(it, restored) }
             _lastDeferredTask.value = null
             _lastActionMessage.value = "Undid deferral for: ${originalTask.title}"
         }
@@ -713,13 +921,64 @@ class FlowViewModelV2 @Inject constructor(
         _lastActionMessage.value = null
     }
 
-    fun freshStartRollover() {
+    fun applyEmergencyReset(resetPlan: com.neuroflow.app.domain.engine.FreshStartEngine.EmergencyResetPlan) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+            // 1. Reschedule kept essential tasks for today and reset their postpone count (BUG-131)
+            resetPlan.tasksToReschedule.forEach { task ->
+                val scheduledTimeOffset = task.scheduledTime?.let { time ->
+                    val resolved = task.resolveScheduledEpochMillis()
+                    if (resolved != null && resolved < now) null else time
+                }
+                val updated = task.copy(
+                    scheduledDate = todayStart,
+                    scheduledTime = scheduledTimeOffset,
+                    habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) todayStart else task.habitDate,
+                    postponeCount = 0,
+                    updatedAt = now
+                )
+                taskRepository.update(updated)
+                calendarSyncRepository?.handleTaskStateChanged(updated)
+                context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
+            }
+            // 2. Clear schedules and un-pack calendar for tasks pushed to backlog
+            resetPlan.tasksPushedToBacklog.forEach { task ->
+                val updated = task.copy(
+                    scheduledDate = null,
+                    scheduledTime = null,
+                    habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) null else task.habitDate,
+                    isAutoScheduled = false,
+                    postponeCount = 0,
+                    updatedAt = now
+                )
+                taskRepository.update(updated)
+                calendarSyncRepository?.deleteTaskEvent(task.id)
+                context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
+            }
+            // 3. Protect user streak if streakFreezeApplied is true (BUG-131)
+            if (resetPlan.streakFreezeApplied) {
+                preferencesDataStore.updatePreferences { prefs ->
+                    prefs.copy(lastActiveDate = now)
+                }
+            }
+            _lastCompletedTask.value = null
+            _lastDeferredTask.value = null
+            _dismissedZeroGuilt.value = true
+            _lastActionMessage.value = resetPlan.summaryMessage
+        }
+    }
+
+    fun freshStartRollover() {
+        viewModelScope.launch {
+            _lastCompletedTask.value = null
+            _lastDeferredTask.value = null
+            val now = System.currentTimeMillis()
             val overdue = uiState.value.activeTasks.filter { task ->
-                task.postponeCount >= 3 ||
-                    (task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
-                    (task.scheduledDate != null && task.scheduledDate!! < now - 86_400_000L)
+                task.postponeCount >= 2 ||
+                    (task.scheduledTime != null && task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
+                    (task.effectiveScheduledDateMillis() != null && task.effectiveScheduledDateMillis()!! < now - 86_400_000L) ||
+                    (task.deadlineDate != null && task.resolveDeadlineEpochMillis()?.let { it < now } == true)
             }
             overdue.forEach { task ->
                 taskRepository.update(
@@ -727,10 +986,13 @@ class FlowViewModelV2 @Inject constructor(
                         quadrant = Quadrant.ELIMINATE,
                         scheduledTime = null,
                         scheduledDate = null,
+                        habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) null else task.habitDate,
                         postponeCount = 0,
                         updatedAt = now
                     )
                 )
+                calendarSyncRepository?.deleteTaskEvent(task.id)
+                context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
             }
             _dismissedZeroGuilt.value = true
             _lastActionMessage.value = "Rolled ${overdue.size} tasks into Icebox. Fresh start active! 🌱"
@@ -749,28 +1011,31 @@ class FlowViewModelV2 @Inject constructor(
                 taskTitle = task.title,
                 estimatedMinutes = task.estimatedDurationMinutes,
                 apiKey = prefs.geminiApiKey,
-                useAi = prefs.geminiAiEnabled
+                useAi = prefs.geminiAiEnabled,
+                userDirective = prefs.adaptiveSystemDirective
             )
-            val microStepEntities = generated.mapIndexed { index, suggestion ->
-                TaskMicroStepEntity(
-                    taskId = task.id,
-                    title = suggestion.title,
-                    sortOrder = index,
-                    estimatedMinutes = suggestion.estimatedMinutes
-                )
-            }
-            taskRepository.deleteMicroStepsByTaskId(task.id)
-            taskRepository.insertMicroSteps(microStepEntities)
+            if (generated.isNotEmpty()) {
+                val microStepEntities = generated.mapIndexed { index, suggestion ->
+                    TaskMicroStepEntity(
+                        taskId = task.id,
+                        title = suggestion.title,
+                        sortOrder = index,
+                        estimatedMinutes = suggestion.estimatedMinutes
+                    )
+                }
+                taskRepository.deleteMicroStepsByTaskId(task.id)
+                taskRepository.insertMicroSteps(microStepEntities)
 
-            val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
-            val serialized = StepByStepPlanCodec.serialize(planSteps)
-            taskRepository.update(
-                task.copy(
-                    ifThenPlan = serialized,
-                    updatedAt = System.currentTimeMillis()
+                val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
+                val serialized = StepByStepPlanCodec.serialize(planSteps)
+                taskRepository.update(
+                    task.copy(
+                        ifThenPlan = serialized,
+                        updatedAt = System.currentTimeMillis()
+                    )
                 )
-            )
-            _lastActionMessage.value = "Decomposed '${cleanTitle}' into ${generated.size} micro-steps 🪄"
+                _lastActionMessage.value = "Decomposed '${cleanTitle}' into ${generated.size} micro-steps 🪄"
+            }
         }
     }
 
@@ -853,7 +1118,22 @@ class FlowViewModelV2 @Inject constructor(
                 )
             )
             preferencesDataStore.updatePreferences { prefs ->
-                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + safeMinutes.toInt())
+                val lastActive = prefs.lastActiveDate
+                val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(now)
+                val isNewDay = lastActive < todayStart
+                val isConsecutive = lastActive >= com.neuroflow.app.data.local.entity.startOfPreviousLocalDay(todayStart) && isNewDay
+                val newStreak = when {
+                    isConsecutive -> prefs.dailyStreak + 1
+                    isNewDay -> 1
+                    else -> prefs.dailyStreak
+                }
+                val longest = maxOf(prefs.longestStreak, newStreak)
+                prefs.copy(
+                    totalFocusMinutes = prefs.totalFocusMinutes + safeMinutes.toInt(),
+                    lastActiveDate = now,
+                    dailyStreak = newStreak,
+                    longestStreak = longest
+                )
             }
             _lastActionMessage.value = "Logged ${safeMinutes.toInt()}m past time for ${task.title}"
         }

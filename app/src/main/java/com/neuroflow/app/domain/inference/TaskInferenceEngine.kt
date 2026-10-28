@@ -9,6 +9,7 @@ import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.BehavioralInsightsEngine
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
@@ -31,7 +32,10 @@ data class InferredTaskMetadata(
     val deadlineTime: Long? = null,
     val isHighImpact: Boolean = false,
     val rawDurationMinutes: Int = durationMinutes,
-    val calibrationFactorApplied: Float = 1.0f
+    val calibrationFactorApplied: Float = 1.0f,
+    val isEnergyExplicit: Boolean = false,
+    val isPriorityExplicit: Boolean = false,
+    val isQuadrantExplicit: Boolean = false
 ) {
     val estimatedDurationMinutes: Int get() = durationMinutes
     val energyLevel: EnergyLevel get() = energyDemand
@@ -61,7 +65,7 @@ object TaskInferenceEngine {
     private val HIGH_ENERGY_KEYWORDS = Regex("""(?i)\b(deep(\s+work)?|coding|write\s+report|architect|study|exam|complex|thesis|research|debug|refactor)\b""")
     private val LOW_ENERGY_KEYWORDS = Regex("""(?i)\b(quick\s+call|clean\s+desk|water\s+plants|tidy|file\s+expense|errand|inbox|admin)\b""")
 
-    private val ANALYTICAL_KEYWORDS = Regex("""(?i)\b(code|coding|debug|math|analysis|algorithm|compile|refactor|architect|finance|audit)\b""")
+    private val ANALYTICAL_KEYWORDS = Regex("""(?i)\b(code|coding|debug|math|analyze|analysis|algorithm|compile|refactor|architect|architecture|finance|audit)\b""")
     private val CREATIVE_KEYWORDS = Regex("""(?i)\b(design|write|draft|brainstorm|compose|sketch|draw|illustrate|ideate)\b""")
     private val ADMIN_KEYWORDS = Regex("""(?i)\b(call|meet|email|sync|discuss|errand|admin|organize|clean|invoice|schedule|order|buy|purchase|bill)\b""")
     private val PHYSICAL_KEYWORDS = Regex("""(?i)\b(gym|run|walk|exercise|workout|stretch|yoga|cardio|lift)\b""")
@@ -70,10 +74,10 @@ object TaskInferenceEngine {
     private val HIGH_IMPACT_REGEX = Regex("""(?i)(?:^|\s)(?:!impact\b|!star\b|#impact\b|\b(?:high\s+impact|critical|strategic)\b)""")
     private val TODAY_REGEX = Regex("""(?i)\b(today|tonight)\b""")
     private val TOMORROW_REGEX = Regex("""(?i)\b(tomorrow|tmrw)\b""")
-    private val DUE_DATE_REGEX = Regex("""(?i)\b(?:due|by|deadline)\s*:?\s*(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
-    private val SCHEDULE_DATE_REGEX = Regex("""(?i)\b(?:scheduled?|on|next|this)\s*:?\s*(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
+    private val DUE_DATE_REGEX = Regex("""(?i)\b(?:due|by|deadline)\s*:?\s*(?:next\s+|this\s+)?(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
+    private val SCHEDULE_DATE_REGEX = Regex("""(?i)\b(?:scheduled?(?:\s+for)?|on|next|this)\s*:?\s*(?:next\s+|this\s+)?(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
     private val CLOCK_TIME_REGEX = Regex("""(?i)\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b""")
-    private val RELATIVE_OFFSET_REGEX = Regex("""(?i)\bin\s+(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)\b""")
+    private val RELATIVE_OFFSET_REGEX = Regex("""(?i)\b(?:(due|deadline)\s+)?in\s+(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)\b""")
     private val TIME_OF_DAY_REGEX = Regex("""(?i)\b(?:this\s+)?(morning|afternoon|evening|tonight)\b""")
 
     fun calculateCalibrationFactorFromHistory(tasks: List<TaskEntity>): Float {
@@ -119,7 +123,10 @@ object TaskInferenceEngine {
                 isFrog = false,
                 priority = Priority.MEDIUM,
                 rawDurationMinutes = 25,
-                calibrationFactorApplied = safeCalibration
+                calibrationFactorApplied = safeCalibration,
+                isEnergyExplicit = false,
+                isPriorityExplicit = false,
+                isQuadrantExplicit = false
             )
         }
 
@@ -166,8 +173,8 @@ object TaskInferenceEngine {
 
         // 3. Context tags extraction (@work, #finance)
         val reservedTokens = setOf(
-            "high", "low", "med", "p1", "p2", "p3", "frog", "urgent", "impact", "star",
-            "q1", "q2", "q3", "q4", "dofirst", "delegate", "eliminate", "schedule"
+            "high", "low", "med", "medium", "p1", "p2", "p3", "frog", "urgent", "impact", "star",
+            "q1", "q2", "q3", "q4", "dofirst", "do-first", "do_first", "delegate", "eliminate", "schedule"
         )
         val tags = TAG_REGEX.findAll(text)
             .map { it.groupValues[1].lowercase(Locale.ROOT) }
@@ -181,6 +188,7 @@ object TaskInferenceEngine {
         val hasLightning = LIGHTNING_REGEX.containsMatchIn(text)
 
         // 5. Priority & Eisenhower Quadrant detection
+        val isExplicitPriority = isFrog || isHighImpact || PRIORITY_P1_REGEX.containsMatchIn(text) || PRIORITY_P2_REGEX.containsMatchIn(text) || PRIORITY_P3_REGEX.containsMatchIn(text)
         val isUrgent = PRIORITY_P1_REGEX.containsMatchIn(text)
         val priority = when {
             isFrog || isUrgent || isHighImpact -> Priority.HIGH
@@ -190,6 +198,7 @@ object TaskInferenceEngine {
         }
 
         // 6. Energy demand heuristic
+        val isExplicitEnergy = hasLightning || EXPLICIT_HIGH_ENERGY.containsMatchIn(text) || EXPLICIT_LOW_ENERGY.containsMatchIn(text) || EXPLICIT_MED_ENERGY.containsMatchIn(text)
         val energyDemand = when {
             hasLightning || EXPLICIT_HIGH_ENERGY.containsMatchIn(text) -> EnergyLevel.HIGH
             EXPLICIT_LOW_ENERGY.containsMatchIn(text) -> EnergyLevel.LOW
@@ -207,23 +216,28 @@ object TaskInferenceEngine {
         val tomorrowStartMillis = todayLocal.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
 
         var inferredDeadlineDate: Long? = null
+        var inferredDeadlineTimeMillis: Long? = null
         var inferredScheduledDate: Long? = null
         var inferredScheduledTimeMillis: Long? = null
 
         val dueMatch = DUE_DATE_REGEX.find(text)
         if (dueMatch != null) {
             val token = dueMatch.groupValues[1].lowercase(Locale.ROOT)
-            inferredDeadlineDate = resolveDateTokenMillis(token, todayLocal, zoneId)
+            val isNext = dueMatch.value.contains("next", ignoreCase = true) || text.contains(Regex("""(?i)\bnext\s+""" + token))
+            inferredDeadlineDate = resolveDateTokenMillis(token, todayLocal, zoneId, isNext)
         } else if (TODAY_REGEX.containsMatchIn(text) && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true))) {
             inferredDeadlineDate = todayStartMillis
         } else if (TOMORROW_REGEX.containsMatchIn(text) && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true))) {
             inferredDeadlineDate = tomorrowStartMillis
         }
 
-        val scheduleMatch = SCHEDULE_DATE_REGEX.find(text)
+        val scheduleMatch = SCHEDULE_DATE_REGEX.find(text)?.takeIf { match ->
+            dueMatch == null || (match.range.first > dueMatch.range.last || match.range.last < dueMatch.range.first)
+        }
         if (scheduleMatch != null) {
             val token = scheduleMatch.groupValues[1].lowercase(Locale.ROOT)
-            inferredScheduledDate = resolveDateTokenMillis(token, todayLocal, zoneId)
+            val isNext = scheduleMatch.value.contains("next", ignoreCase = true) || text.contains(Regex("""(?i)\bnext\s+""" + token))
+            inferredScheduledDate = resolveDateTokenMillis(token, todayLocal, zoneId, isNext)
         } else if (inferredDeadlineDate == null) {
             if (TODAY_REGEX.containsMatchIn(text)) inferredScheduledDate = todayStartMillis
             else if (TOMORROW_REGEX.containsMatchIn(text)) inferredScheduledDate = tomorrowStartMillis
@@ -240,20 +254,37 @@ object TaskInferenceEngine {
                 meridiem.isEmpty() && rawHour in 1..6 -> rawHour + 12
                 else -> rawHour.coerceIn(0, 23)
             }
-            inferredScheduledTimeMillis = LocalTime.of(hour24, rawMin).toSecondOfDay() * 1000L
-            if (inferredScheduledDate == null) {
-                inferredScheduledDate = todayStartMillis
+            val clockMillis = LocalTime.of(hour24, rawMin).toSecondOfDay() * 1000L
+            val isDueTime = (dueMatch != null && scheduleMatch == null) ||
+                (inferredDeadlineDate != null && inferredScheduledDate == null && (text.contains("due at", ignoreCase = true) || text.contains("deadline at", ignoreCase = true) || text.contains("by", ignoreCase = true)))
+            if (isDueTime) {
+                inferredDeadlineTimeMillis = clockMillis
+            } else {
+                inferredScheduledTimeMillis = clockMillis
+                if (inferredScheduledDate == null) {
+                    inferredScheduledDate = todayStartMillis
+                }
             }
         } else {
             val relMatch = RELATIVE_OFFSET_REGEX.find(text)
             if (relMatch != null) {
-                val amount = relMatch.groupValues[1].toLongOrNull() ?: 1L
-                val unit = relMatch.groupValues[2].lowercase(Locale.ROOT)
+                val isDueKeyword = relMatch.groupValues[1].isNotBlank()
+                val amount = relMatch.groupValues[2].toLongOrNull() ?: 1L
+                val unit = relMatch.groupValues[3].lowercase(Locale.ROOT)
                 val offsetMins = if (unit.startsWith("h")) amount * 60L else amount
-                val targetTime = LocalTime.now(zoneId).plusMinutes(offsetMins)
-                inferredScheduledTimeMillis = targetTime.toSecondOfDay() * 1000L
-                if (inferredScheduledDate == null) {
-                    inferredScheduledDate = todayStartMillis
+                val targetDateTime = LocalDateTime.now(zoneId).plusMinutes(offsetMins)
+                val isDueOffset = isDueKeyword ||
+                    (dueMatch != null && scheduleMatch == null)
+                if (isDueOffset) {
+                    inferredDeadlineTimeMillis = targetDateTime.toLocalTime().toSecondOfDay() * 1000L
+                    if (inferredDeadlineDate == null) {
+                        inferredDeadlineDate = targetDateTime.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
+                    }
+                } else {
+                    inferredScheduledTimeMillis = targetDateTime.toLocalTime().toSecondOfDay() * 1000L
+                    if (inferredScheduledDate == null) {
+                        inferredScheduledDate = targetDateTime.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
+                    }
                 }
             } else {
                 val todMatch = TIME_OF_DAY_REGEX.find(text)
@@ -266,9 +297,15 @@ object TaskInferenceEngine {
                         else -> null
                     }
                     if (targetLocalTime != null) {
-                        inferredScheduledTimeMillis = targetLocalTime.toSecondOfDay() * 1000L
-                        if (inferredScheduledDate == null) {
-                            inferredScheduledDate = todayStartMillis
+                        val isDueTime = (dueMatch != null && scheduleMatch == null) ||
+                            (inferredDeadlineDate != null && inferredScheduledDate == null && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true) || text.contains("by", ignoreCase = true)))
+                        if (isDueTime) {
+                            inferredDeadlineTimeMillis = targetLocalTime.toSecondOfDay() * 1000L
+                        } else {
+                            inferredScheduledTimeMillis = targetLocalTime.toSecondOfDay() * 1000L
+                            if (inferredScheduledDate == null) {
+                                inferredScheduledDate = todayStartMillis
+                            }
                         }
                     }
                 }
@@ -282,6 +319,7 @@ object TaskInferenceEngine {
             EXPLICIT_Q4.containsMatchIn(text) -> Quadrant.ELIMINATE
             else -> null
         }
+        val isExplicitQuadrant = explicitQuadrant != null
 
         val quadrant = explicitQuadrant ?: when {
             isUrgent && isHighImpact -> Quadrant.DO_FIRST
@@ -334,27 +372,32 @@ object TaskInferenceEngine {
             scheduledDate = inferredScheduledDate,
             scheduledTime = inferredScheduledTimeMillis,
             deadlineDate = inferredDeadlineDate,
+            deadlineTime = inferredDeadlineTimeMillis,
             isHighImpact = isHighImpact,
             rawDurationMinutes = rawDurationMinutes,
-            calibrationFactorApplied = safeCalibration
+            calibrationFactorApplied = safeCalibration,
+            isEnergyExplicit = isExplicitEnergy,
+            isPriorityExplicit = isExplicitPriority,
+            isQuadrantExplicit = isExplicitQuadrant
         )
     }
 
     private fun resolveDateTokenMillis(
         token: String,
         todayLocal: LocalDate,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        isNextModifier: Boolean = false
     ): Long {
         val targetDate = when (token) {
             "today", "tonight" -> todayLocal
             "tomorrow", "tmrw" -> todayLocal.plusDays(1)
-            "monday", "mon" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))
-            "tuesday", "tue" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.TUESDAY))
-            "wednesday", "wed" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY))
-            "thursday", "thu" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY))
-            "friday", "fri" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.FRIDAY))
-            "saturday", "sat" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY))
-            "sunday", "sun" -> todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+            "monday", "mon" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.MONDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.MONDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))
+            "tuesday", "tue" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.TUESDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.TUESDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.TUESDAY))
+            "wednesday", "wed" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.WEDNESDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.WEDNESDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY))
+            "thursday", "thu" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.THURSDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.THURSDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY))
+            "friday", "fri" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.FRIDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.FRIDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.FRIDAY))
+            "saturday", "sat" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.SATURDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.SATURDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY))
+            "sunday", "sun" -> if (isNextModifier || todayLocal.dayOfWeek == DayOfWeek.SUNDAY) todayLocal.with(TemporalAdjusters.next(DayOfWeek.SUNDAY)) else todayLocal.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
             else -> todayLocal
         }
         return targetDate.atStartOfDay(zoneId).toInstant().toEpochMilli()

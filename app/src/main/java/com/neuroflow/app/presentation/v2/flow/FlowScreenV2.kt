@@ -68,9 +68,13 @@ fun FlowScreenV2(
     LaunchedEffect(state.lastActionMessage) {
         val msg = state.lastActionMessage
         if (!msg.isNullOrBlank()) {
+            val canUndo = msg.startsWith("Completed") ||
+                msg.startsWith("Deferred") ||
+                msg.startsWith("Stimulant logged:") ||
+                msg.startsWith("Bio-event logged:")
             val result = snackbarHostState.showSnackbar(
                 message = msg,
-                actionLabel = "Undo",
+                actionLabel = if (canUndo) "Undo" else null,
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -80,8 +84,9 @@ fun FlowScreenV2(
                     msg.startsWith("Stimulant logged:") -> viewModel.undoLogStimulant()
                     msg.startsWith("Bio-event logged:") -> viewModel.undoLogPhysiologicalEvent()
                 }
+            } else {
+                viewModel.clearActionMessage()
             }
-            viewModel.clearActionMessage()
         }
     }
 
@@ -189,6 +194,7 @@ fun FlowScreenV2(
             }
 
             CircadianHeroBarometer(
+                summary = state.circadianEnergySummary,
                 rawEnergyScore = energyScore,
                 batteryPercent = battery,
                 energyZone = currentEnergyLevel,
@@ -234,7 +240,15 @@ fun FlowScreenV2(
             val approachingSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
                 ProtectedSlotClock.approaching(state.preferences.protectedTimeSlots, nowMillis, leadInMinutes = 45).firstOrNull()
             }
-            val topTask = state.recommendedTask ?: state.activeTasks.firstOrNull { it.isFrog } ?: state.activeTasks.firstOrNull()
+            val topTask = remember(state.recommendedTask, state.filteredTasks, state.selectedTag) {
+                if (state.selectedTag.isNullOrBlank() || state.selectedTag.equals("All", ignoreCase = true)) {
+                    state.recommendedTask ?: state.filteredTasks.firstOrNull { it.isFrog } ?: state.filteredTasks.firstOrNull()
+                } else {
+                    state.filteredTasks.firstOrNull { it.id == state.recommendedTask?.id }
+                        ?: state.filteredTasks.firstOrNull { it.isFrog }
+                        ?: state.filteredTasks.firstOrNull()
+                }
+            }
             if (topTask != null || activeTakeoverSlot != null) {
                 val currentPhase = state.energyTimeline.minByOrNull {
                     kotlin.math.abs(it.timestampMillis - nowMillis)
@@ -252,7 +266,7 @@ fun FlowScreenV2(
                         topTaskTitle = topTask?.title,
                         topTaskFirstMicroStep = microSteps.firstOrNull()?.text,
                         topTaskMicroSteps = microSteps,
-                        topTaskDurationMinutes = topTask?.estimatedDurationMinutes ?: 25,
+                        topTaskDurationMinutes = topTask?.let { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) } ?: 25,
                         topTaskEnergyLevel = topTask?.energyLevel ?: EnergyLevel.MEDIUM,
                         isTopTaskFrog = topTask?.isFrog ?: false,
                         currentPhase = currentPhase,
@@ -269,9 +283,9 @@ fun FlowScreenV2(
             }
 
             // Fresh Start Recovery Banner (ADHD Safety Net)
-            val resetPlan = remember(state.activeTasks) {
-                val overdue = state.activeTasks.filter { it.postponeCount >= 2 }
-                if (overdue.isNotEmpty()) {
+            val resetPlan = remember(state.activeTasks, state.showZeroGuiltPrompt) {
+                val hasOverdue = state.showZeroGuiltPrompt || state.activeTasks.any { it.postponeCount >= 2 }
+                if (hasOverdue) {
                     FreshStartEngine.buildEmergencyResetPlan(
                         activeTasks = state.activeTasks,
                         nowMillis = System.currentTimeMillis()
@@ -285,7 +299,13 @@ fun FlowScreenV2(
                     FreshStartRecoveryBanner(
                         visible = true,
                         resetPlan = resetPlan,
-                        onApplyEmergencyReset = { viewModel.freshStartRollover() },
+                        onApplyEmergencyReset = {
+                            if (resetPlan != null) {
+                                viewModel.applyEmergencyReset(resetPlan)
+                            } else {
+                                viewModel.freshStartRollover()
+                            }
+                        },
                         onDismiss = { viewModel.dismissZeroGuiltPrompt() }
                     )
                 }
@@ -318,8 +338,13 @@ fun FlowScreenV2(
                                 color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                             )
                         }
+                        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+                        val todayCompletedCount = state.completedTasks.count {
+                            val comp = it.completedAt ?: it.updatedAt
+                            comp >= todayStart
+                        }
                         Text(
-                            text = "It's past 7:00 PM. Protect your circadian melatonin surge by closing cognitive loops. You conquered ${state.completedTasks.size} tasks today. Time to wind down.",
+                            text = "It's past 7:00 PM. Protect your circadian melatonin surge by closing cognitive loops. You conquered $todayCompletedCount task${if (todayCompletedCount == 1) "" else "s"} today. Time to wind down.",
                             style = MaterialTheme.typography.bodySmall,
                             color = NeuroFlowThemeV2Colors.TextSecondary
                         )
@@ -426,6 +451,7 @@ fun FlowScreenV2(
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
             onDismiss = { showNotesSheet = false },
             onOpenFullNotes = onNavigateToNotes,
+            onCreateTaskSynthesis = { syn, content -> viewModel.addTaskFromNote(syn, content) },
             onCreateTask = { title, desc -> viewModel.addTaskFromNote(title, desc) },
             onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
         )

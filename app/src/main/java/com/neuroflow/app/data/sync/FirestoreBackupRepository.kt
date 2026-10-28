@@ -8,6 +8,7 @@ import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.ProtectedSlotEntity
+import com.neuroflow.app.data.local.entity.QuickNoteEntity
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
@@ -43,7 +44,8 @@ data class BackupPayload(
     val preferences: Map<String, String>,  // DataStore key-value pairs
     val notes: List<NoteEntity> = emptyList(),
     val protectedSlots: List<ProtectedSlotEntity> = emptyList(),
-    val taskMicroSteps: List<TaskMicroStepEntity> = emptyList()
+    val taskMicroSteps: List<TaskMicroStepEntity> = emptyList(),
+    val quickNotes: List<QuickNoteEntity> = emptyList()
 )
 
 // ---------------------------------------------------------------------------
@@ -99,7 +101,8 @@ class FirestoreBackupRepository @Inject constructor(
                 "hyperFocusCount" to payload.hyperFocusSessions.size,
                 "noteCount" to payload.notes.size,
                 "protectedSlotCount" to payload.protectedSlots.size,
-                "taskMicroStepCount" to payload.taskMicroSteps.size
+                "taskMicroStepCount" to payload.taskMicroSteps.size,
+                "quickNoteCount" to payload.quickNotes.size
             )
 
             // 1. Write document directly at users/{uid}/backups/{backupId} so it is never a virtual document
@@ -137,6 +140,7 @@ class FirestoreBackupRepository @Inject constructor(
             uploadCollection(backupRef.collection("notes"), payload.notes.map { it.toMap() })
             uploadCollection(backupRef.collection("protectedSlots"), payload.protectedSlots.map { it.toMap() })
             uploadCollection(backupRef.collection("taskMicroSteps"), payload.taskMicroSteps.map { it.toMap() })
+            uploadCollection(backupRef.collection("quickNotes"), payload.quickNotes.map { it.toMap() })
 
             // --- preferences (single document) ---------------------------
             if (payload.preferences.isNotEmpty()) {
@@ -256,7 +260,7 @@ class FirestoreBackupRepository @Inject constructor(
             val subCollections = listOf(
                 "meta", "tasks", "goals", "timeSessions", "woopData",
                 "ulyssesContracts", "sleepLogs", "hyperFocusSessions",
-                "energyPredictions", "notes", "protectedSlots", "taskMicroSteps", "preferences"
+                "energyPredictions", "notes", "protectedSlots", "taskMicroSteps", "quickNotes", "preferences"
             )
             for (colName in subCollections) {
                 deleteCollection(backupRef.collection(colName))
@@ -385,6 +389,9 @@ class FirestoreBackupRepository @Inject constructor(
         val taskMicroSteps = backupRef.collection("taskMicroSteps").get().await()
             .documents.mapNotNull { it.data?.toTaskMicroStepEntity() }
 
+        val quickNotes = backupRef.collection("quickNotes").get().await()
+            .documents.mapNotNull { it.data?.toQuickNoteEntity() }
+
         @Suppress("UNCHECKED_CAST")
         val preferences = backupRef.collection("preferences").document("data")
             .get().await().data?.mapValues { it.value?.toString() ?: "" }
@@ -402,7 +409,8 @@ class FirestoreBackupRepository @Inject constructor(
             preferences = preferences,
             notes = notes,
             protectedSlots = protectedSlots,
-            taskMicroSteps = taskMicroSteps
+            taskMicroSteps = taskMicroSteps,
+            quickNotes = quickNotes
         )
     }
 }
@@ -469,7 +477,8 @@ private fun TaskEntity.toMap(): Map<String, Any?> = mapOf(
     "affectiveForecastError" to affectiveForecastError?.toDouble(),
     "woopPromptShown" to woopPromptShown,
     "distractionScore" to distractionScore.toDouble(),
-    "schedulingCategory" to schedulingCategory
+    "schedulingCategory" to schedulingCategory,
+    "plannedBlockMinutes" to plannedBlockMinutes
 )
 
 private fun Map<String, Any?>.toTaskEntity(): TaskEntity? = runCatching {
@@ -526,7 +535,8 @@ private fun Map<String, Any?>.toTaskEntity(): TaskEntity? = runCatching {
         affectiveForecastError = float("affectiveForecastError"),
         woopPromptShown = bool("woopPromptShown") ?: false,
         distractionScore = float("distractionScore") ?: -1f,
-        schedulingCategory = str("schedulingCategory")
+        schedulingCategory = str("schedulingCategory"),
+        plannedBlockMinutes = int("plannedBlockMinutes") ?: 0
     )
 }.getOrNull()
 
@@ -841,6 +851,29 @@ private fun Map<String, Any?>.toTaskMicroStepEntity(): TaskMicroStepEntity? = ru
         sortOrder = int("sortOrder") ?: 0,
         isCompleted = bool("isCompleted") ?: false,
         estimatedMinutes = int("estimatedMinutes") ?: 5
+    )
+}.getOrNull()
+
+// ---------------------------------------------------------------------------
+// QuickNoteEntity
+// ---------------------------------------------------------------------------
+private fun QuickNoteEntity.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "content" to content,
+    "isPinned" to isPinned,
+    "convertedTaskId" to convertedTaskId,
+    "createdAt" to createdAt,
+    "updatedAt" to updatedAt
+)
+
+private fun Map<String, Any?>.toQuickNoteEntity(): QuickNoteEntity? = runCatching {
+    QuickNoteEntity(
+        id = str("id") ?: return null,
+        content = str("content") ?: "",
+        isPinned = bool("isPinned") ?: false,
+        convertedTaskId = str("convertedTaskId"),
+        createdAt = long("createdAt") ?: System.currentTimeMillis(),
+        updatedAt = long("updatedAt") ?: System.currentTimeMillis()
     )
 }.getOrNull()
 

@@ -62,11 +62,9 @@ class HyperFocusActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         applyIntent(intent)
 
-        // Block back gesture on Android 13+ only on the blocking overlay
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            onBackInvokedDispatcher.registerOnBackInvokedCallback(
-                android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY
-            ) {
+        // Intercept back gesture across all Android versions (API 26+)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
                 val currentRoute = navController?.currentBackStackEntry?.destination?.route
                 if (currentRoute == DESTINATION_OVERLAY) {
                     // Consume back gesture on blocking overlay so user can't return to blocked app
@@ -76,7 +74,7 @@ class HyperFocusActivity : ComponentActivity() {
                     }
                 }
             }
-        }
+        })
 
         setContent {
             val controller = rememberNavController().also { navController = it }

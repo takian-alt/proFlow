@@ -56,6 +56,11 @@ class NeuralSoundscapePlayer(
 
     private val isPlaying = AtomicBoolean(false)
     private val isFadingOut = AtomicBoolean(false)
+    private val isReleasePending = AtomicBoolean(false)
+    @Volatile
+    private var fadeTargetType: SoundscapeType? = null
+    @Volatile
+    private var needsFadeInReset = false
     private var wasPlayingBeforeFocusLoss = false
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
@@ -121,15 +126,21 @@ class NeuralSoundscapePlayer(
     @Synchronized
     fun play(type: SoundscapeType) {
         if (type == SoundscapeType.NONE) {
-            pauseWithFadeOut()
-            currentType = SoundscapeType.NONE
+            if (isPlaying.get()) {
+                pauseWithFadeOut(targetTypeOnComplete = SoundscapeType.NONE)
+            } else {
+                currentType = SoundscapeType.NONE
+            }
             return
         }
 
         currentType = type
         isFadingOut.set(false)
+        fadeTargetType = null
 
-        if (isPlaying.get()) {
+        val threadAlive = playbackThread?.isAlive == true
+        if (isPlaying.get() && threadAlive) {
+            needsFadeInReset = true
             // Already streaming: generator seamlessly updates synthesis stream
             return
         }
@@ -143,6 +154,11 @@ class NeuralSoundscapePlayer(
         } catch (t: Throwable) {
             Log.w(TAG, "AudioTrack play failed: ${t.message}")
             unregisterNoisyReceiver()
+            try {
+                audioTrack?.release()
+            } catch (_: Throwable) {}
+            audioTrack = null
+            isPlaying.set(false)
             return
         }
 
@@ -162,9 +178,29 @@ class NeuralSoundscapePlayer(
      * Initiates smooth fade-out over [FADE_OUT_DURATION_MS] and then halts playback.
      */
     @Synchronized
-    fun pauseWithFadeOut() {
-        if (!isPlaying.get() || isFadingOut.get()) return
+    fun pauseWithFadeOut(targetTypeOnComplete: SoundscapeType? = null) {
+        if (!isPlaying.get() || isFadingOut.get()) {
+            if (!isPlaying.get() && targetTypeOnComplete != null) {
+                currentType = targetTypeOnComplete
+            }
+            return
+        }
+        fadeTargetType = targetTypeOnComplete
         isFadingOut.set(true)
+    }
+
+    /**
+     * Smoothly fades out audio over [FADE_OUT_DURATION_MS] and releases AudioTrack and native resources.
+     * Prevents native AudioTrack exhaustion when leaving focus screens.
+     */
+    @Synchronized
+    fun releaseWithFadeOut() {
+        if (!isPlaying.get()) {
+            release()
+            return
+        }
+        isReleasePending.set(true)
+        pauseWithFadeOut(targetTypeOnComplete = SoundscapeType.NONE)
     }
 
     /**
@@ -172,8 +208,10 @@ class NeuralSoundscapePlayer(
      */
     @Synchronized
     fun stop() {
+        wasPlayingBeforeFocusLoss = false
         isPlaying.set(false)
         isFadingOut.set(false)
+        fadeTargetType = null
         stopPlaybackThread()
         unregisterNoisyReceiver()
 
@@ -183,6 +221,7 @@ class NeuralSoundscapePlayer(
         } catch (t: Throwable) {
             Log.w(TAG, "AudioTrack pause/flush failed: ${t.message}")
         }
+        generator.setVolumeInstant(0f)
         abandonAudioFocus()
     }
 
@@ -204,7 +243,11 @@ class NeuralSoundscapePlayer(
     }
 
     private fun initAudioTrackIfNeeded() {
-        if (audioTrack != null) return
+        if (audioTrack != null && audioTrack?.state == AudioTrack.STATE_INITIALIZED) return
+        try {
+            audioTrack?.release()
+        } catch (_: Throwable) {}
+        audioTrack = null
 
         try {
             val minBufferSize = AudioTrack.getMinBufferSize(
@@ -242,9 +285,11 @@ class NeuralSoundscapePlayer(
         playbackThread = thread(name = "NeuralSoundscapeAudio", isDaemon = true) {
             val thisThread = Thread.currentThread()
             val buffer = ShortArray(CHUNK_FRAMES * 2)
+            val crossfadeBuffer = ShortArray(CHUNK_FRAMES * 2)
+            var activeType = currentType
             var fadeStartVol = currentVolume
             var fadeStartTime = 0L
-            val fadeInStartTime = System.currentTimeMillis()
+            var fadeInStartTime = System.currentTimeMillis()
 
             try {
                 while (isPlaying.get() && !Thread.currentThread().isInterrupted) {
@@ -253,8 +298,13 @@ class NeuralSoundscapePlayer(
                         break
                     }
 
-                    val type = currentType
-                    if (type == SoundscapeType.NONE) {
+                    if (needsFadeInReset) {
+                        fadeInStartTime = System.currentTimeMillis()
+                        needsFadeInReset = false
+                    }
+
+                    val targetType = currentType
+                    if (targetType == SoundscapeType.NONE && !isFadingOut.get()) {
                         break
                     }
 
@@ -270,18 +320,25 @@ class NeuralSoundscapePlayer(
                         val cosineFadeFactor = (0.5 * (1.0 + kotlin.math.cos(kotlin.math.PI * fraction))).toFloat()
                         vol = (fadeStartVol * cosineFadeFactor).coerceAtLeast(0f)
 
-                        generator.generateFrames(type, buffer, CHUNK_FRAMES, vol)
+                        // Fade out the actively sounding audio profile rather than silencing with zeroes
+                        val soundscapeToFade = if (activeType != SoundscapeType.NONE) activeType else targetType
+                        generator.generateFrames(soundscapeToFade, buffer, CHUNK_FRAMES, vol)
 
                         if (fraction >= 1f || vol <= 0.0001f) {
                             // Fade completed cleanly
                             try {
                                 track.write(buffer, 0, buffer.size)
                                 track.pause()
-                                track.flush()
                             } catch (_: Throwable) {}
                             isPlaying.set(false)
                             isFadingOut.set(false)
-                            abandonAudioFocus()
+                            fadeTargetType?.let {
+                                currentType = it
+                                fadeTargetType = null
+                            }
+                            if (!wasPlayingBeforeFocusLoss) {
+                                abandonAudioFocus()
+                            }
                             break
                         }
                     } else {
@@ -296,7 +353,19 @@ class NeuralSoundscapePlayer(
                             1.0f
                         }
                         vol = (baseVol * cosineFadeIn).coerceIn(0f, 1f)
-                        generator.generateFrames(type, buffer, CHUNK_FRAMES, vol)
+
+                        if (activeType != targetType && activeType != SoundscapeType.NONE && targetType != SoundscapeType.NONE) {
+                            // Seamless single-chunk crossfade between soundscapes to eliminate waveform step discontinuity
+                            generator.generateFrames(activeType, buffer, CHUNK_FRAMES, 0.0f)
+                            generator.generateFrames(targetType, crossfadeBuffer, CHUNK_FRAMES, vol)
+                            for (j in 0 until CHUNK_FRAMES * 2) {
+                                buffer[j] = (buffer[j] + crossfadeBuffer[j]).coerceIn(-32768, 32767).toShort()
+                            }
+                            activeType = targetType
+                        } else {
+                            activeType = targetType
+                            generator.generateFrames(activeType, buffer, CHUNK_FRAMES, vol)
+                        }
                     }
 
                     val written = track.write(buffer, 0, buffer.size)
@@ -309,10 +378,21 @@ class NeuralSoundscapePlayer(
                 if (playbackThread == thisThread || playbackThread == null) {
                     isPlaying.set(false)
                     isFadingOut.set(false)
-                    abandonAudioFocus()
-                    try {
-                        audioTrack?.stop()
-                    } catch (_: Throwable) {}
+                    if (!wasPlayingBeforeFocusLoss) {
+                        abandonAudioFocus()
+                        unregisterNoisyReceiver()
+                    }
+                    if (isReleasePending.get()) {
+                        isReleasePending.set(false)
+                        try {
+                            audioTrack?.release()
+                        } catch (_: Throwable) {}
+                        audioTrack = null
+                    } else {
+                        try {
+                            audioTrack?.stop()
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
         }

@@ -393,6 +393,15 @@ class HyperFocusGateControlTest : StringSpec({
         h.viewModel.gatePassed.value shouldBe false
         // A fresh stimulus every visit: re-entering the gate must not show the text already typed.
         (h.viewModel.gateTask.value === transcribe) shouldBe false
+        (h.viewModel.gateTask.value == transcribe) shouldBe false
+
+        // Stress check: consecutive consumeGatePass calls must never generate identical task (BUG-170)
+        repeat(50) {
+            val previous = h.viewModel.gateTask.value
+            h.viewModel.consumeGatePass()
+            val next = h.viewModel.gateTask.value
+            (next == previous) shouldBe false
+        }
         h.scope.cancel()
     }
 

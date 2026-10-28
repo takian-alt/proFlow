@@ -28,8 +28,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
@@ -97,14 +99,20 @@ fun EnergyTimelineStream(
         } else {
             val nowMillis = System.currentTimeMillis()
             val activeOrNextIndex = scheduledTasks.indexOfFirst { task ->
-                val start = task.resolveScheduledEpochMillis() ?: task.scheduledDate ?: 0L
-                val end = start + task.estimatedDurationMinutes * 60_000L
-                end >= nowMillis
+                if (task.scheduledTime != null) {
+                    val start = task.resolveScheduledEpochMillis() ?: (task.effectiveScheduledDateMillis() ?: 0L)
+                    val end = start + TaskBlockPlan.plannedMinutes(task) * 60_000L
+                    end >= nowMillis
+                } else {
+                    true
+                }
             }
             var cumulativeMinutes = 0
 
             scheduledTasks.forEachIndexed { index, task ->
-                val scheduledMillis = task.resolveScheduledEpochMillis() ?: task.scheduledDate
+                val scheduledMillis = if (task.scheduledTime != null) {
+                    task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
+                } else null
                 val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
                     timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - scheduledMillis) }?.phase ?: EnergyPhase.PEAK
                 } else EnergyPhase.PEAK
@@ -173,22 +181,23 @@ fun EnergyTimelineStream(
 
                     Box(modifier = Modifier.weight(1f)) {
                         key(task.id) {
+                            val currentTask by rememberUpdatedState(task)
                             TimelineTaskCard(
                                 task = task,
-                                onTaskClick = { onTaskClick(task) },
-                                onComplete = { onCompleteTask(task) },
-                                onDefer = { onDeferTask(task) },
-                                onBreakDown = { onBreakDownTask(task) },
-                                onEdit = { onEditTask(task) },
-                                onShiftToPeak = onShiftToPeak?.let { shift -> { shift(task) } },
-                                onLogPastTime = { taskToLogTime = task },
+                                onTaskClick = { onTaskClick(currentTask) },
+                                onComplete = { onCompleteTask(currentTask) },
+                                onDefer = { onDeferTask(currentTask) },
+                                onBreakDown = { onBreakDownTask(currentTask) },
+                                onEdit = { onEditTask(currentTask) },
+                                onShiftToPeak = onShiftToPeak?.let { shift -> { shift(currentTask) } },
+                                onLogPastTime = { taskToLogTime = currentTask },
                                 timeline = timeline
                             )
                         }
                     }
                 }
 
-                cumulativeMinutes += task.estimatedDurationMinutes
+                cumulativeMinutes += TaskBlockPlan.plannedMinutes(task)
                 val hasNext = index < scheduledTasks.size - 1
                 if (hasNext) {
                     val nextTask = scheduledTasks[index + 1]
@@ -239,16 +248,18 @@ fun TimelineTaskCard(
     val hasMicroSteps = microSteps.isNotEmpty()
     var showDetailSheet by remember { mutableStateOf(false) }
 
+    val currentOnComplete by rememberUpdatedState(onComplete)
+    val currentOnDefer by rememberUpdatedState(onDefer)
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { it * 0.55f },
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    onComplete()
+                    currentOnComplete()
                     false
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
-                    onDefer()
+                    currentOnDefer()
                     false
                 }
                 SwipeToDismissBoxValue.Settled -> false
@@ -351,7 +362,7 @@ fun TimelineTaskCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "${task.estimatedDurationMinutes}m",
+                            text = "${TaskBlockPlan.plannedMinutes(task)}m",
                             style = MaterialTheme.typography.labelSmall,
                             color = NeuroFlowThemeV2Colors.TextSecondary
                         )
@@ -394,9 +405,9 @@ fun TimelineTaskCard(
                             }
                         }
 
-                        val isUltradianPart = task.id.contains("#part") || task.title.contains("(Part ")
+                        val isUltradianPart = task.id.contains("#part") || task.id.contains("_part") || task.title.contains("(Part ")
                         if (isUltradianPart) {
-                            val partLabel = if (task.id.contains("#part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                            val partLabel = if (task.id.contains("#part2") || task.id.contains("_part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
                             Box(
                                 modifier = Modifier
                                     .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
@@ -427,7 +438,9 @@ fun TimelineTaskCard(
                         }
                     }
 
-                    val scheduledMillis = task.resolveScheduledEpochMillis() ?: task.scheduledDate
+                    val scheduledMillis = if (task.scheduledTime != null) {
+                        task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
+                    } else null
                     if (scheduledMillis != null && timeline.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         TaskSlotEnergyFitBadge(
@@ -506,7 +519,7 @@ fun TimelineTaskCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "⏱ ${task.estimatedDurationMinutes} mins",
+                        text = "⏱ ${TaskBlockPlan.plannedMinutes(task)} mins",
                         style = MaterialTheme.typography.bodyMedium,
                         color = NeuroFlowThemeV2Colors.TextSecondary
                     )

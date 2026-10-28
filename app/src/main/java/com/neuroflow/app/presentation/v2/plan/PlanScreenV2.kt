@@ -69,6 +69,7 @@ fun PlanScreenV2(
 ) {
     val state by viewModel.uiState.collectAsState()
     val recentNotes by viewModel.recentNotes.collectAsState(initial = emptyList())
+    val completedTasks by viewModel.completedTasks.collectAsState(initial = emptyList())
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -117,8 +118,10 @@ fun PlanScreenV2(
 
     LaunchedEffect(Unit) {
         viewModel.userActionMessage.collect { msg ->
-            snackbarHostState.currentSnackbarData?.dismiss()
-            snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
+            if (!msg.startsWith("Completed:")) {
+                snackbarHostState.currentSnackbarData?.dismiss()
+                snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
+            }
         }
     }
 
@@ -639,6 +642,7 @@ fun PlanScreenV2(
             onSaveNote = { title, content -> viewModel.saveQuickNote(content, title) },
             onDismiss = { showNotesSheet = false },
             onOpenFullNotes = onNavigateToNotes,
+            onCreateTaskSynthesis = { syn, content -> viewModel.createTaskFromNote(syn, content) },
             onCreateTask = { title, desc -> viewModel.createTaskFromNote(title, desc) },
             onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
         )
@@ -661,11 +665,12 @@ fun PlanScreenV2(
             onDismiss = { showComposer = false },
             mode = SheetMode.Create,
             circadianSummary = state.circadianSummary,
+            initialDate = state.selectedDateMillis,
             onSave = { task ->
                 showComposer = false
                 viewModel.addTask(task)
             },
-            completedTasks = state.tasksForDay.filter { it.completedAt != null }
+            completedTasks = completedTasks
         )
     }
 
@@ -674,57 +679,61 @@ fun PlanScreenV2(
             onDismiss = { editingTask = null },
             mode = SheetMode.Edit(task),
             circadianSummary = state.circadianSummary,
+            initialDate = state.selectedDateMillis,
             onSave = { updated ->
                 editingTask = null
                 viewModel.updateTask(updated)
             },
-            completedTasks = state.tasksForDay.filter { it.completedAt != null }
+            completedTasks = completedTasks
         )
     }
 
     taskToScheduleTime?.let { task ->
-        val initialMinuteOfDay = task.timelineStartMinuteOfDay()
-        val initialHour = initialMinuteOfDay / 60
-        val initialMinute = initialMinuteOfDay % 60
-        val timePickerState = rememberTimePickerState(
-            initialHour = if (initialHour in 0..23) initialHour else 9,
-            initialMinute = if (initialMinute in 0..59) initialMinute else 0
-        )
-        AlertDialog(
-            onDismissRequest = { taskToScheduleTime = null },
-            title = {
-                Text(
-                    text = "Assign Time Slot",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.TextPrimary
-                )
-            },
-            text = {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TimePicker(state = timePickerState)
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.assignTaskTime(task, timePickerState.hour, timePickerState.minute)
-                        taskToScheduleTime = null
+        key(task.id) {
+            val hasExplicitTime = task.scheduledTime != null
+            val initialMinuteOfDay = if (hasExplicitTime) task.timelineStartMinuteOfDay() else 9 * 60
+            val initialHour = initialMinuteOfDay / 60
+            val initialMinute = initialMinuteOfDay % 60
+            val timePickerState = rememberTimePickerState(
+                initialHour = if (initialHour in 0..23) initialHour else 9,
+                initialMinute = if (initialMinute in 0..59) initialMinute else 0
+            )
+            AlertDialog(
+                onDismissRequest = { taskToScheduleTime = null },
+                title = {
+                    Text(
+                        text = "Assign Time Slot",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                },
+                text = {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TimePicker(state = timePickerState)
                     }
-                ) {
-                    Text("Confirm", color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { taskToScheduleTime = null }) {
-                    Text("Cancel", color = NeuroFlowThemeV2Colors.TextSecondary)
-                }
-            },
-            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
-        )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.assignTaskTime(task, timePickerState.hour, timePickerState.minute)
+                            taskToScheduleTime = null
+                        }
+                    ) {
+                        Text("Confirm", color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { taskToScheduleTime = null }) {
+                        Text("Cancel", color = NeuroFlowThemeV2Colors.TextSecondary)
+                    }
+                },
+                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+            )
+        }
     }
 
     FrogConfettiOverlay(trigger = showFrogConfetti)
@@ -741,17 +750,13 @@ fun DateCarouselStrip(
     selectedDateMillis: Long,
     onSelectDate: (Long) -> Unit
 ) {
-    val todayCal = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }
+    val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+    val tmrwStart = com.neuroflow.app.data.local.entity.startOfNextLocalDay(todayStart)
 
-    val days = remember {
+    val days = remember(todayStart) {
         (0..6).map { offset ->
             val cal = Calendar.getInstance().apply {
-                timeInMillis = todayCal.timeInMillis
+                timeInMillis = todayStart
                 add(Calendar.DAY_OF_YEAR, offset)
             }
             cal.timeInMillis
@@ -768,8 +773,8 @@ fun DateCarouselStrip(
             val isSelected = isSameDay(selectedDateMillis, dateMillis)
             val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
             val dayName = when {
-                isSameDay(todayCal.timeInMillis, dateMillis) -> "Today"
-                isSameDay(todayCal.timeInMillis + 86400000L, dateMillis) -> "Tmrw"
+                isSameDay(todayStart, dateMillis) -> "Today"
+                isSameDay(tmrwStart, dateMillis) -> "Tmrw"
                 else -> SimpleDateFormat("EEE", Locale.getDefault()).format(cal.time)
             }
             val dayNum = SimpleDateFormat("d", Locale.getDefault()).format(cal.time)
@@ -820,7 +825,7 @@ private fun shouldShowUltradianBufferAfter(tasks: List<TaskEntity>, index: Int):
     if (index >= tasks.size - 1) return false
     var runSum = 0
     for (i in 0..index) {
-        runSum += tasks[i].estimatedDurationMinutes
+        runSum += com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(tasks[i])
         if (i == index) {
             return runSum >= 90
         }
@@ -847,20 +852,19 @@ fun TimelineScheduleView(
     onLogPastTime: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {}
 ) {
-    val peakStart = state.preferences.peakEnergyStart.takeIf { it > 0 } ?: 9
-    val peakEnd = state.preferences.peakEnergyEnd.takeIf { it > 0 } ?: 12
-    val currentMinuteOfDay = remember {
-        val cal = Calendar.getInstance()
-        cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    val peakPrefs = state.preferences
+    val peakStart = state.circadianSummary?.peakWindowStartHour
+        ?: (if (peakPrefs.effectivePeakStart in 0..23) peakPrefs.effectivePeakStart else peakPrefs.peakEnergyStart).coerceIn(0, 23)
+    val peakEnd = state.circadianSummary?.peakWindowEndHour
+        ?: (if (peakPrefs.effectivePeakEnd in 0..23) peakPrefs.effectivePeakEnd else peakPrefs.peakEnergyEnd).coerceIn(0, 23)
+    val currentMinuteOfDay = Calendar.getInstance().let {
+        it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
     }
     val listState = rememberLazyListState()
 
-    // Scroll to the first upcoming task for today on initial load
-    LaunchedEffect(state.selectedDateMillis, state.tasksForDay.size) {
-        val upcomingIdx = state.tasksForDay.indexOfFirst { it.timelineStartMinuteOfDay() >= currentMinuteOfDay - 30 }
-        if (upcomingIdx > 0) {
-            listState.animateScrollToItem(upcomingIdx)
-        }
+    // Keep timeline anchored at top (Cognitive Budget Meter) on initial load and date changes
+    LaunchedEffect(state.selectedDateMillis) {
+        listState.scrollToItem(0)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -879,7 +883,7 @@ fun TimelineScheduleView(
         ) {
             // 1. Daily Cognitive Budget Meter (Scoped inside scrollable timeline)
             item(key = "budget_meter") {
-                val scheduledMinutes = state.tasksForDay.sumOf { it.estimatedDurationMinutes }
+                val scheduledMinutes = state.tasksForDay.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
                 val capacityMinutes = state.preferences.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
                     ?: state.circadianSummary?.recommendedDeepWorkMinutes ?: 360
                 com.neuroflow.app.presentation.v2.theme.CognitiveBudgetMeterCard(
@@ -960,22 +964,26 @@ fun TimelineScheduleView(
                 }
             } else {
                 itemsIndexed(state.tasksForDay, key = { _, it -> it.id }) { index, task ->
-                    val minuteOfDay = task.timelineStartMinuteOfDay()
+                    val hasTime = task.scheduledTime != null
+                    val minuteOfDay = if (hasTime) task.timelineStartMinuteOfDay() else 0
                     val h = minuteOfDay / 60
                     val m = minuteOfDay % 60
-                    val timeLabel = String.format("%02d:%02d", h, m)
-                    val isDuringPeak = h in peakStart until peakEnd
+                    val timeLabel = if (hasTime) String.format("%02d:%02d", h, m) else "All day"
+                    val isDuringPeak = if (hasTime) {
+                        if (peakStart <= peakEnd) h in peakStart until peakEnd else (h >= peakStart || h < peakEnd)
+                    } else false
 
+                    val currentTask by rememberUpdatedState(task)
                     val dismissState = rememberSwipeToDismissBoxState(
                         positionalThreshold = { it * 0.55f },
                         confirmValueChange = { value ->
                             when (value) {
                                 SwipeToDismissBoxValue.StartToEnd -> {
-                                    onCompleteTask(task)
+                                    onCompleteTask(currentTask)
                                     false
                                 }
                                 SwipeToDismissBoxValue.EndToStart -> {
-                                    onDeleteTask(task)
+                                    onDeleteTask(currentTask)
                                     false
                                 }
                                 SwipeToDismissBoxValue.Settled -> false
@@ -1047,7 +1055,9 @@ fun TimelineScheduleView(
                                         text = timeLabel,
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isDuringPeak) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary
+                                        color = if (isDuringPeak) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary,
+                                        fontSize = if (!hasTime) 11.sp else 12.sp,
+                                        maxLines = 1
                                     )
                                     if (isDuringPeak) {
                                         Text(
@@ -1101,7 +1111,7 @@ fun TimelineScheduleView(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Text(
-                                            text = "${task.estimatedDurationMinutes}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
+                                            text = "${com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
@@ -1141,7 +1151,9 @@ fun TimelineScheduleView(
                                         }
                                     }
 
-                                    val scheduledMillis = task.resolveScheduledEpochMillis() ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
+                                    val scheduledMillis = if (task.scheduledTime != null) {
+                                        task.resolveScheduledEpochMillis(state.selectedDateMillis) ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
+                                    } else null
                                     if (scheduledMillis != null && state.energyTimeline.isNotEmpty()) {
                                         Spacer(modifier = Modifier.height(4.dp))
                                         TaskSlotEnergyFitBadge(
@@ -1319,8 +1331,9 @@ fun TimelineScheduleView(
                                 )
                                 val startH = slot.startMinuteOfDay / 60
                                 val startM = slot.startMinuteOfDay % 60
-                                val endH = (slot.startMinuteOfDay + slot.durationMinutes) / 60
-                                val endM = (slot.startMinuteOfDay + slot.durationMinutes) % 60
+                                val endMinuteOfDay = (slot.startMinuteOfDay + slot.durationMinutes) % 1440
+                                val endH = endMinuteOfDay / 60
+                                val endM = endMinuteOfDay % 60
                                 Text(
                                     text = String.format("%02d:%02d – %02d:%02d (%s)", startH, startM, endH, endM, slot.category.name),
                                     style = MaterialTheme.typography.labelSmall,
@@ -1477,7 +1490,7 @@ fun MatrixPlanView(
                                             )
                                         }
                                         Text(
-                                            "${task.estimatedDurationMinutes}m • ${task.energyLevel.name}",
+                                            "${com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)}m • ${task.energyLevel.name}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
@@ -1731,8 +1744,9 @@ fun AutopilotConfigView(
                         )
                         val startH = slot.startMinuteOfDay / 60
                         val startM = slot.startMinuteOfDay % 60
-                        val endH = (slot.startMinuteOfDay + slot.durationMinutes) / 60
-                        val endM = (slot.startMinuteOfDay + slot.durationMinutes) % 60
+                        val endMinuteOfDay = (slot.startMinuteOfDay + slot.durationMinutes) % 1440
+                        val endH = endMinuteOfDay / 60
+                        val endM = endMinuteOfDay % 60
                         Text(
                             text = String.format("%02d:%02d – %02d:%02d (%s)", startH, startM, endH, endM, slot.category.name),
                             style = MaterialTheme.typography.labelSmall,

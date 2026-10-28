@@ -4,15 +4,18 @@ import android.content.Context
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
+import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
 import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.ProtectedSlotDao
+import com.neuroflow.app.data.local.dao.QuickNoteDao
 import com.neuroflow.app.data.local.dao.SleepLogDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TaskMicroStepDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.dao.UlyssesContractDao
 import com.neuroflow.app.data.local.dao.WoopDao
+import com.neuroflow.app.data.local.entity.FocusSessionEntity
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.TimeoutCancellationException
@@ -47,7 +50,9 @@ class CloudBackupManager @Inject constructor(
     private val preferencesDataStore: UserPreferencesDataStore,
     @ApplicationContext private val context: Context,
     private val protectedSlotDao: ProtectedSlotDao? = null,
-    private val taskMicroStepDao: TaskMicroStepDao? = null
+    private val taskMicroStepDao: TaskMicroStepDao? = null,
+    private val quickNoteDao: QuickNoteDao? = null,
+    private val focusSessionDao: FocusSessionDao? = null
 ) {
 
     // -------------------------------------------------------------------------
@@ -76,6 +81,7 @@ class CloudBackupManager @Inject constructor(
                 val notes = noteDao.getAllNotes()
                 val protectedSlots = protectedSlotDao?.getAll() ?: emptyList()
                 val taskMicroSteps = taskMicroStepDao?.getAll() ?: emptyList()
+                val quickNotes = quickNoteDao?.getAll() ?: emptyList()
 
                 val prefs = preferencesDataStore.preferencesFlow.first()
                 val prefsMap = prefs.toBackupMap()
@@ -92,7 +98,8 @@ class CloudBackupManager @Inject constructor(
                     preferences = prefsMap,
                     notes = notes,
                     protectedSlots = protectedSlots,
-                    taskMicroSteps = taskMicroSteps
+                    taskMicroSteps = taskMicroSteps,
+                    quickNotes = quickNotes
                 )
 
                 firestoreRepo.uploadBackup(uid, payload).fold(
@@ -189,7 +196,26 @@ class CloudBackupManager @Inject constructor(
 
         payload.tasks.forEach { taskDao.insert(it); itemCount++ }
         payload.goals.forEach { goalDao.insert(it); itemCount++ }
-        payload.timeSessions.forEach { timeSessionDao.insert(it); itemCount++ }
+        payload.timeSessions.forEach { session ->
+            timeSessionDao.insert(session)
+            val durationSec = (session.durationMinutes * 60).toInt()
+            val interruptions = session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
+            runCatching {
+                focusSessionDao?.insert(
+                    FocusSessionEntity(
+                        id = session.id,
+                        taskId = session.taskId,
+                        startedAt = session.startedAt,
+                        endedAt = session.endedAt,
+                        durationSeconds = durationSec,
+                        interruptionCount = interruptions,
+                        energyAtStart = 50,
+                        wasCompleted = session.endedAt != null
+                    )
+                )
+            }
+            itemCount++
+        }
         payload.woopData.forEach { woopDao.upsert(it); itemCount++ }
         payload.ulyssesContracts.forEach { ulyssesContractDao.insert(it); itemCount++ }
         payload.sleepLogs.forEach { sleepLogDao.upsert(it); itemCount++ }
@@ -207,6 +233,9 @@ class CloudBackupManager @Inject constructor(
         }
         payload.taskMicroSteps.forEach { step ->
             runCatching { taskMicroStepDao?.insert(step); itemCount++ }
+        }
+        payload.quickNotes.forEach { qNote ->
+            runCatching { quickNoteDao?.insert(qNote); itemCount++ }
         }
 
         if (payload.preferences.isNotEmpty()) {
@@ -266,6 +295,7 @@ internal fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
     put("lastAppOpenMillis", lastAppOpenMillis.toString())
     put("adaptiveSystemDirective", adaptiveSystemDirective)
     put("weeklyAiAuditJson", weeklyAiAuditJson)
+    put("recentlyDeletedTasksJson", recentlyDeletedTasksJson)
     put("stimulantLogsJson", stimulantLogsJson)
     put("quickPhysiologicalLogsJson", quickPhysiologicalLogsJson)
     put("quizChronotype", quizChronotype.orEmpty())
@@ -276,6 +306,21 @@ internal fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
     put("yearlyGoals", UserPreferencesDataStore.encodeAffirmations(yearlyGoals))
     put("weeklyGoals", UserPreferencesDataStore.encodeAffirmations(weeklyGoals))
     put("protectedTimeSlots", UserPreferencesDataStore.encodeProtectedTimeSlots(protectedTimeSlots))
+    put("dailyPlanNotificationsEnabled", dailyPlanNotificationsEnabled.toString())
+    put("streakNotificationsEnabled", streakNotificationsEnabled.toString())
+    put("autonomyNudgeNotificationsEnabled", autonomyNudgeNotificationsEnabled.toString())
+    put("deadlineReminderNotificationsEnabled", deadlineReminderNotificationsEnabled.toString())
+    put("deadlineEscalationNotificationsEnabled", deadlineEscalationNotificationsEnabled.toString())
+    put("dailyPlanNotificationHour", dailyPlanNotificationHour.toString())
+    put("streakCheckNotificationHour", streakCheckNotificationHour.toString())
+    put("autoSchedulingEnabled", autoSchedulingEnabled.toString())
+    put("isAutoScheduleToggleOn", isAutoScheduleToggleOn.toString())
+    put("autoSchedulingHorizonDays", autoSchedulingHorizonDays.toString())
+    put("autoSchedulingBreakAfterCognitiveMinutes", autoSchedulingBreakAfterCognitiveMinutes.toString())
+    put("autoSchedulingBreakDurationMinutes", autoSchedulingBreakDurationMinutes.toString())
+    put("woopEnabled", woopEnabled.toString())
+    put("autoTrackerEnabled", autoTrackerEnabled.toString())
+    put("firstAppOpenMillis", firstAppOpenMillis.toString())
 }
 
 // =============================================================================
@@ -334,6 +379,7 @@ internal fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPrefer
         lastAppOpenMillis       = long("lastAppOpenMillis", lastAppOpenMillis),
         adaptiveSystemDirective    = str("adaptiveSystemDirective") ?: adaptiveSystemDirective,
         weeklyAiAuditJson          = str("weeklyAiAuditJson") ?: weeklyAiAuditJson,
+        recentlyDeletedTasksJson   = str("recentlyDeletedTasksJson") ?: recentlyDeletedTasksJson,
         stimulantLogsJson          = str("stimulantLogsJson") ?: stimulantLogsJson,
         quickPhysiologicalLogsJson = str("quickPhysiologicalLogsJson") ?: quickPhysiologicalLogsJson,
         quizChronotype             = str("quizChronotype")?.takeIf { it.isNotBlank() } ?: quizChronotype,
@@ -343,6 +389,21 @@ internal fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPrefer
         tagCatalog                 = str("tagCatalog")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: tagCatalog,
         yearlyGoals                = str("yearlyGoals")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: yearlyGoals,
         weeklyGoals                = str("weeklyGoals")?.let { UserPreferencesDataStore.parseAffirmations(it) } ?: weeklyGoals,
-        protectedTimeSlots         = str("protectedTimeSlots")?.let { UserPreferencesDataStore.parseProtectedTimeSlots(it) } ?: protectedTimeSlots
+        protectedTimeSlots         = str("protectedTimeSlots")?.let { UserPreferencesDataStore.parseProtectedTimeSlots(it) } ?: protectedTimeSlots,
+        dailyPlanNotificationsEnabled = bool("dailyPlanNotificationsEnabled", dailyPlanNotificationsEnabled),
+        streakNotificationsEnabled = bool("streakNotificationsEnabled", streakNotificationsEnabled),
+        autonomyNudgeNotificationsEnabled = bool("autonomyNudgeNotificationsEnabled", autonomyNudgeNotificationsEnabled),
+        deadlineReminderNotificationsEnabled = bool("deadlineReminderNotificationsEnabled", deadlineReminderNotificationsEnabled),
+        deadlineEscalationNotificationsEnabled = bool("deadlineEscalationNotificationsEnabled", deadlineEscalationNotificationsEnabled),
+        dailyPlanNotificationHour = int("dailyPlanNotificationHour", dailyPlanNotificationHour),
+        streakCheckNotificationHour = int("streakCheckNotificationHour", streakCheckNotificationHour),
+        autoSchedulingEnabled = bool("autoSchedulingEnabled", autoSchedulingEnabled),
+        isAutoScheduleToggleOn = bool("isAutoScheduleToggleOn", isAutoScheduleToggleOn),
+        autoSchedulingHorizonDays = int("autoSchedulingHorizonDays", autoSchedulingHorizonDays),
+        autoSchedulingBreakAfterCognitiveMinutes = int("autoSchedulingBreakAfterCognitiveMinutes", autoSchedulingBreakAfterCognitiveMinutes),
+        autoSchedulingBreakDurationMinutes = int("autoSchedulingBreakDurationMinutes", autoSchedulingBreakDurationMinutes),
+        woopEnabled = bool("woopEnabled", woopEnabled),
+        autoTrackerEnabled = bool("autoTrackerEnabled", autoTrackerEnabled),
+        firstAppOpenMillis = long("firstAppOpenMillis", firstAppOpenMillis)
     )
 }

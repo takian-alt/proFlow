@@ -257,6 +257,8 @@ class MEQQuizViewModel @Inject constructor(
             preferencesDataStore.updatePreferences { prefs ->
                 prefs.copy(
                     quizChronotype = chronotype.name,
+                    peakEnergyStart = peakHourOfDay,
+                    peakEnergyEnd = peakWindowEndHourOfDay,
                     detectedPeakStart = peakHourOfDay,
                     detectedPeakEnd = peakWindowEndHourOfDay,
                     detectedPeakMinuteOfDay = peakMinuteOfDay,

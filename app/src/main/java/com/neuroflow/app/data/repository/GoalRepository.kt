@@ -36,8 +36,9 @@ class GoalRepository @Inject constructor(
         if (preferencesDataStore != null) {
             val prefs = preferencesDataStore.preferencesFlow.first()
             val now = System.currentTimeMillis()
-            val currentYear = com.neuroflow.app.domain.engine.FreshStartEngine.isoYear(now)
-            val currentWeek = com.neuroflow.app.domain.engine.FreshStartEngine.isoWeekNumber(now)
+            val anchorMillis = com.neuroflow.app.domain.engine.FreshStartEngine.sundayWeekAnchorMillis(now)
+            val currentYear = com.neuroflow.app.domain.engine.FreshStartEngine.isoYear(anchorMillis)
+            val currentWeek = com.neuroflow.app.domain.engine.FreshStartEngine.isoWeekNumber(anchorMillis)
             val currentYearWeekKey = currentYear * 100 + currentWeek
 
             if (active.isEmpty()) {

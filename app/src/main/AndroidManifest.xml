@@ -22,7 +22,9 @@
         tools:ignore="ProtectedPermissions" />
 
     <!-- The allowlist picker and the foreground gate both enumerate launchable apps. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
         <!-- HOME resolution for the off-state hand-off: role resolution is filtered by

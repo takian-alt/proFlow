@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.v2.focus.audio
 
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -24,6 +25,21 @@ class NeuralSoundscapeGenerator(
         const val BETA_BEAT_HZ = 16.0
         const val LEFT_FREQ = CARRIER_HZ
         const val RIGHT_FREQ = CARRIER_HZ + GAMMA_BEAT_HZ // 240.0 Hz
+
+        // Theta-Gamma PAC constants for THETA_GAMMA_ENCODE profile
+        // 6 Hz theta envelope: hippocampal timing scaffold for sequential indexing
+        const val THETA_FREQ_HZ = 6.0
+        // 40 Hz gamma envelope: cortical item-binding within each theta window
+        const val GAMMA_ENV_FREQ_HZ = 40.0
+        // 360 Hz carrier: above vocal band, Δf/f = 40/360 ≈ 11% for clean isochronic perception
+        const val GAMMA_CARRIER_HZ = 360.0
+        // 0.08 Hz anti-habituation LFO: 12.5s breathing cycle prevents auditory cortex adaptation
+        const val LFO_FREQ_HZ = 0.08
+        // LFO depth centre and swing: oscillates PAC gain between 0.14 and 0.22
+        const val LFO_DEPTH_CENTER = 0.18
+        const val LFO_DEPTH_SWING = 0.04
+        // Pink noise dominance ratio (80%) to protect phonological loop
+        const val PAC_NOISE_RATIO = 0.80f
     }
 
     // Phase accumulators for binaural carriers
@@ -33,6 +49,13 @@ class NeuralSoundscapeGenerator(
     // Phase accumulators for monaural beats
     private var monauralPhase1 = 0.0
     private var monauralPhase2 = 0.0
+
+    // Phase accumulators for Theta-Gamma PAC (THETA_GAMMA_ENCODE profile)
+    // All Double-precision, wrapped modulo 2π to prevent mantissa precision loss over long sessions
+    private var phaseThetaEnv = 0.0   // 6 Hz theta envelope
+    private var phaseGammaEnv = 0.0   // 40 Hz gamma envelope
+    private var phaseGammaCarrier = 0.0 // 360 Hz gamma carrier
+    private var phaseLfo = 0.0        // 0.08 Hz anti-habituation LFO
 
     // Brownian motion state (independent stereo leaky random walks)
     private var brownLeft = 0.0f
@@ -54,6 +77,10 @@ class NeuralSoundscapeGenerator(
         phaseRight = 0.0
         monauralPhase1 = 0.0
         monauralPhase2 = 0.0
+        phaseThetaEnv = 0.0
+        phaseGammaEnv = 0.0
+        phaseGammaCarrier = 0.0
+        phaseLfo = 0.0
         brownLeft = 0.0f
         brownRight = 0.0f
         b0L = 0f; b1L = 0f; b2L = 0f; b3L = 0f; b4L = 0f; b5L = 0f; b6L = 0f
@@ -186,6 +213,53 @@ class NeuralSoundscapeGenerator(
                     b5R = -0.7616f * b5R - wR * 0.0168980f
                     rightSampleFloat = ((b0R + b1R + b2R + b3R + b4R + b5R + b6R + wR * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
                     b6R = wR * 0.115926f
+                }
+                SoundscapeType.THETA_GAMMA_ENCODE -> {
+                    // ── Theta-Gamma Phase-Amplitude Coupling (Monaural) ──
+                    // Designed for fast memorization via theta-gamma nesting:
+                    //   - 6 Hz theta envelope: hippocampal timing scaffold for sequential indexing
+                    //   - 40 Hz gamma envelope: cortical item-binding within each theta window
+                    //   - 360 Hz carrier: above vocal band for clean isochronic perception
+                    //   - Anti-habituation LFO (0.08 Hz): prevents auditory cortex adaptation
+                    //   - 80% pink noise bed: protects phonological loop during verbal encoding
+                    // Adapted for single-sided deafness: identical mono signal on both channels.
+
+                    // Phase-amplitude coupling: gamma bursts gated by theta peaks
+                    // E_θ(t) = 0.5 * (1 + cos(phaseTheta))
+                    val thetaEnv = 0.5 * (1.0 + cos(phaseThetaEnv))
+                    // E_γ(t) = 0.5 * (1 + cos(phaseGamma))
+                    val gammaEnv = 0.5 * (1.0 + cos(phaseGammaEnv))
+                    // S_PAC(t) = E_θ * E_γ * sin(phaseCarrier)
+                    val pacSignal = (thetaEnv * gammaEnv * sin(phaseGammaCarrier)).toFloat()
+
+                    // Anti-habituation LFO: depth oscillates between 0.14 and 0.22
+                    val lfoDepth = (LFO_DEPTH_CENTER + LFO_DEPTH_SWING * sin(phaseLfo)).toFloat()
+
+                    // Pink noise bed (Paul Kellet 1/f filter, mono for single-sided deafness)
+                    val w = Random.nextFloat() * 2f - 1f
+                    b0L = 0.99886f * b0L + w * 0.0555179f
+                    b1L = 0.99332f * b1L + w * 0.0750759f
+                    b2L = 0.96900f * b2L + w * 0.1538520f
+                    b3L = 0.86650f * b3L + w * 0.3104856f
+                    b4L = 0.55000f * b4L + w * 0.5329522f
+                    b5L = -0.7616f * b5L - w * 0.0168980f
+                    val pinkNoise = ((b0L + b1L + b2L + b3L + b4L + b5L + b6L + w * 0.5362f) * 0.11f).coerceIn(-1f, 1f)
+                    b6L = w * 0.115926f
+
+                    // Final mix: 80% pink noise + LFO-modulated PAC signal
+                    val monoSample = (PAC_NOISE_RATIO * pinkNoise + lfoDepth * pacSignal).coerceIn(-1f, 1f)
+                    leftSampleFloat = monoSample
+                    rightSampleFloat = monoSample
+
+                    // Advance phase accumulators (Double precision, wrapped mod 2π)
+                    phaseThetaEnv += 2.0 * PI * THETA_FREQ_HZ / sampleRate
+                    if (phaseThetaEnv >= 2.0 * PI) phaseThetaEnv -= 2.0 * PI
+                    phaseGammaEnv += 2.0 * PI * GAMMA_ENV_FREQ_HZ / sampleRate
+                    if (phaseGammaEnv >= 2.0 * PI) phaseGammaEnv -= 2.0 * PI
+                    phaseGammaCarrier += 2.0 * PI * GAMMA_CARRIER_HZ / sampleRate
+                    if (phaseGammaCarrier >= 2.0 * PI) phaseGammaCarrier -= 2.0 * PI
+                    phaseLfo += 2.0 * PI * LFO_FREQ_HZ / sampleRate
+                    if (phaseLfo >= 2.0 * PI) phaseLfo -= 2.0 * PI
                 }
                 SoundscapeType.NONE -> {
                     leftSampleFloat = 0f

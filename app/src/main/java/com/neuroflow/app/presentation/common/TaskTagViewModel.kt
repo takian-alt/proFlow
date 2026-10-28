@@ -32,7 +32,7 @@ class TaskTagViewModel @Inject constructor(
     }
 
     fun removeTag(tag: String) {
-        val cleaned = tag.trim()
+        val cleaned = tag.trim().removePrefix("#").removePrefix("@")
         if (cleaned.isBlank()) return
 
         viewModelScope.launch {
@@ -45,6 +45,7 @@ class TaskTagViewModel @Inject constructor(
     }
 
     private fun normalizeTags(tags: Collection<String>): List<String> {
-        return tags.mapNotNull { it.trim().takeIf(String::isNotBlank) }
+        return tags.flatMap { it.split(",") }
+            .mapNotNull { it.trim().removePrefix("#").removePrefix("@").takeIf(String::isNotBlank) }
     }
 }

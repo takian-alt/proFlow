@@ -275,7 +275,7 @@ class HyperFocusViewModel @Inject constructor(
     /** The gate is single-shot: consuming it shuts the route and rolls the next visit's stimulus. */
     fun consumeGatePass() {
         _gatePassed.value = false
-        gateTask.value = gateEngine.newTask()
+        gateTask.value = gateEngine.newTask(exclude = gateTask.value)
     }
 
     fun grantPassFor(packageName: String, onGranted: () -> Unit = {}) {

@@ -29,8 +29,8 @@ fun ManualTimeLogSheet(
     onConfirm: (Float) -> Unit,
     onSkip: () -> Unit
 ) {
-    var hours by remember { mutableIntStateOf(prefillMinutes / 60) }
-    var minutes by remember { mutableIntStateOf(prefillMinutes % 60) }
+    var hours by remember(taskTitle, prefillMinutes) { mutableIntStateOf(prefillMinutes / 60) }
+    var minutes by remember(taskTitle, prefillMinutes) { mutableIntStateOf(prefillMinutes % 60) }
 
     val totalMinutes = hours * 60 + minutes
 
@@ -117,7 +117,14 @@ fun ManualTimeLogSheet(
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
                         FilledTonalIconButton(
-                            onClick = { if (minutes < 55) minutes += 5 else { minutes = 0; if (hours < 23) hours++ } },
+                            onClick = {
+                                if (minutes < 55) {
+                                    minutes += 5
+                                } else if (hours < 23) {
+                                    hours++
+                                    minutes = 0
+                                }
+                            },
                             modifier = Modifier.size(40.dp)
                         ) { Text("+", fontSize = 18.sp) }
                     }

@@ -17,6 +17,13 @@ fun TaskEntity.dependencyIds(): List<String> =
 fun TaskEntity.isRecurringWithAnchor(): Boolean =
     recurrence != Recurrence.NONE && habitDate != null
 
+/**
+ * Returns the effective date anchor (midnight start-of-day) for scheduling and filtering.
+ * For recurring habits, this is [habitDate]; otherwise it is [scheduledDate].
+ */
+fun TaskEntity.effectiveScheduledDateMillis(): Long? =
+    if (isRecurringWithAnchor()) habitDate else scheduledDate
+
 const val ONE_DAY_MILLIS = 86_400_000L
 
 /**
@@ -46,11 +53,24 @@ fun TaskEntity.resolveScheduledEpochMillis(referenceDateMillis: Long = System.cu
 /**
  * Resolves the deadline epoch millis handling dual representation:
  * - deadlineTime as intraday offset vs absolute epoch millis
+ * - anchors to deadlineDate, habitDate, scheduledDate, or referenceDateMillis when date is omitted
  */
-fun TaskEntity.resolveDeadlineEpochMillis(): Long? {
+fun TaskEntity.resolveDeadlineEpochMillis(referenceDateMillis: Long = System.currentTimeMillis()): Long? {
     val rawTime = deadlineTime
     if (rawTime != null && rawTime >= ONE_DAY_MILLIS) return rawTime
-    return deadlineDate?.let { it + (rawTime ?: 0L) }
+    if (deadlineDate != null) {
+        return deadlineDate + (rawTime ?: 0L)
+    }
+    if (isRecurringWithAnchor() && habitDate != null && rawTime != null) {
+        return startOfLocalDay(habitDate) + rawTime
+    }
+    if (scheduledDate != null && rawTime != null) {
+        return scheduledDate + rawTime
+    }
+    if (rawTime != null && rawTime >= 0L) {
+        return startOfLocalDay(referenceDateMillis) + rawTime
+    }
+    return null
 }
 
 /**
@@ -71,11 +91,18 @@ fun TaskEntity.effectiveReminderTargetMillis(): Long? {
         val timeOffset = scheduledTime ?: deadlineTime ?: (9 * 3600_000L)
         return if (timeOffset >= ONE_DAY_MILLIS) timeOffset else startOfLocalDay(baseDate) + timeOffset
     }
-    val deadline = resolveDeadlineEpochMillis()
-    if (deadline != null) return deadline
-    val scheduled = resolveScheduledEpochMillis()
-    if (scheduled != null) return scheduled
-    return habitDate?.let { startOfLocalDay(it) + (scheduledTime ?: deadlineTime ?: (9 * 3600_000L)) }
+    // Only return a target if there is an explicit timed component (deadlineTime or scheduledTime).
+    // Untimed date-only tasks (scheduledTime == null && deadlineTime == null) resolve to midnight (00:00:00),
+    // which would cause TaskReminderWorker to enqueue false late-night alerts at 11:45 PM the night before (BUG-157).
+    if (deadlineTime != null) {
+        val deadline = resolveDeadlineEpochMillis()
+        if (deadline != null) return deadline
+    }
+    if (scheduledTime != null) {
+        val scheduled = resolveScheduledEpochMillis()
+        if (scheduled != null) return scheduled
+    }
+    return null
 }
 
 /**
@@ -136,4 +163,22 @@ fun splitToLocalDateAndTime(millis: Long): Pair<Long, Long> {
     val date = startOfLocalDay(millis)
     val time = localTimeOfDayOffset(millis)
     return date to time
+}
+
+/**
+ * Converts Material 3 DatePicker UTC epoch millis (00:00:00 UTC on picked day)
+ * to local start-of-day millis in the system timezone (BUG-037).
+ */
+fun utcDateMillisToLocalStartOfDay(utcMillis: Long, zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()): Long {
+    val localDate = java.time.Instant.ofEpochMilli(utcMillis).atZone(java.time.ZoneId.of("UTC")).toLocalDate()
+    return localDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+}
+
+/**
+ * Converts local start-of-day millis to UTC start-of-day millis for initializing
+ * Material 3 DatePicker state (BUG-037).
+ */
+fun localStartOfDayToUtcDateMillis(localMillis: Long, zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()): Long {
+    val localDate = java.time.Instant.ofEpochMilli(localMillis).atZone(zoneId).toLocalDate()
+    return localDate.atStartOfDay(java.time.ZoneId.of("UTC")).toInstant().toEpochMilli()
 }

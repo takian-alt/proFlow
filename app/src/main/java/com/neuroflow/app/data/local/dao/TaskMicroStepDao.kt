@@ -29,4 +29,7 @@ interface TaskMicroStepDao {
 
     @Query("SELECT * FROM task_micro_steps")
     suspend fun getAll(): List<TaskMicroStepEntity>
+
+    @Query("DELETE FROM task_micro_steps")
+    suspend fun deleteAll()
 }

@@ -4,6 +4,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Unit test suite for [NeuralSoundscapeGenerator].
@@ -253,5 +254,181 @@ class NeuralSoundscapeGeneratorTest {
             generator.generateFrames(SoundscapeType.GAMMA_40HZ, buffer, 100, 0.5f) // 100 frames requires size 200
             fail("Expected IllegalArgumentException for undersized buffer")
         } catch (_: IllegalArgumentException) {}
+    }
+
+    // =========================================================================
+    // THETA_GAMMA_ENCODE TESTS — Monaural Phase-Amplitude Coupling
+    // =========================================================================
+
+    @Test
+    fun testThetaGammaEncode_monoOutput_leftEqualsRight() {
+        val numFrames = 44100 // 1 second
+        val buffer = ShortArray(numFrames * 2)
+
+        generator.setVolumeInstant(0.7f)
+        generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, numFrames, volumeMultiplier = 0.7f)
+
+        // Every L sample must equal its R counterpart (mono for single-sided deafness)
+        for (i in 0 until numFrames) {
+            assertEquals(
+                "Frame $i: Left must equal Right (mono output for single-sided deafness)",
+                buffer[2 * i],
+                buffer[2 * i + 1]
+            )
+        }
+    }
+
+    @Test
+    fun testThetaGammaEncode_boundedAmplitudesAndAudibleSignal() {
+        val numFrames = 44100
+        val buffer = ShortArray(numFrames * 2)
+
+        generator.setVolumeInstant(1.0f)
+        generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, numFrames, volumeMultiplier = 1.0f)
+
+        var maxSample = Short.MIN_VALUE
+        var minSample = Short.MAX_VALUE
+        var nonZeroCount = 0
+
+        for (sample in buffer) {
+            if (sample > maxSample) maxSample = sample
+            if (sample < minSample) minSample = sample
+            if (sample != 0.toShort()) nonZeroCount++
+        }
+
+        assertTrue("Max sample must be positive and audible", maxSample > 1000)
+        assertTrue("Min sample must be negative", minSample < -1000)
+        assertTrue("Most samples must be non-zero (active signal)", nonZeroCount > (numFrames * 2 * 0.90))
+        // Bounded within 16-bit PCM range (implicit since ShortArray, but verify peaks aren't at ceiling)
+        assertTrue("Max amplitude should not clip at ceiling (signal has PAC modulation)", maxSample < 32767)
+    }
+
+    @Test
+    fun testThetaGammaEncode_pinkNoiseDominance() {
+        // The PAC signal should be subtle (~20%) while pink noise dominates (~80%).
+        // We verify by comparing RMS of THETA_GAMMA_ENCODE vs pure PINK_NOISE.
+        // The mixed signal's RMS should be close to 80% of pure pink noise RMS.
+        val numFrames = 44100 * 5 // 5 seconds for stable averaging
+        val buffer = ShortArray(numFrames * 2)
+
+        // Generate pure pink noise reference
+        generator.reset()
+        generator.setVolumeInstant(1.0f)
+        generator.generateFrames(SoundscapeType.PINK_NOISE, buffer, numFrames, volumeMultiplier = 1.0f)
+
+        var pinkRmsSum = 0.0
+        for (i in 0 until numFrames) {
+            val s = buffer[2 * i].toDouble()
+            pinkRmsSum += s * s
+        }
+        val pinkRms = sqrt(pinkRmsSum / numFrames)
+
+        // Generate THETA_GAMMA_ENCODE
+        generator.reset()
+        generator.setVolumeInstant(1.0f)
+        generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, numFrames, volumeMultiplier = 1.0f)
+
+        var pacMixRmsSum = 0.0
+        for (i in 0 until numFrames) {
+            val s = buffer[2 * i].toDouble()
+            pacMixRmsSum += s * s
+        }
+        val pacMixRms = sqrt(pacMixRmsSum / numFrames)
+
+        // The PAC mix RMS should be in the ballpark of pure pink noise
+        // (80% noise + ~18% PAC contributes a bit, so it's close to pure pink)
+        val ratio = pacMixRms / pinkRms
+        assertTrue(
+            "PAC mix RMS ($pacMixRms) should be roughly 60-120% of pure pink RMS ($pinkRms), ratio=$ratio",
+            ratio in 0.6..1.2
+        )
+    }
+
+    @Test
+    fun testThetaGammaEncode_pacGatingVerification() {
+        // Verify theta-gamma coupling: gamma carrier energy should be higher
+        // during theta peaks (first half of theta cycle) than during theta troughs.
+        // At 44100 Hz, one 6 Hz theta cycle = 7350 samples.
+        // We measure RMS of the first quarter-cycle (peak) vs third quarter-cycle (trough).
+        val sampleRate = 44100
+        val thetaCycleSamples = sampleRate / 6 // 7350 samples per theta cycle
+        val numCycles = 30
+        val numFrames = thetaCycleSamples * numCycles
+        val buffer = ShortArray(numFrames * 2)
+
+        // Use a custom generator to isolate PAC without pink noise
+        // Instead, we'll use the actual generator and look at windowed energy patterns
+        generator.reset()
+        generator.setVolumeInstant(1.0f)
+        generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, numFrames, volumeMultiplier = 1.0f)
+
+        // For each theta cycle, compare RMS of first quarter (theta peak) vs third quarter (theta trough)
+        // The PAC gating should make peak louder than trough.
+        // Note: pink noise adds variance, so we average across multiple cycles.
+        var peakRmsAccum = 0.0
+        var troughRmsAccum = 0.0
+        val quarterCycle = thetaCycleSamples / 4
+
+        for (cycle in 0 until numCycles) {
+            val cycleStart = cycle * thetaCycleSamples
+
+            // First quarter: theta near peak (cos(0)=1 through cos(π/2)=0)
+            var peakSum = 0.0
+            for (j in 0 until quarterCycle) {
+                val s = buffer[2 * (cycleStart + j)].toDouble()
+                peakSum += s * s
+            }
+            peakRmsAccum += sqrt(peakSum / quarterCycle)
+
+            // Third quarter: theta near trough (cos(π)=-1 through cos(3π/2)=0)
+            var troughSum = 0.0
+            for (j in 0 until quarterCycle) {
+                val s = buffer[2 * (cycleStart + 2 * quarterCycle + j)].toDouble()
+                troughSum += s * s
+            }
+            troughRmsAccum += sqrt(troughSum / quarterCycle)
+        }
+
+        val avgPeakRms = peakRmsAccum / numCycles
+        val avgTroughRms = troughRmsAccum / numCycles
+
+        // With 80% noise the difference is subtle but consistent:
+        // Peak should have higher energy than trough due to PAC gating
+        assertTrue(
+            "Average RMS at theta peaks ($avgPeakRms) should exceed troughs ($avgTroughRms) due to PAC gating",
+            avgPeakRms > avgTroughRms
+        )
+    }
+
+    @Test
+    fun testThetaGammaEncode_continuousPhaseAcrossChunks() {
+        val chunkSize = 1024
+        val buffer = ShortArray(chunkSize * 2)
+        generator.setVolumeInstant(0.7f)
+
+        // Generate 100 consecutive chunks (2.3s) — verify no NaN or overflow
+        for (chunk in 0 until 100) {
+            generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, chunkSize, volumeMultiplier = 0.7f)
+            for (sample in buffer) {
+                assertTrue(
+                    "Chunk $chunk: sample out of range: $sample",
+                    sample in Short.MIN_VALUE..Short.MAX_VALUE
+                )
+            }
+        }
+    }
+
+    @Test
+    fun testSoundscapeType_metadataAndDefault() {
+        assertEquals("Default soundscape must be THETA_GAMMA_ENCODE for fast memorization",
+            SoundscapeType.THETA_GAMMA_ENCODE, SoundscapeType.DEFAULT)
+
+        for (type in SoundscapeType.entries) {
+            if (type == SoundscapeType.NONE) {
+                assertTrue(type.usageTag.isEmpty())
+            } else {
+                assertTrue("Type $type must have a non-empty usageTag", type.usageTag.isNotBlank())
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -330,5 +331,342 @@ class TaskSchedulerServiceTest {
         assertEquals("deep90#part2", placements[1].task.id)
         assertTrue(placements[0].window.durationMinutes >= 25)
         assertTrue(placements[1].window.durationMinutes >= 25)
+    }
+
+    @Test
+    fun testDependentTaskDeferredWhenPrerequisiteFailsPlacement() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        // Block entire day except a 10m window (10:00-10:10)
+        val busy1 = TimeSlotWindow(
+            today.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(10, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+        val busy2 = TimeSlotWindow(
+            today.atTime(LocalTime.of(10, 10)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(22, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+
+        // Prerequisite A requires 60m (won't fit in 10m)
+        val taskA = SchedulableTask(
+            id = "task_A",
+            title = "Prerequisite A",
+            category = TaskCategory.GENERAL,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.MODERATE
+        )
+        // Dependent B requires 10m and depends on A
+        val taskB = SchedulableTask(
+            id = "task_B",
+            title = "Dependent B",
+            category = TaskCategory.GENERAL,
+            priority = 1,
+            estimatedMinutes = 10,
+            energyDemand = EnergyDemand.LOW,
+            prerequisiteIds = setOf("task_A")
+        )
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(taskA, taskB),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            busyWindows = listOf(busy1, busy2),
+            zoneId = zoneId
+        )
+
+        assertEquals("Neither task should be placed", 0, outcome.placements.size)
+        val deferralMap = outcome.deferrals.associateBy { it.taskId }
+        assertTrue("Task A must be in deferrals", deferralMap.containsKey("task_A"))
+        assertEquals(com.neuroflow.app.domain.scheduler.DeferralReasonCode.INSUFFICIENT_TIME, deferralMap["task_A"]?.reasonCode)
+
+        assertTrue("Dependent Task B must NOT be silently dropped; must be in deferrals", deferralMap.containsKey("task_B"))
+        assertEquals(com.neuroflow.app.domain.scheduler.DeferralReasonCode.DEPENDENCY_BLOCKED, deferralMap["task_B"]?.reasonCode)
+    }
+
+    @Test
+    fun testFutureDaySchedulerAlignsWakeTimeAndAvoidsSleepDeprivation() {
+        val today = LocalDate.of(2026, 10, 18)
+        val tomorrow = today.plusDays(1)
+        val todayNow = today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val todayWake = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        // SchedulableTask on tomorrow: deep work frog task
+        val task = SchedulableTask(
+            id = "future_deep",
+            title = "Future Deep Work",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH,
+            isFrog = true
+        )
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(task),
+            dayDate = tomorrow,
+            nowMillis = todayNow,
+            wakeTimeMillis = todayWake, // Raw today's wake time passed in
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        assertEquals("Task should be placed on tomorrow", 1, outcome.placements.size)
+        val placement = outcome.placements[0]
+        val placementMidpoint = placement.window.startMillis + 30 * 60_000L
+        val placementMidZdt = java.time.Instant.ofEpochMilli(placementMidpoint).atZone(zoneId)
+        assertEquals(tomorrow, placementMidZdt.toLocalDate())
+
+        // Ensure the task was scheduled during reasonable hours
+        assertTrue("Placement hour should be in reasonable work hours", placementMidZdt.hour in 7..21)
+    }
+
+    @Test
+    fun testUltradianSplitGuardsAgainstRecursiveSplittingOfParts() {
+        val defaultScheduler = schedulerService as DefaultTaskSchedulerService
+
+        val normalTask = SchedulableTask(
+            id = "normal_80",
+            title = "Big Task",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 80,
+            energyDemand = EnergyDemand.HIGH,
+            fragmentationTolerance = 0.5f
+        )
+        assertNotNull("Normal 80m task can be split", defaultScheduler.splitIntoUltradianParts(normalTask, 80))
+
+        val part1Task = normalTask.copy(id = "normal_80#part1", title = "Big Task (Part 1/2)")
+        val part2Task = normalTask.copy(id = "normal_80#part2", title = "Big Task (Part 2/2)")
+        val part2UnderScore = normalTask.copy(id = "normal_80_part2", title = "Big Task (Part 2/2)")
+        val subtask = normalTask.copy(parentTaskId = "parent_task")
+
+        assertEquals("Cannot split #part1", null, defaultScheduler.splitIntoUltradianParts(part1Task, 80))
+        assertEquals("Cannot split #part2", null, defaultScheduler.splitIntoUltradianParts(part2Task, 80))
+        assertEquals("Cannot split _part2", null, defaultScheduler.splitIntoUltradianParts(part2UnderScore, 80))
+        assertEquals("Cannot split subtask with parentTaskId", null, defaultScheduler.splitIntoUltradianParts(subtask, 80))
+    }
+
+    @Test
+    fun testReverseDagCeilingAllowsLockedUnplacedTaskToSchedule() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val slot11am = today.atTime(LocalTime.of(11, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        // Prerequisite unplaced in Step 3
+        val taskA = SchedulableTask(
+            id = "prereq_A",
+            title = "Prerequisite Step",
+            category = TaskCategory.GENERAL,
+            priority = 1,
+            estimatedMinutes = 30,
+            energyDemand = EnergyDemand.LOW
+        )
+
+        // Task B is locked at 11:00 AM and depends on task A
+        val taskB = SchedulableTask(
+            id = "locked_B",
+            title = "Locked Dependent",
+            category = TaskCategory.GENERAL,
+            priority = 2,
+            estimatedMinutes = 30,
+            energyDemand = EnergyDemand.LOW,
+            isLocked = true,
+            scheduledStartMillis = slot11am,
+            prerequisiteIds = setOf("prereq_A")
+        )
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(taskB, taskA),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        assertEquals("Both tasks must be placed", 2, outcome.placements.size)
+        val placementB = outcome.placements.first { it.task.id == "locked_B" }
+        assertEquals(slot11am, placementB.window.startMillis)
+    }
+
+    @Test
+    fun testCustomWorkDayBoundsEnforcedStrictly() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(6, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val task1 = SchedulableTask(
+            id = "t1",
+            title = "Morning Task",
+            category = TaskCategory.GENERAL,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH
+        )
+        val task2 = SchedulableTask(
+            id = "t2",
+            title = "Afternoon Task",
+            category = TaskCategory.GENERAL,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.MODERATE
+        )
+
+        // Custom work day: 9:00 AM (hour 9) to 5:00 PM (hour 17)
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(task1, task2),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            workDayStartHour = 9,
+            workDayEndHour = 17
+        )
+
+        val dayStartEpoch = today.atTime(LocalTime.of(9, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val dayEndEpoch = today.atTime(LocalTime.of(17, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        assertTrue("Placements must not be empty", outcome.placements.isNotEmpty())
+        for (placement in outcome.placements) {
+            assertTrue("Task start (${placement.window.startMillis}) must be >= workDayStart ($dayStartEpoch)", placement.window.startMillis >= dayStartEpoch)
+            assertTrue("Task end (${placement.window.endMillis}) must be <= workDayEnd ($dayEndEpoch)", placement.window.endMillis <= dayEndEpoch)
+        }
+    }
+
+    @Test
+    fun testLockedTaskFallbackNeverDisplacesToArbitraryCircadianWindow() {
+        // BUG-010: Locked task with calendar conflict must NEVER be displaced to arbitrary available circadian slot
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val pinnedTime = today.atTime(LocalTime.of(10, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val lockedTask = SchedulableTask(
+            id = "locked_1",
+            title = "Pinned Client Presentation",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH,
+            isLocked = true,
+            scheduledStartMillis = pinnedTime
+        )
+
+        // Add a busy window exactly colliding with the pinned 10:00-11:00 AM slot
+        val busyWindow = TimeSlotWindow(pinnedTime, pinnedTime + 60 * 60_000L)
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(lockedTask),
+            dayDate = today,
+            nowMillis = wakeTime,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            busyWindows = listOf(busyWindow),
+            zoneId = zoneId
+        )
+
+        // Pinned task must NOT be placed into an arbitrary circadian window in the afternoon
+        assertTrue("Locked task must not be placed into another arbitrary slot", outcome.placements.none { it.task.id == "locked_1" })
+        assertTrue("Locked task must be deferred when pinned slot is unavailable", outcome.deferrals.any { it.taskId == "locked_1" })
+    }
+
+    @Test
+    fun testSweepRationaleDoesNotAccuseCompletedPrerequisites() {
+        // BUG-015: Completed prerequisites must not be cited as missing blockers in sweep
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        // Prereq A is COMPLETED (not in activeUncompletedTaskIds)
+        // Prereq B is UNCOMPLETED and schedulable today, but impossible to place due to busy windows
+        // Dependent task C depends on [A, B]
+        val prereqB = SchedulableTask(
+            id = "prereq_B",
+            title = "Prerequisite B",
+            category = TaskCategory.DEEP_WORK,
+            priority = 1,
+            estimatedMinutes = 120,
+            energyDemand = EnergyDemand.HIGH
+        )
+        val dependentC = SchedulableTask(
+            id = "dep_C",
+            title = "Dependent C",
+            category = TaskCategory.GENERAL,
+            priority = 1,
+            estimatedMinutes = 30,
+            energyDemand = EnergyDemand.LOW,
+            prerequisiteIds = setOf("prereq_A", "prereq_B")
+        )
+
+        // Entire day is blocked so prereq_B cannot be placed
+        val fullDayBusy = listOf(
+            TimeSlotWindow(
+                today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+                today.atTime(LocalTime.of(22, 0)).atZone(zoneId).toInstant().toEpochMilli()
+            )
+        )
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(prereqB, dependentC),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            busyWindows = fullDayBusy,
+            zoneId = zoneId,
+            activeUncompletedTaskIds = setOf("prereq_B", "dep_C") // prereq_A is NOT active/uncompleted (already finished)
+        )
+
+        val depDeferral = outcome.deferrals.firstOrNull { it.taskId == "dep_C" }
+        assertNotNull("Dependent C must have a deferral", depDeferral)
+        // Must accuse prereq_B, NOT already-completed prereq_A
+        assertTrue(
+            "Deferral should cite unsatisfied prereq_B, but got: ${depDeferral!!.explanation}",
+            depDeferral.explanation.contains("prereq_B")
+        )
+        assertFalse(
+            "Deferral must NOT cite completed prereq_A",
+            depDeferral.explanation.contains("prereq_A")
+        )
+    }
+
+    @Test
+    fun testWorkDayEndHourZeroResolvesToEndOfDay() {
+        // BUG-026: workDayEndHour == 0 must resolve to end of day, not beginning of day (00:00)
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morning = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val task = SchedulableTask(
+            id = "evening_task",
+            title = "Evening Study",
+            category = TaskCategory.DEEP_WORK,
+            priority = 1,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.MODERATE
+        )
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(task),
+            dayDate = today,
+            nowMillis = morning,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId,
+            workDayStartHour = 8,
+            workDayEndHour = 0 // midnight at close of day
+        )
+
+        assertEquals("Task should be placed when workDayEndHour is 0 (midnight close)", 1, outcome.placements.size)
+        val placement = outcome.placements[0]
+        val startZdt = Instant.ofEpochMilli(placement.window.startMillis).atZone(zoneId)
+        assertEquals(today, startZdt.toLocalDate())
+        assertTrue("Placement start should be >= 8:00 AM", startZdt.hour >= 8)
     }
 }

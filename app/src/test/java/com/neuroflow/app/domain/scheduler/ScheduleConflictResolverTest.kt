@@ -181,4 +181,86 @@ class ScheduleConflictResolverTest : StringSpec({
         // Because it's Monday and slot is WEEKENDS only, no conflict should be flagged
         conflicts shouldBe emptyList()
     }
+
+    "findConflictFreeStart: workDayEndHour 0 treats end as midnight (1440 min) rather than 0 min (BUG-030)" {
+        // Search start 10:00 (600 min), duration 60 min, workday 8:00 to 0 (midnight)
+        val targetStart = ConflictResolver.findConflictFreeStart(
+            searchStartMinute = 10 * 60,
+            duration = 60,
+            workDayStartHour = 8,
+            workDayEndHour = 0,
+            occupiedIntervals = emptyList()
+        )
+        targetStart shouldBe 10 * 60
+    }
+
+    "taskStartMinuteOfDay: respects custom zoneId for absolute epoch timestamps (BUG-135)" {
+        val nyZone = java.time.ZoneId.of("America/New_York")
+        val tokyoZone = java.time.ZoneId.of("Asia/Tokyo")
+
+        // 14:00 UTC epoch timestamp on 2026-10-25
+        val epoch1400Utc = java.time.ZonedDateTime.of(2026, 10, 25, 14, 0, 0, 0, java.time.ZoneId.of("UTC"))
+            .toInstant()
+            .toEpochMilli()
+
+        val task = TaskEntity(
+            id = "t_zoned",
+            title = "Global Standup",
+            scheduledDate = epoch1400Utc,
+            scheduledTime = epoch1400Utc,
+            status = TaskStatus.ACTIVE
+        )
+
+        // 14:00 UTC in New York (EDT, UTC-4) is 10:00 AM = 600 minutes
+        ConflictResolver.taskStartMinuteOfDay(task, nyZone) shouldBe 600
+
+        // 14:00 UTC in Tokyo (JST, UTC+9) is 23:00 (11:00 PM) = 1380 minutes
+        ConflictResolver.taskStartMinuteOfDay(task, tokyoZone) shouldBe 1380
+    }
+
+    "analyzeScheduleConflicts: date-only tasks without scheduledTime do not trigger false midnight collisions (BUG-152)" {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = cal.timeInMillis
+
+        // Two untimed tasks scheduled for the same day (scheduledTime == null)
+        val dateOnlyTask1 = TaskEntity(
+            id = "untimed_1",
+            title = "Read Chapter 4",
+            scheduledDate = startOfDay,
+            scheduledTime = null,
+            estimatedDurationMinutes = 45,
+            status = TaskStatus.ACTIVE
+        )
+        val dateOnlyTask2 = TaskEntity(
+            id = "untimed_2",
+            title = "Water Plants",
+            scheduledDate = startOfDay,
+            scheduledTime = null,
+            estimatedDurationMinutes = 30,
+            status = TaskStatus.ACTIVE
+        )
+
+        // Midnight wind-down protected slot
+        val eveningWindDown = ProtectedTimeSlot(
+            id = "wind_down",
+            label = "Wind Down",
+            startMinuteOfDay = 0,
+            durationMinutes = 60,
+            isEnabled = true
+        )
+
+        val conflicts = ConflictResolver.analyzeScheduleConflicts(
+            tasks = listOf(dateOnlyTask1, dateOnlyTask2),
+            protectedSlots = listOf(eveningWindDown),
+            dayMillis = startOfDay
+        )
+
+        // Date-only tasks should not collide with each other or with midnight slots
+        conflicts shouldBe emptyList()
+    }
 })

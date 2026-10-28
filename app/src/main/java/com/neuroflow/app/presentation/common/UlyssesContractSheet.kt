@@ -19,6 +19,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.neuroflow.app.data.local.entity.UlyssesContractEntity
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.UlyssesContractRepository
 import com.neuroflow.app.worker.UlyssesEvaluatorWorker
@@ -95,6 +96,10 @@ fun UlyssesContractSheet(
                         onClick = {
                             selectedTaskId = task.id
                             selectedTaskTitle = task.title
+                            val taskDeadline = task.resolveDeadlineEpochMillis()
+                            if (taskDeadline != null && taskDeadline > System.currentTimeMillis()) {
+                                deadlineMillis = taskDeadline
+                            }
                             showTaskPicker = false
                         },
                         modifier = Modifier.fillMaxWidth()

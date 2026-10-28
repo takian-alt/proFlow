@@ -26,7 +26,8 @@ interface BehavioralSupportService {
         taskTitle: String,
         estimatedMinutes: Int,
         apiKey: String? = null,
-        useAi: Boolean = false
+        useAi: Boolean = false,
+        userDirective: String = ""
     ): List<MicroStepSuggestion> = generateMicroSteps(taskTitle, estimatedMinutes)
     fun evaluateDistraction(interruptionCount: Int, durationMinutes: Int): DistractionFeedback
 
@@ -128,9 +129,10 @@ class DefaultBehavioralSupportService @Inject constructor(
         taskTitle: String,
         estimatedMinutes: Int,
         apiKey: String?,
-        useAi: Boolean
+        useAi: Boolean,
+        userDirective: String
     ): List<MicroStepSuggestion> {
-        return decompositionService.decomposeTask(taskTitle, estimatedMinutes, apiKey, useAi)
+        return decompositionService.decomposeTask(taskTitle, estimatedMinutes, apiKey, useAi, userDirective)
     }
 
     override fun evaluateDistraction(interruptionCount: Int, durationMinutes: Int): DistractionFeedback {

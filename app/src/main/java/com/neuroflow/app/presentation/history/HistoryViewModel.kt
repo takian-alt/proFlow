@@ -57,14 +57,16 @@ data class HistoryUiState(
     val selectedDateRange: HistoryDateRange = HistoryDateRange.ALL,
     val availableTags: List<String> = emptyList(),
     val selectedTag: String? = null,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val hasAnyCompletedTasks: Boolean = false
 )
 
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val sessionRepository: SessionRepository,
-    private val userPreferencesDataStore: UserPreferencesDataStore
+    private val userPreferencesDataStore: UserPreferencesDataStore,
+    private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null
 ) : ViewModel() {
 
     private val selectedDateRange = MutableStateFlow(HistoryDateRange.ALL)
@@ -81,29 +83,37 @@ class HistoryViewModel @Inject constructor(
                 selectedTag
             ) { tasks, catalogTags, range, tag ->
                 val dateFiltered = filterTasksByDateRange(tasks, range)
-                val tagFiltered = if (tag.isNullOrBlank()) {
+                val query = tag?.removePrefix("#")?.removePrefix("@")?.trim()
+                val tagFiltered = if (query.isNullOrBlank() || query.equals("All", ignoreCase = true)) {
                     dateFiltered
                 } else {
+                    val wordRegex = Regex("""(?i)(?:^|\s)[#@]?\Q$query\E(?=\s|$)""")
                     dateFiltered.filter { task ->
-                        task.tags.split(",").map { it.trim() }.any { it.equals(tag, ignoreCase = true) }
+                        val hasMatchingTag = task.tags.split(",")
+                            .map { it.trim().removePrefix("#").removePrefix("@") }
+                            .any { it.equals(query, ignoreCase = true) }
+                        hasMatchingTag || wordRegex.containsMatchIn(task.title)
                     }
                 }
                 val allTags = (catalogTags + tasks
                     .flatMap { it.tags.split(",") }
-                    .map { it.trim() }
+                    .map { it.trim().removePrefix("#").removePrefix("@") }
                     .filter { it.isNotBlank() }
                 )
                     .distinctBy { it.lowercase() }
                     .sortedWith(String.CASE_INSENSITIVE_ORDER)
-                Triple(tagFiltered, range, allTags)
-            }.collect { (tasks, range, tags) ->
+                val hasAny = tasks.isNotEmpty()
+                Triple(tagFiltered, range, allTags) to hasAny
+            }.collect { (params, hasAny) ->
+                val (tasks, range, tags) = params
                 _uiState.update {
                     it.copy(
                         completedTasks = tasks,
                         selectedDateRange = range,
                         availableTags = tags,
                         selectedTag = selectedTag.value,
-                        isLoading = false
+                        isLoading = false,
+                        hasAnyCompletedTasks = hasAny
                     )
                 }
             }
@@ -126,7 +136,30 @@ class HistoryViewModel @Inject constructor(
         viewModelScope.launch { taskRepository.delete(task) }
     }
 
+    fun undoDeleteTask(task: TaskEntity) {
+        viewModelScope.launch {
+            taskRepository.insert(task)
+            calendarSyncRepository?.handleTaskStateChanged(task)
+        }
+    }
+
     fun restoreTask(task: TaskEntity) {
-        viewModelScope.launch { taskRepository.insert(task) }
+        viewModelScope.launch {
+            val restored = task.copy(
+                status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+                completedAt = null,
+                updatedAt = System.currentTimeMillis()
+            )
+            val existing = taskRepository.getById(restored.id)
+            if (existing != null) {
+                taskRepository.update(restored)
+            } else {
+                taskRepository.insert(restored)
+            }
+            calendarSyncRepository?.handleTaskStateChanged(restored)
+            userPreferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(totalTasksCompleted = maxOf(0, prefs.totalTasksCompleted - 1))
+            }
+        }
     }
 }

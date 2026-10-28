@@ -130,9 +130,17 @@ private fun ActivationSheetContent(
         }
     }
 
+    LaunchedEffect(prefs.isActive, activationMessage) {
+        if (prefs.isActive && activationMessage == null) {
+            onDismiss()
+        }
+    }
+
     var taskSearchQuery by remember { mutableStateOf("") }
     var confirmText by remember { mutableStateOf("") }
-    var sessionMode by remember { mutableStateOf(HyperFocusSessionMode.TASK_BASED) }
+    var sessionMode by remember(prefs.isActive, prefs.sessionMode) {
+        mutableStateOf(if (prefs.isActive) prefs.sessionMode else HyperFocusSessionMode.TASK_BASED)
+    }
     val durationOptions = remember { listOf(15, 25, 45, 60, 90, 120) }
     var selectedDurationMinutes by remember { mutableStateOf(25) }
 
@@ -220,6 +228,7 @@ private fun ActivationSheetContent(
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     sessionMode = HyperFocusSessionMode.TASK_BASED
                 },
+                enabled = !prefs.isActive,
                 shape = RoundedCornerShape(12.dp),
                 label = { Text("Task-based") }
             )
@@ -229,6 +238,7 @@ private fun ActivationSheetContent(
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     sessionMode = HyperFocusSessionMode.TIME_BASED
                 },
+                enabled = !prefs.isActive,
                 shape = RoundedCornerShape(12.dp),
                 label = { Text("Time-based") }
             )
@@ -394,19 +404,34 @@ private fun ActivationSheetContent(
         )
 
         if (prefs.isActive) {
-            Button(
-                onClick = {
-                    val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
-                    viewModel.addTasksToActiveSession(selectedTasks)
-                    onDismiss()
-                },
-                enabled = selectedTaskCount > 0,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-            ) {
-                Text("Add $selectedTaskCount Task(s) to Focus Session 🔒", fontWeight = FontWeight.Bold)
+            if (prefs.sessionMode == HyperFocusSessionMode.TIME_BASED) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        text = "⏱️ A time-based focus lock is currently active. Target tasks can only be added to task-based focus sessions.",
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
+                        viewModel.addTasksToActiveSession(selectedTasks)
+                        onDismiss()
+                    },
+                    enabled = selectedTaskCount > 0,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    Text("Add $selectedTaskCount Task(s) to Focus Session 🔒", fontWeight = FontWeight.Bold)
+                }
             }
         } else {
             Button(
@@ -417,7 +442,6 @@ private fun ActivationSheetContent(
                         val selectedTasks = selectedTaskIds.filter { it.value }.keys.toSet()
                         viewModel.activate(selectedTasks)
                     }
-                    onDismiss()
                 },
                 enabled = confirmText == "FOCUS" && essentialCount > 0 &&
                     (sessionMode == HyperFocusSessionMode.TIME_BASED || (hasActiveTasks && selectedTaskCount > 0)),

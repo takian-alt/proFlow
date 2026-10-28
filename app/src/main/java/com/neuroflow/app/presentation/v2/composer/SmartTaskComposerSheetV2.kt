@@ -47,7 +47,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.localStartOfDayToUtcDateMillis
+import com.neuroflow.app.data.local.entity.localTimeOfDayOffset
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.utcDateMillisToLocalStartOfDay
 import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -107,35 +112,40 @@ fun SmartTaskComposerSheetV2(
     modifier: Modifier = Modifier,
     mode: SheetMode = SheetMode.Create,
     circadianSummary: DailyCircadianSummary? = null,
-    completedTasks: List<TaskEntity> = emptyList()
+    completedTasks: List<TaskEntity> = emptyList(),
+    initialDate: Long? = null
 ) {
     val existingTask = (mode as? SheetMode.Edit)?.task
     var rawInput by remember(existingTask) { mutableStateOf(existingTask?.title ?: "") }
-    var userDurationOverride by remember(existingTask) { mutableStateOf<Int?>(existingTask?.estimatedDurationMinutes) }
-    var userEnergyOverride by remember(existingTask) { mutableStateOf<EnergyLevel?>(existingTask?.energyLevel) }
-    var userTaskTypeOverride by remember(existingTask) { mutableStateOf<TaskType?>(existingTask?.taskType) }
-    var userFrogOverride by remember(existingTask) { mutableStateOf<Boolean?>(existingTask?.isFrog) }
-    var userPriorityOverride by remember(existingTask) { mutableStateOf<Priority?>(existingTask?.priority) }
-    var userQuadrantOverride by remember(existingTask) { mutableStateOf<Quadrant?>(existingTask?.quadrant) }
+    var userDurationOverride by remember(existingTask) { mutableStateOf<Int?>(null) }
+    var userEnergyOverride by remember(existingTask) { mutableStateOf<EnergyLevel?>(null) }
+    var userTaskTypeOverride by remember(existingTask) { mutableStateOf<TaskType?>(null) }
+    var userFrogOverride by remember(existingTask) { mutableStateOf<Boolean?>(null) }
+    var userPriorityOverride by remember(existingTask) { mutableStateOf<Priority?>(null) }
+    var userQuadrantOverride by remember(existingTask) { mutableStateOf<Quadrant?>(null) }
 
     val initialTags = remember(existingTask) {
-        (existingTask?.tags?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()).toSet()
+        val fromTags = existingTask?.tags?.split(",")?.map { it.trim().removePrefix("#").removePrefix("@") }?.filter { it.isNotBlank() } ?: emptyList()
+        val fromContext = existingTask?.contextTag?.trim()?.removePrefix("#")?.removePrefix("@")?.takeIf { it.isNotBlank() }
+        (if (fromContext != null) fromTags + fromContext else fromTags).toSet()
     }
     var activeCustomTags by remember(existingTask) { mutableStateOf(initialTags) }
+    var excludedTags by remember(existingTask) { mutableStateOf<Set<String>>(emptySet()) }
 
     // Strategic criteria & scheduling state
     var impactScore by remember(existingTask) { mutableStateOf(existingTask?.impactScore?.toFloat() ?: 50f) }
     var effortScore by remember(existingTask) { mutableStateOf(existingTask?.effortScore?.toFloat() ?: 50f) }
-    var userScheduledDate by remember(existingTask) { mutableStateOf<Long?>(existingTask?.scheduledDate) }
+    var userScheduledDateOverride by remember(existingTask) { mutableStateOf<Long?>(null) }
     var scheduledDateCleared by remember(existingTask) { mutableStateOf(false) }
-    var userScheduledTime by remember(existingTask) { mutableStateOf<Long?>(existingTask?.scheduledTime) }
+    var userScheduledTimeOverride by remember(existingTask) { mutableStateOf<Long?>(null) }
     var scheduledTimeCleared by remember(existingTask) { mutableStateOf(false) }
-    var userDeadlineDate by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineDate) }
+    var userDeadlineDateOverride by remember(existingTask) { mutableStateOf<Long?>(null) }
     var deadlineDateCleared by remember(existingTask) { mutableStateOf(false) }
-    var userDeadlineTime by remember(existingTask) { mutableStateOf<Long?>(existingTask?.deadlineTime) }
+    var userDeadlineTimeOverride by remember(existingTask) { mutableStateOf<Long?>(null) }
     var deadlineTimeCleared by remember(existingTask) { mutableStateOf(false) }
     var isScheduleLocked by remember(existingTask) { mutableStateOf(existingTask?.isScheduleLocked ?: false) }
     var recurrence by remember(existingTask) { mutableStateOf(existingTask?.recurrence ?: Recurrence.NONE) }
+    var recurrenceIntervalDays by remember(existingTask) { mutableIntStateOf(existingTask?.recurrenceIntervalDays?.takeIf { it > 0 } ?: 2) }
 
     var isExpanded by remember { mutableStateOf(existingTask != null) }
     var showSyntaxGuide by remember { mutableStateOf(false) }
@@ -150,19 +160,48 @@ fun SmartTaskComposerSheetV2(
     val inferred = remember(rawInput, completedTasks) {
         TaskInferenceEngine.inferFromInput(rawInput, completedTasks)
     }
-    val effectiveDuration = userDurationOverride ?: inferred.durationMinutes
-    val effectiveEnergy = userEnergyOverride ?: inferred.energyDemand
-    val effectiveTaskType = userTaskTypeOverride ?: inferred.taskType
-    val effectiveFrog = userFrogOverride ?: inferred.isFrog
-    val effectivePriority = userPriorityOverride ?: inferred.priority
-    val effectiveQuadrant = userQuadrantOverride ?: existingTask?.quadrant ?: inferred.quadrant
-    val effectiveDeadlineDate = if (deadlineDateCleared) null else (userDeadlineDate ?: inferred.deadlineDate)
-    val effectiveDeadlineTime = if (deadlineTimeCleared) null else (userDeadlineTime ?: inferred.deadlineTime)
-    val effectiveScheduledDate = if (scheduledDateCleared) null else (userScheduledDate ?: inferred.scheduledDate)
-    val effectiveScheduledTime = if (scheduledTimeCleared) null else (userScheduledTime ?: inferred.scheduledTime)
+    val effectiveDuration = userDurationOverride
+        ?: if (inferred.isDurationExplicit) inferred.durationMinutes else (existingTask?.estimatedDurationMinutes?.takeIf { it > 0 } ?: inferred.durationMinutes)
+    val effectiveEnergy = userEnergyOverride
+        ?: if (inferred.isEnergyExplicit) inferred.energyDemand else (existingTask?.energyLevel ?: inferred.energyDemand)
+    val effectiveTaskType = userTaskTypeOverride ?: (existingTask?.taskType ?: inferred.taskType)
+    val effectiveFrog = userFrogOverride
+        ?: if (inferred.isFrog) true else (existingTask?.isFrog ?: false)
+    val effectivePriority = userPriorityOverride
+        ?: if (inferred.isPriorityExplicit || effectiveFrog) inferred.priority else (existingTask?.priority ?: inferred.priority)
+    val effectiveQuadrant = userQuadrantOverride
+        ?: if (inferred.isQuadrantExplicit) inferred.quadrant else (existingTask?.quadrant ?: inferred.quadrant)
+    val effectiveDeadlineDate = when {
+        deadlineDateCleared -> null
+        userDeadlineDateOverride != null -> userDeadlineDateOverride
+        inferred.deadlineDate != null -> inferred.deadlineDate
+        else -> existingTask?.deadlineDate
+    }
+    val effectiveDeadlineTime = when {
+        deadlineTimeCleared -> null
+        userDeadlineTimeOverride != null -> userDeadlineTimeOverride
+        inferred.deadlineTime != null -> inferred.deadlineTime
+        else -> existingTask?.deadlineTime
+    }
+    val effectiveScheduledDate = when {
+        scheduledDateCleared -> null
+        userScheduledDateOverride != null -> userScheduledDateOverride
+        inferred.scheduledDate != null -> inferred.scheduledDate
+        else -> if (mode is SheetMode.Create) initialDate else existingTask?.scheduledDate
+    }
+    val effectiveScheduledTime = when {
+        scheduledTimeCleared -> null
+        userScheduledTimeOverride != null -> userScheduledTimeOverride
+        inferred.scheduledTime != null -> inferred.scheduledTime
+        else -> existingTask?.scheduledTime
+    }
 
-    val allActiveTags = remember(activeCustomTags, inferred.contextTags) {
-        (activeCustomTags + inferred.contextTags).distinct()
+    val allActiveTags = remember(activeCustomTags, inferred.contextTags, excludedTags) {
+        (activeCustomTags + inferred.contextTags)
+            .map { it.trim().removePrefix("#").removePrefix("@") }
+            .filter { it.isNotBlank() }
+            .filterNot { tag -> excludedTags.any { it.equals(tag, ignoreCase = true) } }
+            .distinctBy { it.lowercase() }
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -175,14 +214,20 @@ fun SmartTaskComposerSheetV2(
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spokenText.isNullOrBlank()) {
                 rawInput = spokenText
-                if (mode is SheetMode.Create) {
-                    userDurationOverride = null
-                    userEnergyOverride = null
-                    userTaskTypeOverride = null
-                    userFrogOverride = null
-                    userPriorityOverride = null
-                    userQuadrantOverride = null
-                }
+                userDurationOverride = null
+                userEnergyOverride = null
+                userTaskTypeOverride = null
+                userFrogOverride = null
+                userPriorityOverride = null
+                userQuadrantOverride = null
+                userScheduledDateOverride = null
+                userScheduledTimeOverride = null
+                userDeadlineDateOverride = null
+                userDeadlineTimeOverride = null
+                scheduledDateCleared = false
+                scheduledTimeCleared = false
+                deadlineDateCleared = false
+                deadlineTimeCleared = false
             }
         }
     }
@@ -195,34 +240,31 @@ fun SmartTaskComposerSheetV2(
     }
 
     fun toggleTag(tagName: String) {
-        val regex = Regex("""(?i)\b#$tagName\b""")
+        val cleanTag = tagName.trim().removePrefix("#").removePrefix("@")
+        val regex = Regex("""(?i)(?:^|\s)[#@]\Q$cleanTag\E(?=\s|$)""")
         val isExplicitInInput = rawInput.contains(regex)
-        val isInActiveCustom = activeCustomTags.any { it.equals(tagName, ignoreCase = true) }
+        val isCurrentlyActive = allActiveTags.any { it.equals(cleanTag, ignoreCase = true) }
 
-        if (isExplicitInInput || isInActiveCustom) {
+        if (isCurrentlyActive || isExplicitInInput) {
             if (isExplicitInInput) {
-                rawInput = rawInput.replace(regex, "").replace(Regex("""\s{2,}"""), " ").trim()
+                rawInput = rawInput.replace(regex, " ").replace(Regex("""\s{2,}"""), " ").trim()
             }
-            activeCustomTags = activeCustomTags.filterNot { it.equals(tagName, ignoreCase = true) }.toSet()
+            activeCustomTags = activeCustomTags.filterNot { it.equals(cleanTag, ignoreCase = true) }.toSet()
+            excludedTags = excludedTags + cleanTag
         } else {
-            activeCustomTags = activeCustomTags + tagName
-        }
-        if (mode is SheetMode.Create) {
-            userDurationOverride = null
-            userEnergyOverride = null
-            userTaskTypeOverride = null
-            userFrogOverride = null
-            userPriorityOverride = null
-            userQuadrantOverride = null
+            excludedTags = excludedTags.filterNot { it.equals(cleanTag, ignoreCase = true) }.toSet()
+            activeCustomTags = activeCustomTags + cleanTag
         }
     }
 
     fun removeTag(tagName: String) {
-        val regex = Regex("""(?i)\b#$tagName\b""")
+        val cleanTag = tagName.trim().removePrefix("#").removePrefix("@")
+        val regex = Regex("""(?i)(?:^|\s)[#@]\Q$cleanTag\E(?=\s|$)""")
         if (rawInput.contains(regex)) {
-            rawInput = rawInput.replace(regex, "").replace(Regex("""\s{2,}"""), " ").trim()
+            rawInput = rawInput.replace(regex, " ").replace(Regex("""\s{2,}"""), " ").trim()
         }
-        activeCustomTags = activeCustomTags.filterNot { it.equals(tagName, ignoreCase = true) }.toSet()
+        activeCustomTags = activeCustomTags.filterNot { it.equals(cleanTag, ignoreCase = true) }.toSet()
+        excludedTags = excludedTags + cleanTag
     }
 
     fun handleSave() {
@@ -230,12 +272,48 @@ fun SmartTaskComposerSheetV2(
         if (title.isBlank()) return
 
         val effectiveTags = allActiveTags.joinToString(",")
+        val effectiveContextTag = if (allActiveTags.isEmpty()) {
+            ""
+        } else {
+            val existingContext = existingTask?.contextTag?.trim()?.removePrefix("#")?.removePrefix("@")
+            if (existingContext != null && allActiveTags.any { it.equals(existingContext, ignoreCase = true) }) {
+                existingContext
+            } else {
+                com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile.profilesFor(effectiveTags).firstNotNullOfOrNull { it.preferredContext }?.trim()?.removePrefix("@")
+                    ?: allActiveTags.firstOrNull().orEmpty()
+            }
+        }
+
+        val normalizedScheduledTime = effectiveScheduledTime?.let { if (it >= ONE_DAY_MILLIS) localTimeOfDayOffset(it) else it }
+        val normalizedDeadlineTime = effectiveDeadlineTime?.let { if (it >= ONE_DAY_MILLIS) localTimeOfDayOffset(it) else it }
+        val finalScheduledDate = if (normalizedScheduledTime != null && effectiveScheduledDate == null && !scheduledDateCleared) {
+            effectiveDeadlineDate ?: initialDate ?: startOfLocalDay(System.currentTimeMillis())
+        } else {
+            effectiveScheduledDate
+        }
+        val finalDeadlineDate = if (normalizedDeadlineTime != null && effectiveDeadlineDate == null && !deadlineDateCleared) {
+            effectiveScheduledDate ?: initialDate ?: startOfLocalDay(System.currentTimeMillis())
+        } else {
+            effectiveDeadlineDate
+        }
+        val effectiveHabitDate = if (recurrence != Recurrence.NONE) {
+            val dateChanged = existingTask != null && (finalScheduledDate != existingTask.scheduledDate || finalDeadlineDate != existingTask.deadlineDate)
+            if (dateChanged && (finalScheduledDate != null || finalDeadlineDate != null)) {
+                finalScheduledDate ?: finalDeadlineDate
+            } else {
+                existingTask?.habitDate
+                    ?: finalScheduledDate
+                    ?: finalDeadlineDate
+                    ?: startOfLocalDay(System.currentTimeMillis())
+            }
+        } else null
 
         val taskToSave = if (existingTask != null) {
             existingTask.copy(
                 title = title,
                 description = description.trim(),
                 tags = effectiveTags,
+                contextTag = effectiveContextTag,
                 estimatedDurationMinutes = effectiveDuration,
                 energyLevel = effectiveEnergy,
                 taskType = effectiveTaskType,
@@ -244,12 +322,21 @@ fun SmartTaskComposerSheetV2(
                 priority = effectivePriority,
                 impactScore = impactScore.toInt(),
                 effortScore = effortScore.toInt(),
-                deadlineDate = effectiveDeadlineDate,
-                deadlineTime = effectiveDeadlineTime,
-                scheduledDate = effectiveScheduledDate,
-                scheduledTime = effectiveScheduledTime,
+                deadlineDate = finalDeadlineDate,
+                deadlineTime = normalizedDeadlineTime,
+                scheduledDate = finalScheduledDate,
+                scheduledTime = normalizedScheduledTime,
+                isAutoScheduled = if (finalScheduledDate != existingTask.scheduledDate || normalizedScheduledTime != existingTask.scheduledTime) {
+                    false
+                } else {
+                    existingTask.isAutoScheduled
+                },
                 isScheduleLocked = isScheduleLocked,
                 recurrence = recurrence,
+                recurrenceIntervalDays = if (recurrence == Recurrence.CUSTOM) recurrenceIntervalDays else 0,
+                habitDate = effectiveHabitDate,
+                isHabitual = recurrence != Recurrence.NONE,
+                schedulingCategory = if (effectiveTags != existingTask.tags) null else existingTask.schedulingCategory,
                 updatedAt = System.currentTimeMillis()
             )
         } else {
@@ -260,17 +347,21 @@ fun SmartTaskComposerSheetV2(
                 energyLevel = effectiveEnergy,
                 taskType = effectiveTaskType,
                 tags = effectiveTags,
+                contextTag = effectiveContextTag,
                 isFrog = effectiveFrog,
                 quadrant = effectiveQuadrant,
                 priority = effectivePriority,
                 impactScore = impactScore.toInt(),
                 effortScore = effortScore.toInt(),
-                deadlineDate = effectiveDeadlineDate,
-                deadlineTime = effectiveDeadlineTime,
-                scheduledDate = effectiveScheduledDate,
-                scheduledTime = effectiveScheduledTime,
+                deadlineDate = finalDeadlineDate,
+                deadlineTime = normalizedDeadlineTime,
+                scheduledDate = finalScheduledDate,
+                scheduledTime = normalizedScheduledTime,
                 isScheduleLocked = isScheduleLocked,
-                recurrence = recurrence
+                recurrence = recurrence,
+                recurrenceIntervalDays = if (recurrence == Recurrence.CUSTOM) recurrenceIntervalDays else 0,
+                habitDate = effectiveHabitDate,
+                isHabitual = recurrence != Recurrence.NONE
             )
         }
         onSave(taskToSave)
@@ -409,13 +500,23 @@ fun SmartTaskComposerSheetV2(
                 value = rawInput,
                 onValueChange = {
                     rawInput = it
-                    if (mode is SheetMode.Create) {
-                        userDurationOverride = null
-                        userEnergyOverride = null
-                        userTaskTypeOverride = null
-                        userFrogOverride = null
-                        userPriorityOverride = null
-                        userQuadrantOverride = null
+                    userDurationOverride = null
+                    userEnergyOverride = null
+                    userTaskTypeOverride = null
+                    userFrogOverride = null
+                    userPriorityOverride = null
+                    userQuadrantOverride = null
+                    userScheduledDateOverride = null
+                    userScheduledTimeOverride = null
+                    userDeadlineDateOverride = null
+                    userDeadlineTimeOverride = null
+                    scheduledDateCleared = false
+                    scheduledTimeCleared = false
+                    deadlineDateCleared = false
+                    deadlineTimeCleared = false
+                    val explicitTagMatches = Regex("""[@#]([a-zA-Z0-9_\-]+)""").findAll(it).map { m -> m.groupValues[1].lowercase(Locale.ROOT) }.toSet()
+                    if (explicitTagMatches.isNotEmpty()) {
+                        excludedTags = excludedTags.filterNot { tag -> explicitTagMatches.any { it.equals(tag, ignoreCase = true) } }.toSet()
                     }
                 },
                 modifier = Modifier
@@ -473,8 +574,8 @@ fun SmartTaskComposerSheetV2(
                     selected = true,
                     onClick = {
                         val cycles = listOf(15, 25, 45, 60, 90, 120)
-                        val nextIdx = (cycles.indexOf(effectiveDuration) + 1) % cycles.size
-                        userDurationOverride = cycles[nextIdx]
+                        val nextVal = cycles.firstOrNull { it > effectiveDuration } ?: cycles.first()
+                        userDurationOverride = nextVal
                     },
                     label = { Text(durationLabel) },
                     modifier = Modifier.heightIn(min = 48.dp)
@@ -555,7 +656,7 @@ fun SmartTaskComposerSheetV2(
                 allActiveTags.forEach { tag ->
                     SuggestionChip(
                         onClick = { removeTag(tag) },
-                        label = { Text("#$tag ✕") },
+                        label = { Text("#${tag.removePrefix("#").removePrefix("@")} ✕") },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
@@ -1009,7 +1110,7 @@ fun SmartTaskComposerSheetV2(
                                 if (effectiveDeadlineDate != null) {
                                     IconButton(
                                         onClick = {
-                                            userDeadlineDate = null
+                                            userDeadlineDateOverride = null
                                             deadlineDateCleared = true
                                         },
                                         modifier = Modifier.size(24.dp)
@@ -1044,8 +1145,9 @@ fun SmartTaskComposerSheetV2(
                                 Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigo, modifier = Modifier.size(18.dp))
                                 Text(
                                     text = if (effectiveDeadlineTime != null) {
-                                        val h = (effectiveDeadlineTime / 3_600_000L).toInt()
-                                        val m = ((effectiveDeadlineTime % 3_600_000L) / 60_000L).toInt()
+                                        val offset = if (effectiveDeadlineTime >= ONE_DAY_MILLIS) localTimeOfDayOffset(effectiveDeadlineTime) else effectiveDeadlineTime
+                                        val h = (offset / 3_600_000L).toInt().coerceIn(0, 23)
+                                        val m = ((offset % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59)
                                         String.format("%02d:%02d", h, m)
                                     } else "Pick Due Time",
                                     style = MaterialTheme.typography.bodyMedium,
@@ -1056,7 +1158,7 @@ fun SmartTaskComposerSheetV2(
                                 if (effectiveDeadlineTime != null) {
                                     IconButton(
                                         onClick = {
-                                            userDeadlineTime = null
+                                            userDeadlineTimeOverride = null
                                             deadlineTimeCleared = true
                                         },
                                         modifier = Modifier.size(24.dp)
@@ -1110,7 +1212,7 @@ fun SmartTaskComposerSheetV2(
                                 if (effectiveScheduledDate != null) {
                                     IconButton(
                                         onClick = {
-                                            userScheduledDate = null
+                                            userScheduledDateOverride = null
                                             scheduledDateCleared = true
                                         },
                                         modifier = Modifier.size(24.dp)
@@ -1145,8 +1247,9 @@ fun SmartTaskComposerSheetV2(
                                 Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(18.dp))
                                 Text(
                                     text = if (effectiveScheduledTime != null) {
-                                        val h = (effectiveScheduledTime / 3_600_000L).toInt()
-                                        val m = ((effectiveScheduledTime % 3_600_000L) / 60_000L).toInt()
+                                        val offset = if (effectiveScheduledTime >= ONE_DAY_MILLIS) localTimeOfDayOffset(effectiveScheduledTime) else effectiveScheduledTime
+                                        val h = (offset / 3_600_000L).toInt().coerceIn(0, 23)
+                                        val m = ((offset % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59)
                                         String.format("%02d:%02d", h, m)
                                     } else "Pick Slot Time",
                                     style = MaterialTheme.typography.bodyMedium,
@@ -1157,7 +1260,7 @@ fun SmartTaskComposerSheetV2(
                                 if (effectiveScheduledTime != null) {
                                     IconButton(
                                         onClick = {
-                                            userScheduledTime = null
+                                            userScheduledTimeOverride = null
                                             scheduledTimeCleared = true
                                         },
                                         modifier = Modifier.size(24.dp)
@@ -1206,6 +1309,47 @@ fun SmartTaskComposerSheetV2(
                                 ),
                                 shape = RoundedCornerShape(8.dp)
                             )
+                        }
+                    }
+
+                    if (recurrence == Recurrence.CUSTOM) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(NeuroFlowThemeV2Colors.SlateSurfaceAlt, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Repeat every",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NeuroFlowThemeV2Colors.TextSecondary
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilledTonalIconButton(
+                                    onClick = { if (recurrenceIntervalDays > 1) recurrenceIntervalDays-- },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Text("-", fontWeight = FontWeight.Bold)
+                                }
+                                Text(
+                                    "$recurrenceIntervalDays ${if (recurrenceIntervalDays == 1) "day" else "days"}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary
+                                )
+                                FilledTonalIconButton(
+                                    onClick = { if (recurrenceIntervalDays < 365) recurrenceIntervalDays++ },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Text("+", fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
 
@@ -1336,80 +1480,100 @@ fun SmartTaskComposerSheetV2(
 
         // DatePickerDialog
         if (showDatePicker) {
-            val datePickerState = rememberDatePickerState()
-            DatePickerDialog(
-                onDismissRequest = { showDatePicker = false },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val selected = datePickerState.selectedDateMillis
-                        if (selected != null) {
-                            if (datePickerTarget == "deadline") {
-                                userDeadlineDate = selected
-                                deadlineDateCleared = false
-                            } else {
-                                userScheduledDate = selected
-                                scheduledDateCleared = false
-                            }
-                        }
-                        showDatePicker = false
-                    }) { Text("Confirm") }
-                },
-                dismissButton = {
-                    Row {
+            val initialDateMillis = if (datePickerTarget == "deadline") {
+                effectiveDeadlineDate?.let { localStartOfDayToUtcDateMillis(it) }
+            } else {
+                effectiveScheduledDate?.let { localStartOfDayToUtcDateMillis(it) }
+            }
+            key(datePickerTarget, initialDateMillis) {
+                val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialDateMillis)
+                DatePickerDialog(
+                    onDismissRequest = { showDatePicker = false },
+                    confirmButton = {
                         TextButton(onClick = {
-                            if (datePickerTarget == "deadline") {
-                                userDeadlineDate = null
-                                deadlineDateCleared = true
-                            } else {
-                                userScheduledDate = null
-                                scheduledDateCleared = true
+                            val selected = datePickerState.selectedDateMillis
+                            if (selected != null) {
+                                val localDate = utcDateMillisToLocalStartOfDay(selected)
+                                if (datePickerTarget == "deadline") {
+                                    userDeadlineDateOverride = localDate
+                                    deadlineDateCleared = false
+                                } else {
+                                    userScheduledDateOverride = localDate
+                                    scheduledDateCleared = false
+                                }
                             }
                             showDatePicker = false
-                        }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
-                        TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                        }) { Text("Confirm") }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = {
+                                if (datePickerTarget == "deadline") {
+                                    userDeadlineDateOverride = null
+                                    deadlineDateCleared = true
+                                } else {
+                                    userScheduledDateOverride = null
+                                    scheduledDateCleared = true
+                                }
+                                showDatePicker = false
+                            }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                            TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                        }
                     }
+                ) {
+                    DatePicker(state = datePickerState)
                 }
-            ) {
-                DatePicker(state = datePickerState)
             }
         }
 
         // TimePickerDialog
         if (showTimePicker) {
-            val timePickerState = rememberTimePickerState(initialHour = 12, initialMinute = 0)
-            AlertDialog(
-                onDismissRequest = { showTimePicker = false },
-                title = { Text("Select Time") },
-                text = { Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TimePicker(state = timePickerState) } },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val millis = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
-                        if (timePickerTarget == "deadline") {
-                            userDeadlineTime = millis
-                            deadlineTimeCleared = false
-                        } else {
-                            userScheduledTime = millis
-                            scheduledTimeCleared = false
-                        }
-                        showTimePicker = false
-                    }) { Text("Confirm") }
-                },
-                dismissButton = {
-                    Row {
+            val targetTime = if (timePickerTarget == "deadline") effectiveDeadlineTime else effectiveScheduledTime
+            val offset = targetTime?.let { if (it >= ONE_DAY_MILLIS) localTimeOfDayOffset(it) else it }
+            key(timePickerTarget, offset) {
+                val initialHour = offset?.let { (it / 3_600_000L).toInt().coerceIn(0, 23) } ?: 12
+                val initialMinute = offset?.let { ((it % 3_600_000L) / 60_000L).toInt().coerceIn(0, 59) } ?: 0
+                val timePickerState = rememberTimePickerState(initialHour = initialHour, initialMinute = initialMinute)
+                AlertDialog(
+                    onDismissRequest = { showTimePicker = false },
+                    title = { Text("Select Time") },
+                    text = { Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TimePicker(state = timePickerState) } },
+                    confirmButton = {
                         TextButton(onClick = {
+                            val millis = timePickerState.hour * 3_600_000L + timePickerState.minute * 60_000L
                             if (timePickerTarget == "deadline") {
-                                userDeadlineTime = null
-                                deadlineTimeCleared = true
+                                userDeadlineTimeOverride = millis
+                                deadlineTimeCleared = false
+                                if (effectiveDeadlineDate == null && !deadlineDateCleared) {
+                                    userDeadlineDateOverride = effectiveScheduledDate ?: initialDate ?: startOfLocalDay(System.currentTimeMillis())
+                                }
                             } else {
-                                userScheduledTime = null
-                                scheduledTimeCleared = true
+                                userScheduledTimeOverride = millis
+                                scheduledTimeCleared = false
+                                if (effectiveScheduledDate == null && !scheduledDateCleared) {
+                                    userScheduledDateOverride = effectiveDeadlineDate ?: initialDate ?: startOfLocalDay(System.currentTimeMillis())
+                                }
                             }
                             showTimePicker = false
-                        }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
-                        TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+                        }) { Text("Confirm") }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = {
+                                if (timePickerTarget == "deadline") {
+                                    userDeadlineTimeOverride = null
+                                    deadlineTimeCleared = true
+                                } else {
+                                    userScheduledTimeOverride = null
+                                    scheduledTimeCleared = true
+                                }
+                                showTimePicker = false
+                            }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                            TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }

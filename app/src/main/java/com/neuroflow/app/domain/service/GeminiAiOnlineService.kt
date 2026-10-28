@@ -380,6 +380,29 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             return localWeeklyAudit(recentlyDeletedTasksJson)
         }
 
+        val cacheKey = "weekly_audit_${weeklyTelemetryJson.hashCode()}_${recentlyDeletedTasksJson.hashCode()}_${chronicallyPostponedTasksJson.hashCode()}"
+        val cached = checkCache(cacheKey)
+        if (cached != null) {
+            try {
+                val root = JSONObject(extractCleanJson(cached))
+                val auditObj = root.optJSONObject("avoidanceAudit") ?: JSONObject()
+                val directiveObj = root.optJSONObject("adaptiveSystemDirective") ?: JSONObject()
+
+                val directiveFormatted = buildString {
+                    appendLine("[Adaptive System Directive — Calibrated via Weekly Audit]")
+                    appendLine("- Profile: ${directiveObj.optString("summary", "Standard cognitive pacing.")}")
+                    appendLine("- Estimation Bias Buffer: ${directiveObj.optDouble("estimationBiasBuffer", 1.25)}x")
+                    appendLine("- Friction Rule: ${directiveObj.optString("mandatoryFrictionRule", "Decompose tasks >45m into a 2m starter step.")}")
+                    appendLine("- Circadian Routing: ${directiveObj.optString("circadianRoutingRule", "Lock high cognitive work into morning peak.")}")
+                }.trim()
+
+                return WeeklyAvoidanceAuditResult(
+                    avoidanceAuditJson = auditObj.toString(),
+                    newSystemDirective = directiveFormatted
+                )
+            } catch (_: Exception) {}
+        }
+
         val prompt = """
             You are an elite Clinical Neuropsychologist and Chronobiologist specializing in adult ADHD executive dysfunction, 
             the Borbély Two-Process Circadian Model, and cognitive friction mechanics.
@@ -421,6 +444,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         return try {
             val responseText = executeGeminiCall(prompt, trimmedKey, maxTokens = 800)
             if (responseText != null) {
+                storeCache(cacheKey, responseText)
                 val root = JSONObject(extractCleanJson(responseText))
                 val auditObj = root.optJSONObject("avoidanceAudit") ?: JSONObject()
                 val directiveObj = root.optJSONObject("adaptiveSystemDirective") ?: JSONObject()
@@ -465,8 +489,26 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             )
         }
 
+        val cacheKey = "quicknote_${trimmed.lowercase().hashCode()}_${userDirective.hashCode()}"
+        val cached = checkCache(cacheKey)
+        if (cached != null) {
+            try {
+                val obj = JSONObject(extractCleanJson(cached))
+                val tagsArr = obj.optJSONArray("tags") ?: JSONArray()
+                val tagsList = (0 until tagsArr.length()).map { tagsArr.getString(it) }
+                return QuickNoteSynthesis(
+                    extractedTaskTitle = obj.optString("extractedTaskTitle", firstLine),
+                    suggestedCategory = obj.optString("suggestedCategory", "GENERAL"),
+                    estimatedMinutes = obj.optInt("estimatedMinutes", 20).coerceIn(5, 180),
+                    tags = tagsList.ifEmpty { listOf("quick-note") },
+                    firstActionStep = obj.optString("firstActionStep", "Open workspace and review note details")
+                )
+            } catch (_: Exception) {}
+        }
+
+        val directiveBlock = if (userDirective.isNotBlank()) "USER ADAPTIVE DIRECTIVE:\n$userDirective\n" else ""
         val prompt = """
-            Extract a clean, actionable task from this raw scratchpad note:
+            ${directiveBlock}Extract a clean, actionable task from this raw scratchpad note:
             "$trimmed"
 
             Return ONLY valid JSON:
@@ -482,6 +524,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         return try {
             val responseText = executeGeminiCall(prompt, trimmedKey, maxTokens = 250)
             if (responseText != null) {
+                storeCache(cacheKey, responseText)
                 val obj = JSONObject(extractCleanJson(responseText))
                 val tagsArr = obj.optJSONArray("tags") ?: JSONArray()
                 val tagsList = (0 until tagsArr.length()).map { tagsArr.getString(it) }

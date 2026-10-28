@@ -6,7 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
@@ -35,6 +37,7 @@ fun QuickNotesBottomSheet(
     onDismiss: () -> Unit,
     onOpenFullNotes: () -> Unit = {},
     onCreateTask: ((title: String, description: String) -> Unit)? = null,
+    onCreateTaskSynthesis: ((synthesis: com.neuroflow.app.domain.service.QuickNoteSynthesis, rawContent: String) -> Unit)? = null,
     onSynthesizeNote: (suspend (String) -> com.neuroflow.app.domain.service.QuickNoteSynthesis)? = null
 ) {
     var title by remember { mutableStateOf("") }
@@ -43,11 +46,25 @@ fun QuickNotesBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(content, title) {
-        if (content.isNotBlank()) {
+        val trimmed = content.trim()
+        if (trimmed.length >= 5) {
+            kotlinx.coroutines.delay(600L)
             val full = if (title.isNotBlank()) "$title: $content" else content
-            if (onSynthesizeNote != null) {
-                synthesis = onSynthesizeNote(full)
-            } else {
+            try {
+                if (onSynthesizeNote != null) {
+                    synthesis = onSynthesizeNote(full)
+                } else {
+                    val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
+                    synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                        extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+                        suggestedCategory = inferred.taskType.name,
+                        estimatedMinutes = inferred.durationMinutes,
+                        tags = inferred.contextTags,
+                        firstActionStep = "Review note: ${content.take(20)}..."
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
                 synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
                     extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
@@ -71,7 +88,9 @@ fun QuickNotesBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState())
+                .imePadding(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Header
@@ -192,14 +211,20 @@ fun QuickNotesBottomSheet(
                 com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
                     synthesis = syn,
                     onConvertToTaskClick = { finalSyn ->
-                        if (onCreateTask != null) {
-                            onCreateTask(finalSyn.extractedTaskTitle, content)
-                            onSaveNote(finalSyn.extractedTaskTitle, content)
+                        val finalTaskTitle = title.trim().ifBlank { finalSyn.extractedTaskTitle }
+                        val taskSynthesis = if (finalTaskTitle != finalSyn.extractedTaskTitle) finalSyn.copy(extractedTaskTitle = finalTaskTitle) else finalSyn
+                        if (onCreateTaskSynthesis != null) {
+                            onCreateTaskSynthesis(taskSynthesis, content)
+                            onSaveNote(finalTaskTitle, content)
+                        } else if (onCreateTask != null) {
+                            onCreateTask(finalTaskTitle, content)
+                            onSaveNote(finalTaskTitle, content)
                         } else {
-                            onSaveNote(finalSyn.extractedTaskTitle, content)
+                            onSaveNote(finalTaskTitle, content)
                         }
                         title = ""
                         content = ""
+                        onDismiss()
                     }
                 )
             }
@@ -281,11 +306,27 @@ fun QuickNotesBottomSheet(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (onCreateTask != null) {
+                                    if (onCreateTaskSynthesis != null || onCreateTask != null) {
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Surface(
                                             modifier = Modifier.clickable {
-                                                onCreateTask(note.title, note.content)
+                                                val fullText = if (note.title.isNotBlank()) "${note.title}: ${note.content}" else note.content
+                                                val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(fullText)
+                                                val explicitTitle = note.title.trim().takeIf { it.isNotBlank() }
+                                                val resolvedTaskTitle = explicitTitle ?: inferred.sanitizedTitle.ifBlank { note.content.take(35) }
+                                                if (onCreateTaskSynthesis != null) {
+                                                    val syn = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                                                        extractedTaskTitle = resolvedTaskTitle,
+                                                        suggestedCategory = inferred.taskType.name,
+                                                        estimatedMinutes = inferred.durationMinutes,
+                                                        tags = inferred.contextTags,
+                                                        firstActionStep = "Review note: ${note.content.take(20)}..."
+                                                    )
+                                                    onCreateTaskSynthesis(syn, note.content)
+                                                } else {
+                                                    onCreateTask?.invoke(resolvedTaskTitle, note.content)
+                                                }
+                                                onDismiss()
                                             },
                                             shape = RoundedCornerShape(6.dp),
                                             color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),

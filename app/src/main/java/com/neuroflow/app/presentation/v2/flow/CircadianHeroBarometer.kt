@@ -273,6 +273,7 @@ fun CircadianHeroBarometer(
     onLogStimulant: (StimulantType) -> Unit = {},
     onLogPhysiologicalEvent: (PhysiologicalEventType) -> Unit = {},
     onClearPhysiologicalEvents: () -> Unit = {},
+    summary: CircadianEnergySummary? = null,
     modifier: Modifier = Modifier
 ) {
     val phase = when {
@@ -283,7 +284,7 @@ fun CircadianHeroBarometer(
         else -> EnergyPhase.RECOVERY_NEEDED
     }
 
-    val summary = remember(batteryPercent, phase, sleepPressurePoints) {
+    val effectiveSummary = summary ?: remember(batteryPercent, phase, sleepPressurePoints) {
         CircadianEnergySummary(
             currentEnergyScore = batteryPercent,
             currentPhase = phase,
@@ -329,7 +330,7 @@ fun CircadianHeroBarometer(
     }
 
     CircadianHeroBarometer(
-        summary = summary,
+        summary = effectiveSummary,
         dayTimeline = effectiveTimeline,
         modifier = modifier,
         cognitiveBlocks = cognitiveBlocks,

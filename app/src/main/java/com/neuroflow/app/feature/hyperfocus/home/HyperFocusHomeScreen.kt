@@ -32,11 +32,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.neuroflow.app.data.badge.toBadgeString
 import com.neuroflow.app.feature.hyperfocus.data.AppCatalogRepository
 import com.neuroflow.app.feature.hyperfocus.screens.EmergencyControl
 
@@ -53,6 +55,7 @@ fun HyperFocusHomeScreen(
     onDeactivate: () -> Unit,
     onOpenAllowlistEditor: () -> Unit,
     onOpenHomeAppSettings: () -> Unit,
+    badgeCounts: Map<String, Int> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     when (state) {
@@ -74,6 +77,7 @@ fun HyperFocusHomeScreen(
             onOpenGate = onOpenGate,
             onEmergencyOpen = onEmergencyOpen,
             onDeactivate = onDeactivate,
+            badgeCounts = badgeCounts,
             modifier = modifier
         )
     }
@@ -88,6 +92,7 @@ private fun ActiveSurface(
     onOpenGate: () -> Unit,
     onEmergencyOpen: (String) -> Unit,
     onDeactivate: () -> Unit,
+    badgeCounts: Map<String, Int> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF050505))) {
@@ -104,7 +109,11 @@ private fun ActiveSurface(
                 )
             }
             items(state.essentials, key = { it.packageName }) { tile ->
-                HomeTileView(tile = tile, onClick = { onOpenEssential(tile.packageName) })
+                HomeTileView(
+                    tile = tile,
+                    badgeCount = badgeCounts[tile.packageName] ?: 0,
+                    onClick = { onOpenEssential(tile.packageName) }
+                )
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(modifier = Modifier.padding(top = 24.dp)) {
@@ -179,7 +188,11 @@ private fun Header(
 }
 
 @Composable
-private fun HomeTileView(tile: HomeTile, onClick: () -> Unit) {
+private fun HomeTileView(
+    tile: HomeTile,
+    badgeCount: Int = 0,
+    onClick: () -> Unit
+) {
     val context = LocalContext.current
     val icon = remember(tile.packageName) {
         runCatching {
@@ -194,27 +207,44 @@ private fun HomeTileView(tile: HomeTile, onClick: () -> Unit) {
             .padding(8.dp)
             .clickable(onClick = onClick)
     ) {
-        if (icon != null) {
-            Image(
-                bitmap = icon,
-                contentDescription = tile.label,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(56.dp)
-            )
-        } else {
-            // A package uninstalled mid-session throws here, and a throwing icon lookup inside a grid
-            // item would crash the whole home rather than the one tile (spec 8, "uninstalled mid-pass").
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(Color(0xFF1A1A1A), RoundedCornerShape(14.dp))
-            ) {
-                Text(
-                    text = tile.label.take(1).uppercase(),
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleLarge
+        Box(contentAlignment = Alignment.TopEnd) {
+            if (icon != null) {
+                Image(
+                    bitmap = icon,
+                    contentDescription = tile.label,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(56.dp)
                 )
+            } else {
+                // A package uninstalled mid-session throws here, and a throwing icon lookup inside a grid
+                // item would crash the whole home rather than the one tile (spec 8, "uninstalled mid-pass").
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(Color(0xFF1A1A1A), RoundedCornerShape(14.dp))
+                ) {
+                    Text(
+                        text = tile.label.take(1).uppercase(),
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+            }
+            if (badgeCount > 0) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .background(Color(0xFFE53935), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = badgeCount.toBadgeString(),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
         Spacer(Modifier.height(6.dp))

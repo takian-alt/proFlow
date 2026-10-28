@@ -66,7 +66,11 @@ ehthumbs.db
 *.swo
 
 # ==============================================================================
-# Agent Workspaces & Scratch Files
+# Agent Workspaces, Scratch Files & Generated Bundles
 # ==============================================================================
 .worktrees/
 scratch/
+core_engine_code/
+ui_code/
+NEUROFLOW_ALL_CODE.md
+VICE_HEAD_ALL_CODE.md

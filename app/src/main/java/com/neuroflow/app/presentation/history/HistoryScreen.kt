@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +28,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.presentation.common.TagChip
@@ -77,7 +80,7 @@ fun HistoryScreen(
                     CircularProgressIndicator()
                 }
             }
-            uiState.completedTasks.isEmpty() -> {
+            !uiState.hasAnyCompletedTasks -> {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -150,7 +153,7 @@ fun HistoryScreen(
                                                 duration = SnackbarDuration.Short
                                             )
                                             if (result == SnackbarResult.ActionPerformed) {
-                                                viewModel.restoreTask(task)
+                                                viewModel.undoDeleteTask(task)
                                             }
                                         }
                                     }
@@ -167,6 +170,16 @@ fun HistoryScreen(
         HistoryDetailSheet(
             task = task,
             sessions = selectedSessions,
+            onRestore = {
+                viewModel.restoreTask(task)
+                selectedTaskId = null
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        message = "Task reopened and moved to active",
+                        duration = SnackbarDuration.Short
+                    )
+                }
+            },
             onDismiss = { selectedTaskId = null }
         )
     }
@@ -322,9 +335,11 @@ private fun HistoryTaskRow(task: TaskEntity, onClick: () -> Unit, onDelete: () -
 private fun HistoryDetailSheet(
     task: TaskEntity,
     sessions: List<TimeSessionEntity>,
+    onRestore: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+    val dateOnlySdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -407,8 +422,16 @@ private fun HistoryDetailSheet(
 
             // ── Timing ────────────────────────────────────────────────────────
             DetailSection("Timing") {
-                task.deadlineDate?.let { DetailRow("Deadline", sdf.format(Date(it))) }
-                task.scheduledDate?.let { DetailRow("Scheduled", sdf.format(Date(it))) }
+                val resolvedDeadline = task.resolveDeadlineEpochMillis()
+                if (resolvedDeadline != null) {
+                    val formatted = if (task.deadlineTime != null) sdf.format(Date(resolvedDeadline)) else dateOnlySdf.format(Date(resolvedDeadline))
+                    DetailRow("Deadline", formatted)
+                }
+                val resolvedScheduled = task.resolveScheduledEpochMillis()
+                if (resolvedScheduled != null) {
+                    val formatted = if (task.scheduledTime != null) sdf.format(Date(resolvedScheduled)) else dateOnlySdf.format(Date(resolvedScheduled))
+                    DetailRow("Scheduled", formatted)
+                }
                 if (task.estimatedDurationMinutes > 0)
                     DetailRow("Estimated", "${task.estimatedDurationMinutes} min")
                 if (task.recurrence.name != "NONE") {
@@ -486,11 +509,28 @@ private fun HistoryDetailSheet(
             }
 
             Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = onDismiss,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
-            ) { Text("Close") }
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRestore,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reopen Task")
+                }
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowColors.Purple)
+                ) { Text("Close") }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }

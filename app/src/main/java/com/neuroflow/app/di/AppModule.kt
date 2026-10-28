@@ -86,6 +86,12 @@ object AppModule {
                 MIGRATION_20_21,
                 MIGRATION_21_22
             )
+            .addCallback(object : androidx.room.RoomDatabase.Callback() {
+                override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    super.onOpen(db)
+                    db.execSQL("PRAGMA foreign_keys = ON;")
+                }
+            })
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }

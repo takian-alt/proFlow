@@ -87,9 +87,16 @@ fun NoteEditorScreen(
                         )
                     }
 
-                    // Delete button (if not brand new unsaved note)
-                    if (onDelete != null && (note.title.isNotBlank() || note.content.isNotBlank())) {
-                        IconButton(onClick = { showDeleteConfirm = true }) {
+                    // Delete / Discard button
+                    if (title.isNotBlank() || content.isNotBlank() || note.title.isNotBlank() || note.content.isNotBlank()) {
+                        IconButton(onClick = {
+                            if (note.title.isBlank() && note.content.isBlank()) {
+                                // Newly created draft not yet persisted to Room
+                                onDismiss()
+                            } else {
+                                showDeleteConfirm = true
+                            }
+                        }) {
                             Icon(
                                 Icons.Filled.Delete,
                                 contentDescription = "Delete Note",

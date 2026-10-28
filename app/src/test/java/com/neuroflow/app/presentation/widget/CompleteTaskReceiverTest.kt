@@ -35,16 +35,19 @@ class CompleteTaskReceiverTest : StringSpec({
     "CompleteTaskWidgetAction.execute marks task complete and enqueues immediate widget update" {
         val context = mockk<Context>(relaxed = true)
         val taskRepo = mockk<TaskRepository>()
+        val prefsDataStore = mockk<com.neuroflow.app.data.local.UserPreferencesDataStore>(relaxed = true)
         coEvery { taskRepo.markTaskCompleted("task-123", any()) } returns true
 
         val entryPoint = mockk<CompleteTaskWidgetAction.WidgetActionEntryPoint>()
         every { entryPoint.taskRepository() } returns taskRepo
+        every { entryPoint.preferencesDataStore() } returns prefsDataStore
         every { EntryPointAccessors.fromApplication(any(), CompleteTaskWidgetAction.WidgetActionEntryPoint::class.java) } returns entryPoint
 
         val result = CompleteTaskWidgetAction.execute(context, "task-123")
         result shouldBe true
 
         coVerify(exactly = 1) { taskRepo.markTaskCompleted("task-123", any()) }
+        coVerify(exactly = 1) { prefsDataStore.updatePreferences(any()) }
         verify(exactly = 1) { FocusWidgetUpdateWorker.enqueueImmediateUpdate(context) }
     }
 

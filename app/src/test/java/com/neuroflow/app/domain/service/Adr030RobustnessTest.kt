@@ -204,7 +204,8 @@ class Adr030RobustnessTest {
 
     @Test
     fun testAnalyticsEngine_clampsFutureCompletedTasks() {
-        val now = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
+        val now = ZonedDateTime.of(LocalDate.of(2026, 10, 23), LocalTime.of(14, 0), zone).toInstant().toEpochMilli()
         val futureMillis = now + 3600_000L // 1 hour in the future
 
         val validTask = TaskEntity(

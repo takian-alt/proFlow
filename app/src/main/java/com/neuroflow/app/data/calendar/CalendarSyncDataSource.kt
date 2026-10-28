@@ -7,9 +7,13 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
+import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.service.TimeSlotWindow
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +90,7 @@ class CalendarSyncDataSource @Inject constructor(
             CalendarContract.Instances.SELF_ATTENDEE_STATUS,
             CalendarContract.Instances.STATUS,
             CalendarContract.Instances.ORGANIZER,
+            CalendarContract.Instances.ALL_DAY,
             CalendarContract.Events.CUSTOM_APP_PACKAGE,
             CalendarContract.Events.CUSTOM_APP_URI
         )
@@ -110,6 +115,7 @@ class CalendarSyncDataSource @Inject constructor(
                 val attendeeIdx = cursor.getColumnIndex(CalendarContract.Instances.SELF_ATTENDEE_STATUS)
                 val statusIdx = cursor.getColumnIndex(CalendarContract.Instances.STATUS)
                 val orgIdx = cursor.getColumnIndex(CalendarContract.Instances.ORGANIZER)
+                val allDayIdx = cursor.getColumnIndex(CalendarContract.Instances.ALL_DAY)
                 val pkgIdx = cursor.getColumnIndex(CalendarContract.Events.CUSTOM_APP_PACKAGE)
                 val appUriIdx = cursor.getColumnIndex(CalendarContract.Events.CUSTOM_APP_URI)
 
@@ -122,21 +128,27 @@ class CalendarSyncDataSource @Inject constructor(
                     val attendeeStatus = if (attendeeIdx >= 0) cursor.getInt(attendeeIdx) else CalendarContract.Attendees.ATTENDEE_STATUS_ACCEPTED
                     val status = if (statusIdx >= 0) cursor.getInt(statusIdx) else CalendarContract.Events.STATUS_CONFIRMED
                     val organizer = if (orgIdx >= 0) cursor.getString(orgIdx) ?: "" else ""
+                    val isAllDay = if (allDayIdx >= 0) cursor.getInt(allDayIdx) == 1 else false
                     val customPkg = if (pkgIdx >= 0) cursor.getString(pkgIdx) ?: "" else ""
                     val customUri = if (appUriIdx >= 0) cursor.getString(appUriIdx) ?: "" else ""
 
-                    // 1. Filter out free availability
+                    // 1. Filter out all-day events (date banners, not hourly meetings)
+                    if (isAllDay) {
+                        continue
+                    }
+
+                    // 2. Filter out free availability
                     if (avail == CalendarContract.Events.AVAILABILITY_FREE) {
                         continue
                     }
 
-                    // 2. Filter out declined or canceled events
+                    // 3. Filter out declined or canceled events
                     if (attendeeStatus == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED ||
                         status == CalendarContract.Events.STATUS_CANCELED) {
                         continue
                     }
 
-                    // 3. Filter out self-authored neuroFlow blocks (loop prevention)
+                    // 4. Filter out self-authored neuroFlow blocks (loop prevention)
                     val isNeuroFlowBlock = customPkg.equals(NEUROFLOW_PACKAGE_ID, ignoreCase = true) ||
                         customUri.startsWith(CUSTOM_APP_URI_PREFIX, ignoreCase = true) ||
                         title.contains(NEUROFLOW_PACKAGE_ID, ignoreCase = true) ||
@@ -264,6 +276,28 @@ class CalendarSyncDataSource @Inject constructor(
             android.util.Log.w("CalendarSyncDataSource", "Failed to query event by taskId $taskId", e)
         }
 
+        // Fallback: Query by DESCRIPTION marker for cloud-synced events where CUSTOM_APP_URI was stripped by calendar sync adapter
+        try {
+            val descSelection = "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+            val descSelectionArgs = arrayOf("%[neuroflow:task:$taskId]%")
+            context.contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                projection,
+                descSelection,
+                descSelectionArgs,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idIdx = cursor.getColumnIndex(CalendarContract.Events._ID)
+                    if (idIdx >= 0) {
+                        return@withContext cursor.getLong(idIdx)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("CalendarSyncDataSource", "Failed to query event by description marker for taskId $taskId", e)
+        }
+
         null
     }
 
@@ -279,15 +313,28 @@ class CalendarSyncDataSource @Inject constructor(
 
         if (!hasPermission) return@withContext null
 
-        val calendarId = findPrimaryWritableCalendarId() ?: return@withContext null
+        val existingEventId = findEventIdByTaskId(task.id)
 
-        val effectiveStart = startMillis
-            ?: task.resolveScheduledEpochMillis()
-            ?: task.scheduledDate
-            ?: System.currentTimeMillis()
+        // CALENDAR_ID is required for inserting new events, but must not be modified or required for updating existing events
+        val calendarId = if (existingEventId == null) {
+            findPrimaryWritableCalendarId() ?: return@withContext null
+        } else {
+            null
+        }
 
-        val effectiveDuration = durationMinutes
-            ?: (if (task.plannedBlockMinutes > 0) task.plannedBlockMinutes else if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 25)
+        val effectiveDate = task.effectiveScheduledDateMillis() ?: task.deadlineDate
+        val effectiveStart = startMillis ?: run {
+            val anchor = effectiveDate ?: System.currentTimeMillis()
+            if (task.scheduledTime != null) {
+                task.resolveScheduledEpochMillis(anchor)
+            } else if (effectiveDate != null) {
+                startOfLocalDay(effectiveDate) + 9 * 3600_000L
+            } else {
+                task.resolveScheduledEpochMillis(anchor)
+            }
+        } ?: System.currentTimeMillis()
+
+        val effectiveDuration = (durationMinutes?.takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(task)).coerceAtLeast(5)
 
         val endMillis = effectiveStart + (effectiveDuration * 60_000L)
 
@@ -303,14 +350,17 @@ class CalendarSyncDataSource @Inject constructor(
             else -> "[Flow] $cleanTitle"
         }
 
+        val taskMarker = "[neuroflow:task:${task.id}]"
         val formattedDesc = if (task.description.isBlank()) {
-            "[neuroflow] Managed focus block"
+            "[neuroflow] Managed focus block\n$taskMarker"
         } else {
-            "${task.description}\n\n[neuroflow] Managed focus block"
+            "${task.description}\n\n[neuroflow] Managed focus block\n$taskMarker"
         }
 
         val values = ContentValues().apply {
-            put(CalendarContract.Events.CALENDAR_ID, calendarId)
+            if (calendarId != null) {
+                put(CalendarContract.Events.CALENDAR_ID, calendarId)
+            }
             put(CalendarContract.Events.TITLE, formattedTitle)
             put(CalendarContract.Events.DESCRIPTION, formattedDesc)
             put(CalendarContract.Events.DTSTART, effectiveStart)
@@ -319,10 +369,13 @@ class CalendarSyncDataSource @Inject constructor(
             put(CalendarContract.Events.CUSTOM_APP_PACKAGE, NEUROFLOW_PACKAGE_ID)
             put(CalendarContract.Events.CUSTOM_APP_URI, "$CUSTOM_APP_URI_PREFIX${task.id}")
             put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CONFIRMED)
-            put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
+            val availability = if (task.status == TaskStatus.COMPLETED) {
+                CalendarContract.Events.AVAILABILITY_FREE
+            } else {
+                CalendarContract.Events.AVAILABILITY_BUSY
+            }
+            put(CalendarContract.Events.AVAILABILITY, availability)
         }
-
-        val existingEventId = findEventIdByTaskId(task.id)
 
         try {
             if (existingEventId != null) {
@@ -373,12 +426,12 @@ class CalendarSyncDataSource @Inject constructor(
                 deleteTaskEvent(task.id)
             }
             TaskStatus.ACTIVE -> {
-                if (task.scheduledDate == null && task.scheduledTime == null) {
+                if (task.effectiveScheduledDateMillis() == null && task.deadlineDate == null && task.scheduledTime == null) {
                     deleteTaskEvent(task.id)
                 } else if (task.isScheduleLocked || task.isFrog) {
                     upsertTaskEvent(task) != null
                 } else {
-                    false
+                    deleteTaskEvent(task.id)
                 }
             }
         }

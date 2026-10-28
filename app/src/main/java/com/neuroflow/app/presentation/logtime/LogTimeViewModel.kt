@@ -53,7 +53,22 @@ class LogTimeViewModel @Inject constructor(
                 )
             )
             preferencesDataStore.updatePreferences { prefs ->
-                prefs.copy(totalFocusMinutes = prefs.totalFocusMinutes + manualMinutes.toInt())
+                val lastActive = prefs.lastActiveDate
+                val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(now)
+                val isNewDay = lastActive < todayStart
+                val isConsecutive = lastActive >= com.neuroflow.app.data.local.entity.startOfPreviousLocalDay(todayStart) && isNewDay
+                val newStreak = when {
+                    isConsecutive -> prefs.dailyStreak + 1
+                    isNewDay -> 1
+                    else -> prefs.dailyStreak
+                }
+                val longest = maxOf(prefs.longestStreak, newStreak)
+                prefs.copy(
+                    totalFocusMinutes = prefs.totalFocusMinutes + manualMinutes.toInt(),
+                    lastActiveDate = now,
+                    dailyStreak = newStreak,
+                    longestStreak = longest
+                )
             }
         }
     }

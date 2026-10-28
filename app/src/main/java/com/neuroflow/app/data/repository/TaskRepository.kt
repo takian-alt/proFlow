@@ -3,15 +3,22 @@ package com.neuroflow.app.data.repository
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.dao.TaskDao
+import com.neuroflow.app.data.local.dao.TimeSessionDao
+import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.feature.hyperfocus.domain.HyperFocusManager
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
+import com.neuroflow.app.worker.TaskReminderWorker
 import com.neuroflow.app.data.local.dao.TaskMicroStepDao
 import com.neuroflow.app.data.local.entity.TaskMicroStepEntity
 import dagger.Lazy
@@ -66,20 +73,57 @@ class TaskRepository @Inject constructor(
     private val taskDao: TaskDao,
     private val hyperFocusManager: Lazy<HyperFocusManager>,
     private val workManager: WorkManager,
-    private val taskMicroStepDao: TaskMicroStepDao? = null
+    private val taskMicroStepDao: TaskMicroStepDao? = null,
+    private val calendarSyncRepository: CalendarSyncRepository? = null,
+    private val timeSessionDao: TimeSessionDao? = null
 ) {
-    // Secondary constructor for tests or callers providing only base dependencies
+    // Secondary constructors for tests or callers providing subsets of dependencies
     constructor(
         taskDao: TaskDao,
         hyperFocusManager: Lazy<HyperFocusManager>,
         workManager: WorkManager
-    ) : this(taskDao, hyperFocusManager, workManager, null)
+    ) : this(taskDao, hyperFocusManager, workManager, null, null, null)
+
+    constructor(
+        taskDao: TaskDao,
+        hyperFocusManager: Lazy<HyperFocusManager>,
+        workManager: WorkManager,
+        taskMicroStepDao: TaskMicroStepDao?
+    ) : this(taskDao, hyperFocusManager, workManager, taskMicroStepDao, null, null)
+
+    constructor(
+        taskDao: TaskDao,
+        hyperFocusManager: Lazy<HyperFocusManager>,
+        workManager: WorkManager,
+        taskMicroStepDao: TaskMicroStepDao?,
+        calendarSyncRepository: CalendarSyncRepository?
+    ) : this(taskDao, hyperFocusManager, workManager, taskMicroStepDao, calendarSyncRepository, null)
 
     fun observeMicroSteps(taskId: String): Flow<List<TaskMicroStepEntity>> =
         taskMicroStepDao?.observeByTaskId(taskId) ?: flowOf(emptyList())
 
-    suspend fun getMicroSteps(taskId: String): List<TaskMicroStepEntity> =
-        taskMicroStepDao?.getByTaskId(taskId) ?: emptyList()
+    suspend fun getMicroSteps(taskId: String): List<TaskMicroStepEntity> {
+        val dbSteps = taskMicroStepDao?.getByTaskId(taskId) ?: emptyList()
+        if (dbSteps.isNotEmpty()) return dbSteps
+
+        // Fallback: lazily extract micro-steps from task.ifThenPlan if task has plan steps but not yet stored in DAO
+        val task = taskDao.getById(taskId) ?: return emptyList()
+        if (task.ifThenPlan.isBlank()) return emptyList()
+        val parsed = com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(task.ifThenPlan)
+        if (parsed.isEmpty()) return emptyList()
+        val entities = parsed.mapIndexed { index, step ->
+            TaskMicroStepEntity(
+                id = "${task.id}_step_$index",
+                taskId = task.id,
+                title = step.text,
+                sortOrder = index,
+                isCompleted = step.completed,
+                estimatedMinutes = 5
+            )
+        }
+        runCatching { taskMicroStepDao?.insertAll(entities) }
+        return entities
+    }
 
     suspend fun insertMicroStep(step: TaskMicroStepEntity) {
         taskMicroStepDao?.insert(step)
@@ -130,6 +174,10 @@ class TaskRepository @Inject constructor(
 
     suspend fun insert(task: TaskEntity) {
         taskDao.insert(task)
+        if (task.status == TaskStatus.ACTIVE) {
+            TaskReminderWorker.scheduleReminder(workManager, task)
+            AutonomyNudgeEngine.scheduleNudge(workManager, task)
+        }
         if (!AutoSchedulingContracts.hasManualScheduleData(task) && task.status != TaskStatus.COMPLETED) {
             enqueueAutoSchedulingRecheck()
         }
@@ -142,6 +190,14 @@ class TaskRepository @Inject constructor(
         val estimateChanged = old != null && old.estimatedDurationMinutes != task.estimatedDurationMinutes
         val toWrite = if (estimateChanged) task.copy(plannedBlockMinutes = 0) else task
         taskDao.update(toWrite)
+
+        if (toWrite.status == TaskStatus.ACTIVE) {
+            TaskReminderWorker.scheduleReminder(workManager, toWrite)
+            AutonomyNudgeEngine.scheduleNudge(workManager, toWrite)
+        } else {
+            TaskReminderWorker.cancelReminder(workManager, toWrite.id)
+            AutonomyNudgeEngine.cancelNudge(workManager, toWrite.id)
+        }
 
         // Trigger rescheduling if relevant fields changed
         if (old != null && shouldTriggerReschedule(old, toWrite)) {
@@ -206,14 +262,57 @@ class TaskRepository @Inject constructor(
     }
     suspend fun delete(task: TaskEntity) {
         if (hyperFocusManager.get().isTaskDeletionBlocked(task.id)) return
+
+        val deletedIds = mutableSetOf(task.id)
+
+        // Find continuation Part 2 if present (BUG-012)
+        val part2 = taskDao.getById("${task.id}_part2")
+        if (part2 != null) {
+            deletedIds.add(part2.id)
+        }
+
+        // Find all subtasks referencing this task as parent
+        val subtasks = taskDao.getSubtasks(task.id)
+        deletedIds.addAll(subtasks.map { it.id })
+
+        // Clean up external resources and reminders for all deleted tasks
+        deletedIds.forEach { id ->
+            taskMicroStepDao?.deleteByTaskId(id)
+            calendarSyncRepository?.deleteTaskEvent(id)
+            TaskReminderWorker.cancelReminder(workManager, id)
+            AutonomyNudgeEngine.cancelNudge(workManager, id)
+            timeSessionDao?.deleteOpenSessionsByTaskId(id)
+        }
+
         taskDao.delete(task)
-        // Clean up dependencies referencing this deleted task to avoid orphan deadlocks
+        if (part2 != null) {
+            taskDao.delete(part2)
+        }
+        taskDao.deleteSubtasksByParentId(task.id)
+
+        // Inverse restore parent task if a continuation part 2 is directly deleted (BUG-029)
+        if (task.id.endsWith("_part2") || task.parentTaskId != null) {
+            val parentId = task.parentTaskId ?: task.id.removeSuffix("_part2")
+            val parent = taskDao.getById(parentId)
+            if (parent != null && parent.status == TaskStatus.ACTIVE && parent.title.contains("(Part ")) {
+                val cleanTitle = parent.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
+                taskDao.update(
+                    parent.copy(
+                        title = cleanTitle,
+                        plannedBlockMinutes = 0,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+
+        // Clean up dependencies referencing any deleted tasks (parent, part2, or subtasks)
         val activeTasks = taskDao.getActiveTasks()
         activeTasks.forEach { other ->
-            if (other.dependsOnTaskIds.isNotBlank()) {
+            if (other.dependsOnTaskIds.isNotBlank() && other.id !in deletedIds) {
                 val currentDeps = other.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                if (task.id in currentDeps) {
-                    val remainingDeps = currentDeps.filter { it != task.id }
+                if (currentDeps.any { it in deletedIds }) {
+                    val remainingDeps = currentDeps.filter { it !in deletedIds }
                     taskDao.update(
                         other.copy(
                             dependsOnTaskIds = remainingDeps.joinToString(","),
@@ -225,7 +324,11 @@ class TaskRepository @Inject constructor(
         }
         enqueueAutoSchedulingRecheck()
     }
-    suspend fun deleteAll() = taskDao.deleteAll()
+    suspend fun deleteAll() {
+        taskDao.deleteAll()
+        runCatching { taskMicroStepDao?.deleteAll() }
+        runCatching { timeSessionDao?.deleteAll() }
+    }
     suspend fun resetEstimationErrors() = taskDao.resetEstimationErrors()
 
     /**
@@ -262,9 +365,13 @@ class TaskRepository @Inject constructor(
                 priority = task.priority,
                 deadlineDate = task.deadlineDate,
                 deadlineTime = task.deadlineTime,
+                scheduledDate = if (i == 1) task.scheduledDate else null,
+                scheduledTime = if (i == 1) task.scheduledTime else null,
                 estimatedDurationMinutes = duration,
+                plannedBlockMinutes = duration,
                 parentTaskId = task.id,
-                dependsOnTaskIds = previousSessionId,
+                dependsOnTaskIds = if (i == 1) task.dependsOnTaskIds else previousSessionId,
+                waitingFor = if (i == 1) task.waitingFor else "",
                 impactScore = task.impactScore,
                 valueScore = task.valueScore,
                 effortScore = task.effortScore,
@@ -275,12 +382,14 @@ class TaskRepository @Inject constructor(
                 isFrog = if (i == 1) task.isFrog else false,
                 tags = task.tags,
                 ifThenPlan = task.ifThenPlan,
+                recurrence = Recurrence.NONE,
+                isHabitual = false,
                 status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
                 createdAt = now + i,
                 updatedAt = now + i
             )
             createdSessions.add(sessionTask)
-            taskDao.insert(sessionTask)
+            insert(sessionTask)
             previousSessionId = sessionTask.id
         }
 
@@ -292,6 +401,25 @@ class TaskRepository @Inject constructor(
                 updatedAt = now
             )
         )
+
+        // Redirect dependencies from parent task to final split session so downstream tasks don't unlock prematurely
+        val lastSessionId = createdSessions.last().id
+        val activeTasks = taskDao.getActiveTasks()
+        val createdSessionIds = createdSessions.map { it.id }.toSet()
+        activeTasks.forEach { other ->
+            if (other.dependsOnTaskIds.isNotBlank() && other.id !in createdSessionIds) {
+                val currentDeps = other.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                if (task.id in currentDeps) {
+                    val redirectedDeps = currentDeps.map { if (it == task.id) lastSessionId else it }
+                    taskDao.update(
+                        other.copy(
+                            dependsOnTaskIds = redirectedDeps.joinToString(","),
+                            updatedAt = now
+                        )
+                    )
+                }
+            }
+        }
 
         enqueueAutoSchedulingRecheck()
         return createdSessions
@@ -308,6 +436,7 @@ class TaskRepository @Inject constructor(
 
     suspend fun markTaskCompleted(taskId: String, now: Long = System.currentTimeMillis()): Boolean {
         val task = getById(taskId) ?: return false
+        if (task.status == TaskStatus.COMPLETED) return false
         completeAndRecur(task, now)
         return true
     }
@@ -318,25 +447,28 @@ class TaskRepository @Inject constructor(
      * the new occurrence anchor lands strictly in the future.
      */
     suspend fun completeAndRecur(task: TaskEntity, now: Long): String? {
-        update(
-            task.copy(
-                status = TaskStatus.COMPLETED,
-                completedAt = now,
-                isHabitual = task.recurrence != Recurrence.NONE,
-                habitStreak = if (task.recurrence != Recurrence.NONE) task.habitStreak + 1 else task.habitStreak,
-                updatedAt = now
-            )
+        if (task.status == TaskStatus.COMPLETED) return null
+        val completedTask = task.copy(
+            status = TaskStatus.COMPLETED,
+            completedAt = task.completedAt ?: now,
+            isHabitual = task.recurrence != Recurrence.NONE,
+            habitStreak = if (task.recurrence != Recurrence.NONE) task.habitStreak + 1 else task.habitStreak,
+            updatedAt = now
         )
+        update(completedTask)
+        calendarSyncRepository?.handleTaskStateChanged(completedTask)
         hyperFocusManager.get().onTaskCompleted()
         enqueueAutoSchedulingRecheck()
 
+        // Continuation parts and sub-tasks must NEVER advance recurrence (BUG-020)
+        if (task.id.endsWith("_part2") || task.id.contains("#part") || task.parentTaskId != null) return null
         if (task.recurrence == Recurrence.NONE) return null
 
         // Anchor for recurrence progression: prefer habitDate, then scheduled/deadline with time, then now.
         val currentAnchor =
             task.habitDate
-                ?: task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) }
-                ?: task.deadlineDate?.let { it + (task.deadlineTime ?: 0L) }
+                ?: task.resolveScheduledEpochMillis()
+                ?: task.resolveDeadlineEpochMillis()
                 ?: now
         val nextAnchor = nextRecurringAnchorAfter(
             recurrence = task.recurrence,
@@ -345,11 +477,14 @@ class TaskRepository @Inject constructor(
             now = now
         )
         val nextDayStart = nextAnchor.toDayStart()
-        val (nextScheduledDate, nextScheduledTime) = if (task.scheduledDate != null) {
-            nextDayStart to task.scheduledTime
-        } else {
-            null to null
+        val normalizedScheduledTime = task.scheduledTime?.let { raw ->
+            if (raw >= ONE_DAY_MILLIS) {
+                val zdt = Instant.ofEpochMilli(raw).atZone(ZoneId.systemDefault())
+                (zdt.hour * 3600_000L + zdt.minute * 60_000L + zdt.second * 1000L)
+            } else raw
         }
+        val nextScheduledDate = if (task.scheduledDate != null) nextDayStart else null
+        val nextScheduledTime = normalizedScheduledTime
         val (nextDeadlineDate, nextDeadlineTime) = if (task.deadlineDate != null) {
             val anchorDate = Instant.ofEpochMilli(startOfLocalDay(currentAnchor))
                 .atZone(ZoneId.systemDefault())
@@ -363,37 +498,75 @@ class TaskRepository @Inject constructor(
                 timeInMillis = nextDayStart
                 add(Calendar.DAY_OF_YEAR, deadlineDayOffset.toInt())
             }.timeInMillis
-            nextDeadline to task.deadlineTime
+            val normalizedDeadlineTime = task.deadlineTime?.let { raw ->
+                if (raw >= ONE_DAY_MILLIS) {
+                    val zdt = Instant.ofEpochMilli(raw).atZone(ZoneId.systemDefault())
+                    (zdt.hour * 3600_000L + zdt.minute * 60_000L + zdt.second * 1000L)
+                } else raw
+            }
+            nextDeadline to normalizedDeadlineTime
         } else {
-            null to null
+            val normalizedDeadlineTime = task.deadlineTime?.let { raw ->
+                if (raw >= ONE_DAY_MILLIS) {
+                    val zdt = Instant.ofEpochMilli(raw).atZone(ZoneId.systemDefault())
+                    (zdt.hour * 3600_000L + zdt.minute * 60_000L + zdt.second * 1000L)
+                } else raw
+            }
+            null to normalizedDeadlineTime
         }
 
         val newId = UUID.randomUUID().toString()
-        insert(
-            task.copy(
-                id = newId,
-                status = TaskStatus.ACTIVE,
-                completedAt = null,
-                habitDate = nextAnchor.toDayStart(),
-                deadlineDate = nextDeadlineDate,
-                deadlineTime = nextDeadlineTime,
-                scheduledDate = nextScheduledDate,
-                scheduledTime = nextScheduledTime,
-                isScheduleLocked = task.isScheduleLocked,
-                totalTimeTrackedMinutes = 0f,
-                sessionCount = 0,
-                lastSessionDurationMinutes = null,
-                actualDurationMinutes = null,
-                estimationErrorMape = null,
-                estimationErrorSmape = null,
-                focusModePoints = 0,
-                postponeCount = 0,
-                habitStreak = task.habitStreak + 1,
-                isHabitual = true,
-                createdAt = now,
-                updatedAt = now
-            )
+        val cleanTitle = task.title
+            .replace(Regex("""\s*\(Part \d+/\d+\)"""), "")
+            .replace(Regex("""\s*#part\d+"""), "")
+            .trim()
+        val resetIfThenPlan = if (task.ifThenPlan.isNotBlank()) {
+            val steps = com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(task.ifThenPlan)
+            val resetSteps = steps.map { it.copy(completed = false) }
+            com.neuroflow.app.domain.model.StepByStepPlanCodec.serialize(resetSteps)
+        } else task.ifThenPlan
+
+        val spawnedTask = task.copy(
+            id = newId,
+            title = cleanTitle,
+            plannedBlockMinutes = 0,
+            ifThenPlan = resetIfThenPlan,
+            status = TaskStatus.ACTIVE,
+            completedAt = null,
+            habitDate = nextAnchor.toDayStart(),
+            deadlineDate = nextDeadlineDate,
+            deadlineTime = nextDeadlineTime,
+            scheduledDate = nextScheduledDate,
+            scheduledTime = nextScheduledTime,
+            isScheduleLocked = task.isScheduleLocked,
+            totalTimeTrackedMinutes = 0f,
+            sessionCount = 0,
+            lastSessionDurationMinutes = null,
+            actualDurationMinutes = null,
+            estimationErrorMape = null,
+            estimationErrorSmape = null,
+            focusModePoints = 0,
+            postponeCount = 0,
+            habitStreak = task.habitStreak + 1,
+            isHabitual = true,
+            createdAt = now,
+            updatedAt = now
         )
+        insert(spawnedTask)
+        calendarSyncRepository?.handleTaskStateChanged(spawnedTask)
+        taskMicroStepDao?.let { dao ->
+            val existingSteps = dao.getByTaskId(task.id)
+            if (existingSteps.isNotEmpty()) {
+                val cloned = existingSteps.map { step ->
+                    step.copy(
+                        id = UUID.randomUUID().toString(),
+                        taskId = newId,
+                        isCompleted = false
+                    )
+                }
+                dao.insertAll(cloned)
+            }
+        }
         return newId
     }
 }

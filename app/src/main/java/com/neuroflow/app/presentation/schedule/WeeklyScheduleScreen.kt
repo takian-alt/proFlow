@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.local.entity.startOfNextLocalDay
@@ -78,27 +80,30 @@ fun WeeklyScheduleScreen(
     val currentHour = currentCal.get(Calendar.HOUR_OF_DAY)
     val currentMinute = currentCal.get(Calendar.MINUTE)
     val currentMinuteOfDay = currentHour * 60 + currentMinute
-    val todayMillis = remember {
-        Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
+    val todayMillis = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
 
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
 
-    // Auto-scroll to current time and today on initial load
-    LaunchedEffect(Unit) {
-        val targetHour = (currentHour - 1).coerceAtLeast(0)
-        val targetY = with(density) { (targetHour * HOUR_HEIGHT.toPx()).toInt() }
-        verticalScrollState.scrollTo(targetY)
-
-        val todayIndex = uiState.weekDays.indexOfFirst { isSameCalendarDay(it, todayMillis) }
-        if (todayIndex > 0) {
-            val targetX = with(density) { ((todayIndex - 1).coerceAtLeast(0) * DAY_COLUMN_WIDTH.toPx()).toInt() }
-            horizontalScrollState.scrollTo(targetX)
+    // Auto-scroll to current time and today on initial load and when week updates to current week
+    var initialScrollDone by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.weekDays) {
+        if (uiState.weekDays.isNotEmpty()) {
+            val todayIndex = uiState.weekDays.indexOfFirst { isSameCalendarDay(it, todayMillis) }
+            if (todayIndex >= 0) {
+                val targetHour = (currentHour - 1).coerceAtLeast(0)
+                val targetY = with(density) { (targetHour * HOUR_HEIGHT.toPx()).toInt() }
+                val targetCol = (todayIndex - 1).coerceAtLeast(0)
+                val targetX = with(density) { (targetCol * DAY_COLUMN_WIDTH.toPx()).toInt() }
+                if (!initialScrollDone) {
+                    verticalScrollState.scrollTo(targetY)
+                    horizontalScrollState.scrollTo(targetX)
+                    initialScrollDone = true
+                } else {
+                    horizontalScrollState.animateScrollTo(targetX)
+                    verticalScrollState.animateScrollTo(targetY)
+                }
+            }
         }
     }
 
@@ -133,9 +138,17 @@ fun WeeklyScheduleScreen(
                         IconButton(
                             onClick = {
                                 viewModel.goToCurrentWeek()
-                                val targetHour = (currentHour - 1).coerceAtLeast(0)
-                                val targetY = with(density) { (targetHour * HOUR_HEIGHT.toPx()).toInt() }
-                                verticalScrollState.dispatchRawDelta((targetY - verticalScrollState.value).toFloat())
+                                val todayIndex = uiState.weekDays.indexOfFirst { isSameCalendarDay(it, todayMillis) }
+                                if (todayIndex >= 0) {
+                                    val targetHour = (currentHour - 1).coerceAtLeast(0)
+                                    val targetY = with(density) { (targetHour * HOUR_HEIGHT.toPx()).toInt() }
+                                    val targetCol = (todayIndex - 1).coerceAtLeast(0)
+                                    val targetX = with(density) { (targetCol * DAY_COLUMN_WIDTH.toPx()).toInt() }
+                                    scope.launch {
+                                        horizontalScrollState.animateScrollTo(targetX)
+                                        verticalScrollState.animateScrollTo(targetY)
+                                    }
+                                }
                             }
                         ) {
                             Icon(
@@ -203,13 +216,21 @@ fun WeeklyScheduleScreen(
                     }
 
                     // Weekly Focus / Intention
+                    // In ISO-8601, Thursday (weekDays[4]) canonically defines the week number for Sunday-Saturday schedules (BUG-132)
+                    val weekDays = uiState.weekDays
+                    val anchorRef = weekDays.getOrNull(4) ?: weekDays.getOrNull(3) ?: uiState.currentReferenceMillis
+                    val currentIsoWeek = com.neuroflow.app.domain.engine.FreshStartEngine.isoWeekNumber(anchorRef)
+                    val currentIsoYear = com.neuroflow.app.domain.engine.FreshStartEngine.isoYear(anchorRef)
+                    val isMatchingWeek = uiState.weeklyIntentIsoWeek == currentIsoWeek && uiState.weeklyIntentIsoYear == currentIsoYear
+                    val displayIntent = if (isMatchingWeek && uiState.weeklyIntent.isNotBlank()) uiState.weeklyIntent else ""
+
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                intentInputText = uiState.weeklyIntent
+                                intentInputText = displayIntent
                                 showIntentEditDialog = true
                             }
                     ) {
@@ -227,10 +248,10 @@ fun WeeklyScheduleScreen(
                                 Text("🎯", fontSize = 13.sp)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (uiState.weeklyIntent.isNotBlank()) uiState.weeklyIntent else "Tap to set weekly focus / goal...",
+                                    text = if (displayIntent.isNotBlank()) displayIntent else "Tap to set weekly focus / goal...",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = if (uiState.weeklyIntent.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
-                                    color = if (uiState.weeklyIntent.isNotBlank()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (displayIntent.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
+                                    color = if (displayIntent.isNotBlank()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -318,6 +339,80 @@ fun WeeklyScheduleScreen(
 
             HorizontalDivider()
 
+            // All-Day / Untimed Tasks Strip (BUG-129 Fix)
+            val hasUntimedTasks = uiState.weekDays.any { dayMillis ->
+                val dayStart = dayMillis
+                val dayEnd = startOfNextLocalDay(dayStart)
+                uiState.activeTasks.any { isTaskOnDay(it, dayStart, dayEnd) && it.scheduledTime == null }
+            }
+            if (hasUntimedTasks) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(TIME_GUTTER_WIDTH)
+                            .padding(vertical = 4.dp, horizontal = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "All day",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 9.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(horizontalScrollState)
+                    ) {
+                        uiState.weekDays.forEach { dayMillis ->
+                            val dayStart = dayMillis
+                            val dayEnd = startOfNextLocalDay(dayStart)
+                            val untimedTasks = uiState.activeTasks.filter { isTaskOnDay(it, dayStart, dayEnd) && it.scheduledTime == null }
+                            Box(
+                                modifier = Modifier
+                                    .width(DAY_COLUMN_WIDTH)
+                                    .padding(horizontal = 2.dp, vertical = 2.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    untimedTasks.forEach { task ->
+                                        val bgColor = getQuadrantBgColor(task.quadrant)
+                                        val textColor = getQuadrantTextColor(task.quadrant)
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = bgColor,
+                                            border = BorderStroke(0.5.dp, textColor.copy(alpha = 0.5f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onNavigateToFocus(task.id) }
+                                        ) {
+                                            Text(
+                                                text = task.title,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = textColor,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                fontSize = 9.sp,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider()
+            }
+
             // Timetable Body: Left time gutter + 7 day columns, scrolls vertically & horizontally
             Row(
                 modifier = Modifier
@@ -367,6 +462,7 @@ fun WeeklyScheduleScreen(
                             modifier = Modifier
                                 .width(DAY_COLUMN_WIDTH)
                                 .height(HOUR_HEIGHT * 24)
+                                .clipToBounds()
                                 .background(if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.02f) else Color.Transparent)
                         ) {
                             // Hour divider lines & clickable hour cells
@@ -399,7 +495,8 @@ fun WeeklyScheduleScreen(
                             // Render Protected Time Slots
                             daySlots.forEach { slot ->
                                 val slotOffsetY = (slot.startMinuteOfDay / 60f) * HOUR_HEIGHT.value
-                                val slotHeight = ((slot.durationMinutes / 60f) * HOUR_HEIGHT.value).coerceAtLeast(24f)
+                                val maxAvailableSlotHeight = ((1440 - slot.startMinuteOfDay) / 60f * HOUR_HEIGHT.value).coerceAtLeast(24f)
+                                val slotHeight = ((slot.durationMinutes / 60f) * HOUR_HEIGHT.value).coerceIn(24f, maxAvailableSlotHeight)
                                 val categoryColor = getPtsCategoryColor(slot.category)
 
                                 Surface(
@@ -455,12 +552,14 @@ fun WeeklyScheduleScreen(
                                 }
                             }
 
-                            // Render Scheduled Tasks
-                            dayTasks.forEach { task ->
+                            // Render Scheduled Tasks (only timed tasks are placed on the hour grid)
+                            val timedTasks = dayTasks.filter { it.scheduledTime != null }
+                            timedTasks.forEach { task ->
                                 val startMinute = task.timelineStartMinuteOfDay()
                                 val durationMins = (if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 45).coerceIn(15, 360)
                                 val taskOffsetY = (startMinute / 60f) * HOUR_HEIGHT.value
-                                val taskHeight = ((durationMins / 60f) * HOUR_HEIGHT.value).coerceAtLeast(24f)
+                                val maxAvailableHeight = ((1440 - startMinute) / 60f * HOUR_HEIGHT.value).coerceAtLeast(24f)
+                                val taskHeight = ((durationMins / 60f) * HOUR_HEIGHT.value).coerceIn(24f, maxAvailableHeight)
 
                                 val bgColor = getQuadrantBgColor(task.quadrant)
                                 val textColor = getQuadrantTextColor(task.quadrant)

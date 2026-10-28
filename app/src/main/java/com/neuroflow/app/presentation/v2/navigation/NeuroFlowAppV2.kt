@@ -63,7 +63,8 @@ fun NeuroFlowAppV2(
     initialScheduleOpen: Boolean = false,
     onInitialScheduleConsumed: () -> Unit = {},
     darkTheme: Boolean = true,
-    amoledDark: Boolean = false
+    amoledDark: Boolean = false,
+    dynamicColor: Boolean = false
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -75,29 +76,67 @@ fun NeuroFlowAppV2(
 
     LaunchedEffect(initialTaskId) {
         if (!initialTaskId.isNullOrBlank()) {
-            navController.navigate("focus_v2/$initialTaskId")
+            if (initialTaskId == "tab_focus") {
+                if (currentRoute.isNotEmpty() && currentRoute != NavHubsV2.Flow.route) {
+                    navController.navigate(NavHubsV2.Flow.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+            } else {
+                navController.navigate("focus_v2/${android.net.Uri.encode(initialTaskId)}") {
+                    launchSingleTop = true
+                }
+            }
             onInitialTaskConsumed()
         }
     }
 
     LaunchedEffect(initialWoopTaskId) {
         if (!initialWoopTaskId.isNullOrBlank()) {
-            navController.navigate("focus_v2/$initialWoopTaskId?openWoop=true")
+            navController.navigate("focus_v2/${android.net.Uri.encode(initialWoopTaskId)}?openWoop=true") {
+                launchSingleTop = true
+            }
             onInitialWoopConsumed()
         }
     }
 
     LaunchedEffect(initialGuideOpen) {
         if (initialGuideOpen) {
-            navController.navigate("app_guide")
+            navController.navigate("app_guide") {
+                launchSingleTop = true
+            }
             onInitialGuideConsumed()
         }
     }
 
     LaunchedEffect(initialScheduleOpen) {
         if (initialScheduleOpen) {
-            navController.navigate(NavHubsV2.Plan.route)
+            navController.navigate(NavHubsV2.Plan.route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
             onInitialScheduleConsumed()
+        }
+    }
+
+    LaunchedEffect(initialOpenComposer) {
+        if (initialOpenComposer) {
+            if (currentRoute.isNotEmpty() && currentRoute != NavHubsV2.Flow.route) {
+                navController.navigate(NavHubsV2.Flow.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
         }
     }
 
@@ -106,7 +145,7 @@ fun NeuroFlowAppV2(
     val session = activeFocusSessionState
     val showMiniFocusBar = session != null && !currentRoute.startsWith("focus_v2") && !currentRoute.startsWith("focus/")
 
-    NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled) {
+    NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled, dynamicColor = dynamicColor) {
         val flowViewModel: FlowViewModelV2 = hiltViewModel()
         val planViewModel: PlanViewModelV2 = hiltViewModel()
         val flowState by flowViewModel.uiState.collectAsState()
@@ -119,13 +158,18 @@ fun NeuroFlowAppV2(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 androidx.compose.foundation.layout.Column {
-                    if (showMiniFocusBar && session != null) {
+                    if (showMiniFocusBar) {
+                        val currentSession = session ?: return@Column
                         MiniFocusSessionBar(
-                            remainingSeconds = session.remainingSeconds,
-                            totalSeconds = session.totalSeconds,
-                            taskTitle = session.taskTitle,
+                            remainingSeconds = currentSession.remainingSeconds,
+                            totalSeconds = currentSession.totalSeconds,
+                            taskTitle = currentSession.taskTitle,
                             onTap = {
-                                navController.navigate("focus_v2/${session.taskId}")
+                                if (currentSession.taskId.isNotBlank()) {
+                                    navController.navigate("focus_v2/${android.net.Uri.encode(currentSession.taskId)}") {
+                                        launchSingleTop = true
+                                    }
+                                }
                             }
                         )
                     }
@@ -179,16 +223,29 @@ fun NeuroFlowAppV2(
                         initialOpenComposer = initialOpenComposer,
                         onInitialComposerConsumed = onInitialComposerConsumed,
                         onNavigateToSettings = { navController.navigate("settings") },
-                        onStartFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
+                        onStartFocus = { taskId ->
+                            if (taskId.isNotBlank()) {
+                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        },
                         onNavigateToMEQ = { navController.navigate("meq_quiz") },
                         onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
-                        onNavigateToNotes = { navController.navigate("notes") }
+                        onNavigateToNotes = { navController.navigate("notes") },
+                        viewModel = flowViewModel
                     )
                 }
 
                 composable(NavHubsV2.Plan.route) {
                     PlanScreenV2(
-                        onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") },
+                        onNavigateToFocus = { taskId ->
+                            if (taskId.isNotBlank()) {
+                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        },
                         onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") },
                         onNavigateToNotes = { navController.navigate("notes") },
                         viewModel = planViewModel
@@ -244,7 +301,13 @@ fun NeuroFlowAppV2(
                             planViewModel.selectDate(dayMillis)
                             navController.popBackStack()
                         },
-                        onNavigateToFocus = { taskId -> navController.navigate("focus_v2/$taskId") }
+                        onNavigateToFocus = { taskId ->
+                            if (taskId.isNotBlank()) {
+                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        }
                     )
                 }
 
@@ -368,8 +431,18 @@ fun NeuroFlowAppV2(
                         initialOpenWoop = openWoop,
                         onNavigateBack = { navController.popBackStack() },
                         onNavigateToNextTask = { nextTaskId ->
-                            navController.navigate("focus_v2/$nextTaskId") {
-                                popUpTo(NavHubsV2.Flow.route)
+                            if (nextTaskId.isNotBlank()) {
+                                val currentDestId = navController.currentDestination?.id
+                                navController.navigate("focus_v2/${android.net.Uri.encode(nextTaskId)}") {
+                                    if (currentDestId != null) {
+                                        popUpTo(currentDestId) {
+                                            inclusive = true
+                                        }
+                                    }
+                                    launchSingleTop = true
+                                }
+                            } else {
+                                navController.popBackStack()
                             }
                         }
                     )
@@ -386,8 +459,18 @@ fun NeuroFlowAppV2(
                     FocusScreenV2(
                         onNavigateBack = { navController.popBackStack() },
                         onNavigateToNextTask = { nextTaskId ->
-                            navController.navigate("focus_v2/$nextTaskId") {
-                                popUpTo(NavHubsV2.Flow.route)
+                            if (nextTaskId.isNotBlank()) {
+                                val currentDestId = navController.currentDestination?.id
+                                navController.navigate("focus_v2/${android.net.Uri.encode(nextTaskId)}") {
+                                    if (currentDestId != null) {
+                                        popUpTo(currentDestId) {
+                                            inclusive = true
+                                        }
+                                    }
+                                    launchSingleTop = true
+                                }
+                            } else {
+                                navController.popBackStack()
                             }
                         }
                     )

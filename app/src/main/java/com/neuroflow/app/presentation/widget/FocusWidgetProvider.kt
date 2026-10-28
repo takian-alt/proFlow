@@ -15,32 +15,19 @@ import com.neuroflow.app.worker.FocusWidgetUpdateWorker
 class FocusWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        // Trigger an immediate update via WorkManager
-        val request = OneTimeWorkRequestBuilder<FocusWidgetUpdateWorker>().build()
-        WorkManager.getInstance(context).enqueue(request)
-
-        // Set up the Start button tap intent for each widget instance
-        appWidgetIds.forEach { widgetId ->
-            val views = RemoteViews(context.packageName, R.layout.widget_focus)
-            val launchIntent = Intent(context, MainActivity::class.java).apply {
-                action = "com.procus.ACTION_OPEN_FOCUS"
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val pendingIntent = PendingIntent.getActivity(
-                context, widgetId, launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_start_button, pendingIntent)
-            appWidgetManager.updateAppWidget(widgetId, views)
-        }
+        // Trigger an immediate data-driven update via WorkManager without flashing empty layout XML
+        FocusWidgetUpdateWorker.enqueueImmediateUpdate(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        // Handle Start tap — launch MainActivity
-        if (intent.action == "com.neuroflow.app.WIDGET_START") {
+        // Handle Start tap — launch MainActivity with ACTION_OPEN_FOCUS
+        if (intent.action == "com.procus.ACTION_OPEN_FOCUS" || intent.action == "com.neuroflow.app.WIDGET_START") {
             val taskId = intent.getStringExtra("taskId")
+                ?: intent.getStringExtra("task_id")
+                ?: intent.getStringExtra("extra_task_id")
             val launchIntent = Intent(context, MainActivity::class.java).apply {
+                action = "com.procus.ACTION_OPEN_FOCUS"
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 taskId?.let { putExtra("taskId", it) }
             }

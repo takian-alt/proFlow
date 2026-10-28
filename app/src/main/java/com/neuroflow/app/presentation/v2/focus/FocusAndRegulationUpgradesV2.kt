@@ -87,7 +87,7 @@ fun ZenMicroStepSpotlightCard(
                     shape = RoundedCornerShape(50)
                 ) {
                     Text(
-                        text = "STEP ${currentStepIndex + 1} OF ${totalSteps.coerceAtLeast(1)}",
+                        text = "STEP ${minOf(currentStepIndex + 1, totalSteps.coerceAtLeast(1))} OF ${totalSteps.coerceAtLeast(1)}",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                         color = NeuroFlowPaletteV2.ReboundCyan,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -173,29 +173,22 @@ fun InteractivePhysiologicalSighSheet(
     var cycle by remember { mutableIntStateOf(1) }
     var breathStage by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(cycle, breathStage) {
-        when (breathStage) {
-            0 -> {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                delay(2400L)
-                breathStage = 1
-            }
-            1 -> {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                delay(1100L)
-                breathStage = 2
-            }
-            2 -> {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                delay(5200L)
-                if (cycle < totalCycles) {
-                    cycle++
-                    breathStage = 0
-                } else {
-                    onCompleted()
-                }
-            }
+    LaunchedEffect(totalCycles) {
+        for (currentCycle in 1..totalCycles) {
+            cycle = currentCycle
+            breathStage = 0
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            delay(2400L)
+
+            breathStage = 1
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            delay(1100L)
+
+            breathStage = 2
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            delay(5200L)
         }
+        onCompleted()
     }
 
     val targetScale = when (breathStage) {

@@ -12,8 +12,12 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.neuroflow.app.MainActivity
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
+import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.v2.focus.engine.FocusTimingCalculator
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +36,7 @@ class FocusService : Service() {
 
     @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var sessionRepository: SessionRepository
+    @Inject lateinit var preferencesDataStore: com.neuroflow.app.data.local.UserPreferencesDataStore
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private var tickerJob: Job? = null
@@ -70,20 +75,42 @@ class FocusService : Service() {
             ACTION_START -> {
                 val newTaskId = intent.getStringExtra(EXTRA_TASK_ID) ?: taskId
                 val newStartedAt = intent.getLongExtra(EXTRA_STARTED_AT_MILLIS, System.currentTimeMillis())
+                val newAccPause = intent.getLongExtra(EXTRA_ACCUMULATED_PAUSE_MILLIS, 0L)
+                val hasPausedAtExtra = intent.hasExtra(EXTRA_PAUSED_AT_MILLIS)
+                val newPausedAt = if (hasPausedAtExtra) intent.getLongExtra(EXTRA_PAUSED_AT_MILLIS, 0L) else null
+                val newIsPaused = intent.getBooleanExtra(EXTRA_IS_PAUSED, false)
+
                 val isSameTaskAndSession = (newTaskId == taskId && startedAtMillis == newStartedAt && startedAtMillis > 0L)
                 taskId = newTaskId
                 taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: taskTitle
                 durationSeconds = intent.getLongExtra(EXTRA_DURATION_SECONDS, durationSeconds)
                 startedAtMillis = newStartedAt
                 if (!isSameTaskAndSession) {
-                    accumulatedPauseMillis = 0L
-                    pausedAtMillis = null
-                    isPaused = false
+                    accumulatedPauseMillis = newAccPause
+                    pausedAtMillis = newPausedAt
+                    isPaused = newIsPaused
+                } else {
+                    if (newAccPause > accumulatedPauseMillis) {
+                        accumulatedPauseMillis = newAccPause
+                    }
+                    if (hasPausedAtExtra) {
+                        pausedAtMillis = newPausedAt
+                        isPaused = newIsPaused
+                    }
                 }
+                val now = System.currentTimeMillis()
+                val timing = FocusTimingCalculator.calculate(
+                    startedAtMillis = startedAtMillis,
+                    accumulatedPauseMillis = accumulatedPauseMillis,
+                    pausedAtMillis = pausedAtMillis,
+                    nowMillis = now,
+                    targetDurationSeconds = durationSeconds
+                )
+                val isStopwatch = durationSeconds <= 0L
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
-                    remainingSeconds = durationSeconds,
+                    remainingSeconds = if (isStopwatch) timing.elapsedSeconds else timing.remainingSeconds,
                     totalSeconds = durationSeconds,
                     isPaused = isPaused
                 )
@@ -97,6 +124,8 @@ class FocusService : Service() {
                     val now = System.currentTimeMillis()
                     pausedAtMillis = FocusTimingCalculator.onPause(pausedAtMillis, now)
                     isPaused = true
+                    tickerJob?.cancel()
+                    tickerJob = null
                     _activeSession.value = _activeSession.value?.copy(isPaused = true)
                     updateNotification()
                     serviceScope.launch(Dispatchers.IO) {
@@ -181,12 +210,22 @@ class FocusService : Service() {
                         isPaused = false
                     )
                     showSprintCompletedNotification()
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            stopForeground(true)
+                        }
+                    } catch (_: Throwable) {}
+                    stopSelf()
                     break
                 }
+                val isStopwatch = durationSeconds <= 0L
                 _activeSession.value = ActiveFocusSession(
                     taskId = taskId,
                     taskTitle = taskTitle,
-                    remainingSeconds = timing.remainingSeconds,
+                    remainingSeconds = if (isStopwatch) timing.elapsedSeconds else timing.remainingSeconds,
                     totalSeconds = durationSeconds,
                     isPaused = isPaused
                 )
@@ -224,7 +263,7 @@ class FocusService : Service() {
                 .setContentIntent(contentPendingIntent)
                 .build()
 
-            nm.notify(NOTIFICATION_ID, notif)
+            nm.notify(NOTIFICATION_ID_COMPLETED, notif)
         } catch (_: Throwable) {
             // Defensive: headless / unit test
         }
@@ -347,8 +386,9 @@ class FocusService : Service() {
                     if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && activeTaskId.isNotBlank()) {
                         val now = System.currentTimeMillis()
                         val openSession = sessionRepository.getOpenSessionForTask(activeTaskId)
+                        val effectiveAccPause = maxOf(accumulatedPauseMillis, openSession?.totalPausedMs ?: 0L)
                         val currentPause = if (isPaused) (now - (pausedAtMillis ?: now)) else 0L
-                        val totalPause = (accumulatedPauseMillis + currentPause).coerceAtLeast(0L)
+                        val totalPause = (effectiveAccPause + currentPause).coerceAtLeast(0L)
                         val rawDurationMs = if (openSession != null) (now - openSession.startedAt) else (now - startedAtMillis)
                         val netDurationMs = (rawDurationMs - totalPause).coerceAtLeast(0L)
                         val durationMins = (netDurationMs / 60000f).coerceAtLeast(1f)
@@ -363,32 +403,55 @@ class FocusService : Service() {
                                 )
                             )
                         }
+                        AutonomyNudgeEngine.cancelNudge(applicationContext, activeTaskId)
                         val task = taskRepository.getById(activeTaskId)
-                        if (task != null) {
+                        if (task != null && task.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED) {
                             val finalTracked = task.totalTimeTrackedMinutes + durationMins
-                            val est = task.estimatedDurationMinutes.toFloat()
+                            val est = TaskBlockPlan.plannedMinutes(task).toFloat()
                             val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
                             val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
                             val points = 50 + (if (task.isFrog) 50 else 0) + (task.impactScore / 2)
-                            val updatedTask = task.copy(
+                            val taskToComplete = task.copy(
                                 totalTimeTrackedMinutes = finalTracked,
                                 actualDurationMinutes = finalTracked,
                                 sessionCount = task.sessionCount + 1,
                                 lastSessionDurationMinutes = durationMins,
                                 estimationErrorMape = mape,
                                 estimationErrorSmape = smape,
-                                focusModePoints = points,
-                                status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED,
-                                completedAt = now,
-                                updatedAt = now
+                                focusModePoints = points
                             )
-                            taskRepository.update(updatedTask)
-                            taskRepository.completeAndRecur(updatedTask, now)
+                            taskRepository.completeAndRecur(taskToComplete, now)
+                            try {
+                                preferencesDataStore.updatePreferences { prefs ->
+                                    val newTotalFocus = prefs.totalFocusMinutes + durationMins.toInt()
+                                    val newCompleted = prefs.totalTasksCompleted + 1
+                                    val lastActive = prefs.lastActiveDate
+                                    val todayStart = startOfLocalDay(now)
+                                    val isNewDay = lastActive < todayStart
+                                    val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+                                    val newStreak = when {
+                                        isConsecutive -> prefs.dailyStreak + 1
+                                        isNewDay -> 1
+                                        else -> prefs.dailyStreak
+                                    }
+                                    val longest = maxOf(prefs.longestStreak, newStreak)
+                                    prefs.copy(
+                                        totalFocusMinutes = newTotalFocus,
+                                        totalTasksCompleted = newCompleted,
+                                        lastActiveDate = now,
+                                        dailyStreak = newStreak,
+                                        longestStreak = longest
+                                    )
+                                }
+                            } catch (_: Throwable) {
+                                // Defensive: headless/test environment
+                            }
                         }
                     }
                 } catch (_: Throwable) {
                     // Defensive: protect teardown flow
                 }
+                com.neuroflow.app.worker.FocusWidgetUpdateWorker.enqueueImmediateUpdate(applicationContext)
             }
             stopForegroundAndSelf()
         }
@@ -439,6 +502,7 @@ class FocusService : Service() {
         const val CHANNEL_ID = "focus_live"
         const val CHANNEL_NAME = "Active Focus Session"
         const val NOTIFICATION_ID = 3001
+        const val NOTIFICATION_ID_COMPLETED = 3002
 
         const val ACTION_START = "com.neuroflow.app.focus.ACTION_START"
         const val ACTION_PAUSE = "com.neuroflow.app.focus.ACTION_PAUSE"
@@ -450,13 +514,19 @@ class FocusService : Service() {
         const val EXTRA_TASK_TITLE = "taskTitle"
         const val EXTRA_DURATION_SECONDS = "durationSeconds"
         const val EXTRA_STARTED_AT_MILLIS = "startedAtMillis"
+        const val EXTRA_ACCUMULATED_PAUSE_MILLIS = "accumulatedPauseMillis"
+        const val EXTRA_PAUSED_AT_MILLIS = "pausedAtMillis"
+        const val EXTRA_IS_PAUSED = "isPaused"
 
         fun start(
             context: Context?,
             taskId: String,
             taskTitle: String,
             durationSeconds: Long,
-            startedAtMillis: Long = System.currentTimeMillis()
+            startedAtMillis: Long = System.currentTimeMillis(),
+            accumulatedPauseMillis: Long = 0L,
+            pausedAtMillis: Long? = null,
+            isPaused: Boolean = false
         ) {
             if (context == null) return
             try {
@@ -466,6 +536,11 @@ class FocusService : Service() {
                     putExtra(EXTRA_TASK_TITLE, taskTitle)
                     putExtra(EXTRA_DURATION_SECONDS, durationSeconds)
                     putExtra(EXTRA_STARTED_AT_MILLIS, startedAtMillis)
+                    putExtra(EXTRA_ACCUMULATED_PAUSE_MILLIS, accumulatedPauseMillis)
+                    if (pausedAtMillis != null) {
+                        putExtra(EXTRA_PAUSED_AT_MILLIS, pausedAtMillis)
+                    }
+                    putExtra(EXTRA_IS_PAUSED, isPaused)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
@@ -480,8 +555,11 @@ class FocusService : Service() {
             taskId: String,
             taskTitle: String,
             durationSeconds: Long,
-            startedAtMillis: Long = System.currentTimeMillis()
-        ) = start(context, taskId, taskTitle, durationSeconds, startedAtMillis)
+            startedAtMillis: Long = System.currentTimeMillis(),
+            accumulatedPauseMillis: Long = 0L,
+            pausedAtMillis: Long? = null,
+            isPaused: Boolean = false
+        ) = start(context, taskId, taskTitle, durationSeconds, startedAtMillis, accumulatedPauseMillis, pausedAtMillis, isPaused)
 
         fun pause(context: Context?) {
             if (context == null) return

@@ -12,11 +12,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.NotificationManagerCompat
@@ -74,8 +76,24 @@ class MainActivity : ComponentActivity() {
         if (notificationId != Int.MIN_VALUE) {
             NotificationManagerCompat.from(this).cancel(notificationId)
         }
+        val openWoop = intent.getBooleanExtra("openWoop", false)
         val action = intent.action
+
+        // Clean up intent to prevent stale action/extras from re-triggering on configuration changes (BUG-311)
         intent.action = null
+        intent.removeExtra("taskId")
+        intent.removeExtra("task_id")
+        intent.removeExtra("openWoop")
+        intent.removeExtra("notificationId")
+
+        if (action == null && !taskId.isNullOrBlank()) {
+            if (openWoop) {
+                initialWoopTaskId = taskId
+            } else {
+                initialFocusTaskId = taskId
+            }
+            return
+        }
         when (action) {
             "com.procus.ACTION_OPEN_NEW_TASK", "com.neuroflow.app.ACTION_OPEN_NEW_TASK" -> {
                 initialNewTaskOpen = true
@@ -83,20 +101,34 @@ class MainActivity : ComponentActivity() {
             }
             "com.procus.ACTION_OPEN_FOCUS", "com.neuroflow.app.ACTION_OPEN_FOCUS" -> {
                 if (!taskId.isNullOrBlank()) {
-                    initialFocusTaskId = taskId
+                    if (openWoop) {
+                        initialWoopTaskId = taskId
+                    } else {
+                        initialFocusTaskId = taskId
+                    }
                 } else {
                     lifecycleScope.launch {
-                        val firstTask = taskRepository.getActiveTasks()
-                            .filter { it.status == TaskStatus.ACTIVE && it.quadrant != Quadrant.ELIMINATE }
-                            .sortedWith(
-                                compareByDescending<TaskEntity> { it.isFrog }
-                                    .thenBy { it.quadrant != Quadrant.DO_FIRST }
-                                    .thenBy { it.priority.ordinal }
-                            )
-                            .firstOrNull()
-                        if (firstTask != null) {
-                            initialFocusTaskId = firstTask.id
-                        } else {
+                        runCatching {
+                            val activeTasks = taskRepository.getActiveTasks()
+                            val activeIds = activeTasks.map { it.id }.toSet()
+                            val firstTask = activeTasks
+                                .filter {
+                                    it.status == TaskStatus.ACTIVE &&
+                                    it.quadrant != Quadrant.ELIMINATE &&
+                                    (it.dependsOnTaskIds.isBlank() || it.dependsOnTaskIds.split(",").none { id -> id.trim() in activeIds })
+                                }
+                                .sortedWith(
+                                    compareByDescending<TaskEntity> { it.isFrog }
+                                        .thenBy { it.quadrant != Quadrant.DO_FIRST }
+                                        .thenBy { it.priority.ordinal }
+                                )
+                                .firstOrNull()
+                            if (firstTask != null) {
+                                initialFocusTaskId = firstTask.id
+                            } else {
+                                initialFocusTaskId = "tab_focus"
+                            }
+                        }.onFailure {
                             initialFocusTaskId = "tab_focus"
                         }
                     }
@@ -152,15 +184,15 @@ class MainActivity : ComponentActivity() {
         }
         enableEdgeToEdge()
 
-        if (savedInstanceState != null) {
+        val hasPendingAction = !intent.action.isNullOrBlank() || intent.hasExtra("taskId") || intent.hasExtra("task_id")
+        if (hasPendingAction) {
+            handleIntent(intent)
+        } else if (savedInstanceState != null) {
             initialFocusTaskId = savedInstanceState.getString("saved_focus_task_id")
             initialWoopTaskId = savedInstanceState.getString("saved_woop_task_id")
             initialGuideOpen = savedInstanceState.getBoolean("saved_guide_open", false)
             initialScheduleOpen = savedInstanceState.getBoolean("saved_schedule_open", false)
             initialNewTaskOpen = savedInstanceState.getBoolean("saved_new_task_open", false)
-        } else {
-            // Handle ACTION_OPEN_FOCUS intent
-            handleIntent(intent)
         }
 
         setContent {
@@ -184,11 +216,22 @@ class MainActivity : ComponentActivity() {
             }
             val preferences by preferencesFlow.collectAsState(initial = null)
             val scope = rememberCoroutineScope()
-            // Track whether fresh-start card has been handled this session
-            var freshStartHandled by remember { mutableStateOf(false) }
-            // Track whether goals refill has been handled this session (skip = session-only)
-            var yearlyGoalHandled by remember { mutableStateOf(false) }
-            var weeklyGoalHandled by remember { mutableStateOf(false) }
+            // Track whether fresh-start card has been handled this session (persisted across rotation - BUG-311)
+            var freshStartHandled by rememberSaveable { mutableStateOf(false) }
+            // Track whether goals refill has been handled this session (skip = session-only, persisted across rotation - BUG-311)
+            var yearlyGoalHandled by rememberSaveable { mutableStateOf(false) }
+            var weeklyGoalHandled by rememberSaveable { mutableStateOf(false) }
+
+            val pendingDirectIntent = initialFocusTaskId != null ||
+                initialWoopTaskId != null ||
+                initialGuideOpen ||
+                initialScheduleOpen ||
+                initialNewTaskOpen
+            var directIntentSessionHandled by rememberSaveable { mutableStateOf(pendingDirectIntent) }
+            if (pendingDirectIntent && !directIntentSessionHandled) {
+                directIntentSessionHandled = true
+            }
+            val hasDirectIntent = pendingDirectIntent || directIntentSessionHandled
 
             val isDark = when (preferences?.theme) {
                 com.neuroflow.app.domain.model.AppTheme.DARK -> true
@@ -254,11 +297,6 @@ class MainActivity : ComponentActivity() {
                         )
                         // Fresh-start check — show NewChapterCard if applicable and no direct intent action pending
                         run {
-                            val hasDirectIntent = initialFocusTaskId != null ||
-                                initialWoopTaskId != null ||
-                                initialGuideOpen ||
-                                initialScheduleOpen ||
-                                initialNewTaskOpen
                             !hasDirectIntent && !freshStartHandled && FreshStartEngine.isFreshStart(
                                 nowMillis = System.currentTimeMillis(),
                                 lastOpenMillis = prefs.lastAppOpenMillis,
@@ -272,13 +310,16 @@ class MainActivity : ComponentActivity() {
                                 freshStartHandled = true
                                 scope.launch {
                                     val now = System.currentTimeMillis()
+                                    val anchorRef = FreshStartEngine.sundayWeekAnchorMillis(now)
+                                    val isoWeek = FreshStartEngine.isoWeekNumber(anchorRef)
+                                    val isoYear = FreshStartEngine.isoYear(anchorRef)
                                     preferencesDataStore.updatePreferences { p ->
                                         p.copy(
                                             weeklyIntent = intent,
-                                            weeklyIntentIsoWeek = FreshStartEngine.isoWeekNumber(now),
-                                            weeklyIntentIsoYear = FreshStartEngine.isoYear(now),
-                                            lastFreshStartShownWeek = FreshStartEngine.isoWeekNumber(now),
-                                            lastFreshStartShownYear = FreshStartEngine.isoYear(now),
+                                            weeklyIntentIsoWeek = isoWeek,
+                                            weeklyIntentIsoYear = isoYear,
+                                            lastFreshStartShownWeek = isoWeek,
+                                            lastFreshStartShownYear = isoYear,
                                             lastAppOpenMillis = now
                                         )
                                     }
@@ -288,10 +329,13 @@ class MainActivity : ComponentActivity() {
                                 freshStartHandled = true
                                 scope.launch {
                                     val now = System.currentTimeMillis()
+                                    val anchorRef = FreshStartEngine.sundayWeekAnchorMillis(now)
+                                    val isoWeek = FreshStartEngine.isoWeekNumber(anchorRef)
+                                    val isoYear = FreshStartEngine.isoYear(anchorRef)
                                     preferencesDataStore.updatePreferences { p ->
                                         p.copy(
-                                            lastFreshStartShownWeek = FreshStartEngine.isoWeekNumber(now),
-                                            lastFreshStartShownYear = FreshStartEngine.isoYear(now),
+                                            lastFreshStartShownWeek = isoWeek,
+                                            lastFreshStartShownYear = isoYear,
                                             lastAppOpenMillis = now
                                         )
                                     }
@@ -300,11 +344,10 @@ class MainActivity : ComponentActivity() {
                         )
                         // Normal app
                         else -> {
-                            // Update lastAppOpenMillis on normal launch — set flag synchronously
-                            // to prevent repeated writes on every recompose
-                            if (!freshStartHandled) {
-                                freshStartHandled = true
-                                scope.launch {
+                            // Update lastAppOpenMillis on normal launch inside LaunchedEffect to prevent side effects in composition
+                            LaunchedEffect(Unit) {
+                                if (!freshStartHandled) {
+                                    freshStartHandled = true
                                     preferencesDataStore.updatePreferences { p ->
                                         p.copy(
                                             lastAppOpenMillis = System.currentTimeMillis(),
@@ -323,14 +366,19 @@ class MainActivity : ComponentActivity() {
                             }
                             // Compute once per composition — stable within a session
                             val nowMillis = remember { System.currentTimeMillis() }
-                            val currentYear = remember(nowMillis) { FreshStartEngine.isoYear(nowMillis) }
-                            val currentWeek = remember(nowMillis) { FreshStartEngine.isoWeekNumber(nowMillis) }
+                            val weekAnchorMillis = remember(nowMillis) { FreshStartEngine.sundayWeekAnchorMillis(nowMillis) }
+                            val currentYear = remember(weekAnchorMillis) { FreshStartEngine.isoYear(weekAnchorMillis) }
+                            val currentWeek = remember(weekAnchorMillis) { FreshStartEngine.isoWeekNumber(weekAnchorMillis) }
                             val yearWeekKey = currentYear * 100 + currentWeek
-                            val hasDirectIntent = initialFocusTaskId != null ||
-                                initialWoopTaskId != null ||
-                                initialGuideOpen ||
-                                initialScheduleOpen ||
-                                initialNewTaskOpen
+                            val activeGoals by goalRepository.observeActiveGoals().collectAsState(initial = emptyList())
+                            val activeYearlyGoalTitles = remember(activeGoals) {
+                                activeGoals.filter { it.description == "Yearly Objective" }
+                                    .map { it.title }.filter { it.isNotBlank() }
+                            }
+                            val activeWeeklyGoalTitles = remember(activeGoals) {
+                                activeGoals.filter { it.description == "Weekly Objective" || (it.description != "Yearly Objective" && it.description.isBlank()) }
+                                    .map { it.title }.filter { it.isNotBlank() }
+                            }
                             val needsYearlyRefill = !hasDirectIntent && !yearlyGoalHandled &&
                                 (prefs.lastYearlyGoalHandledYear != currentYear)
                             val needsWeeklyRefill = !hasDirectIntent && !weeklyGoalHandled && !needsYearlyRefill &&
@@ -339,19 +387,25 @@ class MainActivity : ComponentActivity() {
                             when {
                                 needsYearlyRefill -> TopGoalsRefillCard(
                                     period = GoalPeriod.YEARLY,
-                                    existingGoals = prefs.yearlyGoals,
+                                    existingGoals = activeYearlyGoalTitles.ifEmpty { prefs.yearlyGoals },
                                     onConfirm = { goals ->
                                         yearlyGoalHandled = true
                                         scope.launch {
-                                            val existingTitles = goalRepository.getActiveGoals()
-                                                .map { it.title.trim().lowercase() }
-                                                .toMutableSet()
+                                            val existingGoals = goalRepository.getActiveGoals()
+                                            val existingYearlyGoals = existingGoals.filter { it.description == "Yearly Objective" }
                                             val validGoals = goals.filter { it.isNotBlank() }
                                                 .distinctBy { it.trim().lowercase() }
+                                            val validLowerSet = validGoals.map { it.trim().lowercase() }.toSet()
+                                            // Reconcile and delete removed yearly goals in Room without wiping weekly goals (BUG-180)
+                                            existingYearlyGoals.forEach { existing ->
+                                                if (existing.title.trim().lowercase() !in validLowerSet) {
+                                                    goalRepository.delete(existing)
+                                                }
+                                            }
+                                            val existingTitles = existingYearlyGoals.map { it.title.trim().lowercase() }.toSet()
                                             validGoals.forEach { title ->
                                                 val lower = title.trim().lowercase()
                                                 if (lower !in existingTitles) {
-                                                    existingTitles.add(lower)
                                                     goalRepository.insert(
                                                         com.neuroflow.app.data.local.entity.GoalEntity(
                                                             title = title.trim(),
@@ -359,9 +413,6 @@ class MainActivity : ComponentActivity() {
                                                         )
                                                     )
                                                 }
-                                            }
-                                            preferencesDataStore.updatePreferences {
-                                                it.copy(yearlyGoals = validGoals)
                                             }
                                             preferencesDataStore.setLastYearlyGoalHandledYear(currentYear)
                                         }
@@ -375,19 +426,25 @@ class MainActivity : ComponentActivity() {
                                 )
                                 needsWeeklyRefill -> TopGoalsRefillCard(
                                     period = GoalPeriod.WEEKLY,
-                                    existingGoals = prefs.weeklyGoals,
+                                    existingGoals = activeWeeklyGoalTitles.ifEmpty { prefs.weeklyGoals },
                                     onConfirm = { goals ->
                                         weeklyGoalHandled = true
                                         scope.launch {
-                                            val existingTitles = goalRepository.getActiveGoals()
-                                                .map { it.title.trim().lowercase() }
-                                                .toMutableSet()
+                                            val existingGoals = goalRepository.getActiveGoals()
+                                            val existingWeeklyGoals = existingGoals.filter { it.description == "Weekly Objective" || (it.description != "Yearly Objective" && it.description.isBlank()) }
                                             val validGoals = goals.filter { it.isNotBlank() }
                                                 .distinctBy { it.trim().lowercase() }
+                                            val validLowerSet = validGoals.map { it.trim().lowercase() }.toSet()
+                                            // Reconcile and delete removed weekly goals in Room without wiping yearly goals (BUG-180)
+                                            existingWeeklyGoals.forEach { existing ->
+                                                if (existing.title.trim().lowercase() !in validLowerSet) {
+                                                    goalRepository.delete(existing)
+                                                }
+                                            }
+                                            val existingTitles = existingWeeklyGoals.map { it.title.trim().lowercase() }.toSet()
                                             validGoals.forEach { title ->
                                                 val lower = title.trim().lowercase()
                                                 if (lower !in existingTitles) {
-                                                    existingTitles.add(lower)
                                                     goalRepository.insert(
                                                         com.neuroflow.app.data.local.entity.GoalEntity(
                                                             title = title.trim(),
@@ -395,9 +452,6 @@ class MainActivity : ComponentActivity() {
                                                         )
                                                     )
                                                 }
-                                            }
-                                            preferencesDataStore.updatePreferences {
-                                                it.copy(weeklyGoals = validGoals)
                                             }
                                             preferencesDataStore.setLastWeeklyGoalHandledWeek(yearWeekKey)
                                         }
@@ -422,7 +476,8 @@ class MainActivity : ComponentActivity() {
                                         initialScheduleOpen = initialScheduleOpen,
                                         onInitialScheduleConsumed = { initialScheduleOpen = false },
                                         darkTheme = isDark,
-                                        amoledDark = prefs.amoledDarkEnabled
+                                        amoledDark = prefs.amoledDarkEnabled,
+                                        dynamicColor = prefs.dynamicColorEnabled
                                     )
                                 }
                             }

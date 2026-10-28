@@ -17,12 +17,18 @@ data class GateTask(
 class GateTaskEngine(
     private val random: Random = Random.Default
 ) {
-    fun newTask(): GateTask = when (GateTaskType.entries.random(random)) {
-        GateTaskType.TRANSCRIBE ->
-            single(TRANSCRIPTIONS, "Type exactly what you see", GateTaskType.TRANSCRIBE)
-        GateTaskType.RESTATED ->
-            single(SENTENCES, "Retype this sentence word for word, including punctuation", GateTaskType.RESTATED)
-        GateTaskType.COUNT_BACK -> countBack()
+    fun newTask(exclude: GateTask? = null): GateTask {
+        var task: GateTask
+        do {
+            task = when (GateTaskType.entries.random(random)) {
+                GateTaskType.TRANSCRIBE ->
+                    single(TRANSCRIPTIONS, "Type exactly what you see", GateTaskType.TRANSCRIBE)
+                GateTaskType.RESTATED ->
+                    single(SENTENCES, "Retype this sentence word for word, including punctuation", GateTaskType.RESTATED)
+                GateTaskType.COUNT_BACK -> countBack()
+            }
+        } while (exclude != null && task == exclude)
+        return task
     }
 
     private fun single(pool: List<String>, instruction: String, type: GateTaskType): GateTask {

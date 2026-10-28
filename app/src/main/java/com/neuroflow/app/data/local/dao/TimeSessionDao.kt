@@ -21,7 +21,7 @@ interface TimeSessionDao {
     @Query("SELECT * FROM time_sessions WHERE taskId = :taskId ORDER BY startedAt DESC")
     suspend fun getByTaskId(taskId: String): List<TimeSessionEntity>
 
-    @Query("SELECT * FROM time_sessions WHERE taskId = :taskId AND endedAt IS NULL LIMIT 1")
+    @Query("SELECT * FROM time_sessions WHERE taskId = :taskId AND endedAt IS NULL ORDER BY startedAt DESC LIMIT 1")
     suspend fun getOpenSessionForTask(taskId: String): TimeSessionEntity?
 
     @Query("SELECT * FROM time_sessions WHERE endedAt IS NULL ORDER BY startedAt DESC")
@@ -41,6 +41,12 @@ interface TimeSessionDao {
 
     @Query("SELECT SUM(durationMinutes) FROM time_sessions WHERE startedAt >= :startOfDay AND startedAt < :endOfDay")
     fun observeTotalMinutesForDay(startOfDay: Long, endOfDay: Long): Flow<Float?>
+
+    @Query("DELETE FROM time_sessions WHERE taskId = :taskId")
+    suspend fun deleteByTaskId(taskId: String)
+
+    @Query("DELETE FROM time_sessions WHERE taskId = :taskId AND endedAt IS NULL")
+    suspend fun deleteOpenSessionsByTaskId(taskId: String)
 
     @Query("DELETE FROM time_sessions")
     suspend fun deleteAll()

@@ -8,6 +8,10 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+hilt {
+    enableAggregatingTask = false
+}
+
 android {
     val kioskStrictMode = providers.gradleProperty("kioskStrictMode")
         .map { it.toBooleanStrictOrNull() ?: false }
@@ -20,8 +24,8 @@ android {
         applicationId = "com.neuroflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "20.0"
+        versionCode = 22
+        versionName = "20.2"
 
         // Toggle strict kiosk behavior at build time:
         // -PkioskStrictMode=true  => full lock task + hard restrictions

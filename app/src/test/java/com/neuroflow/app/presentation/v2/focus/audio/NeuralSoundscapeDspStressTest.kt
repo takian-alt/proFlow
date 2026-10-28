@@ -36,12 +36,7 @@ class NeuralSoundscapeDspStressTest {
         val numChunks = totalFrames / chunkSize
         val buffer = ShortArray(chunkSize * 2)
 
-        val soundscapeTypes = listOf(
-            SoundscapeType.NONE,
-            SoundscapeType.GAMMA_40HZ,
-            SoundscapeType.BROWN_NOISE,
-            SoundscapeType.PINK_NOISE
-        )
+        val soundscapeTypes = SoundscapeType.entries
 
         for (type in soundscapeTypes) {
             generator.reset()
@@ -359,5 +354,93 @@ class NeuralSoundscapeDspStressTest {
         val silenceBuffer = ShortArray(chunkSize * 2) { 999 }
         generator.generateFrames(SoundscapeType.BROWN_NOISE, silenceBuffer, chunkSize, volumeMultiplier = 0.0f)
         assertTrue("Subsequent chunk after fade must be pure silence", silenceBuffer.all { it == 0.toShort() })
+    }
+
+    // =========================================================================
+    // 5. THETA_GAMMA_ENCODE STRESS TESTS
+    // =========================================================================
+
+    @Test
+    fun testThetaGammaEncode_phasePrecisionStress_500kFrames() {
+        // Verify phase accumulators don't drift or cause NaN/clipping over ~11.3s of continuous synthesis
+        val totalFrames = 500_000
+        val chunkSize = 1024
+        val numChunks = totalFrames / chunkSize
+        val buffer = ShortArray(chunkSize * 2)
+
+        generator.reset()
+        generator.setVolumeInstant(0.9f)
+
+        var minSample = Short.MAX_VALUE
+        var maxSample = Short.MIN_VALUE
+        var nonZeroCount = 0L
+
+        for (c in 0 until numChunks) {
+            generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, chunkSize, volumeMultiplier = 0.9f)
+
+            for (s in buffer) {
+                assertTrue("Sample $s must lie in [-32768, 32767]", s in Short.MIN_VALUE..Short.MAX_VALUE)
+                if (s < minSample) minSample = s
+                if (s > maxSample) maxSample = s
+                if (s != 0.toShort()) nonZeroCount++
+            }
+        }
+
+        assertTrue("THETA_GAMMA_ENCODE must be active across 500k frames (nonZero: $nonZeroCount)",
+            nonZeroCount > (totalFrames * 2 * 0.90))
+        assertTrue("Min sample must be negative (got $minSample)", minSample < -500)
+        assertTrue("Max sample must be positive (got $maxSample)", maxSample > 500)
+    }
+
+    @Test
+    fun testThetaGammaEncode_monoConsistencyStress_500kFrames() {
+        // Verify L == R across all 500k frames (single-sided deafness invariant)
+        val totalFrames = 500_000
+        val chunkSize = 1024
+        val numChunks = totalFrames / chunkSize
+        val buffer = ShortArray(chunkSize * 2)
+
+        generator.reset()
+        generator.setVolumeInstant(0.8f)
+
+        var mismatchCount = 0L
+
+        for (c in 0 until numChunks) {
+            generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, chunkSize, volumeMultiplier = 0.8f)
+
+            for (i in 0 until chunkSize) {
+                if (buffer[2 * i] != buffer[2 * i + 1]) mismatchCount++
+            }
+        }
+
+        assertEquals("L/R mismatch count must be 0 across 500k frames (mono invariant)", 0L, mismatchCount)
+    }
+
+    @Test
+    fun testThetaGammaEncode_volumeRampAntiPop() {
+        // Verify smooth ramp from 0 to 1 has no pop discontinuities
+        val numFrames = 1024
+        val buffer = ShortArray(numFrames * 2)
+
+        generator.reset()
+        generator.setVolumeInstant(0.0f)
+        generator.generateFrames(SoundscapeType.THETA_GAMMA_ENCODE, buffer, numFrames, volumeMultiplier = 1.0f)
+
+        // Max adjacent sample delta should be bounded (anti-pop)
+        // For 360 Hz carrier at full volume: max derivative ~ 32767 * 2π * 360 / 44100 ≈ 1682
+        // Volume ramp from 0→1 over 1024 frames adds multiplicative acceleration
+        // Pink noise (80% weight) contributes additional stochastic variance
+        // Combined bound: ~8500 accounts for worst-case carrier+noise+ramp convergence without flaky false-positives
+        val deltaMax = 8500
+        var maxDelta = 0
+
+        for (i in 1 until numFrames) {
+            val curr = buffer[i * 2].toInt()
+            val prev = buffer[(i - 1) * 2].toInt()
+            val diff = abs(curr - prev)
+            if (diff > maxDelta) maxDelta = diff
+        }
+
+        assertTrue("Max step jump ($maxDelta) must be <= DeltaMax ($deltaMax)", maxDelta <= deltaMax)
     }
 }

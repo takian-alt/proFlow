@@ -21,8 +21,13 @@ fun IdentityScreen(
     viewModel: IdentityViewModel = hiltViewModel()
 ) {
     val affirmations by viewModel.affirmations.collectAsState()
+    val activeGoals by viewModel.activeGoals.collectAsState()
     var inputText by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
+    var showEditIdentityDialog by remember { mutableStateOf(false) }
+    var showRefillGoalsDialog by remember { mutableStateOf(false) }
+    var identityInput by remember { mutableStateOf("") }
+    var goalsInput by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Listen for duplicate rejection events from the ViewModel
@@ -62,11 +67,19 @@ fun IdentityScreen(
                     .padding(horizontal = 16.dp)
             ) {
                 Spacer(modifier = Modifier.height(12.dp))
+                val weeklyGoals = activeGoals.filter { it.description == "Weekly Objective" || (it.description != "Yearly Objective" && it.description.isBlank()) }
+                val displayGoals = weeklyGoals.map { it.title }.ifEmpty { prefs.weeklyGoals }
                 com.neuroflow.app.presentation.v2.common.UpgradedIdentityAndGoalsCard(
                     identityStatement = prefs.identityLabel,
-                    activeGoals = prefs.weeklyGoals,
-                    onEditIdentityClick = { showDialog = true },
-                    onRefillGoalsClick = { showDialog = true }
+                    activeGoals = displayGoals,
+                    onEditIdentityClick = {
+                        identityInput = prefs.identityLabel
+                        showEditIdentityDialog = true
+                    },
+                    onRefillGoalsClick = {
+                        goalsInput = displayGoals.joinToString("\n")
+                        showRefillGoalsDialog = true
+                    }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -124,6 +137,71 @@ fun IdentityScreen(
             onDismiss = {
                 inputText = ""
                 showDialog = false
+            }
+        )
+    }
+
+    if (showEditIdentityDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditIdentityDialog = false },
+            title = { Text("Edit Identity Statement") },
+            text = {
+                OutlinedTextField(
+                    value = identityInput,
+                    onValueChange = { identityInput = it },
+                    placeholder = { Text("e.g. Master Software Architect & Deep Thinker") },
+                    singleLine = false,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.updateIdentityLabel(identityInput)
+                    showEditIdentityDialog = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditIdentityDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showRefillGoalsDialog) {
+        AlertDialog(
+            onDismissRequest = { showRefillGoalsDialog = false },
+            title = { Text("Refill Weekly Goals") },
+            text = {
+                Column {
+                    Text(
+                        "Enter goals (one per line):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = goalsInput,
+                        onValueChange = { goalsInput = it },
+                        placeholder = { Text("Goal 1\nGoal 2\nGoal 3") },
+                        singleLine = false,
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val goalsList = goalsInput.lines().map { it.trim() }.filter { it.isNotBlank() }
+                    viewModel.updateWeeklyGoals(goalsList)
+                    showRefillGoalsDialog = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRefillGoalsDialog = false }) { Text("Cancel") }
             }
         )
     }
