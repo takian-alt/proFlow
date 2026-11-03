@@ -6,15 +6,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,34 +61,39 @@ fun MindmapCanvasScreen(
     // Node layout tracking for hit testing connectors
     val nodeRects = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
 
-    val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
-        zoomScale = (zoomScale * zoomChange).coerceIn(0.35f, 2.5f)
-        panOffset += offsetChange
-    }
-
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF000000))
     ) {
-        // The interactive infinite canvas
+        val screenWidth = constraints.maxWidth.toFloat()
+        val screenHeight = constraints.maxHeight.toFloat()
+        val screenCenter = Offset(screenWidth / 2f, screenHeight / 2f)
+
+        // The interactive infinite canvas gesture container
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = zoomScale
-                    scaleY = zoomScale
-                    translationX = panOffset.x
-                    translationY = panOffset.y
-                }
-                .transformable(state = transformableState)
                 .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        panOffset += dragAmount
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        val oldScale = zoomScale
+                        val newScale = (zoomScale * zoom).coerceIn(0.35f, 2.5f)
+                        zoomScale = newScale
+                        panOffset = centroid - (centroid - panOffset) * (newScale / oldScale) + pan
                     }
                 }
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = zoomScale
+                        scaleY = zoomScale
+                        translationX = panOffset.x
+                        translationY = panOffset.y
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+            ) {
             // 1. Connection Wires Layer
             Canvas(modifier = Modifier.fillMaxSize()) {
                 // Background subtle ambient grid
@@ -199,6 +206,7 @@ fun MindmapCanvasScreen(
                 )
             }
         }
+    }
 
         // 4. Immersive Floating Top Bar
         Row(
@@ -271,7 +279,82 @@ fun MindmapCanvasScreen(
             }
         }
 
-        // 5. Connection Type Selection Modal Sheet
+        // 5. Floating Zoom & Map Controls (Bottom Right)
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 16.dp, bottom = 24.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF141720).copy(alpha = 0.90f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF262A36)),
+            shadowElevation = 8.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                // Zoom Out
+                IconButton(
+                    onClick = {
+                        val oldScale = zoomScale
+                        val newScale = (zoomScale / 1.25f).coerceAtLeast(0.35f)
+                        panOffset = screenCenter - (screenCenter - panOffset) * (newScale / oldScale)
+                        zoomScale = newScale
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Zoom Out",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                // Zoom Level Badge (Tap to reset to 100%)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            val oldScale = zoomScale
+                            val newScale = 1f
+                            panOffset = screenCenter - (screenCenter - panOffset) * (newScale / oldScale)
+                            zoomScale = newScale
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${(zoomScale * 100).roundToInt()}%",
+                        color = Color(0xFF818CF8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Zoom In
+                IconButton(
+                    onClick = {
+                        val oldScale = zoomScale
+                        val newScale = (zoomScale * 1.25f).coerceAtMost(2.5f)
+                        panOffset = screenCenter - (screenCenter - panOffset) * (newScale / oldScale)
+                        zoomScale = newScale
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Zoom In",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // 6. Connection Type Selection Modal Sheet
         val prompt = state.connectionPrompt
         if (prompt != null) {
             ConnectionPromptDialog(
