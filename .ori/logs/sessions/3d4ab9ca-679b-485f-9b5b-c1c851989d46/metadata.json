@@ -1,0 +1,66 @@
+{
+  "completedTurns": 0,
+  "endedAt": "2026-10-31T20:33:29.841Z",
+  "failedTurns": 3,
+  "harness": "ori",
+  "lastEventType": "turn.failed",
+  "runIds": [
+    {
+      "cwd": "/home/takian/Project/PROCUS",
+      "model": "~anthropic/claude-opus-latest",
+      "prompt": "hey",
+      "runId": "370b4a12-fdc9-4025-afa6-ac89c8d47496",
+      "source": {
+        "surface": "code"
+      }
+    },
+    {
+      "cwd": "/home/takian/Project/PROCUS",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "prompt": "what do u think of the app",
+      "runId": "2100571f-cef4-4334-99db-a408ca819e34",
+      "source": {
+        "surface": "code"
+      }
+    },
+    {
+      "cwd": "/home/takian/Project/PROCUS",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "prompt": "shey",
+      "runId": "18c63a53-6a44-442d-9903-b44e2a79bff9",
+      "source": {
+        "surface": "code"
+      }
+    }
+  ],
+  "sessionId": "3d4ab9ca-679b-485f-9b5b-c1c851989d46",
+  "startedAt": "2026-10-31T20:30:21.793Z",
+  "usage": {
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 56160,
+    "contextTokens": 0,
+    "costUsd": 0.00028547399999999997,
+    "generationIds": [
+      "gen-dec-1793478621-M4u8qy2Titv4ymqaj7K5",
+      "gen-dec-1793478622-MEhLrF9UQu5JYsKUvm9o",
+      "gen-1793478752-a07l9qNz8w9QD4qD948l",
+      "gen-1793478754-Yw2SBOtkFdthWktGKzq1",
+      "gen-1793478757-CQh5iq8hYzLi5iy3WfDB",
+      "gen-1793478761-BneDFjWv1V8kivT3p0mU",
+      "gen-1793478765-7rngZPB3dyKtAdL8OSdZ",
+      "gen-1793478767-H4FZCusNPGrAHI2FxAwR",
+      "gen-1793478772-J9csUwMHbWMyFbhe2miv",
+      "gen-1793478775-QnY8BGq1JIIr7JA7T0z2",
+      "gen-1793478776-UVnVSqHryturQfy1K58D",
+      "gen-1793478779-jIHZ5Dbjj2VRZGIZr3WO",
+      "gen-1793478785-yMryWZJSrbhMdFQJ2ExH",
+      "gen-dec-1793478750-aP183O3T09p8wjRkedQy",
+      "gen-dec-1793478751-RW5WAuoPJAyhYeVh7Ytb",
+      "gen-dec-1793478807-5aUoxeq3cPb9pwgvvcU2",
+      "gen-dec-1793478807-9rnVZs5HIE3v5O9kHshH"
+    ],
+    "inputTokens": 111615,
+    "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "outputTokens": 1467
+  }
+}

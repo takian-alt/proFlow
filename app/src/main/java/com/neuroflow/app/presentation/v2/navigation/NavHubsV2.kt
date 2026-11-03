@@ -13,5 +13,8 @@ sealed class NavHubsV2(val route: String, val title: String, val icon: ImageVect
 
     companion object {
         val items = listOf(Flow, Plan, Insights)
+
+        fun fromRoute(route: String?): NavHubsV2? = items.firstOrNull { it.route == route }
+        fun isHubRoute(route: String?): Boolean = items.any { it.route == route }
     }
 }

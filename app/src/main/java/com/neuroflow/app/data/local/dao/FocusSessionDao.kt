@@ -18,6 +18,9 @@ interface FocusSessionDao {
     @Query("SELECT * FROM focus_sessions WHERE id = :id")
     suspend fun getById(id: String): FocusSessionEntity?
 
+    @Query("SELECT * FROM focus_sessions WHERE taskId = :taskId AND endedAt IS NULL ORDER BY startedAt DESC LIMIT 1")
+    suspend fun getOpenSessionForTask(taskId: String): FocusSessionEntity?
+
     @Query("SELECT * FROM focus_sessions WHERE taskId = :taskId ORDER BY startedAt DESC")
     fun observeByTaskId(taskId: String): Flow<List<FocusSessionEntity>>
 
@@ -29,6 +32,12 @@ interface FocusSessionDao {
 
     @Query("SELECT * FROM focus_sessions WHERE endedAt IS NULL")
     suspend fun getOpenSessions(): List<FocusSessionEntity>
+
+    @Query("DELETE FROM focus_sessions WHERE taskId = :taskId")
+    suspend fun deleteByTaskId(taskId: String)
+
+    @Query("DELETE FROM focus_sessions WHERE taskId = :taskId AND endedAt IS NULL")
+    suspend fun deleteOpenSessionsByTaskId(taskId: String)
 
     @Query("DELETE FROM focus_sessions")
     suspend fun deleteAll()

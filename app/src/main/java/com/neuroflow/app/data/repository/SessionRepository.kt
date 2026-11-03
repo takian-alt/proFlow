@@ -38,8 +38,7 @@ class SessionRepository @Inject constructor(
         timeSessionDao.getAll()
 
     suspend fun getInterruptionSummary(fromMillis: Long): InterruptionSummary {
-        val sessions = timeSessionDao.getAll()
-            .filter { it.startedAt >= fromMillis }
+        val sessions = timeSessionDao.getSessionsSince(fromMillis)
         return InterruptionSummary(
             totalPauseResumeCount = sessions.sumOf { it.pauseResumeCount },
             totalAppSwitchCount = sessions.sumOf { it.appSwitchCount },
@@ -90,6 +89,8 @@ class SessionRepository @Inject constructor(
             0
         }
         val interruptions = session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
+        val existing = runCatching { dao.getById(session.id) }.getOrNull()
+        val energyAtStart = existing?.energyAtStart ?: 50
         runCatching {
             dao.insert(
                 FocusSessionEntity(
@@ -99,7 +100,7 @@ class SessionRepository @Inject constructor(
                     endedAt = session.endedAt,
                     durationSeconds = durationSec,
                     interruptionCount = interruptions,
-                    energyAtStart = 50,
+                    energyAtStart = energyAtStart,
                     wasCompleted = session.endedAt != null
                 )
             )
@@ -118,10 +119,12 @@ class SessionRepository @Inject constructor(
 
     suspend fun deleteOpenSessionsByTaskId(taskId: String) {
         timeSessionDao.deleteOpenSessionsByTaskId(taskId)
+        runCatching { focusSessionDao?.deleteOpenSessionsByTaskId(taskId) }
     }
 
     suspend fun deleteByTaskId(taskId: String) {
         timeSessionDao.deleteByTaskId(taskId)
+        runCatching { focusSessionDao?.deleteByTaskId(taskId) }
     }
 
     suspend fun deleteAll() {

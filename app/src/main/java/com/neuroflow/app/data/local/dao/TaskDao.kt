@@ -8,8 +8,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TaskDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insert(task: TaskEntity)
+
+    @Upsert
+    suspend fun upsert(task: TaskEntity)
 
     @Update
     suspend fun update(task: TaskEntity)
@@ -44,10 +47,25 @@ interface TaskDao {
           AND (
                 (scheduledDate >= :dayStart AND scheduledDate < :dayEnd)
                 OR
-                (recurrence != 'NONE' AND habitDate >= :dayStart AND habitDate < :dayEnd)
+                (recurrence != 'NONE' AND (scheduledDate IS NULL OR scheduledDate <= 0) AND habitDate >= :dayStart AND habitDate < :dayEnd)
+                OR
+                ((scheduledDate IS NULL OR scheduledDate <= 0) AND scheduledTime >= :dayStart AND scheduledTime < :dayEnd)
               )
     """)
     fun observeTasksForDate(dayStart: Long, dayEnd: Long): Flow<List<TaskEntity>>
+
+    @Query("""
+        SELECT * FROM tasks
+        WHERE status = 'ACTIVE'
+          AND (
+                (scheduledDate >= :dayStart AND scheduledDate < :dayEnd)
+                OR
+                (recurrence != 'NONE' AND (scheduledDate IS NULL OR scheduledDate <= 0) AND habitDate >= :dayStart AND habitDate < :dayEnd)
+                OR
+                ((scheduledDate IS NULL OR scheduledDate <= 0) AND scheduledTime >= :dayStart AND scheduledTime < :dayEnd)
+              )
+    """)
+    suspend fun getTasksForDate(dayStart: Long, dayEnd: Long): List<TaskEntity>
 
     @Query("SELECT * FROM tasks WHERE status = 'ACTIVE'")
     suspend fun getActiveTasks(): List<TaskEntity>
@@ -75,6 +93,22 @@ interface TaskDao {
 
     @Query("DELETE FROM tasks WHERE parentTaskId = :parentId")
     suspend fun deleteSubtasksByParentId(parentId: String)
+
+    @Query("""
+        SELECT * FROM tasks 
+        WHERE parentTaskId = :parentId 
+           OR id LIKE :parentId || '#part%' 
+           OR id LIKE :parentId || '_part%'
+    """)
+    suspend fun getContinuationPartsAndSubtasks(parentId: String): List<TaskEntity>
+
+    @Query("""
+        DELETE FROM tasks 
+        WHERE parentTaskId = :parentId 
+           OR id LIKE :parentId || '#part%' 
+           OR id LIKE :parentId || '_part%'
+    """)
+    suspend fun deleteContinuationPartsAndSubtasks(parentId: String)
 
     @Query("DELETE FROM tasks")
     suspend fun deleteAll()

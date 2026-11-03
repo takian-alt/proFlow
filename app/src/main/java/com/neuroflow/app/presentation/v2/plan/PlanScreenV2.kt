@@ -389,7 +389,7 @@ fun PlanScreenV2(
 
                         FilterChip(
                             selected = isSelected,
-                            onClick = { viewModel.selectTag(if (tag == "All") null else tag) },
+                            onClick = { viewModel.selectTag(if (tag == "All" || tag == state.selectedTag) null else tag) },
                             label = {
                                 Text(
                                     tag,
@@ -823,9 +823,33 @@ private fun isSameDay(t1: Long, t2: Long): Boolean {
 
 private fun shouldShowUltradianBufferAfter(tasks: List<TaskEntity>, index: Int): Boolean {
     if (index >= tasks.size - 1) return false
+    val current = tasks[index]
+    val next = tasks[index + 1]
+
+    // Untimed tasks must not trigger timeline ultradian recovery dividers
+    if (current.scheduledTime == null || next.scheduledTime == null) return false
+
+    // Always show buffer between split parts (e.g. Part 1/2 and Part 2/2, Part 2/3 and Part 3/3)
+    val curPart = Regex("""[#_]part(\d+)""").find(current.id)?.groupValues?.get(1)?.toIntOrNull()
+        ?: Regex("""\(Part (\d+)/""").find(current.title)?.groupValues?.get(1)?.toIntOrNull()
+    val nextPart = Regex("""[#_]part(\d+)""").find(next.id)?.groupValues?.get(1)?.toIntOrNull()
+        ?: Regex("""\(Part (\d+)/""").find(next.title)?.groupValues?.get(1)?.toIntOrNull()
+    val isBetweenConsecutiveSplitParts = (curPart != null && nextPart != null && nextPart == curPart + 1) ||
+        ((current.id.contains("#part1") || current.id.contains("_part1") || current.title.contains("(Part 1/2)")) &&
+            (next.id.contains("#part2") || next.id.contains("_part2") || next.title.contains("(Part 2/2)")))
+    if (isBetweenConsecutiveSplitParts) return true
+
+    var lastTimedEndMinute: Int? = null
     var runSum = 0
     for (i in 0..index) {
-        runSum += com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(tasks[i])
+        val t = tasks[i]
+        if (t.scheduledTime == null) continue
+        val curStart = t.timelineStartMinuteOfDay()
+        if (lastTimedEndMinute != null && curStart - lastTimedEndMinute >= 15) {
+            runSum = 0
+        }
+        runSum += com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(t)
+        lastTimedEndMinute = curStart + com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(t)
         if (i == index) {
             return runSum >= 90
         }
@@ -853,10 +877,11 @@ fun TimelineScheduleView(
     onEditTask: (TaskEntity) -> Unit = {}
 ) {
     val peakPrefs = state.preferences
-    val peakStart = state.circadianSummary?.peakWindowStartHour
+    val manualPeak = if (peakPrefs.manualPeakProfileEnabled) (peakPrefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
+    val peakStart = manualPeak ?: state.circadianSummary?.peakWindowStartHour
         ?: (if (peakPrefs.effectivePeakStart in 0..23) peakPrefs.effectivePeakStart else peakPrefs.peakEnergyStart).coerceIn(0, 23)
-    val peakEnd = state.circadianSummary?.peakWindowEndHour
-        ?: (if (peakPrefs.effectivePeakEnd in 0..23) peakPrefs.effectivePeakEnd else peakPrefs.peakEnergyEnd).coerceIn(0, 23)
+    val peakEnd = if (manualPeak != null) ((manualPeak + 3) % 24) else (state.circadianSummary?.peakWindowEndHour
+        ?: (if (peakPrefs.effectivePeakEnd in 0..23) peakPrefs.effectivePeakEnd else peakPrefs.peakEnergyEnd).coerceIn(0, 23))
     val currentMinuteOfDay = Calendar.getInstance().let {
         it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
     }
@@ -1116,9 +1141,16 @@ fun TimelineScheduleView(
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
 
-                                        val isUltradianPart = task.id.contains("#part") || task.title.contains("(Part ")
+                                        val isUltradianPart = task.id.contains("#part") || task.id.contains("_part") || task.title.contains("(Part ")
                                         if (isUltradianPart) {
-                                            val partLabel = if (task.id.contains("#part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                                            val titleMatch = Regex("""\(Part (\d+/\d+)\)""").find(task.title)
+                                            val idPartMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                                            val partLabel = when {
+                                                titleMatch != null -> "🔗 Part ${titleMatch.groupValues[1]}"
+                                                idPartMatch != null -> "🔗 Part ${idPartMatch.groupValues[1]}"
+                                                task.id.contains("#part2") || task.id.contains("_part2") || task.title.contains("(Part 2/2)") -> "🔗 Part 2/2"
+                                                else -> "🔗 Part 1/2"
+                                            }
                                             Surface(
                                                 shape = RoundedCornerShape(4.dp),
                                                 color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f)
@@ -1329,7 +1361,7 @@ fun TimelineScheduleView(
                                     fontWeight = FontWeight.Bold,
                                     color = NeuroFlowThemeV2Colors.TextPrimary
                                 )
-                                val startH = slot.startMinuteOfDay / 60
+                                val startH = (slot.startMinuteOfDay % 1440) / 60
                                 val startM = slot.startMinuteOfDay % 60
                                 val endMinuteOfDay = (slot.startMinuteOfDay + slot.durationMinutes) % 1440
                                 val endH = endMinuteOfDay / 60
@@ -1742,7 +1774,7 @@ fun AutopilotConfigView(
                             fontWeight = FontWeight.Bold,
                             color = NeuroFlowThemeV2Colors.TextPrimary
                         )
-                        val startH = slot.startMinuteOfDay / 60
+                        val startH = (slot.startMinuteOfDay % 1440) / 60
                         val startM = slot.startMinuteOfDay % 60
                         val endMinuteOfDay = (slot.startMinuteOfDay + slot.durationMinutes) % 1440
                         val endH = endMinuteOfDay / 60

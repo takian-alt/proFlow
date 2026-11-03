@@ -63,7 +63,8 @@ object PlacementStability {
 
         if (task.scheduledTime != null && scheduledMillis - nowMillis < NEAR_TERM_FREEZE_MILLIS) return ReplanVerdict.NEAR_TERM_FREEZE
 
-        val deadlineMillis = task.resolveDeadlineEpochMillis()
+        // BUG-372 Fix: Anchor deadline epoch resolution to parameterized nowMillis instead of real-time system clock
+        val deadlineMillis = task.resolveDeadlineEpochMillis(nowMillis)
 
         val taskAge = maxOf(0L, nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt))
         val isUrgentDeadline = deadlineMillis?.let { (it - nowMillis) < 6 * 60 * 60 * 1000L } ?: false
@@ -116,6 +117,8 @@ object PlacementStability {
         nextStartMillis: Long,
         nowMillis: Long
     ): Boolean {
+        // BUG-AUDIT-008 Fix: Do not apply moves to slots in the past (allowing 60s clock skew)
+        if (nextStartMillis < nowMillis - 60_000L) return false
         val previous = previousStartMillis ?: return true
         if (nextStartMillis == previous) return false
         if (previous <= nowMillis) return true

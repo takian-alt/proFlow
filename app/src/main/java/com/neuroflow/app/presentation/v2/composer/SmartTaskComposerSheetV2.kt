@@ -25,7 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Lock
@@ -40,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -156,6 +158,7 @@ fun SmartTaskComposerSheetV2(
     var showTimePicker by remember { mutableStateOf(false) }
     var datePickerTarget by remember { mutableStateOf("deadline") }
     var timePickerTarget by remember { mutableStateOf("deadline") }
+    var isSaving by remember { mutableStateOf(false) }
 
     val inferred = remember(rawInput, completedTasks) {
         TaskInferenceEngine.inferFromInput(rawInput, completedTasks)
@@ -174,6 +177,8 @@ fun SmartTaskComposerSheetV2(
     val effectiveDeadlineDate = when {
         deadlineDateCleared -> null
         userDeadlineDateOverride != null -> userDeadlineDateOverride
+        inferred.isDeadlineDateExplicit -> inferred.deadlineDate
+        mode is SheetMode.Edit && existingTask?.deadlineDate != null -> existingTask.deadlineDate
         inferred.deadlineDate != null -> inferred.deadlineDate
         else -> existingTask?.deadlineDate
     }
@@ -186,6 +191,9 @@ fun SmartTaskComposerSheetV2(
     val effectiveScheduledDate = when {
         scheduledDateCleared -> null
         userScheduledDateOverride != null -> userScheduledDateOverride
+        inferred.isScheduledDateExplicit -> inferred.scheduledDate
+        mode is SheetMode.Create && initialDate != null -> initialDate
+        mode is SheetMode.Edit && existingTask?.scheduledDate != null -> existingTask.scheduledDate
         inferred.scheduledDate != null -> inferred.scheduledDate
         else -> if (mode is SheetMode.Create) initialDate else existingTask?.scheduledDate
     }
@@ -268,8 +276,10 @@ fun SmartTaskComposerSheetV2(
     }
 
     fun handleSave() {
+        if (rawInput.isBlank() || isSaving) return
         val title = inferred.sanitizedTitle.ifBlank { rawInput.trim() }
         if (title.isBlank()) return
+        isSaving = true
 
         val effectiveTags = allActiveTags.joinToString(",")
         val effectiveContextTag = if (allActiveTags.isEmpty()) {
@@ -304,9 +314,13 @@ fun SmartTaskComposerSheetV2(
                 existingTask?.habitDate
                     ?: finalScheduledDate
                     ?: finalDeadlineDate
+                    ?: initialDate
                     ?: startOfLocalDay(System.currentTimeMillis())
             }
         } else null
+
+        val finalSavedDeadlineTime = if (finalDeadlineDate == null) null else normalizedDeadlineTime
+        val finalSavedScheduledTime = if (finalScheduledDate == null && recurrence == Recurrence.NONE) null else normalizedScheduledTime
 
         val taskToSave = if (existingTask != null) {
             existingTask.copy(
@@ -323,10 +337,10 @@ fun SmartTaskComposerSheetV2(
                 impactScore = impactScore.toInt(),
                 effortScore = effortScore.toInt(),
                 deadlineDate = finalDeadlineDate,
-                deadlineTime = normalizedDeadlineTime,
+                deadlineTime = finalSavedDeadlineTime,
                 scheduledDate = finalScheduledDate,
-                scheduledTime = normalizedScheduledTime,
-                isAutoScheduled = if (finalScheduledDate != existingTask.scheduledDate || normalizedScheduledTime != existingTask.scheduledTime) {
+                scheduledTime = finalSavedScheduledTime,
+                isAutoScheduled = if (finalScheduledDate != existingTask.scheduledDate || finalSavedScheduledTime != existingTask.scheduledTime) {
                     false
                 } else {
                     existingTask.isAutoScheduled
@@ -354,9 +368,9 @@ fun SmartTaskComposerSheetV2(
                 impactScore = impactScore.toInt(),
                 effortScore = effortScore.toInt(),
                 deadlineDate = finalDeadlineDate,
-                deadlineTime = normalizedDeadlineTime,
+                deadlineTime = finalSavedDeadlineTime,
                 scheduledDate = finalScheduledDate,
-                scheduledTime = normalizedScheduledTime,
+                scheduledTime = finalSavedScheduledTime,
                 isScheduleLocked = isScheduleLocked,
                 recurrence = recurrence,
                 recurrenceIntervalDays = if (recurrence == Recurrence.CUSTOM) recurrenceIntervalDays else 0,
@@ -368,6 +382,8 @@ fun SmartTaskComposerSheetV2(
         onDismiss()
     }
 
+    val nestedScrollInterop = rememberNestedScrollInteropConnection()
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -378,6 +394,7 @@ fun SmartTaskComposerSheetV2(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
+                .nestedScroll(nestedScrollInterop)
                 .verticalScroll(rememberScrollState())
                 .imePadding()
         ) {
@@ -402,7 +419,7 @@ fun SmartTaskComposerSheetV2(
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.HelpOutline,
+                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
                             contentDescription = "Formatting Guide",
                             tint = if (showSyntaxGuide) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextTertiary,
                             modifier = Modifier.size(18.dp)
@@ -500,20 +517,45 @@ fun SmartTaskComposerSheetV2(
                 value = rawInput,
                 onValueChange = {
                     rawInput = it
-                    userDurationOverride = null
-                    userEnergyOverride = null
-                    userTaskTypeOverride = null
-                    userFrogOverride = null
-                    userPriorityOverride = null
-                    userQuadrantOverride = null
-                    userScheduledDateOverride = null
-                    userScheduledTimeOverride = null
-                    userDeadlineDateOverride = null
-                    userDeadlineTimeOverride = null
-                    scheduledDateCleared = false
-                    scheduledTimeCleared = false
-                    deadlineDateCleared = false
-                    deadlineTimeCleared = false
+                    if (it.isBlank()) {
+                        userDurationOverride = null
+                        userEnergyOverride = null
+                        userTaskTypeOverride = null
+                        userFrogOverride = null
+                        userPriorityOverride = null
+                        userQuadrantOverride = null
+                        userScheduledDateOverride = null
+                        userScheduledTimeOverride = null
+                        userDeadlineDateOverride = null
+                        userDeadlineTimeOverride = null
+                        scheduledDateCleared = false
+                        scheduledTimeCleared = false
+                        deadlineDateCleared = false
+                        deadlineTimeCleared = false
+                    } else {
+                        val newInferred = TaskInferenceEngine.inferFromInput(it, completedTasks)
+                        if (newInferred.isDurationExplicit) userDurationOverride = null
+                        if (newInferred.isEnergyExplicit) userEnergyOverride = null
+                        if (newInferred.isPriorityExplicit) userPriorityOverride = null
+                        if (newInferred.isQuadrantExplicit) userQuadrantOverride = null
+                        if (newInferred.isFrog) userFrogOverride = null
+                        if (newInferred.isScheduledDateExplicit) {
+                            userScheduledDateOverride = null
+                            scheduledDateCleared = false
+                        }
+                        if (newInferred.scheduledTime != null) {
+                            userScheduledTimeOverride = null
+                            scheduledTimeCleared = false
+                        }
+                        if (newInferred.isDeadlineDateExplicit) {
+                            userDeadlineDateOverride = null
+                            deadlineDateCleared = false
+                        }
+                        if (newInferred.deadlineTime != null) {
+                            userDeadlineTimeOverride = null
+                            deadlineTimeCleared = false
+                        }
+                    }
                     val explicitTagMatches = Regex("""[@#]([a-zA-Z0-9_\-]+)""").findAll(it).map { m -> m.groupValues[1].lowercase(Locale.ROOT) }.toSet()
                     if (explicitTagMatches.isNotEmpty()) {
                         excludedTags = excludedTags.filterNot { tag -> explicitTagMatches.any { it.equals(tag, ignoreCase = true) } }.toSet()
@@ -1112,6 +1154,8 @@ fun SmartTaskComposerSheetV2(
                                         onClick = {
                                             userDeadlineDateOverride = null
                                             deadlineDateCleared = true
+                                            userDeadlineTimeOverride = null
+                                            deadlineTimeCleared = true
                                         },
                                         modifier = Modifier.size(24.dp)
                                     ) {
@@ -1214,6 +1258,10 @@ fun SmartTaskComposerSheetV2(
                                         onClick = {
                                             userScheduledDateOverride = null
                                             scheduledDateCleared = true
+                                            if (recurrence == Recurrence.NONE) {
+                                                userScheduledTimeOverride = null
+                                                scheduledTimeCleared = true
+                                            }
                                         },
                                         modifier = Modifier.size(24.dp)
                                     ) {
@@ -1458,8 +1506,12 @@ fun SmartTaskComposerSheetV2(
 
             // Save Button
             Button(
-                onClick = ::handleSave,
-                enabled = rawInput.isNotBlank(),
+                onClick = {
+                    if (!isSaving) {
+                        handleSave()
+                    }
+                },
+                enabled = rawInput.isNotBlank() && !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -1511,9 +1563,15 @@ fun SmartTaskComposerSheetV2(
                                 if (datePickerTarget == "deadline") {
                                     userDeadlineDateOverride = null
                                     deadlineDateCleared = true
+                                    userDeadlineTimeOverride = null
+                                    deadlineTimeCleared = true
                                 } else {
                                     userScheduledDateOverride = null
                                     scheduledDateCleared = true
+                                    if (recurrence == Recurrence.NONE) {
+                                        userScheduledTimeOverride = null
+                                        scheduledTimeCleared = true
+                                    }
                                 }
                                 showDatePicker = false
                             }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
@@ -1544,13 +1602,15 @@ fun SmartTaskComposerSheetV2(
                             if (timePickerTarget == "deadline") {
                                 userDeadlineTimeOverride = millis
                                 deadlineTimeCleared = false
-                                if (effectiveDeadlineDate == null && !deadlineDateCleared) {
+                                deadlineDateCleared = false
+                                if (effectiveDeadlineDate == null) {
                                     userDeadlineDateOverride = effectiveScheduledDate ?: initialDate ?: startOfLocalDay(System.currentTimeMillis())
                                 }
                             } else {
                                 userScheduledTimeOverride = millis
                                 scheduledTimeCleared = false
-                                if (effectiveScheduledDate == null && !scheduledDateCleared) {
+                                scheduledDateCleared = false
+                                if (effectiveScheduledDate == null) {
                                     userScheduledDateOverride = effectiveDeadlineDate ?: initialDate ?: startOfLocalDay(System.currentTimeMillis())
                                 }
                             }

@@ -263,4 +263,64 @@ class ScheduleConflictResolverTest : StringSpec({
         // Date-only tasks should not collide with each other or with midnight slots
         conflicts shouldBe emptyList()
     }
+
+    "BUG-AUDIT-005: findConflictFreeStart clamps workDayEndHour 0 to 23:59 (1439 min) preventing next-day spillover" {
+        // Search start 23:30 (1410 min), duration 45 min, workday 8:00 to 0 (midnight)
+        // 1410 + 45 = 1455 > 1439 min, so task cannot fit before midnight and must return null (no spill to next day)
+        val targetStart = ConflictResolver.findConflictFreeStart(
+            searchStartMinute = 1410,
+            duration = 45,
+            workDayStartHour = 8,
+            workDayEndHour = 0,
+            occupiedIntervals = emptyList()
+        )
+        targetStart shouldBe null
+
+        // A task of 25 min starting at 23:30 (1410 + 25 = 1435 <= 1439) fits within the day
+        val fittingStart = ConflictResolver.findConflictFreeStart(
+            searchStartMinute = 1410,
+            duration = 25,
+            workDayStartHour = 8,
+            workDayEndHour = 0,
+            occupiedIntervals = emptyList()
+        )
+        fittingStart shouldBe 1410
+    }
+
+    "BUG-AUDIT-006: taskStartMinuteOfDay returns Int.MAX_VALUE for unscheduled or untimed tasks, avoiding false 00:00 midnight conflicts" {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = cal.timeInMillis
+
+        val untimedTask = TaskEntity(
+            id = "untimed_task",
+            title = "Untimed Task",
+            scheduledDate = startOfDay,
+            scheduledTime = null,
+            status = TaskStatus.ACTIVE
+        )
+        val unscheduledTask = TaskEntity(
+            id = "unscheduled_task",
+            title = "Unscheduled Task",
+            scheduledDate = null,
+            scheduledTime = null,
+            status = TaskStatus.ACTIVE
+        )
+        val midnightTask = TaskEntity(
+            id = "midnight_task",
+            title = "Midnight Task",
+            scheduledDate = startOfDay,
+            scheduledTime = 0L,
+            status = TaskStatus.ACTIVE
+        )
+
+        ConflictResolver.taskStartMinuteOfDay(untimedTask) shouldBe Int.MAX_VALUE
+        ConflictResolver.taskStartMinuteOfDay(unscheduledTask) shouldBe Int.MAX_VALUE
+        // Explicitly scheduled 0L should return 0 (00:00)
+        ConflictResolver.taskStartMinuteOfDay(midnightTask) shouldBe 0
+    }
 })

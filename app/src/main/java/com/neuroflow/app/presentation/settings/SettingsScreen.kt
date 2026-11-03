@@ -32,6 +32,14 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import android.widget.Toast
 import com.neuroflow.app.BuildConfig
 import com.neuroflow.app.domain.model.AppTheme
 import com.neuroflow.app.domain.service.BehavioralSupportService
@@ -39,6 +47,7 @@ import com.neuroflow.app.presentation.common.EnergyInsight
 import com.neuroflow.app.presentation.common.TaskTagViewModel
 import com.neuroflow.app.presentation.common.theme.NeuroFlowColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -61,6 +70,9 @@ fun SettingsScreen(
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearTelemetryDialog by remember { mutableStateOf(false) }
     var showDistractingAppsDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
@@ -77,7 +89,8 @@ fun SettingsScreen(
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -390,8 +403,79 @@ fun SettingsScreen(
                     label = "Do Not Disturb (DND) during focus",
                     description = "Automatically mute notifications during active focus sprints",
                     checked = prefs.dndEnabled,
-                    onCheckedChange = { viewModel.updatePreferences { p -> p.copy(dndEnabled = it) } }
+                    onCheckedChange = { isChecked ->
+                        viewModel.updatePreferences { p -> p.copy(dndEnabled = isChecked) }
+                        if (isChecked) {
+                            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                            if (nm?.isNotificationPolicyAccessGranted != true) {
+                                runCatching {
+                                    val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                }
+                                val dndMessage = "Do Not Disturb access is required for automatic muting during focus sessions"
+                                Toast.makeText(context, dndMessage, Toast.LENGTH_LONG).show()
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(dndMessage)
+                                }
+                            }
+                        }
+                    }
                 )
+                val notificationManager = remember(context) { context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager }
+                var isDndAccessGranted by remember { mutableStateOf(notificationManager?.isNotificationPolicyAccessGranted == true) }
+                val settingsLifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(settingsLifecycleOwner, context) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            isDndAccessGranted = notificationManager?.isNotificationPolicyAccessGranted == true
+                        }
+                    }
+                    settingsLifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        settingsLifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+                if (prefs.dndEnabled && !isDndAccessGranted) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "⚠️ DND permission required for muting",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    runCatching {
+                                        val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    }
+                                    val dndMessage = "Do Not Disturb access is required for automatic muting during focus sessions"
+                                    Toast.makeText(context, dndMessage, Toast.LENGTH_LONG).show()
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(dndMessage)
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("Grant", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 SettingsDeepWorkTargetRow(
                     minutes = prefs.dailyDeepWorkTargetMinutes,

@@ -35,6 +35,7 @@ class SleepPressureRefreshWorker @AssistedInject constructor(
             sleepPressureRepository.refreshCurrentPressure()
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // Retry on failure, but don't fail permanently
             if (runAttemptCount < 3) {
                 Result.retry()

@@ -45,7 +45,7 @@ class TaskTagViewModel @Inject constructor(
     }
 
     private fun normalizeTags(tags: Collection<String>): List<String> {
-        return tags.flatMap { it.split(",") }
+        return tags.flatMap { it.split(Regex("""(?=[#@])|[,;]""")) }
             .mapNotNull { it.trim().removePrefix("#").removePrefix("@").takeIf(String::isNotBlank) }
     }
 }

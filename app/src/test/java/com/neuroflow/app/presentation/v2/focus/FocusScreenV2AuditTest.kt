@@ -7,6 +7,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
+import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.repository.WoopRepository
@@ -14,7 +15,9 @@ import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
+import com.neuroflow.app.worker.TaskReminderWorker
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -22,6 +25,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.slot
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,18 +49,21 @@ class FocusScreenV2AuditTest {
         Dispatchers.setMain(testDispatcher)
         mockkObject(AutonomyNudgeEngine)
         mockkObject(FocusService)
+        mockkObject(TaskReminderWorker)
         every { AutonomyNudgeEngine.cancelNudge(any<Context>(), any<String>()) } returns Unit
         every { AutonomyNudgeEngine.scheduleNudge(any<Context>(), any<TaskEntity>()) } returns Unit
         every { FocusService.startService(any(), any(), any(), any(), any(), any(), any(), any()) } returns Unit
         every { FocusService.pauseService(any()) } returns Unit
         every { FocusService.resumeService(any()) } returns Unit
         every { FocusService.stopService(any()) } returns Unit
+        every { TaskReminderWorker.cancelReminder(any<Context>(), any<String>()) } returns Unit
     }
 
     @After
     fun tearDown() {
         unmockkObject(AutonomyNudgeEngine)
         unmockkObject(FocusService)
+        unmockkObject(TaskReminderWorker)
         Dispatchers.resetMain()
     }
 
@@ -737,7 +744,7 @@ class FocusScreenV2AuditTest {
             id = "today-epoch-task",
             title = "Scheduled Today 2PM",
             scheduledDate = null,
-            scheduledTime = System.currentTimeMillis() + 3600_000L
+            scheduledTime = startOfLocalDay(System.currentTimeMillis()) + 14 * 3600_000L
         )
 
         val savedStateHandle = SavedStateHandle(mapOf("taskId" to "current-task"))
@@ -881,6 +888,785 @@ class FocusScreenV2AuditTest {
             coVerify(exactly = 0) { taskRepo.deleteMicroStepsByTaskId(any()) }
             assertEquals(1, viewModel.uiState.value.microSteps.size)
             assertEquals("Existing Step 1", viewModel.uiState.value.microSteps[0].text)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testPart2HashContinuationBlockedInFocusNextTaskQueue() = runTest(testDispatcher) {
+        val part1Task = makeTask(id = "backend_task#part1", title = "Backend Architecture Part 1")
+        val part2Task = makeTask(id = "backend_task#part2", title = "Backend Architecture Part 2")
+        val regularTask = makeTask(id = "docs-task", title = "Write Documentation")
+
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "backend_task#part1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("backend_task#part1") } returns part1Task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(part1Task, part2Task, regularTask)
+        coEvery { sessionRepo.getOpenSessionForTask("backend_task#part1") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Invariant: part2Task must NOT be selected as next task while part1 is active!
+            assertEquals("docs-task", viewModel.uiState.value.nextTaskId)
+            assertEquals("Write Documentation", viewModel.uiState.value.nextTaskTitle)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testCompleteTaskRecalculatesTrueElapsedDurationAvoidingStaleSecondsTruncation() = runTest(testDispatcher) {
+        val task = makeTask(id = "long-focus-task", title = "Deep Focus Work")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "long-focus-task"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("long-focus-task") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("long-focus-task") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Start timer
+            viewModel.startTimer()
+            testScheduler.runCurrent()
+
+            // Simulate user backgrounding app after 5 seconds: startedAt was 20 minutes ago
+            val twentyMinutesAgo = System.currentTimeMillis() - (20 * 60 * 1000L)
+            val fieldStartedAt = FocusViewModelV2::class.java.getDeclaredField("_uiState")
+            fieldStartedAt.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val stateFlow = fieldStartedAt.get(viewModel) as MutableStateFlow<FocusUiStateV2>
+            stateFlow.value = stateFlow.value.copy(
+                startedAtMillis = twentyMinutesAgo,
+                elapsedSeconds = 5L // UI only ticked 5 seconds before screen was turned off
+            )
+
+            // Complete task
+            viewModel.completeTask()
+            testScheduler.runCurrent()
+
+            val taskSlot = slot<TaskEntity>()
+            coVerify { taskRepo.completeAndRecur(capture(taskSlot), any()) }
+
+            // Invariant: True elapsed time (20 minutes) must be credited, NOT the stale 5 seconds (1 minute)!
+            assertEquals(20f, taskSlot.captured.totalTimeTrackedMinutes, 0.5f)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testAutoBreakDownTaskResetsSkippedMicroStepIndices() = runTest(testDispatcher) {
+        val task = makeTask(id = "skip-step-task", title = "Decomposition Skip Test").copy(
+            ifThenPlan = "[ ] Step 1\n[ ] Step 2\n[ ] Step 3"
+        )
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "skip-step-task"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+        val behavioralService = mockk<com.neuroflow.app.domain.service.BehavioralSupportService>()
+
+        coEvery { taskRepo.getById("skip-step-task") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("skip-step-task") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+        coEvery { behavioralService.generateMicroStepsWithAi(any(), any(), any(), any(), any()) } returns listOf(
+            com.neuroflow.app.domain.service.MicroStepSuggestion("New Step 1", 5),
+            com.neuroflow.app.domain.service.MicroStepSuggestion("New Step 2", 10),
+            com.neuroflow.app.domain.service.MicroStepSuggestion("New Step 3", 10)
+        )
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext,
+            behavioralSupportService = behavioralService
+        )
+
+        try {
+            testScheduler.runCurrent()
+            assertEquals(3, viewModel.uiState.value.microSteps.size)
+
+            // User skips step 0
+            viewModel.skipCurrentMicroStep(0)
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.skippedMicroStepIndices.contains(0))
+
+            // AI re-decomposes task
+            viewModel.autoBreakDownTask()
+            testScheduler.runCurrent()
+
+            // Invariant: skippedMicroStepIndices must be cleared so new breakdown starts fresh from step 0
+            assertTrue(viewModel.uiState.value.skippedMicroStepIndices.isEmpty())
+            assertEquals("New Step 1", viewModel.uiState.value.microSteps[0].text)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testTakeDecompressionRestAndDismissResetsTimerStatePreventingDoubleCount() = runTest(testDispatcher) {
+        val task = makeTask(id = "decomp-reset-task", title = "Decompression Reset Test")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "decomp-reset-task"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("decomp-reset-task") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("decomp-reset-task") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Run sprint to 0 (25 min completed)
+            viewModel.startTimer()
+            testScheduler.runCurrent()
+            repeat(1500) { viewModel.tickSecond() }
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.isSprintCompleted)
+            assertTrue(viewModel.uiState.value.showSprintCompletionSheet)
+
+            // Tap Take Decompression Rest
+            viewModel.takeDecompressionRest()
+            testScheduler.runCurrent()
+
+            // Invariant: startedAtMillis, elapsedSeconds, activeSessionId must be reset
+            assertEquals(0L, viewModel.uiState.value.startedAtMillis)
+            assertEquals(0L, viewModel.uiState.value.elapsedSeconds)
+            assertEquals(1500L, viewModel.uiState.value.remainingSeconds)
+            assertNull(viewModel.uiState.value.activeSessionId)
+            assertTrue(viewModel.uiState.value.showDecompressionZone)
+
+            // User completes task from decompression zone or after
+            viewModel.completeTask()
+            testScheduler.runCurrent()
+
+            val taskSlot = slot<TaskEntity>()
+            coVerify { taskRepo.completeAndRecur(capture(taskSlot), any()) }
+
+            // Invariant: Tracked time must be 25m (from sprint completion), NOT 50m!
+            assertEquals(25f, taskSlot.captured.totalTimeTrackedMinutes, 0.001f)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testAutoTrackerSuppressedDuringSprintCompletionReview() = runTest(testDispatcher) {
+        val task = makeTask(id = "autotracker-sprint-task", title = "Auto Tracker Sprint Guard Test")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "autotracker-sprint-task"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsFlow = MutableStateFlow(UserPreferences(autoTrackerEnabled = false))
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("autotracker-sprint-task") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("autotracker-sprint-task") } returns null
+        every { prefsDataStore.preferencesFlow } returns prefsFlow
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Sprint finishes naturally
+            viewModel.startTimer()
+            testScheduler.runCurrent()
+            repeat(1500) { viewModel.tickSecond() }
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.showSprintCompletionSheet)
+            assertFalse(viewModel.uiState.value.isRunning)
+
+            // Now auto-tracker preference updates from another thread / worker
+            prefsFlow.value = UserPreferences(autoTrackerEnabled = true)
+            testScheduler.advanceTimeBy(9000L)
+            testScheduler.runCurrent()
+
+            // Invariant: Auto-tracker must NOT restart timer while sprint completion sheet is shown!
+            assertFalse(viewModel.uiState.value.isRunning)
+            assertTrue(viewModel.uiState.value.showSprintCompletionSheet)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testMultiPartContinuationTasksAndSubtasksBlockedInFocusNextTaskQueue() = runTest(testDispatcher) {
+        val part1Task = makeTask(id = "backend_task#part1", title = "Backend Architecture Part 1")
+        val part2Task = makeTask(id = "backend_task#part2", title = "Backend Architecture Part 2")
+        val part3Task = makeTask(id = "backend_task#part3", title = "Backend Architecture Part 3")
+        val unmetDep = makeTask(id = "unmet-dep", title = "Unmet External Dependency", quadrant = Quadrant.ELIMINATE)
+        val activeFrontend = makeTask(id = "frontend_task", title = "Frontend Task").copy(dependsOnTaskIds = "unmet-dep")
+        val underscorePart3 = makeTask(id = "frontend_task_part3", title = "Frontend Part 3")
+        val activeParent = makeTask(id = "active-parent", title = "Parent Task").copy(dependsOnTaskIds = "unmet-dep")
+        val subtask = makeTask(id = "subtask-123", title = "Child Subtask").copy(parentTaskId = "active-parent")
+        val standaloneActionable = makeTask(id = "standalone-task", title = "Standalone Ready Task")
+
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "backend_task#part1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("backend_task#part1") } returns part1Task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(
+            part1Task,
+            part2Task,
+            part3Task,
+            activeFrontend,
+            underscorePart3,
+            unmetDep,
+            activeParent,
+            subtask,
+            standaloneActionable
+        )
+        coEvery { sessionRepo.getOpenSessionForTask("backend_task#part1") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Invariant: Multi-part continuations (#part2, #part3, _part3) and subtasks with active parents
+            // must NOT be selected as next task ahead of ready standalone tasks!
+            assertEquals("standalone-task", viewModel.uiState.value.nextTaskId)
+            assertEquals("Standalone Ready Task", viewModel.uiState.value.nextTaskTitle)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testFutureTasksExcludedAndNextTaskClearsToNullWhenQueueExhausted() = runTest(testDispatcher) {
+        val currentTask = makeTask(id = "current-task-1", title = "Current Task")
+        val futureTask = makeTask(
+            id = "future-task-1",
+            title = "Task Next Week",
+            scheduledDate = System.currentTimeMillis() + (7L * ONE_DAY_MILLIS)
+        )
+
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "current-task-1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("current-task-1") } returns currentTask
+        // Only current task and a future-scheduled task exist
+        coEvery { taskRepo.getActiveTasks() } returns listOf(currentTask, futureTask)
+        coEvery { sessionRepo.getOpenSessionForTask("current-task-1") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Future task must be excluded, leaving nextTaskId as null
+            assertNull(viewModel.uiState.value.nextTaskId)
+            assertNull(viewModel.uiState.value.nextTaskTitle)
+
+            // Complete current task
+            viewModel.completeTask()
+            testScheduler.runCurrent()
+
+            // Invariant: When queue is exhausted, nextTaskId must be null (must NOT fall back to stale ID)
+            assertNull(viewModel.uiState.value.nextTaskId)
+            assertNull(viewModel.uiState.value.nextTaskTitle)
+            assertTrue(viewModel.uiState.value.showCompletionCelebration)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testSprintCompletionIncrementsSessionCountAndRetainsTelemetryAcrossDecompressionRest() = runTest(testDispatcher) {
+        val task = makeTask(id = "sprint-decomp-task", title = "Cognitive Sprint")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "sprint-decomp-task"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("sprint-decomp-task") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("sprint-decomp-task") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            viewModel.selectTimerMode(FocusTimerModeV2.JUST_5_MIN)
+            viewModel.startTimer()
+            testScheduler.runCurrent()
+
+            // Complete the 5m sprint
+            repeat(300) { viewModel.tickSecond() }
+            testScheduler.runCurrent()
+
+            // Invariant 1: Sprint completion in tickSecond increments sessionCount and records lastSessionDurationMinutes
+            val updatedSlot = slot<TaskEntity>()
+            coVerify(atLeast = 1) { taskRepo.update(capture(updatedSlot)) }
+            assertEquals(1, updatedSlot.captured.sessionCount)
+            assertEquals(5f, updatedSlot.captured.lastSessionDurationMinutes ?: 0f, 0.001f)
+            assertEquals(5f, updatedSlot.captured.totalTimeTrackedMinutes, 0.001f)
+
+            // User takes a 3-minute decompression rest
+            viewModel.takeDecompressionRest()
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.showDecompressionZone)
+
+            // User dismisses/bypasses decompression rest
+            viewModel.readyNowBypassDecompression()
+            testScheduler.runCurrent()
+            assertFalse(viewModel.uiState.value.showDecompressionZone)
+
+            // User completes the task after decompression
+            viewModel.completeTask()
+            testScheduler.runCurrent()
+
+            val completeSlot = slot<TaskEntity>()
+            coVerify { taskRepo.completeAndRecur(capture(completeSlot), any()) }
+
+            // Invariant 2: sessionCount remains 1 (not reset to 0) and lastSessionDurationMinutes is preserved
+            assertEquals(1, completeSlot.captured.sessionCount)
+            assertEquals(5f, completeSlot.captured.lastSessionDurationMinutes ?: 0f, 0.001f)
+            assertEquals(5f, completeSlot.captured.totalTimeTrackedMinutes, 0.001f)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testEliminateIceboxTaskDoesNotScheduleAutonomyNudgeOnCleared() = runTest(testDispatcher) {
+        val iceboxTask = makeTask(
+            id = "icebox-nudge-task",
+            title = "Icebox Low Priority Idea",
+            status = TaskStatus.ACTIVE,
+            quadrant = Quadrant.ELIMINATE
+        )
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "icebox-nudge-task"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("icebox-nudge-task") } returns iceboxTask
+        coEvery { taskRepo.getActiveTasks() } returns listOf(iceboxTask)
+        coEvery { sessionRepo.getOpenSessionForTask("icebox-nudge-task") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        testScheduler.runCurrent()
+        io.mockk.verify { AutonomyNudgeEngine.cancelNudge(mockContext, "icebox-nudge-task") }
+
+        viewModel.clearForTest()
+        testScheduler.runCurrent()
+
+        // Invariant (BUG-444): ELIMINATE / icebox tasks MUST NOT be scheduled for autonomy nudges
+        io.mockk.verify(exactly = 0) {
+            AutonomyNudgeEngine.scheduleNudge(mockContext, match { it.id == "icebox-nudge-task" })
+        }
+    }
+
+    @Test
+    fun testCompleteTaskCancelsTaskReminderWorkerAndDismissesNotification() = runTest(testDispatcher) {
+        val task = makeTask(id = "reminder-task-1", title = "Task With Scheduled Reminder")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "reminder-task-1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+        val mockNm = mockk<android.app.NotificationManager>(relaxed = true)
+        every { mockContext.getSystemService(android.app.NotificationManager::class.java) } returns mockNm
+
+        coEvery { taskRepo.getById("reminder-task-1") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("reminder-task-1") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            viewModel.completeTask()
+            testScheduler.runCurrent()
+
+            // Invariant (BUG-445): NotificationManager.cancel(taskId.hashCode()) must be called
+            io.mockk.verify(atLeast = 1) { mockNm.cancel("reminder-task-1".hashCode()) }
+            // Invariant (BUG-445): TaskReminderWorker.cancelReminder must be invoked
+            io.mockk.verify(atLeast = 1) {
+                com.neuroflow.app.worker.TaskReminderWorker.cancelReminder(mockContext, "reminder-task-1")
+            }
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testUuidSplitContinuationPart3BlockedWhilePart2IsActive() = runTest(testDispatcher) {
+        val part1Task = makeTask(id = "uuid-part-1", title = "Quarterly Plan (Part 1/3)").copy(parentTaskId = "uuid-parent")
+        val part2Task = makeTask(id = "uuid-part-2", title = "Quarterly Plan (Part 2/3)").copy(parentTaskId = "uuid-parent")
+        val part3Task = makeTask(id = "uuid-part-3", title = "Quarterly Plan (Part 3/3)").copy(parentTaskId = "uuid-parent")
+        val standaloneReady = makeTask(id = "standalone-next", title = "Write Release Notes")
+
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "uuid-part-1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("uuid-part-1") } returns part1Task
+        // Part 1 is current; Part 2 and Part 3 are both active in DB
+        coEvery { taskRepo.getActiveTasks() } returns listOf(
+            part1Task,
+            part2Task,
+            part3Task,
+            standaloneReady
+        )
+        coEvery { sessionRepo.getOpenSessionForTask("uuid-part-1") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // Invariant (BUG-446): Part 3 MUST NOT be scheduled as next task while Part 2 is still active.
+            // Both Part 2 and Part 3 are blocked behind Part 1 (or sequentially), so standalone task is next.
+            assertNotEquals("uuid-part-3", viewModel.uiState.value.nextTaskId)
+            assertEquals("standalone-next", viewModel.uiState.value.nextTaskId)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testDndNoticeActiveWhenDndEnabledAndPermissionNotGranted() = runTest(testDispatcher) {
+        val task = makeTask(id = "dnd-task-1", title = "DND Verification")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "dnd-task-1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+        val nm = mockk<android.app.NotificationManager>(relaxed = true) {
+            every { isNotificationPolicyAccessGranted } returns false
+        }
+        val context = mockk<Context>(relaxed = true) {
+            every { getSystemService(android.app.NotificationManager::class.java) } returns nm
+        }
+
+        coEvery { taskRepo.getById("dnd-task-1") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(dndEnabled = true))
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = context
+        )
+
+        try {
+            testScheduler.runCurrent()
+            assertTrue("DND notice must be active when dndEnabled is true and permission is not granted", viewModel.uiState.value.showDndNotice)
+
+            // Test dismissal
+            viewModel.dismissDndNotice()
+            testScheduler.runCurrent()
+            assertFalse("DND notice must be hidden after dismissal", viewModel.uiState.value.showDndNotice)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testDndNoticeHiddenWhenPermissionGranted() = runTest(testDispatcher) {
+        val task = makeTask(id = "dnd-task-2", title = "DND Granted Verification")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "dnd-task-2"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+        val nm = mockk<android.app.NotificationManager>(relaxed = true) {
+            every { isNotificationPolicyAccessGranted } returns true
+        }
+        val context = mockk<Context>(relaxed = true) {
+            every { getSystemService(android.app.NotificationManager::class.java) } returns nm
+        }
+
+        coEvery { taskRepo.getById("dnd-task-2") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(dndEnabled = true))
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = context
+        )
+
+        try {
+            testScheduler.runCurrent()
+            assertFalse("DND notice must not be active when permission is granted", viewModel.uiState.value.showDndNotice)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testDndNoticeHiddenWhenDndDisabledInPreferences() = runTest(testDispatcher) {
+        val task = makeTask(id = "dnd-task-3", title = "DND Disabled Verification")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "dnd-task-3"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+        val nm = mockk<android.app.NotificationManager>(relaxed = true) {
+            every { isNotificationPolicyAccessGranted } returns false
+        }
+        val context = mockk<Context>(relaxed = true) {
+            every { getSystemService(android.app.NotificationManager::class.java) } returns nm
+        }
+
+        coEvery { taskRepo.getById("dnd-task-3") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(dndEnabled = false))
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = context
+        )
+
+        try {
+            testScheduler.runCurrent()
+            assertFalse("DND notice must not be active when dndEnabled is false", viewModel.uiState.value.showDndNotice)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testFocusDndHelperEnablesAndDisablesDndAppropriately() {
+        val nm = mockk<android.app.NotificationManager>(relaxed = true) {
+            every { isNotificationPolicyAccessGranted } returns true
+        }
+        val context = mockk<Context>(relaxed = true) {
+            every { getSystemService(android.app.NotificationManager::class.java) } returns nm
+        }
+
+        val enableResult = FocusDndHelper.enableDndIfPermitted(context)
+        assertTrue(enableResult)
+        verify(exactly = 1) { nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY) }
+
+        val disableResult = FocusDndHelper.disableDnd(context)
+        assertTrue(disableResult)
+        verify(exactly = 1) { nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL) }
+
+        // Test defensive with null context
+        assertFalse(FocusDndHelper.enableDndIfPermitted(null))
+        assertFalse(FocusDndHelper.disableDnd(null))
+    }
+
+    @Test
+    fun testDndDisabledWhenBackgroundExpiredSessionLoaded() = runTest(testDispatcher) {
+        val task = makeTask(id = "expired-task-1", title = "Expired Session Task")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "expired-task-1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+        val nm = mockk<android.app.NotificationManager>(relaxed = true) {
+            every { isNotificationPolicyAccessGranted } returns true
+        }
+        val context = mockk<Context>(relaxed = true) {
+            every { getSystemService(android.app.NotificationManager::class.java) } returns nm
+        }
+
+        val pastStart = System.currentTimeMillis() - 2000_000L
+        val openSession = TimeSessionEntity(
+            id = "sess-expired-1",
+            taskId = "expired-task-1",
+            startedAt = pastStart,
+            endedAt = null,
+            pausedAt = null,
+            totalPausedMs = 0L,
+            durationMinutes = 25f,
+            pauseResumeCount = 0
+        )
+
+        coEvery { taskRepo.getById("expired-task-1") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("expired-task-1") } returns openSession
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(dndEnabled = true))
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = context
+        )
+
+        try {
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.isSprintCompleted)
+            verify(atLeast = 1) { nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL) }
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testSoundscapeAudioCanBeChangedOrTurnedOffWithoutStartingAnotherSession() = runTest(testDispatcher) {
+        val task = makeTask(id = "audio-task-1", title = "Audio Task")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to "audio-task-1"))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById("audio-task-1") } returns task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(task)
+        coEvery { sessionRepo.getOpenSessionForTask("audio-task-1") } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = null
+        )
+
+        try {
+            testScheduler.runCurrent()
+            // In completed frame or not running frame (isRunning = false)
+            assertFalse(viewModel.uiState.value.isRunning)
+
+            // Changing soundscape to NONE always executes without requiring isRunning
+            viewModel.selectSoundscape(SoundscapeType.NONE)
+            assertEquals(SoundscapeType.NONE, viewModel.uiState.value.selectedSoundscape)
+
+            // Changing soundscape to GAMMA_40HZ updates state
+            viewModel.selectSoundscape(SoundscapeType.GAMMA_40HZ)
+            assertEquals(SoundscapeType.GAMMA_40HZ, viewModel.uiState.value.selectedSoundscape)
+
+            // When user switches to NONE, it turns off
+            viewModel.selectSoundscape(SoundscapeType.NONE)
+            assertEquals(SoundscapeType.NONE, viewModel.uiState.value.selectedSoundscape)
         } finally {
             viewModel.clearForTest()
         }

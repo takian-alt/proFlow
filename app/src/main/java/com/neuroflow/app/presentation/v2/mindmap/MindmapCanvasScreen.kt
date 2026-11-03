@@ -129,32 +129,6 @@ fun MindmapCanvasScreen(
                     gx += gridSize
                 }
 
-                // Render established edges
-                state.edges.forEach { edge ->
-                    val wireColor = when {
-                        edge.isCompleted -> Color(0xFF333333)
-                        edge.edgeType == MindmapEdgeType.GOAL_LINK -> Color(0xFF6366F1).copy(alpha = 0.85f)
-                        edge.edgeType == MindmapEdgeType.DEPENDENCY -> Color(0xFFF59E0B).copy(alpha = 0.85f)
-                        else -> Color(0xFF10B981).copy(alpha = 0.7f)
-                    }
-
-                    val path = Path().apply {
-                        moveTo(edge.start.x + 90f, edge.start.y + 40f)
-                        val control1 = Offset(edge.start.x + 160f, edge.start.y + 40f)
-                        val control2 = Offset(edge.end.x - 70f, edge.end.y + 40f)
-                        cubicTo(control1.x, control1.y, control2.x, control2.y, edge.end.x, edge.end.y + 40f)
-                    }
-
-                    drawPath(
-                        path = path,
-                        color = wireColor,
-                        style = Stroke(
-                            width = if (edge.edgeType == MindmapEdgeType.DEPENDENCY) 3.5f else 2.5f,
-                            cap = StrokeCap.Round
-                        )
-                    )
-                }
-
                 // Draw established connection wires (Bézier curves)
                 state.edges.forEach { edge ->
                     val wireColor = when (edge.edgeType) {
@@ -164,14 +138,28 @@ fun MindmapCanvasScreen(
                     }
 
                     val finalColor = if (edge.isCompleted) Color(0xFF334155).copy(alpha = 0.5f) else wireColor.copy(alpha = 0.85f)
-                    val p1 = edge.start
-                    val p2 = edge.end
+
+                    val srcRect = nodeRects[edge.sourceId]
+                    val tgtRect = nodeRects[edge.targetId]
+
+                    val p1 = if (srcRect != null) {
+                        Offset(srcRect.center.x, srcRect.center.y)
+                    } else {
+                        Offset(edge.start.x + 90f, edge.start.y + 40f)
+                    }
+
+                    val p2 = if (tgtRect != null) {
+                        Offset(tgtRect.center.x, tgtRect.center.y)
+                    } else {
+                        Offset(edge.end.x + 100f, edge.end.y + 30f)
+                    }
 
                     val path = Path().apply {
                         moveTo(p1.x, p1.y)
-                        val cx1 = (p1.x + p2.x) / 2
+                        val deltaX = (p2.x - p1.x) / 2f
+                        val cx1 = p1.x + deltaX
                         val cy1 = p1.y
-                        val cx2 = (p1.x + p2.x) / 2
+                        val cx2 = p1.x + deltaX
                         val cy2 = p2.y
                         cubicTo(cx1, cy1, cx2, cy2, p2.x, p2.y)
                     }

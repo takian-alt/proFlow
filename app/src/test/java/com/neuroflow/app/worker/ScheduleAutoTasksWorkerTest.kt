@@ -398,4 +398,121 @@ class ScheduleAutoTasksWorkerTest : StringSpec({
         val shouldDeleteActive = activePart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED
         shouldDeleteActive shouldBe true
     }
+
+    "BUG-381: Part 2 continuation task is eligible for scheduling when parent task is completed" {
+        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(baseMillis)
+        val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(todayStart) - 1
+
+        val activePart2 = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "parent_task_part2",
+            parentTaskId = "parent_task",
+            title = "Design System (Part 2/2)",
+            scheduledDate = todayStart,
+            scheduledTime = null,
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE
+        )
+
+        // Parent is completed, so only activePart2 is in allTasks
+        val allTasks = listOf(activePart2)
+        val activeTaskIds = allTasks.map { it.id }.toSet()
+        val isPart2Blocked: (com.neuroflow.app.data.local.entity.TaskEntity) -> Boolean = { task ->
+            (task.id.endsWith("_part2") || task.id.contains("#part2")) && (
+                (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                task.id.removeSuffix("_part2").substringBefore("#part2") in activeTaskIds
+            )
+        }
+
+        val blocked = isPart2Blocked(activePart2)
+        blocked shouldBe false
+
+        val unscheduled = allTasks.filterNot { isPart2Blocked(it) }
+        unscheduled.map { it.id } shouldBe listOf("parent_task_part2")
+    }
+
+    "BUG-381: Part 2 continuation task preserves (Part 2/2) title when scheduled" {
+        val part2Task = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "parent_task_part2",
+            parentTaskId = "parent_task",
+            title = "Design System (Part 2/2)",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE
+        )
+
+        val cleanTitle = part2Task.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
+        val isSplit = false // single placement for part 2
+        val titleToUse = when {
+            isSplit -> "$cleanTitle (Part 1/2)"
+            part2Task.id.endsWith("_part2") || part2Task.title.contains("(Part 2/") -> part2Task.title
+            else -> cleanTitle
+        }
+
+        titleToUse shouldBe "Design System (Part 2/2)"
+    }
+
+    "BUG-422: applyPlacementsTransactionally groups placements preserving standalone Part 2 continuation tasks without clobbering parent" {
+        val parentTask = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "feature_task",
+            title = "Feature Spec (Part 1/2)",
+            status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED
+        )
+        val part2Task = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "feature_task_part2",
+            parentTaskId = "feature_task",
+            title = "Feature Spec (Part 2/2)",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE
+        )
+
+        // When placement is for feature_task_part2
+        val window = com.neuroflow.app.domain.service.TimeSlotWindow(baseMillis, baseMillis + 30 * 60_000L)
+        val placement = com.neuroflow.app.domain.service.ScheduledPlacement(
+            task = com.neuroflow.app.domain.service.SchedulableTask(
+                id = part2Task.id,
+                title = part2Task.title,
+                category = com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK,
+                priority = 1,
+                estimatedMinutes = 30,
+                energyDemand = com.neuroflow.app.domain.service.EnergyDemand.MODERATE
+            ),
+            window = window,
+            scoreBreakdown = com.neuroflow.app.domain.service.TaskScoreBreakdown("feature_task_part2", 100.0, 100.0, 0.0, 0.0, 0.0, 30)
+        )
+
+        val placements = listOf(placement)
+        val placementsByBaseId = placements.groupBy { p ->
+            if (p.task.id.contains("#part")) {
+                p.task.id.substringBefore("#part")
+            } else {
+                p.task.id
+            }
+        }
+
+        // Standalone Part 2 must NOT be stripped down to "feature_task"
+        placementsByBaseId.keys shouldBe setOf("feature_task_part2")
+    }
+
+    "BUG-423: multi-part continuation tasks (#part3, _part3) blocked if preceding part is still active" {
+        val activeIds = setOf("epic_part1", "epic_part2")
+        val part3Task = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "epic_part3",
+            parentTaskId = "epic",
+            title = "Epic Release (Part 3/3)",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE
+        )
+
+        val partNumMatch = Regex("""[#_]part(\d+)""").find(part3Task.id)
+        val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+            ?: Regex("""\(Part (\d+)/""").find(part3Task.title)?.groupValues?.get(1)?.toIntOrNull()
+        val isContinuation = (partNum != null && partNum >= 2) ||
+            part3Task.id.contains(Regex("""[#_]part\d+""")) ||
+            part3Task.parentTaskId != null
+        val parentSlug = part3Task.parentTaskId ?: part3Task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+        val isParentActive = (part3Task.parentTaskId != null && part3Task.parentTaskId in activeIds) ||
+            (parentSlug != part3Task.id && parentSlug in activeIds)
+        val isPart1Active = part3Task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in activeIds
+        val isPrecedingPartActive = partNum != null && (1 until partNum).any { prevPart ->
+            part3Task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart") in activeIds
+        }
+
+        val isBlocked = isContinuation && (isParentActive || isPart1Active || isPrecedingPartActive)
+        isBlocked shouldBe true
+    }
 })

@@ -29,6 +29,11 @@ import androidx.work.workDataOf
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.startOfNextLocalDay
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.entity.dependencyIds
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.engine.FreshStartEngine
@@ -60,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private var initialGuideOpen by mutableStateOf(false)
     private var initialNewTaskOpen by mutableStateOf(false)
     private var initialScheduleOpen by mutableStateOf(false)
+    private var isResolvingFocusTask by mutableStateOf(false)
+    private var isResolvingWoopTask by mutableStateOf(false)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -71,7 +78,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        val taskId = intent.getStringExtra("taskId") ?: intent.getStringExtra("task_id")
+        val taskId = (intent.getStringExtra("taskId")
+            ?: intent.getStringExtra("task_id")
+            ?: intent.getStringExtra("extra_task_id"))?.takeIf { it.isNotBlank() }
         val notificationId = intent.getIntExtra("notificationId", Int.MIN_VALUE)
         if (notificationId != Int.MIN_VALUE) {
             NotificationManagerCompat.from(this).cancel(notificationId)
@@ -79,10 +88,11 @@ class MainActivity : ComponentActivity() {
         val openWoop = intent.getBooleanExtra("openWoop", false)
         val action = intent.action
 
-        // Clean up intent to prevent stale action/extras from re-triggering on configuration changes (BUG-311)
+        // Clean up intent to prevent stale action/extras from re-triggering on configuration changes (BUG-311, BUG-435)
         intent.action = null
         intent.removeExtra("taskId")
         intent.removeExtra("task_id")
+        intent.removeExtra("extra_task_id")
         intent.removeExtra("openWoop")
         intent.removeExtra("notificationId")
 
@@ -107,31 +117,7 @@ class MainActivity : ComponentActivity() {
                         initialFocusTaskId = taskId
                     }
                 } else {
-                    lifecycleScope.launch {
-                        runCatching {
-                            val activeTasks = taskRepository.getActiveTasks()
-                            val activeIds = activeTasks.map { it.id }.toSet()
-                            val firstTask = activeTasks
-                                .filter {
-                                    it.status == TaskStatus.ACTIVE &&
-                                    it.quadrant != Quadrant.ELIMINATE &&
-                                    (it.dependsOnTaskIds.isBlank() || it.dependsOnTaskIds.split(",").none { id -> id.trim() in activeIds })
-                                }
-                                .sortedWith(
-                                    compareByDescending<TaskEntity> { it.isFrog }
-                                        .thenBy { it.quadrant != Quadrant.DO_FIRST }
-                                        .thenBy { it.priority.ordinal }
-                                )
-                                .firstOrNull()
-                            if (firstTask != null) {
-                                initialFocusTaskId = firstTask.id
-                            } else {
-                                initialFocusTaskId = "tab_focus"
-                            }
-                        }.onFailure {
-                            initialFocusTaskId = "tab_focus"
-                        }
-                    }
+                    resolveDefaultFocusTask(openWoop = openWoop)
                 }
                 return
             }
@@ -143,7 +129,7 @@ class MainActivity : ComponentActivity() {
                 initialScheduleOpen = true
                 return
             }
-            "RESCHEDULE_NUDGE" -> {
+            "RESCHEDULE_NUDGE", "com.procus.ACTION_RESCHEDULE_NUDGE", "com.neuroflow.app.ACTION_RESCHEDULE_NUDGE" -> {
                 if (taskId == null) return
                 val uniqueWorkName = AutonomyNudgeEngine.uniqueWorkName(taskId)
                 // Re-enqueue AutonomyNudgeWorker with 1-hour delay
@@ -159,8 +145,85 @@ class MainActivity : ComponentActivity() {
                     request
                 )
             }
-            "WOOP_REFLECT" -> {
-                initialWoopTaskId = taskId
+            "WOOP_REFLECT", "com.procus.ACTION_WOOP_REFLECT", "com.neuroflow.app.ACTION_WOOP_REFLECT" -> {
+                if (!taskId.isNullOrBlank()) {
+                    initialWoopTaskId = taskId
+                } else {
+                    resolveDefaultFocusTask(openWoop = true)
+                }
+            }
+            else -> {
+                if (!taskId.isNullOrBlank()) {
+                    if (openWoop) {
+                        initialWoopTaskId = taskId
+                    } else {
+                        initialFocusTaskId = taskId
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resolveDefaultFocusTask(openWoop: Boolean = false) {
+        isResolvingFocusTask = true
+        isResolvingWoopTask = openWoop
+        lifecycleScope.launch {
+            try {
+                val now = System.currentTimeMillis()
+                val dayStart = startOfLocalDay(now)
+                val dayEnd = startOfNextLocalDay(dayStart) - 1
+                val activeTasks = taskRepository.getActiveTasks()
+                val activeIds = activeTasks.map { it.id }.toSet()
+                val firstTask = activeTasks
+                    .filter {
+                        if (it.status != TaskStatus.ACTIVE || it.quadrant == Quadrant.ELIMINATE) return@filter false
+                        if (it.waitingFor.isNotBlank()) return@filter false
+                        // Blocked if active prerequisite is unmet
+                        val isBlockedByPrereq = it.dependencyIds().any { id -> id in activeIds }
+                        if (isBlockedByPrereq) return@filter false
+                        // Continuation parts (Part 2, 3, etc.) blocked if parent or preceding part is still active (BUG-432)
+                        val partNumMatch = Regex("""[#_]part(\d+)""").find(it.id)
+                        val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                        val isContinuation = (partNum != null && partNum >= 2) ||
+                            it.id.endsWith("_part2") ||
+                            it.id.contains("#part2") ||
+                            it.parentTaskId != null
+                        val parentSlug = it.parentTaskId ?: it.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                        val isParentActive = isContinuation && parentSlug in activeIds
+                        val isPart1Active = isContinuation && it.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in activeIds
+                        val isPrecedingPartActive = partNum != null && (1 until partNum).any { prevPart ->
+                            it.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart") in activeIds
+                        }
+                        val isPartBlocked = isParentActive || isPart1Active || isPrecedingPartActive
+                        if (isPartBlocked) return@filter false
+                        // Filter out future-scheduled tasks
+                        val scheduledStart = it.resolveScheduledEpochMillis(now)
+                        val sDate = it.effectiveScheduledDateMillis()
+                        val isScheduledInFuture = (scheduledStart != null && scheduledStart > dayEnd) || (sDate != null && sDate > dayEnd)
+                        !isScheduledInFuture
+                    }
+                    .sortedWith(
+                        compareByDescending<TaskEntity> { it.isFrog }
+                            .thenBy { it.quadrant != Quadrant.DO_FIRST }
+                            .thenBy { it.resolveScheduledEpochMillis(now) ?: Long.MAX_VALUE }
+                            .thenByDescending { it.effectiveScheduledDateMillis() != null || ((it.scheduledTime ?: 0L) > 0L) }
+                            .thenBy { it.priority.ordinal }
+                    )
+                    .firstOrNull()
+                if (firstTask != null) {
+                    if (openWoop) {
+                        initialWoopTaskId = firstTask.id
+                    } else {
+                        initialFocusTaskId = firstTask.id
+                    }
+                } else {
+                    initialFocusTaskId = "tab_focus"
+                }
+            } catch (e: Exception) {
+                initialFocusTaskId = "tab_focus"
+            } finally {
+                isResolvingFocusTask = false
+                isResolvingWoopTask = false
             }
         }
     }
@@ -172,6 +235,8 @@ class MainActivity : ComponentActivity() {
         outState.putBoolean("saved_guide_open", initialGuideOpen)
         outState.putBoolean("saved_schedule_open", initialScheduleOpen)
         outState.putBoolean("saved_new_task_open", initialNewTaskOpen)
+        outState.putBoolean("saved_resolving_focus_task", isResolvingFocusTask)
+        outState.putBoolean("saved_resolving_woop_task", isResolvingWoopTask)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -184,7 +249,9 @@ class MainActivity : ComponentActivity() {
         }
         enableEdgeToEdge()
 
-        val hasPendingAction = !intent.action.isNullOrBlank() || intent.hasExtra("taskId") || intent.hasExtra("task_id")
+        val isFromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        val isMainLauncher = intent.action == Intent.ACTION_MAIN && intent.categories?.contains(Intent.CATEGORY_LAUNCHER) == true
+        val hasPendingAction = !isFromHistory && (!isMainLauncher && !intent.action.isNullOrBlank() || intent.hasExtra("taskId") || intent.hasExtra("task_id") || intent.hasExtra("extra_task_id"))
         if (hasPendingAction) {
             handleIntent(intent)
         } else if (savedInstanceState != null) {
@@ -193,6 +260,14 @@ class MainActivity : ComponentActivity() {
             initialGuideOpen = savedInstanceState.getBoolean("saved_guide_open", false)
             initialScheduleOpen = savedInstanceState.getBoolean("saved_schedule_open", false)
             initialNewTaskOpen = savedInstanceState.getBoolean("saved_new_task_open", false)
+            val wasResolving = savedInstanceState.getBoolean("saved_resolving_focus_task", false)
+            val wasResolvingWoop = savedInstanceState.getBoolean("saved_resolving_woop_task", false)
+            if (wasResolving && initialFocusTaskId == null && initialWoopTaskId == null) {
+                resolveDefaultFocusTask(openWoop = wasResolvingWoop)
+            } else {
+                isResolvingFocusTask = false
+                isResolvingWoopTask = false
+            }
         }
 
         setContent {
@@ -226,7 +301,8 @@ class MainActivity : ComponentActivity() {
                 initialWoopTaskId != null ||
                 initialGuideOpen ||
                 initialScheduleOpen ||
-                initialNewTaskOpen
+                initialNewTaskOpen ||
+                isResolvingFocusTask
             var directIntentSessionHandled by rememberSaveable { mutableStateOf(pendingDirectIntent) }
             if (pendingDirectIntent && !directIntentSessionHandled) {
                 directIntentSessionHandled = true
@@ -283,7 +359,10 @@ class MainActivity : ComponentActivity() {
                                                 energyLevel             = inferred.energyDemand,
                                                 taskType                = inferred.taskType,
                                                 tags                    = inferred.contextTags.joinToString(","),
+                                                contextTag              = inferred.contextTags.firstOrNull().orEmpty(),
                                                 priority                = inferred.priority,
+                                                scheduledDate           = inferred.scheduledDate,
+                                                scheduledTime           = inferred.scheduledTime,
                                                 deadlineDate            = inferred.deadlineDate ?: inferred.scheduledDate,
                                                 deadlineTime            = inferred.deadlineTime ?: inferred.scheduledTime,
                                                 quadrant                = Quadrant.DO_FIRST,
@@ -291,6 +370,9 @@ class MainActivity : ComponentActivity() {
                                                 isFrog                  = true
                                             )
                                         )
+                                        if (inferred.contextTags.isNotEmpty()) {
+                                            preferencesDataStore.mergeTagCatalog(inferred.contextTags)
+                                        }
                                     }
                                 }
                             }

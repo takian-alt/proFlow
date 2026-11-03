@@ -5,6 +5,7 @@ import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
@@ -661,5 +662,728 @@ class FlowScreenV2AuditTest : StringSpec({
 
         isUltradianPart shouldBe true
         partLabel shouldBe "🔗 Part 2/2"
+    }
+
+    "BUG-362: FlowViewModelV2.addTask preserves unscheduled backlog tasks with scheduledDate = null and normalizes epoch scheduledTime" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+            val futureDayStart = todayStart + 4 * 86_400_000L
+
+            val unscheduledBacklogTask = TaskEntity(
+                id = "backlog-task",
+                title = "Someday Read Research Paper",
+                scheduledDate = null,
+                scheduledTime = null,
+                status = TaskStatus.ACTIVE
+            )
+
+            val futureEpochTask = TaskEntity(
+                id = "future-epoch-task",
+                title = "Future Board Meeting",
+                scheduledDate = null,
+                scheduledTime = futureDayStart + 10 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            // 1. Unscheduled backlog task must preserve scheduledDate = null
+            viewModel.addTask(unscheduledBacklogTask)
+            advanceUntilIdle()
+            coVerify {
+                taskRepo.insert(match { task ->
+                    task.id == "backlog-task" && task.scheduledDate == null && task.scheduledTime == null
+                })
+            }
+
+            // 2. Future epoch task must be normalized to epochStart date and intraday time offset
+            viewModel.addTask(futureEpochTask)
+            advanceUntilIdle()
+            coVerify {
+                taskRepo.insert(match { task ->
+                    task.id == "future-epoch-task" &&
+                        task.scheduledDate == futureDayStart &&
+                        task.scheduledTime == 10 * 3600_000L
+                })
+            }
+        }
+    }
+
+    "BUG-363: FlowViewModelV2.addTaskFromNote prioritizes explicit note title over inferred sanitized title and breakDownTask schedules autonomy nudge" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val mockContext = mockk<Context>(relaxed = true)
+            val behavioralService = mockk<com.neuroflow.app.domain.service.BehavioralSupportService>(relaxed = true)
+
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            coEvery {
+                behavioralService.generateMicroStepsWithAi(any(), any(), any(), any(), any())
+            } returns listOf(
+                com.neuroflow.app.domain.service.MicroStepSuggestion("Draft structure", 10),
+                com.neuroflow.app.domain.service.MicroStepSuggestion("Write core logic", 15)
+            )
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                behavioralSupportService = behavioralService,
+                context = mockContext
+            )
+
+            // 1. Explicit note title must be preserved
+            viewModel.addTaskFromNote(title = "Explicit Meeting Title", content = "call clinic to confirm appointment 30m")
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.insert(match { task ->
+                    task.title == "Explicit Meeting Title" &&
+                        task.description == "call clinic to confirm appointment 30m"
+                })
+            }
+
+            // 2. breakDownTask updates calendar and schedules autonomy nudge
+            val taskToBreak = TaskEntity(
+                id = "breakdown-task-1",
+                title = "Design System Refactor",
+                estimatedDurationMinutes = 30
+            )
+            viewModel.breakDownTask(taskToBreak)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { it.id == "breakdown-task-1" && it.ifThenPlan.isNotBlank() })
+                AutonomyNudgeEngine.scheduleNudge(mockContext, match { it.id == "breakdown-task-1" })
+            }
+        }
+    }
+
+    "BUG-364: FlowViewModelV2 detects #part2 continuation tasks and _part1 dependencies as blocked when Part 1 is incomplete" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            // Active Part 1 with #part1 convention
+            val activePart1 = TaskEntity(
+                id = "deep_task#part1",
+                title = "Deep Task (Part 1/2)",
+                scheduledDate = todayStart,
+                scheduledTime = 9 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+            // Continuation Part 2 with #part2 convention
+            val blockedPart2 = TaskEntity(
+                id = "deep_task#part2",
+                parentTaskId = "deep_task#part1",
+                title = "Deep Task (Part 2/2)",
+                scheduledDate = todayStart,
+                scheduledTime = 11 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(activePart1, blockedPart2))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            // When Part 1 is active, blockedPart2 MUST NOT be recommended or treated as actionable!
+            state.recommendedTask?.id shouldBe "deep_task#part1"
+
+            // Now complete Part 1
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(blockedPart2))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(listOf(activePart1.copy(status = TaskStatus.COMPLETED)))
+
+            val updatedViewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+            val updatedState = updatedViewModel.uiState.filter { !it.isLoading }.first()
+            // Once Part 1 is completed, Part 2 is now unblocked and actionable!
+            updatedState.recommendedTask?.id shouldBe "deep_task#part2"
+        }
+    }
+
+    "BUG-365: FlowViewModelV2.shiftTaskToPeak aligns peakEndHour with manualPeak when manualPeakProfileEnabled is true" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val calendarRepo = mockk<CalendarSyncRepository>(relaxed = true)
+            val circadianService = mockk<CircadianEnergyService>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            val morningSummary = DailyCircadianSummary(
+                currentSnapshot = mockk(relaxed = true),
+                peakWindowStartHour = 9,
+                peakWindowEndHour = 12, // Algorithmic morning peak
+                peakEnergyScore = 80,
+                dipWindowStartHour = 13,
+                dipWindowEndHour = 16,
+                recommendedDeepWorkMinutes = 120
+            )
+            every { circadianService.computeDailySummary(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns morningSummary
+
+            val morningTask = TaskEntity(
+                id = "morning-task-shift",
+                title = "Afternoon Presentation Prep",
+                scheduledDate = todayStart,
+                scheduledTime = 8 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(morningTask))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(
+                UserPreferences(
+                    manualPeakProfileEnabled = true,
+                    manualPeakAnchorMinuteOfDay = 14 * 60 // 14:00 PM manual peak
+                )
+            )
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                circadianEnergyService = circadianService,
+                calendarSyncRepository = calendarRepo
+            )
+
+            viewModel.shiftTaskToPeak(morningTask, nowMillis = todayStart + 8 * 3600_000L)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { updated ->
+                    updated.id == "morning-task-shift" &&
+                        // Shifted to manual peak hour (14:00), not corrupted by algorithmic peak window
+                        updated.scheduledTime == 14 * 3600_000L
+                })
+            }
+        }
+    }
+
+    "BUG-366: shouldShowUltradianBufferAfter in EnergyTimelineStream suppresses dividers between untimed tasks and resets on natural breaks" {
+        val now = System.currentTimeMillis()
+        val todayStart = startOfLocalDay(now)
+
+        // Case 1: Untimed tasks must never show ultradian buffer dividers
+        val untimed1 = TaskEntity(
+            id = "untimed-1",
+            title = "Untimed Task 1",
+            scheduledDate = todayStart,
+            scheduledTime = null,
+            estimatedDurationMinutes = 45
+        )
+        val untimed2 = TaskEntity(
+            id = "untimed-2",
+            title = "Untimed Task 2",
+            scheduledDate = todayStart,
+            scheduledTime = null,
+            estimatedDurationMinutes = 50
+        )
+        shouldShowUltradianBufferAfter(listOf(untimed1, untimed2), 0) shouldBe false
+
+        // Case 2: Natural break between timed tasks (>= 15 min) resets continuous focus accumulation
+        // Task 1: 09:00 - 09:45 (45 min)
+        val timed1 = TaskEntity(
+            id = "timed-1",
+            title = "Morning Deep Work",
+            scheduledDate = todayStart,
+            scheduledTime = 9 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        // Task 2: 13:00 - 13:50 (50 min, >3 hour break after Task 1)
+        val timed2 = TaskEntity(
+            id = "timed-2",
+            title = "Afternoon Code Review",
+            scheduledDate = todayStart,
+            scheduledTime = 13 * 3600_000L,
+            estimatedDurationMinutes = 50
+        )
+        // Task 3: 15:00 - 15:30
+        val timed3 = TaskEntity(
+            id = "timed-3",
+            title = "Evening Admin",
+            scheduledDate = todayStart,
+            scheduledTime = 15 * 3600_000L,
+            estimatedDurationMinutes = 30
+        )
+        // Between timed2 and timed3, only 50m of work was done after the natural lunch break -> no buffer!
+        shouldShowUltradianBufferAfter(listOf(timed1, timed2, timed3), 1) shouldBe false
+
+        // Case 3: Split Part 1 and Part 2 always displays ultradian buffer
+        val part1 = TaskEntity(
+            id = "heavy_task#part1",
+            title = "Heavy Refactor (Part 1/2)",
+            scheduledDate = todayStart,
+            scheduledTime = 9 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        val part2 = TaskEntity(
+            id = "heavy_task#part2",
+            title = "Heavy Refactor (Part 2/2)",
+            scheduledDate = todayStart,
+            scheduledTime = 10 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        shouldShowUltradianBufferAfter(listOf(part1, part2), 0) shouldBe true
+    }
+
+    "BUG-406: Multi-part continuation tasks (#part3, _part3, etc.) blocked when parent/preceding parts active, and trailing commas in dependsOnTaskIds handled" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            val parentTask = TaskEntity(
+                id = "multi_part_task",
+                title = "Massive Refactoring (Part 1/3)",
+                scheduledDate = todayStart,
+                scheduledTime = 9 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+            val part3Task = TaskEntity(
+                id = "multi_part_task#part3",
+                parentTaskId = "multi_part_task",
+                title = "Massive Refactoring (Part 3/3)",
+                scheduledDate = todayStart,
+                scheduledTime = 14 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+            val depTask = TaskEntity(
+                id = "dep_completed",
+                title = "Prerequisite Task",
+                status = TaskStatus.COMPLETED
+            )
+            val dependentWithTrailingComma = TaskEntity(
+                id = "trailing_comma_task",
+                title = "Task with trailing comma dependency",
+                dependsOnTaskIds = "dep_completed, ",
+                scheduledDate = todayStart,
+                scheduledTime = 11 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(parentTask, part3Task, dependentWithTrailingComma))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(listOf(depTask))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            // Part 3 continuation MUST NOT be recommended while parent/Part 1 is active!
+            state.recommendedTask?.id shouldNotBe "multi_part_task#part3"
+            // Dependent task with trailing comma in dependsOnTaskIds MUST be recognized as actionable!
+            val actionableIds = state.filteredTasks.map { it.id }
+            actionableIds.contains("trailing_comma_task") shouldBe true
+        }
+    }
+
+    "BUG-407: FlowViewModelV2 normalizes epoch deadlines, synchronizes contextTag, and guards autonomy nudge against Quadrant.ELIMINATE" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val mockContext = mockk<Context>(relaxed = true)
+
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                context = mockContext
+            )
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+            val rawEpochDeadline = todayStart + 18 * 3600_000L // 18:00 PM today as raw epoch
+
+            // 1. addTask with epoch deadline & Quadrant.ELIMINATE
+            val iceboxTask = TaskEntity(
+                id = "icebox-task-1",
+                title = "Someday Maybe Idea",
+                quadrant = Quadrant.ELIMINATE,
+                deadlineDate = null,
+                deadlineTime = rawEpochDeadline,
+                status = TaskStatus.ACTIVE
+            )
+            viewModel.addTask(iceboxTask)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.insert(match { task ->
+                    task.id == "icebox-task-1" &&
+                        task.deadlineDate == todayStart &&
+                        task.deadlineTime == 18 * 3600_000L
+                })
+            }
+            // Autonomy nudge must NOT be scheduled for Icebox task!
+            io.mockk.verify(exactly = 0) {
+                AutonomyNudgeEngine.scheduleNudge(mockContext, match { it.id == "icebox-task-1" })
+            }
+
+            // 2. updateTask to Quadrant.ELIMINATE cancels autonomy nudge
+            val activeToIcebox = iceboxTask.copy(quadrant = Quadrant.ELIMINATE)
+            viewModel.updateTask(activeToIcebox)
+            advanceUntilIdle()
+
+            io.mockk.verify {
+                AutonomyNudgeEngine.cancelNudge(mockContext, "icebox-task-1")
+            }
+
+            // 3. addTaskFromNote populates contextTag
+            val synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
+                extractedTaskTitle = "Quick Note Task",
+                suggestedCategory = "ANALYTICAL",
+                estimatedMinutes = 25,
+                tags = listOf("#deepwork"),
+                firstActionStep = ""
+            )
+            viewModel.addTaskFromNote(synthesis, "Analyze quarterly performance report 30m #deepwork")
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.insert(match { task ->
+                    task.title == "Quick Note Task" &&
+                        task.contextTag == "deepwork"
+                })
+            }
+        }
+    }
+
+    "BUG-408: FlowViewModelV2.deferTask defers untimed and overdue tasks from now, preserving future schedule" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val sessionRepo = mockk<com.neuroflow.app.data.repository.SessionRepository>(relaxed = true)
+
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                sessionRepository = sessionRepo
+            )
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            // Untimed task (scheduledTime == null)
+            val untimedTask = TaskEntity(
+                id = "untimed-defer-task",
+                title = "Untimed Day Task",
+                scheduledDate = todayStart,
+                scheduledTime = null,
+                status = TaskStatus.ACTIVE
+            )
+
+            viewModel.deferTask(untimedTask, hours = 2)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { updated ->
+                    updated.id == "untimed-defer-task" &&
+                        // Must be deferred from now (now + 2h), not midnight 02:00 AM!
+                        (updated.resolveScheduledEpochMillis() ?: 0L) >= now + 3600_000L
+                })
+            }
+
+            // Also test overdue timed task from morning
+            val overdueTask = TaskEntity(
+                id = "overdue-defer-task",
+                title = "Overdue Morning Task",
+                scheduledDate = todayStart,
+                scheduledTime = 6 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+            viewModel.deferTask(overdueTask, hours = 2)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { updated ->
+                    updated.id == "overdue-defer-task" &&
+                        (updated.resolveScheduledEpochMillis() ?: 0L) >= now + 3600_000L
+                })
+            }
+        }
+    }
+
+    "BUG-409: shouldShowUltradianBufferAfter supports multi-part split parts and preserves breaks across interleaved untimed tasks" {
+        val now = System.currentTimeMillis()
+        val todayStart = startOfLocalDay(now)
+
+        // Case 1: Multi-part split (Part 2/3 and Part 3/3)
+        val part2Of3 = TaskEntity(
+            id = "heavy#part2",
+            title = "Heavy Refactor (Part 2/3)",
+            scheduledDate = todayStart,
+            scheduledTime = 10 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        val part3Of3 = TaskEntity(
+            id = "heavy#part3",
+            title = "Heavy Refactor (Part 3/3)",
+            scheduledDate = todayStart,
+            scheduledTime = 11 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        shouldShowUltradianBufferAfter(listOf(part2Of3, part3Of3), 0) shouldBe true
+
+        // Case 2: Interleaved untimed task between two timed tasks separated by a 4-hour break
+        val morningTimed = TaskEntity(
+            id = "morning",
+            title = "Morning Deep Work",
+            scheduledDate = todayStart,
+            scheduledTime = 9 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        val untimedMiddle = TaskEntity(
+            id = "untimed",
+            title = "Anytime Task",
+            scheduledDate = todayStart,
+            scheduledTime = null,
+            estimatedDurationMinutes = 60
+        )
+        val afternoonTimed = TaskEntity(
+            id = "afternoon",
+            title = "Afternoon Meeting",
+            scheduledDate = todayStart,
+            scheduledTime = 14 * 3600_000L,
+            estimatedDurationMinutes = 45
+        )
+        // Between morning and afternoon there was a 4h gap. An untimed middle task must not hide this break!
+        shouldShowUltradianBufferAfter(listOf(morningTimed, untimedMiddle, afternoonTimed), 2) shouldBe false
+    }
+
+    "BUG-440: Multi-part continuation tasks without #part in ID are actionable and recommended when parent is completed" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            // Parent task (completed)
+            val parentTask = TaskEntity(
+                id = "uuid-parent-1",
+                title = "Deep Code Review (Part 1/2)",
+                status = TaskStatus.COMPLETED
+            )
+            // Continuation task with standard UUID and parentTaskId set, title has (Part 2/2)
+            val continuationTask = TaskEntity(
+                id = "uuid-continuation-2",
+                parentTaskId = "uuid-parent-1",
+                title = "Deep Code Review (Part 2/2)",
+                scheduledDate = todayStart,
+                scheduledTime = 10 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(continuationTask))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(listOf(parentTask))
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            // Continuation task MUST NOT be blocked by itself! It must be actionable and eligible for recommendation
+            state.filteredTasks.map { it.id }.contains("uuid-continuation-2") shouldBe true
+            state.recommendedTask?.id shouldBe "uuid-continuation-2"
+        }
+    }
+
+    "BUG-441: shiftTaskToPeak anchors upcoming wrapping circadian peak to today instead of deferring to tomorrow" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            // Setup a chronotype / manual peak profile that wraps midnight: 22:00 -> 01:00
+            val prefs = UserPreferences(
+                manualPeakProfileEnabled = true,
+                manualPeakAnchorMinuteOfDay = 22 * 60 // 22:00 (10 PM)
+            )
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(prefs)
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 19) // 19:00 (7 PM) - peak at 22:00 is upcoming today!
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val now1900 = cal.timeInMillis
+            val todayStart = startOfLocalDay(now1900)
+
+            val testTask = TaskEntity(
+                id = "shift-task-1",
+                title = "Night Writing Task",
+                scheduledDate = todayStart,
+                scheduledTime = 14 * 3600_000L,
+                status = TaskStatus.ACTIVE
+            )
+
+            viewModel.shiftTaskToPeak(testTask, nowMillis = now1900)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { updated ->
+                    updated.id == "shift-task-1" &&
+                        updated.scheduledDate == todayStart &&
+                        updated.scheduledTime == 22 * 3600_000L
+                })
+            }
+        }
+    }
+
+    "BUG-442: FlowViewModelV2.addTask initializes habitDate on recurring tasks with scheduledDate and guards autonomy nudge in shiftTaskToPeak and breakDownTask" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val mockContext = mockk<Context>(relaxed = true)
+
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                context = mockContext
+            )
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            // 1. Recurring task with explicit scheduledDate must have habitDate initialized
+            val recurringWithDate = TaskEntity(
+                id = "recurring-date-task",
+                title = "Daily Evening Routine",
+                recurrence = Recurrence.DAILY,
+                scheduledDate = todayStart,
+                scheduledTime = 20 * 3600_000L,
+                habitDate = null,
+                status = TaskStatus.ACTIVE
+            )
+            viewModel.addTask(recurringWithDate)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.insert(match { inserted ->
+                    inserted.id == "recurring-date-task" &&
+                        inserted.habitDate == todayStart
+                })
+            }
+
+            // 2. Icebox task in shiftTaskToPeak must NOT trigger autonomy nudge
+            val iceboxTask = TaskEntity(
+                id = "icebox-peak-task",
+                title = "Someday Project",
+                quadrant = Quadrant.ELIMINATE,
+                status = TaskStatus.ACTIVE
+            )
+            viewModel.shiftTaskToPeak(iceboxTask, nowMillis = now)
+            advanceUntilIdle()
+
+            io.mockk.verify(exactly = 0) {
+                AutonomyNudgeEngine.scheduleNudge(mockContext, match { it.id == "icebox-peak-task" })
+            }
+        }
+    }
+
+    "BUG-443: shouldShowUltradianBufferAfter does not emit buffer between untimed split parts" {
+        val now = System.currentTimeMillis()
+        val todayStart = startOfLocalDay(now)
+
+        // Untimed Part 1 and Untimed Part 2 (both scheduledTime == null)
+        val untimedPart1 = TaskEntity(
+            id = "task#part1",
+            title = "Big Task (Part 1/2)",
+            scheduledDate = todayStart,
+            scheduledTime = null,
+            estimatedDurationMinutes = 45
+        )
+        val untimedPart2 = TaskEntity(
+            id = "task#part2",
+            title = "Big Task (Part 2/2)",
+            scheduledDate = todayStart,
+            scheduledTime = null,
+            estimatedDurationMinutes = 45
+        )
+
+        // Must return false because both are untimed!
+        shouldShowUltradianBufferAfter(listOf(untimedPart1, untimedPart2), 0) shouldBe false
+    }
+
+    "BUG-AUDIT-010: FlowViewModelV2 shiftTaskToPeak preserves sub-hour minute precision from manual peak anchor" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            // Manual peak anchor set to 9:30 AM (570 minutes of day)
+            val prefs = UserPreferences(
+                manualPeakProfileEnabled = true,
+                manualPeakAnchorMinuteOfDay = 570
+            )
+
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 8)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val morningNow = cal.timeInMillis
+
+            val task = TaskEntity(
+                id = "task_to_shift",
+                title = "Important Review",
+                status = TaskStatus.ACTIVE,
+                scheduledDate = startOfLocalDay(morningNow),
+                scheduledTime = 14 * 3600_000L
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(task))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(prefs)
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            viewModel.shiftTaskToPeak(task, nowMillis = morningNow)
+            advanceUntilIdle()
+
+            coVerify {
+                taskRepo.update(match { updated ->
+                    updated.id == "task_to_shift" &&
+                        // Must be 570 * 60_000L = 34_200_000L (9:30 AM), not truncated to 9:00 AM (32,400,000L)
+                        updated.scheduledTime == 570 * 60_000L
+                })
+            }
+        }
     }
 })

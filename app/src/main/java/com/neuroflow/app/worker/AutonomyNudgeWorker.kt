@@ -13,6 +13,7 @@ import com.neuroflow.app.R
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.effectiveReminderTargetMillis
 import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
@@ -41,8 +42,37 @@ class AutonomyNudgeWorker @AssistedInject constructor(
             // Idempotent: skip if task gone or already started or not active
             if (task == null || task.status != TaskStatus.ACTIVE || task.sessionCount > 0) return Result.success()
 
-            // Skip if task is in the Icebox (Quadrant.ELIMINATE)
-            if (task.quadrant == Quadrant.ELIMINATE) return Result.success()
+            // Skip if task is in the Icebox (Quadrant.ELIMINATE) or waiting for external response
+            if (task.quadrant == Quadrant.ELIMINATE || task.waitingFor.isNotBlank()) return Result.success()
+
+            val allActive = taskRepository.getActiveTasks()
+            val activeIds = allActive.map { it.id }.toSet()
+
+            // Skip if blocked by unfinished prerequisites
+            val isBlockedByPrereq = task.dependsOnTaskIds.isNotBlank() &&
+                task.dependsOnTaskIds.split(',')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .any { it in activeIds }
+            if (isBlockedByPrereq) return Result.success()
+
+            // Skip if continuation part whose parent or preceding parts are incomplete
+            val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+            val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+            val isContinuation = (partNum != null && partNum >= 2) ||
+                task.id.contains(Regex("""[#_]part\d+""")) ||
+                task.parentTaskId != null
+            if (isContinuation) {
+                val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeIds) ||
+                    (parentSlug != task.id && parentSlug in activeIds)
+                val isPart1Active = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in activeIds
+                val isPrecedingPartActive = partNum != null && (1 until partNum).any { prevPart ->
+                    task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart") in activeIds
+                }
+                if (isParentActive || isPart1Active || isPrecedingPartActive) return Result.success()
+            }
 
             val now = System.currentTimeMillis()
             val dueAt = task.effectiveReminderTargetMillis()
@@ -53,12 +83,13 @@ class AutonomyNudgeWorker @AssistedInject constructor(
             }
             val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(now) - 1
             val sDate = task.effectiveScheduledDateMillis()
+            val dEpoch = task.resolveDeadlineEpochMillis(now)
 
             // Skip unscheduled backlog tasks (no scheduled date and no deadline)
-            if (sDate == null && task.deadlineDate == null) return Result.success()
+            if (sDate == null && dEpoch == null) return Result.success()
 
             if ((sDate != null && sDate > dayEnd) ||
-                (sDate == null && task.deadlineDate != null && task.deadlineDate > dayEnd)) {
+                (sDate == null && dEpoch != null && dEpoch > dayEnd)) {
                 return Result.success()
             }
 

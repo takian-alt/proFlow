@@ -503,4 +503,20 @@ class NeuralSoundscapeAdversarialStressTest {
         val nonZeroCount = combined.count { it != 0.toShort() }
         assertTrue("Crossfade buffer must contain active audio across the blend", nonZeroCount > chunkSize)
     }
+
+    @Test
+    fun testBug344_pauseWithFadeOutClearsWasPlayingBeforeFocusLossAndReleaseResetsGenerator() {
+        val player = NeuralSoundscapePlayer(context = null)
+        val focusLossField = NeuralSoundscapePlayer::class.java.getDeclaredField("wasPlayingBeforeFocusLoss").apply { isAccessible = true }
+        focusLossField.set(player, true)
+        assertTrue("wasPlayingBeforeFocusLoss should be true", focusLossField.getBoolean(player))
+
+        player.pauseWithFadeOut(clearFocusLossFlag = true)
+        assertFalse("Explicit pauseWithFadeOut must clear wasPlayingBeforeFocusLoss", focusLossField.getBoolean(player))
+
+        // Check generator reset
+        player.generator.setVolumeInstant(0.9f)
+        player.release()
+        assertEquals(0.0f, player.generator.currentVolume, 0.001f)
+    }
 }

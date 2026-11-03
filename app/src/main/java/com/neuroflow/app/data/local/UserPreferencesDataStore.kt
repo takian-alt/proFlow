@@ -888,7 +888,7 @@ class UserPreferencesDataStore @Inject constructor(
     }
 
     suspend fun mergeTagCatalog(tags: Collection<String>) {
-        val cleaned = tags.flatMap { it.split(",") }
+        val cleaned = tags.flatMap { it.split(Regex("""(?=[#@])|[,;]""")) }
             .mapNotNull { it.trim().removePrefix("#").removePrefix("@").takeIf(String::isNotBlank) }
         if (cleaned.isEmpty()) return
 

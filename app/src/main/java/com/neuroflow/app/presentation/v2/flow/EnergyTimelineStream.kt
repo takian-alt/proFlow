@@ -30,6 +30,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.common.ManualTimeLogSheet
@@ -104,7 +105,7 @@ fun EnergyTimelineStream(
                     val end = start + TaskBlockPlan.plannedMinutes(task) * 60_000L
                     end >= nowMillis
                 } else {
-                    true
+                    false
                 }
             }
             var cumulativeMinutes = 0
@@ -114,7 +115,10 @@ fun EnergyTimelineStream(
                     task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
                 } else null
                 val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
-                    timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - scheduledMillis) }?.phase ?: EnergyPhase.PEAK
+                    val timelineStart = timeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+                        ?: com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
+                    val alignedMillis = timelineStart + task.timelineStartMinuteOfDay() * 60_000L
+                    timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - alignedMillis) }?.phase ?: EnergyPhase.PEAK
                 } else EnergyPhase.PEAK
                 val phaseColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
 
@@ -197,16 +201,8 @@ fun EnergyTimelineStream(
                     }
                 }
 
-                cumulativeMinutes += TaskBlockPlan.plannedMinutes(task)
-                val hasNext = index < scheduledTasks.size - 1
-                if (hasNext) {
-                    val nextTask = scheduledTasks[index + 1]
-                    val isBetweenSplitParts = (task.id.contains("#part1") || task.id.contains("_part1") || task.title.contains("(Part 1/2)")) &&
-                            (nextTask.id.contains("#part2") || nextTask.id.contains("_part2") || nextTask.title.contains("(Part 2/2)"))
-                    if (isBetweenSplitParts || cumulativeMinutes >= 90) {
-                        UltradianRecoveryDivider()
-                        cumulativeMinutes = 0
-                    }
+                if (shouldShowUltradianBufferAfter(scheduledTasks, index)) {
+                    UltradianRecoveryDivider()
                 }
             }
         }
@@ -256,11 +252,11 @@ fun TimelineTaskCard(
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
                     currentOnComplete()
-                    false
+                    true
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
                     currentOnDefer()
-                    false
+                    true
                 }
                 SwipeToDismissBoxValue.Settled -> false
             }
@@ -407,7 +403,14 @@ fun TimelineTaskCard(
 
                         val isUltradianPart = task.id.contains("#part") || task.id.contains("_part") || task.title.contains("(Part ")
                         if (isUltradianPart) {
-                            val partLabel = if (task.id.contains("#part2") || task.id.contains("_part2") || task.title.contains("(Part 2/2)")) "🔗 Part 2/2" else "🔗 Part 1/2"
+                            val titleMatch = Regex("""\(Part (\d+/\d+)\)""").find(task.title)
+                            val idPartMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                            val partLabel = when {
+                                titleMatch != null -> "🔗 Part ${titleMatch.groupValues[1]}"
+                                idPartMatch != null -> "🔗 Part ${idPartMatch.groupValues[1]}"
+                                task.id.contains("#part2") || task.id.contains("_part2") || task.title.contains("(Part 2/2)") -> "🔗 Part 2/2"
+                                else -> "🔗 Part 1/2"
+                            }
                             Box(
                                 modifier = Modifier
                                     .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
@@ -442,9 +445,12 @@ fun TimelineTaskCard(
                         task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
                     } else null
                     if (scheduledMillis != null && timeline.isNotEmpty()) {
+                        val timelineStart = timeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+                            ?: com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+                        val alignedMillis = timelineStart + task.timelineStartMinuteOfDay() * 60_000L
                         Spacer(modifier = Modifier.height(4.dp))
                         TaskSlotEnergyFitBadge(
-                            taskScheduledMillis = scheduledMillis,
+                            taskScheduledMillis = alignedMillis,
                             taskEnergyDemand = task.energyLevel,
                             timeline = timeline,
                             onShiftToPeakClick = onShiftToPeak
@@ -666,4 +672,44 @@ fun TimelineTaskCard(
         }
     }
 }
+
+internal fun shouldShowUltradianBufferAfter(tasks: List<TaskEntity>, index: Int): Boolean {
+    if (index >= tasks.size - 1) return false
+    val current = tasks[index]
+    val next = tasks[index + 1]
+
+    // Untimed tasks must not trigger timeline ultradian recovery dividers
+    if (current.scheduledTime == null || next.scheduledTime == null) return false
+
+    // Always show buffer between split parts (e.g. Part 1/2 and Part 2/2, Part 2/3 and Part 3/3)
+    val curPart = Regex("""[#_]part(\d+)""").find(current.id)?.groupValues?.get(1)?.toIntOrNull()
+        ?: Regex("""\(Part (\d+)/""").find(current.title)?.groupValues?.get(1)?.toIntOrNull()
+    val nextPart = Regex("""[#_]part(\d+)""").find(next.id)?.groupValues?.get(1)?.toIntOrNull()
+        ?: Regex("""\(Part (\d+)/""").find(next.title)?.groupValues?.get(1)?.toIntOrNull()
+    val isBetweenConsecutiveSplitParts = (curPart != null && nextPart != null && nextPart == curPart + 1) ||
+        ((current.id.contains("#part1") || current.id.contains("_part1") || current.title.contains("(Part 1/2)")) &&
+            (next.id.contains("#part2") || next.id.contains("_part2") || next.title.contains("(Part 2/2)")))
+    if (isBetweenConsecutiveSplitParts) return true
+
+    var lastTimedEndMinute: Int? = null
+    var runSum = 0
+    for (i in 0..index) {
+        val t = tasks[i]
+        if (t.scheduledTime == null) continue
+        val curStart = t.timelineStartMinuteOfDay()
+        if (lastTimedEndMinute != null && curStart - lastTimedEndMinute >= 15) {
+            runSum = 0
+        }
+        runSum += TaskBlockPlan.plannedMinutes(t)
+        lastTimedEndMinute = curStart + TaskBlockPlan.plannedMinutes(t)
+        if (i == index) {
+            return runSum >= 90
+        }
+        if (runSum >= 90) {
+            runSum = 0
+        }
+    }
+    return false
+}
+
 

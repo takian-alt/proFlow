@@ -113,7 +113,11 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                     deadlineMillis = task.resolveDeadlineEpochMillis(),
                     isLocked = task.isScheduleLocked,
                     parentTaskId = task.parentTaskId,
-                    prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
+                    prerequisiteIds = let {
+                        val parsed = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+                        task.parentTaskId?.trim()?.takeIf { it.isNotBlank() && it != task.id }?.let { parsed.add(it) }
+                        parsed
+                    },
                     impactScore = task.impactScore,
                     postponeCount = task.postponeCount,
                     isAnxietyTask = task.isAnxietyTask,
@@ -252,15 +256,33 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             return tasks.filter { task ->
                 val sDate = task.effectiveScheduledDateMillis()
                 val dDate = task.resolveDeadlineEpochMillis()
-                val isNotFuture = (sDate != null && sDate <= dayEnd) ||
+                val scheduledStart = task.resolveScheduledEpochMillis()
+                val isScheduledInFuture = scheduledStart != null && scheduledStart > dayEnd
+                val isNotFuture = !isScheduledInFuture && (
+                    (sDate != null && sDate <= dayEnd) ||
                     (sDate == null && dDate != null && dDate <= dayEnd) ||
                     (sDate == null && dDate == null)
-
-                // Part 2 is blocked only if its parent task is still active in the database
-                val isPart2Blocked = task.id.endsWith("_part2") && (
-                    (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
-                    task.id.removeSuffix("_part2") in activeTaskIds
                 )
+
+                // Continuation parts (Part 2, 3, etc.) blocked if parent or preceding part is still active
+                val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                    ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                val isContinuation = (partNum != null && partNum >= 2) ||
+                    task.id.contains(Regex("""[#_]part\d+""")) ||
+                    task.parentTaskId != null
+                val isContinuationBlocked = if (!isContinuation) {
+                    false
+                } else {
+                    val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                        (parentSlug != task.id && parentSlug in activeTaskIds)
+                    val isPart1Active = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in activeTaskIds
+                    val isPrecedingPartActive = partNum != null && (1 until partNum).any { prevPart ->
+                        task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart") in activeTaskIds
+                    }
+                    isParentActive || isPart1Active || isPrecedingPartActive
+                }
 
                 // Prerequisites check: blocked if any prerequisite is still active
                 val isBlockedByPrereq = task.dependsOnTaskIds.isNotBlank() &&
@@ -271,7 +293,7 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
 
                 task.status == TaskStatus.ACTIVE &&
                     task.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE &&
-                    !isPart2Blocked &&
+                    !isContinuationBlocked &&
                     !isBlockedByPrereq &&
                     task.waitingFor.isBlank() &&
                     isNotFuture

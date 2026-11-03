@@ -734,4 +734,126 @@ class CalendarWriteBackSyncTest {
         val eventId = dataSource.findEventIdByTaskId(taskId)
         eventId shouldBe 445566L
     }
+
+    @Test
+    fun `BUG-381 findEventIdByTaskId queries include DELETED equals 0 filter and clean title prefixes`() = runTest {
+        val taskId = "task-tombstone-check-381"
+        val activeCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        activeCursor.addRow(arrayOf(889900L, "neuroflow://task/$taskId"))
+
+        val selectionSlot = slot<String>()
+        every {
+            contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                any(),
+                capture(selectionSlot),
+                any(),
+                any()
+            )
+        } returns activeCursor
+
+        val eventId = dataSource.findEventIdByTaskId(taskId)
+        eventId shouldBe 889900L
+        selectionSlot.captured.contains("${CalendarContract.Events.DELETED} = 0") shouldBe true
+
+        // Verify title regex stripping and description footer deduplication
+        fun cleanTitle(title: String): String =
+            title.replace(Regex("""^(?:[✓🎯]\s*)?\[flow\]\s*""", RegexOption.IGNORE_CASE), "").trim()
+
+        cleanTitle("[flow] Code review") shouldBe "Code review"
+        cleanTitle("✓ [Flow] Code review") shouldBe "Code review"
+        cleanTitle("🎯 [FLOW] Code review") shouldBe "Code review"
+        cleanTitle("[Flow] Code review") shouldBe "Code review"
+
+        val dirtyDesc = "My detailed notes\n\n[neuroflow] Managed focus block\n[neuroflow:task:old-id]"
+        val cleanedDesc = dirtyDesc.replace(Regex("""(?s)\n*\s*\[neuroflow\].*"""), "").trim()
+        cleanedDesc shouldBe "My detailed notes"
+    }
+
+    @Test
+    fun `BUG-420 upsertTaskEvent anchors before deadline when scheduledTime is null but deadlineTime is set`() = runTest {
+        val baseDate = startOfLocalDay(1770000000000L)
+        val deadlineTask = TaskEntity(
+            id = "task-frog-deadline-only",
+            title = "File Taxes",
+            isFrog = true,
+            deadlineDate = baseDate,
+            deadlineTime = 14 * 3600_000L, // 2:00 PM (14:00)
+            scheduledTime = null,
+            estimatedDurationMinutes = 60
+        )
+
+        val calCursor = MatrixCursor(arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        ))
+        calCursor.addRow(arrayOf(77L, 1, 700))
+        every {
+            contentResolver.query(CalendarContract.Calendars.CONTENT_URI, any(), any(), any(), any())
+        } returns calCursor
+
+        val valuesSlot = slot<ContentValues>()
+        every {
+            contentResolver.insert(CalendarContract.Events.CONTENT_URI, capture(valuesSlot))
+        } returns Uri.parse("content://com.android.calendar/events/99881")
+
+        val resultId = dataSource.upsertTaskEvent(deadlineTask)
+        resultId shouldBe 99881L
+
+        val captured = valuesSlot.captured
+        val deadlineEpoch = startOfLocalDay(baseDate) + 14 * 3600_000L
+        val durationMs = 60 * 60_000L
+        captured.getAsLong(CalendarContract.Events.DTSTART) shouldBe (deadlineEpoch - durationMs)
+        captured.getAsLong(CalendarContract.Events.DTEND) shouldBe deadlineEpoch
+    }
+
+    @Test
+    fun `BUG-420 upsertTaskEvent falls back to insert when update returns 0`() = runTest {
+        val task = TaskEntity(
+            id = "task-stale-update",
+            title = "Weekly Review",
+            isFrog = true,
+            scheduledDate = 1770000000000L,
+            scheduledTime = 10 * 3600_000L
+        )
+
+        val calCursor = MatrixCursor(arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        ))
+        calCursor.addRow(arrayOf(88L, 1, 700))
+        every {
+            contentResolver.query(CalendarContract.Calendars.CONTENT_URI, any(), any(), any(), any())
+        } returns calCursor
+
+        // Stale existing event found
+        val staleCursor = MatrixCursor(arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CUSTOM_APP_URI
+        ))
+        staleCursor.addRow(arrayOf(5555L, "neuroflow://task/task-stale-update"))
+        every {
+            contentResolver.query(CalendarContract.Events.CONTENT_URI, any(), match { it.contains("CUSTOM_APP_PACKAGE") }, any(), any())
+        } returns staleCursor
+
+        // But update returns 0 rows updated!
+        every {
+            contentResolver.update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, 5555L), any(), any(), any())
+        } returns 0
+
+        // Fallback insert should be invoked
+        val insertValuesSlot = slot<ContentValues>()
+        every {
+            contentResolver.insert(CalendarContract.Events.CONTENT_URI, capture(insertValuesSlot))
+        } returns Uri.parse("content://com.android.calendar/events/77777")
+
+        val resultId = dataSource.upsertTaskEvent(task)
+        resultId shouldBe 77777L
+        insertValuesSlot.captured.getAsLong(CalendarContract.Events.CALENDAR_ID) shouldBe 88L
+    }
 }

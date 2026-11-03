@@ -21,6 +21,7 @@ class KioskPolicyWorker(
             Log.d(TAG, "Hybrid kiosk protection refreshed")
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to refresh kiosk protection", e)
             Result.retry()
         }

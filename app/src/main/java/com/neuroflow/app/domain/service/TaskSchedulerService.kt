@@ -508,6 +508,13 @@ class DefaultTaskSchedulerService @Inject constructor(
                 if (prereqId in sanitizedTaskMap) {
                     val prereqEnd = completionEndMap[prereqId]
                     prereqEnd != null && prereqEnd <= existingWindow!!.startMillis
+                } else if ((prereqId == task.parentTaskId || prereqId == cleanSplitTaskId(task.id)) &&
+                    (completionEndMap.keys.any { (cleanSplitTaskId(it) == prereqId || sanitizedTaskMap[it]?.parentTaskId == prereqId) && it != task.id })) {
+                    // BUG-416 & BUG-450 Fix: Parent's prior part was anchored; check its end time against current window start
+                    val parentPartEnd = completionEndMap.filter {
+                        (cleanSplitTaskId(it.key) == prereqId || sanitizedTaskMap[it.key]?.parentTaskId == prereqId) && it.key != task.id
+                    }.values.maxOrNull()
+                    parentPartEnd != null && parentPartEnd <= existingWindow!!.startMillis
                 } else {
                     prereqId !in activeUncompletedTaskIds
                 }
@@ -553,6 +560,28 @@ class DefaultTaskSchedulerService @Inject constructor(
                     )
                 )
                 completionEndMap[task.id] = existingWindow.endMillis
+                // BUG-373 & BUG-449 Fix: Synchronize completionEndMap[parentId] ONLY when the TRUE final continuation part is anchored
+                val isPart1Anchor = task.id.endsWith("#part1") || task.id.endsWith("_part1") || task.id.contains(Regex("""[#_]part1(\D|$)""")) || task.title.contains("(Part 1/")
+                val isContinuationPart = !isPart1Anchor && (
+                    task.id.endsWith("#part2") || task.id.endsWith("_part2") ||
+                    task.id.contains(Regex("""[#_]part[2-9]""")) ||
+                    task.title.contains(Regex("""\((Part|part) [2-9]/\d+\)""")) ||
+                    (task.parentTaskId != null && task.title.contains(Regex("""\((Part|part) \d+/\d+\)""")))
+                )
+                val parentId = if (isContinuationPart) {
+                    task.parentTaskId ?: cleanSplitTaskId(task.id)
+                } else null
+                val isFinalPart = if (isContinuationPart && parentId != null && parentId != task.id) {
+                    val siblings = sanitizedTasks.filter { (it.parentTaskId == parentId || cleanSplitTaskId(it.id) == parentId) && it.id != parentId }
+                    val finalSibling = siblings.maxWithOrNull(
+                        compareBy<SchedulableTask> { DependencyGraphValidator.extractContinuationPartIndex(it) }.thenBy { it.id }
+                    )
+                    finalSibling == null || finalSibling.id == task.id
+                } else false
+
+                if (isFinalPart && parentId != null && parentId != task.id) {
+                    completionEndMap[parentId] = existingWindow.endMillis
+                }
             } else {
                 remainingTasks.add(task)
             }
@@ -650,7 +679,12 @@ class DefaultTaskSchedulerService @Inject constructor(
             val blockedByPrereq = allPrereqs.firstOrNull { prereqId ->
                 prereqId in activeUncompletedTaskIds &&
                 prereqId !in remainingIds &&
-                prereqId !in completionEndMap
+                prereqId !in completionEndMap &&
+                // BUG-416 & BUG-450 Fix: If prereqId is the task's parent, and any part of the parent is present in today's tasks
+                // or already placed today, it is scheduled today and not pending on a future date.
+                !( (prereqId == task.parentTaskId || prereqId == cleanSplitTaskId(task.id)) &&
+                   (sanitizedTaskMap.values.any { it.parentTaskId == prereqId || cleanSplitTaskId(it.id) == prereqId } ||
+                    completionEndMap.keys.any { cleanSplitTaskId(it) == prereqId || sanitizedTaskMap[it]?.parentTaskId == prereqId }) )
             }
             if (blockedByPrereq != null) {
                 deferrals.add(
@@ -698,7 +732,7 @@ class DefaultTaskSchedulerService @Inject constructor(
         }.toMutableMap()
 
         val readyQueue = PriorityQueue<SchedulableTask>(
-            compareByDescending { task ->
+            compareByDescending<SchedulableTask> { task ->
                 val baseScore = scoreCache[task.id]?.totalScore ?: 0.0
                 val scarcityBonus = when (task.energyDemand) {
                     EnergyDemand.HIGH -> 12.0
@@ -706,7 +740,7 @@ class DefaultTaskSchedulerService @Inject constructor(
                     EnergyDemand.LOW -> 0.0
                 }
                 baseScore + scarcityBonus
-            }
+            }.thenBy { it.id }
         )
         schedulableTodayTasks.filter { (inDegree[it.id] ?: 0) == 0 }.forEach { readyQueue.add(it) }
 
@@ -838,7 +872,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                     stimulantDoses = stimulantDoses,
                     socialJetlagLagHours = socialJetlagLagHours,
                     latestAllowedEndMillis = structuralCeiling,
-                    referenceNowMillis = nowMillis
+                    referenceNowMillis = nowMillis,
+                    allowDeadlineBreach = true
                 ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
                     findBestCircadianWindow(
                         task = current,
@@ -861,7 +896,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                         stimulantDoses = stimulantDoses,
                         socialJetlagLagHours = socialJetlagLagHours,
                         latestAllowedEndMillis = structuralCeiling,
-                        referenceNowMillis = nowMillis
+                        referenceNowMillis = nowMillis,
+                        allowDeadlineBreach = true
                     )
                 } else null
             } else null
@@ -877,11 +913,26 @@ class DefaultTaskSchedulerService @Inject constructor(
                 }
                 placements.add(ScheduledPlacement(current, window, finalBreakdown))
                 completionEndMap[current.id] = window.endMillis
-                val isSplitContinuation = current.id.endsWith("#part2") || current.id.endsWith("_part2")
-                val parentId = if (isSplitContinuation) {
+                // BUG-373 & BUG-449 Fix: Support parentTaskId and continuation markers, updating parentId and unlocking downstream tasks ONLY on the final continuation part
+                val isPart1Current = current.id.endsWith("#part1") || current.id.endsWith("_part1") || current.id.contains(Regex("""[#_]part1(\D|$)""")) || current.title.contains("(Part 1/")
+                val isContinuationPartCurrent = !isPart1Current && (
+                    current.id.endsWith("#part2") || current.id.endsWith("_part2") ||
+                    current.id.contains(Regex("""[#_]part[2-9]""")) ||
+                    current.title.contains(Regex("""\((Part|part) [2-9]/\d+\)""")) ||
+                    (current.parentTaskId != null && current.title.contains(Regex("""\((Part|part) \d+/\d+\)""")))
+                )
+                val parentId = if (isContinuationPartCurrent) {
                     current.parentTaskId ?: cleanSplitTaskId(current.id)
                 } else null
-                if (parentId != null && parentId != current.id) {
+                val isFinalPartCurrent = if (isContinuationPartCurrent && parentId != null && parentId != current.id) {
+                    val siblings = sanitizedTasks.filter { (it.parentTaskId == parentId || cleanSplitTaskId(it.id) == parentId) && it.id != parentId }
+                    val finalSibling = siblings.maxWithOrNull(
+                        compareBy<SchedulableTask> { DependencyGraphValidator.extractContinuationPartIndex(it) }.thenBy { it.id }
+                    )
+                    finalSibling == null || finalSibling.id == current.id
+                } else false
+
+                if (isFinalPartCurrent && parentId != null && parentId != current.id) {
                     completionEndMap[parentId] = window.endMillis
                 }
 
@@ -920,8 +971,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                     TimeSlotWindow(window.startMillis, window.endMillis + effectiveBufferMillis)
                 )
 
-                // Decrement in-degree of direct children and (for split continuation parts) parent's downstream dependents
-                val childrenToUnlock = (children[current.id].orEmpty() + (if (parentId != null && parentId != current.id) children[parentId].orEmpty() else emptyList())).distinctBy { it.id }
+                // Decrement in-degree of direct children and (only when the true final continuation part completes) parent's downstream dependents
+                val childrenToUnlock = (children[current.id].orEmpty() + (if (isFinalPartCurrent && parentId != null && parentId != current.id) children[parentId].orEmpty() else emptyList())).distinctBy { it.id }
                 childrenToUnlock.forEach { child ->
                     if (child.id != current.id) {
                         val newDeg = (inDegree[child.id] ?: 1) - 1
@@ -940,13 +991,14 @@ class DefaultTaskSchedulerService @Inject constructor(
                     val currentCeiling = latestAllowedEndMap[current.id] ?: Long.MAX_VALUE
                     val structuralCeil = structuralCeilingMap[current.id] ?: Long.MAX_VALUE
 
-                    fun attemptSplitPlacement(ceilingToUse: Long): Boolean {
+                    fun attemptSplitPlacement(ceilingToUse: Long, allowBreach: Boolean = false): Boolean {
                         // Phase 1: Test if part1 can fit in current freeIntervals.
-                        // BUG-294 Fix: Require part1 to finish with enough headroom for the 15m ultradian buffer + part2 duration
-                        // before ceilingToUse. Otherwise, part1 will consume the slot and make placing part2 impossible.
+                        // BUG-294 & BUG-374 Fix: Require part1 to finish with enough headroom for the 15m ultradian buffer + part2 duration
+                        // before ceilingToUse and dayEndMillis. Otherwise, part1 will consume the slot and make placing part2 impossible.
                         val p1BufferMins = 15
-                        val p1Ceiling = if (ceilingToUse != Long.MAX_VALUE) {
-                            ceilingToUse - (p1BufferMins * 60_000L + p2DurationMillis)
+                        val effectiveCeiling = min(ceilingToUse, dayEndMillis)
+                        val p1Ceiling = if (effectiveCeiling != Long.MAX_VALUE) {
+                            effectiveCeiling - (p1BufferMins * 60_000L + p2DurationMillis)
                         } else {
                             Long.MAX_VALUE
                         }
@@ -974,7 +1026,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                             stimulantDoses = stimulantDoses,
                             socialJetlagLagHours = socialJetlagLagHours,
                             latestAllowedEndMillis = p1Ceiling,
-                            referenceNowMillis = nowMillis
+                            referenceNowMillis = nowMillis,
+                            allowDeadlineBreach = allowBreach
                         ) ?: return false
 
                         val (p1Window, p1Breakdown) = p1Slot
@@ -1008,7 +1061,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                             stimulantDoses = stimulantDoses,
                             socialJetlagLagHours = socialJetlagLagHours,
                             latestAllowedEndMillis = ceilingToUse,
-                            referenceNowMillis = nowMillis
+                            referenceNowMillis = nowMillis,
+                            allowDeadlineBreach = allowBreach
                         ) ?: return false
 
                         // Both parts verified! Commit both atomically to placements.
@@ -1031,13 +1085,13 @@ class DefaultTaskSchedulerService @Inject constructor(
                         children[unlockKey]?.forEach { child ->
                             val newDeg = (inDegree[child.id] ?: 1) - 1
                             inDegree[child.id] = newDeg
-                            if (newDeg <= 0) readyQueue.add(child)
+                            if (newDeg == 0) readyQueue.add(child)
                         }
                         return true
                     }
 
                     splitSuccess = attemptSplitPlacement(currentCeiling) ||
-                        (structuralCeil > currentCeiling && attemptSplitPlacement(structuralCeil))
+                        (structuralCeil > currentCeiling && attemptSplitPlacement(structuralCeil, allowBreach = true))
                 }
 
                 if (!splitSuccess) {
@@ -1091,16 +1145,28 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
-        // Bug 1 & Bug 15 Fix: Sweep remaining unplaced tasks in schedulableTodayTasks whose prerequisites failed placement or were omitted
+        // Bug 1 & Bug 15 & BUG-375 Fix: Sweep remaining unplaced tasks in schedulableTodayTasks whose prerequisites failed placement or were omitted
         val schedulableTodayBaseIds = schedulableTodayTasks.map { cleanSplitTaskId(it.id) }.toSet()
         for (task in schedulableTodayTasks) {
             val baseId = cleanSplitTaskId(task.id)
-            val isPlaced = placements.any { cleanSplitTaskId(it.task.id) == baseId }
-            val isDeferred = deferrals.any { it.taskId == baseId }
+            val isPlaced = placements.any {
+                it.task.id == task.id ||
+                (it.task.id.startsWith("${task.id}#part") || it.task.id.startsWith("${task.id}_part"))
+            }
+            val isDeferred = deferrals.any { it.taskId == task.id || it.taskId == baseId }
             if (!isPlaced && !isDeferred) {
                 val missingPrereq = task.prerequisiteIds.firstOrNull { prereqId ->
                     val cleanPrereq = cleanSplitTaskId(prereqId)
-                    val isPlacedPrereq = placements.any { cleanSplitTaskId(it.task.id) == cleanPrereq }
+                    val isPlacedPrereq = placements.any {
+                        it.task.id == prereqId ||
+                        it.task.id == "${prereqId}#part2" ||
+                        it.task.id == "${prereqId}_part2" ||
+                        ((cleanSplitTaskId(it.task.id) == cleanPrereq || it.task.parentTaskId == prereqId) && (
+                            it.task.id.contains(Regex("""[#_]part[2-9]""")) ||
+                            it.task.parentTaskId != null ||
+                            it.task.title.contains(Regex("""\((Part|part) [2-9]/\d+\)"""))
+                        ))
+                    }
                     if (isPlacedPrereq) return@firstOrNull false
                     if (activeUncompletedTaskIds.isNotEmpty()) {
                         cleanPrereq in activeUncompletedTaskIds || cleanPrereq in schedulableTodayBaseIds
@@ -1108,7 +1174,13 @@ class DefaultTaskSchedulerService @Inject constructor(
                         true
                     }
                 } ?: task.prerequisiteIds.firstOrNull { prereqId ->
-                    placements.none { cleanSplitTaskId(it.task.id) == cleanSplitTaskId(prereqId) }
+                    placements.none {
+                        it.task.id == prereqId ||
+                        it.task.id == "${prereqId}#part2" ||
+                        it.task.id == "${prereqId}_part2" ||
+                        cleanSplitTaskId(it.task.id) == cleanSplitTaskId(prereqId) ||
+                        it.task.parentTaskId == prereqId
+                    }
                 }
                 deferrals.add(
                     DeferralRationale(
@@ -1125,16 +1197,16 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
-        // Clean deferral task IDs so none carry #part or _part suffixes
+        // Clean deferral task IDs so none carry #part or _part suffixes (BUG-375: regex-safe)
         val sanitizedDeferrals = deferrals.map { d ->
-            if (d.taskId.contains("#part") || d.taskId.contains("_part")) d.copy(taskId = cleanSplitTaskId(d.taskId)) else d
+            if (d.taskId.contains(Regex("""[#_]part\d+"""))) d.copy(taskId = cleanSplitTaskId(d.taskId)) else d
         }.distinctBy { it.taskId }
 
         return SchedulingOutcome(placements.sortedBy { it.window.startMillis }, sanitizedDeferrals)
     }
 
     internal fun cleanSplitTaskId(id: String): String =
-        id.substringBefore("#part").substringBefore("_part")
+        id.replace(Regex("""[#_]part\d+.*$"""), "")
 
     internal fun splitIntoUltradianParts(
         task: SchedulableTask,
@@ -1274,7 +1346,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         stimulantDoses: List<StimulantDoseBout> = emptyList(),
         socialJetlagLagHours: Double = 0.0,
         latestAllowedEndMillis: Long = Long.MAX_VALUE,
-        referenceNowMillis: Long? = null
+        referenceNowMillis: Long? = null,
+        allowDeadlineBreach: Boolean = false
     ): Pair<TimeSlotWindow, TaskScoreBreakdown>? {
         var bestWindow: TimeSlotWindow? = null
         var bestBreakdown: TaskScoreBreakdown? = null
@@ -1286,6 +1359,11 @@ class DefaultTaskSchedulerService @Inject constructor(
             val effectiveIntervalEnd = min(interval.endMillis, latestAllowedEndMillis)
             while (candidateStart + durationMillis <= effectiveIntervalEnd) {
                 val candidateEnd = candidateStart + durationMillis
+                // BUG-AUDIT-002: Hard filter post-deadline candidates in primary search so they cannot displace valid slots
+                if (!allowDeadlineBreach && task.deadlineMillis != null && candidateEnd > task.deadlineMillis) {
+                    candidateStart += stepMillis
+                    continue
+                }
                 val midpoint = candidateStart + durationMillis / 2
                 val simulatedFocus = computeSimulatedFocusLoadAt(candidateStart, placements)
                 val snap = circadianService.evaluateSnapshotWithStimulants(

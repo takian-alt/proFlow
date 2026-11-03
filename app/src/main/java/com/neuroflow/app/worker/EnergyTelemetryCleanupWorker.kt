@@ -47,6 +47,7 @@ class EnergyTelemetryCleanupWorker @AssistedInject constructor(
             
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("EnergyTelemetry", "Cleanup worker failed", e)
             // Retry with exponential backoff on failures
             Result.retry()

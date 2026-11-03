@@ -63,7 +63,9 @@ fun CircadianHeroBarometer(
     onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
     onLogStimulant: (StimulantType) -> Unit = {},
     onLogPhysiologicalEvent: (PhysiologicalEventType) -> Unit = {},
-    onClearPhysiologicalEvents: () -> Unit = {}
+    onClearPhysiologicalEvents: () -> Unit = {},
+    onNavigateToMEQ: () -> Unit = {},
+    onNavigateToSleepLogs: () -> Unit = {}
 ) {
     val colors = LocalNeuroFlowColors.current
     val activeSnapshot = dayTimeline.minByOrNull {
@@ -221,6 +223,7 @@ fun CircadianHeroBarometer(
             if (kotlin.math.abs(socialJetlagLagHours) >= 1.0) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(
+                    onClick = onNavigateToMEQ,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.12f),
@@ -233,10 +236,34 @@ fun CircadianHeroBarometer(
                     ) {
                         Text("🌅", fontSize = 13.sp)
                         Text(
-                            text = "Weekend Drift: ${if (socialJetlagLagHours > 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", socialJetlagLagHours)}h phase shift. Morning light exposure recommended.",
+                            text = "Weekend Drift: ${if (socialJetlagLagHours > 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", socialJetlagLagHours)}h phase shift. Tap for MEQ advice.",
                             style = MaterialTheme.typography.labelSmall,
                             color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow,
                             fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            if (isFallbackSleep) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    onClick = onNavigateToSleepLogs,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("🌙", fontSize = 12.sp)
+                        Text(
+                            text = "Baseline sleep estimate used. Tap to log actual sleep.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextSecondary
                         )
                     }
                 }
@@ -347,7 +374,9 @@ fun CircadianHeroBarometer(
         onRemoveStimulantDose = onRemoveStimulantDose,
         onLogStimulant = onLogStimulant,
         onLogPhysiologicalEvent = onLogPhysiologicalEvent,
-        onClearPhysiologicalEvents = onClearPhysiologicalEvents
+        onClearPhysiologicalEvents = onClearPhysiologicalEvents,
+        onNavigateToMEQ = onNavigateToMEQ,
+        onNavigateToSleepLogs = onNavigateToSleepLogs
     )
 }
 

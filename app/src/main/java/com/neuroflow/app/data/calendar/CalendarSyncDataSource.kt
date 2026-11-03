@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
+import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.domain.model.TaskStatus
@@ -254,7 +255,7 @@ class CalendarSyncDataSource @Inject constructor(
             CalendarContract.Events._ID,
             CalendarContract.Events.CUSTOM_APP_URI
         )
-        val selection = "${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? AND ${CalendarContract.Events.CUSTOM_APP_URI} = ?"
+        val selection = "${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? AND ${CalendarContract.Events.CUSTOM_APP_URI} = ? AND ${CalendarContract.Events.DELETED} = 0"
         val selectionArgs = arrayOf(NEUROFLOW_PACKAGE_ID, "$CUSTOM_APP_URI_PREFIX$taskId")
 
         try {
@@ -278,7 +279,7 @@ class CalendarSyncDataSource @Inject constructor(
 
         // Fallback: Query by DESCRIPTION marker for cloud-synced events where CUSTOM_APP_URI was stripped by calendar sync adapter
         try {
-            val descSelection = "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+            val descSelection = "${CalendarContract.Events.DESCRIPTION} LIKE ? AND ${CalendarContract.Events.DELETED} = 0"
             val descSelectionArgs = arrayOf("%[neuroflow:task:$taskId]%")
             context.contentResolver.query(
                 CalendarContract.Events.CONTENT_URI,
@@ -323,10 +324,15 @@ class CalendarSyncDataSource @Inject constructor(
         }
 
         val effectiveDate = task.effectiveScheduledDateMillis() ?: task.deadlineDate
+        val effectiveDuration = (durationMinutes?.takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(task)).coerceAtLeast(5)
         val effectiveStart = startMillis ?: run {
             val anchor = effectiveDate ?: System.currentTimeMillis()
             if (task.scheduledTime != null) {
                 task.resolveScheduledEpochMillis(anchor)
+            } else if (task.deadlineTime != null) {
+                val deadlineEpoch = task.resolveDeadlineEpochMillis(anchor)
+                val durationMs = effectiveDuration * 60_000L
+                if (deadlineEpoch != null) deadlineEpoch - durationMs else (startOfLocalDay(anchor) + 9 * 3600_000L)
             } else if (effectiveDate != null) {
                 startOfLocalDay(effectiveDate) + 9 * 3600_000L
             } else {
@@ -334,14 +340,10 @@ class CalendarSyncDataSource @Inject constructor(
             }
         } ?: System.currentTimeMillis()
 
-        val effectiveDuration = (durationMinutes?.takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(task)).coerceAtLeast(5)
-
         val endMillis = effectiveStart + (effectiveDuration * 60_000L)
 
         val cleanTitle = task.title
-            .removePrefix("✓ [Flow] ")
-            .removePrefix("🎯 [Flow] ")
-            .removePrefix("[Flow] ")
+            .replace(Regex("""^(?:[✓🎯]\s*)?\[flow\]\s*""", RegexOption.IGNORE_CASE), "")
             .trim()
 
         val formattedTitle = when {
@@ -351,10 +353,11 @@ class CalendarSyncDataSource @Inject constructor(
         }
 
         val taskMarker = "[neuroflow:task:${task.id}]"
-        val formattedDesc = if (task.description.isBlank()) {
+        val baseDesc = task.description.replace(Regex("""(?s)\n*\s*\[neuroflow\].*"""), "").trim()
+        val formattedDesc = if (baseDesc.isBlank()) {
             "[neuroflow] Managed focus block\n$taskMarker"
         } else {
-            "${task.description}\n\n[neuroflow] Managed focus block\n$taskMarker"
+            "$baseDesc\n\n[neuroflow] Managed focus block\n$taskMarker"
         }
 
         val values = ContentValues().apply {
@@ -380,8 +383,16 @@ class CalendarSyncDataSource @Inject constructor(
         try {
             if (existingEventId != null) {
                 val updateUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, existingEventId)
-                context.contentResolver.update(updateUri, values, null, null)
-                existingEventId
+                val updatedRows = context.contentResolver.update(updateUri, values, null, null)
+                if (updatedRows > 0) {
+                    existingEventId
+                } else {
+                    // Stale event ID (e.g. event deleted in provider), fallback to insert
+                    val fallbackCalendarId = findPrimaryWritableCalendarId() ?: return@withContext null
+                    values.put(CalendarContract.Events.CALENDAR_ID, fallbackCalendarId)
+                    val insertUri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+                    insertUri?.lastPathSegment?.toLongOrNull()
+                }
             } else {
                 val insertUri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
                 insertUri?.lastPathSegment?.toLongOrNull()

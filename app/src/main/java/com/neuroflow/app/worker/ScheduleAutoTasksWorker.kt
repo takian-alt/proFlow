@@ -27,6 +27,8 @@ import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.ScheduledPlacement
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.domain.service.TimeSlotWindow
+import com.neuroflow.app.presentation.v2.focus.FocusTimerModeV2
+import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -178,19 +180,57 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(dayStart) - 1
 
             val blockedTaskIds = buildBlockedTaskIds(allTasks, allKnownTasks, dayEnd)
-            val focusedTaskIds = sessionRepository.getOpenSessions().map { it.taskId }.toSet()
+            val activeTaskIds = allTasks.map { it.id }.toSet()
+            val isPartBlocked: (TaskEntity) -> Boolean = { task ->
+                val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                    ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                val isContinuation = (partNum != null && partNum >= 2) ||
+                    task.id.contains(Regex("""[#_]part\d+""")) ||
+                    task.parentTaskId != null
+                if (!isContinuation) {
+                    false
+                } else {
+                    val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                        (parentSlug != task.id && parentSlug in activeTaskIds)
+                    val isPart1Active = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in activeTaskIds
+                    val isPrecedingPartActive = partNum != null && (1 until partNum).any { prevPart ->
+                        task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart") in activeTaskIds
+                    }
+                    isParentActive || isPart1Active || isPrecedingPartActive
+                }
+            }
+            val openSessions = sessionRepository.getOpenSessions()
+            val focusedTaskIds = openSessions.filter { session ->
+                val activeServiceTaskId = FocusService.activeSession.value?.taskId
+                if (activeServiceTaskId != null && activeServiceTaskId == session.taskId) return@filter true
+                val modeDurationSec = FocusTimerModeV2.entries
+                    .firstOrNull { it.name == session.sessionType }?.durationSeconds
+                val maxDurationMs = if (modeDurationSec != null && modeDurationSec > 0L) {
+                    modeDurationSec * 1000L
+                } else {
+                    120 * 60_000L
+                }
+                val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
+                elapsedMs < maxDurationMs
+            }.map { it.taskId }.toSet()
 
             // Separate tasks into unscheduled, missed, and replan candidates
             val unscheduledTasks = allTasks.filter { task ->
                 val sDate = task.effectiveScheduledDateMillis()
                 val dDate = task.resolveDeadlineEpochMillis()
-                val isNotFuture = (sDate != null && sDate <= dayEnd) ||
+                val scheduledStart = task.resolveScheduledEpochMillis()
+                val isScheduledInFuture = scheduledStart != null && scheduledStart > dayEnd
+                val isNotFuture = !isScheduledInFuture && (
+                    (sDate != null && sDate <= dayEnd) ||
                     (sDate == null && (dDate == null || dDate <= dayEnd))
+                )
                 isNotFuture &&
                     (sDate == null || task.scheduledTime == null) &&
                     !AutoSchedulingContracts.hasManualScheduleData(task) &&
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis)
-            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || it.id.endsWith("_part2") }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) }
 
             val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
             val missedTasks = allTasks.filter { task ->
@@ -210,7 +250,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                             gracePeriodMillis = gracePeriodMillis
                         ) || (forceReplan && scheduledStart < nowMillis)
                     }
-            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || it.id.endsWith("_part2") }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) }
 
             val missedTaskIds = missedTasks.map { it.id }.toSet()
             val replanCandidates = allTasks.filter { task ->
@@ -221,7 +261,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                     scheduledMillis != null &&
                     scheduledMillis in dayStart..dayEnd &&
                     PlacementStability.verdict(task, nowMillis, prefs, forceReplan).allowsReplan
-            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || it.id.endsWith("_part2") || it.id in missedTaskIds }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) || it.id in missedTaskIds }
 
             val targetTasksMap = LinkedHashMap<String, TaskEntity>()
             unscheduledTasks.forEach { targetTasksMap[it.id] = it }
@@ -238,12 +278,9 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 .filter { it.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE }
                 .filterNot { task ->
                     if (targetTasksMap.containsKey(task.id)) return@filterNot true
-                    if (task.id.endsWith("_part2")) {
-                        val parentId = task.id.removeSuffix("_part2")
-                        targetTasksMap.containsKey(parentId)
-                    } else {
-                        false
-                    }
+                    val parentId = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    if (parentId != task.id && targetTasksMap.containsKey(parentId)) return@filterNot true
+                    false
                 }
             val fixedWindows = fixedTasks.mapNotNull { task ->
                 if (task.scheduledTime == null) return@mapNotNull null
@@ -304,8 +341,26 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
         placements: List<ScheduledPlacement>
     ) {
         val nowMillis = System.currentTimeMillis()
-        val focusedTaskIds = sessionRepository.getOpenSessions().map { it.taskId }.toSet()
-        val placementsByBaseId = placements.groupBy { it.task.id.substringBefore("#part") }
+        val focusedTaskIds = sessionRepository.getOpenSessions().filter { session ->
+            val activeServiceTaskId = FocusService.activeSession.value?.taskId
+            if (activeServiceTaskId != null && activeServiceTaskId == session.taskId) return@filter true
+            val modeDurationSec = FocusTimerModeV2.entries
+                .firstOrNull { it.name == session.sessionType }?.durationSeconds
+            val maxDurationMs = if (modeDurationSec != null && modeDurationSec > 0L) {
+                modeDurationSec * 1000L
+            } else {
+                120 * 60_000L
+            }
+            val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
+            elapsedMs < maxDurationMs
+        }.map { it.taskId }.toSet()
+        val placementsByBaseId = placements.groupBy { placement ->
+            if (placement.task.id.contains("#part")) {
+                placement.task.id.substringBefore("#part")
+            } else {
+                placement.task.id
+            }
+        }
 
         for ((baseTaskId, taskPlacements) in placementsByBaseId) {
             val primaryPlacement = taskPlacements.first()
@@ -324,12 +379,19 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             val cleanTitle = freshTask.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
             val isSplit = taskPlacements.size > 1 || primaryPlacement.task.id.endsWith("#part1")
-            val titleToUse = if (isSplit) "$cleanTitle (Part 1/2)" else cleanTitle
+            val isExistingContinuation = freshTask.parentTaskId != null ||
+                freshTask.id.contains(Regex("""[#_]part\d+""")) ||
+                freshTask.title.contains(Regex("""\(Part [2-9]/"""))
+            val titleToUse = when {
+                isSplit -> "$cleanTitle (Part 1/2)"
+                isExistingContinuation -> freshTask.title
+                else -> cleanTitle
+            }
             val titleChanged = freshTask.title != titleToUse
 
-            val part2Id = "${baseTaskId}_part2"
+            val part2Id = "${baseTaskId}#part2"
             val part2Placement = taskPlacements.getOrNull(1)
-            val existingPart2 = taskRepository.getById(part2Id)
+            val existingPart2 = if (!isExistingContinuation) (taskRepository.getById(part2Id) ?: taskRepository.getById("${baseTaskId}_part2")) else null
             val part2NeedsUpdate = if (isSplit && part2Placement != null && part2Placement.task.id.endsWith("#part2")) {
                 (existingPart2 == null ||
                     existingPart2.resolveScheduledEpochMillis() != part2Placement.window.startMillis ||
@@ -376,7 +438,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 val (p2Date, p2Time) = splitMillisToDateAndTime(part2Placement.window.startMillis)
                 val part2Title = "$cleanTitle (Part 2/2)"
                 val part2Entity = (existingPart2 ?: freshTask).copy(
-                    id = part2Id,
+                    id = existingPart2?.id ?: part2Id,
                     title = part2Title,
                     parentTaskId = baseTaskId,
                     dependsOnTaskIds = baseTaskId,
@@ -401,9 +463,13 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 } else {
                     taskRepository.insert(part2Entity)
                 }
-            } else {
+            } else if (!isExistingContinuation) {
                 if (existingPart2 != null && existingPart2.status != TaskStatus.COMPLETED) {
                     taskRepository.delete(existingPart2)
+                }
+                val legacyPart2 = taskRepository.getById("${baseTaskId}_part2")
+                if (legacyPart2 != null && legacyPart2.status != TaskStatus.COMPLETED) {
+                    taskRepository.delete(legacyPart2)
                 }
             }
         }

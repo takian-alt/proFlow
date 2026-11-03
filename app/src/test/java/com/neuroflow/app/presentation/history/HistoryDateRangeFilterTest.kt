@@ -186,10 +186,10 @@ class HistoryDateRangeFilterTest : StringSpec({
         timedTask.resolveScheduledEpochMillis() shouldBe (todayStart + 14 * 3600_000L)
         timedTask.resolveDeadlineEpochMillis() shouldBe (todayStart + 17 * 3600_000L)
 
-        // Date-only task resolves to start of day, but scheduledTime and deadlineTime remain null
+        // Date-only task scheduled time resolves to start of day, but deadline resolves to end-of-day
         dateOnlyTask.scheduledTime shouldBe null
         dateOnlyTask.deadlineTime shouldBe null
         dateOnlyTask.resolveScheduledEpochMillis() shouldBe todayStart
-        dateOnlyTask.resolveDeadlineEpochMillis() shouldBe todayStart
+        dateOnlyTask.resolveDeadlineEpochMillis() shouldBe (todayStart + com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS - 1L)
     }
 })

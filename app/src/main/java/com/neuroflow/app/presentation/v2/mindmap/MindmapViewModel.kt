@@ -116,7 +116,6 @@ class MindmapViewModel @Inject constructor(
                 MindmapEdgeType.DEPENDENCY -> {
                     // Source must finish before Target can begin
                     repository.addTaskDependency(target.id, source.id)
-                    repository.createEdge(source.id, target.id, "DEPENDENCY")
                 }
                 MindmapEdgeType.VISUAL -> {
                     repository.createEdge(source.id, target.id, "VISUAL")
@@ -258,22 +257,25 @@ class MindmapViewModel @Inject constructor(
         // 3. Synthesize Edges (Natural Goal Links + Dependencies + Custom Room Edges)
         val nodeMap = (goalNodes as List<MindmapNode> + taskNodes).associateBy { it.id }
         val edgeList = mutableListOf<MindmapEdgeUi>()
+        val seenPairs = mutableSetOf<Pair<String, String>>()
 
         // Goal -> Task implicit edges
         taskNodes.forEach { task ->
             if (task.goalId != null && nodeMap.containsKey(task.goalId)) {
                 val goal = nodeMap[task.goalId]!!
-                edgeList.add(
-                    MindmapEdgeUi(
-                        id = "goal_${goal.id}_${task.id}",
-                        sourceId = goal.id,
-                        targetId = task.id,
-                        start = Offset(goal.x, goal.y),
-                        end = Offset(task.x, task.y),
-                        edgeType = MindmapEdgeType.GOAL_LINK,
-                        isCompleted = task.isCompleted
+                if (seenPairs.add(Pair(goal.id, task.id))) {
+                    edgeList.add(
+                        MindmapEdgeUi(
+                            id = "goal_${goal.id}_${task.id}",
+                            sourceId = goal.id,
+                            targetId = task.id,
+                            start = Offset(goal.x, goal.y),
+                            end = Offset(task.x, task.y),
+                            edgeType = MindmapEdgeType.GOAL_LINK,
+                            isCompleted = task.isCompleted
+                        )
                     )
-                )
+                }
             }
 
             // Task dependencies
@@ -281,17 +283,19 @@ class MindmapViewModel @Inject constructor(
                 if (nodeMap.containsKey(depId)) {
                     val parentTask = nodeMap[depId]!!
                     val isDepCompleted = (parentTask as? MindmapTaskNode)?.isCompleted == true
-                    edgeList.add(
-                        MindmapEdgeUi(
-                            id = "dep_${depId}_${task.id}",
-                            sourceId = depId,
-                            targetId = task.id,
-                            start = Offset(parentTask.x, parentTask.y),
-                            end = Offset(task.x, task.y),
-                            edgeType = MindmapEdgeType.DEPENDENCY,
-                            isCompleted = isDepCompleted && task.isCompleted
+                    if (seenPairs.add(Pair(depId, task.id))) {
+                        edgeList.add(
+                            MindmapEdgeUi(
+                                id = "dep_${depId}_${task.id}",
+                                sourceId = depId,
+                                targetId = task.id,
+                                start = Offset(parentTask.x, parentTask.y),
+                                end = Offset(task.x, task.y),
+                                edgeType = MindmapEdgeType.DEPENDENCY,
+                                isCompleted = isDepCompleted && task.isCompleted
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -301,21 +305,23 @@ class MindmapViewModel @Inject constructor(
             val src = nodeMap[edge.sourceId]
             val tgt = nodeMap[edge.targetId]
             if (src != null && tgt != null) {
-                edgeList.add(
-                    MindmapEdgeUi(
-                        id = edge.id,
-                        sourceId = edge.sourceId,
-                        targetId = edge.targetId,
-                        start = Offset(src.x, src.y),
-                        end = Offset(tgt.x, tgt.y),
-                        edgeType = when (edge.edgeType) {
-                            "DEPENDENCY" -> MindmapEdgeType.DEPENDENCY
-                            "GOAL_LINK" -> MindmapEdgeType.GOAL_LINK
-                            else -> MindmapEdgeType.VISUAL
-                        },
-                        isCompleted = (tgt as? MindmapTaskNode)?.isCompleted == true
+                if (seenPairs.add(Pair(edge.sourceId, edge.targetId))) {
+                    edgeList.add(
+                        MindmapEdgeUi(
+                            id = edge.id,
+                            sourceId = edge.sourceId,
+                            targetId = edge.targetId,
+                            start = Offset(src.x, src.y),
+                            end = Offset(tgt.x, tgt.y),
+                            edgeType = when (edge.edgeType) {
+                                "DEPENDENCY" -> MindmapEdgeType.DEPENDENCY
+                                "GOAL_LINK" -> MindmapEdgeType.GOAL_LINK
+                                else -> MindmapEdgeType.VISUAL
+                            },
+                            isCompleted = (tgt as? MindmapTaskNode)?.isCompleted == true
+                        )
                     )
-                )
+                }
             }
         }
 

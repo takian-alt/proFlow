@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -195,31 +197,10 @@ fun EnhancedCircadianEnergyGraph(
                 .fillMaxWidth()
                 .height(196.dp)
                 .pointerInput(timeline) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            val idx = ((offset.x / size.width) * (timeline.size - 1))
-                                .roundToInt()
-                                .coerceIn(0, timeline.lastIndex)
-                            scrubbedIndex = idx
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            tryAwaitRelease()
-                            scrubbedIndex = null
-                        }
-                    )
-                }
-                .pointerInput(timeline) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset ->
-                            val idx = ((offset.x / size.width) * (timeline.size - 1))
-                                .roundToInt()
-                                .coerceIn(0, timeline.lastIndex)
-                            scrubbedIndex = idx
-                            lastHapticPhase = timeline[idx].phase
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        },
-                        onHorizontalDrag = { change, _ ->
-                            change.consume()
-                            val idx = ((change.position.x / size.width) * (timeline.size - 1))
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val updateIdx = { x: Float ->
+                            val idx = ((x / size.width) * (timeline.size - 1))
                                 .roundToInt()
                                 .coerceIn(0, timeline.lastIndex)
                             if (scrubbedIndex != idx) {
@@ -228,12 +209,23 @@ fun EnhancedCircadianEnergyGraph(
                                 if (newPhase != lastHapticPhase) {
                                     lastHapticPhase = newPhase
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                } else {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
                             }
-                        },
-                        onDragEnd = { scrubbedIndex = null },
-                        onDragCancel = { scrubbedIndex = null }
-                    )
+                        }
+                        updateIdx(down.position.x)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                scrubbedIndex = null
+                                break
+                            }
+                            change.consume()
+                            updateIdx(change.position.x)
+                        }
+                    }
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {

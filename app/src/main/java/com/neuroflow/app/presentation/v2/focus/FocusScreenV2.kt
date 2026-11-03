@@ -1,6 +1,9 @@
 package com.neuroflow.app.presentation.v2.focus
 
 import android.app.Activity
+import android.app.NotificationManager
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Pause
@@ -29,6 +33,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -70,6 +78,7 @@ fun FocusScreenV2(
     var showWoopPromptSheet by remember { mutableStateOf(initialOpenWoop) }
     var initialWoopHandled by remember { mutableStateOf(false) }
     var showFrogConfetti by remember { mutableStateOf(false) }
+    var dndNoticeDismissed by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.task, state.preferences, initialOpenWoop) {
         val task = state.task
@@ -79,7 +88,9 @@ fun FocusScreenV2(
                 initialWoopHandled = true
                 showWoopPromptSheet = true
                 viewModel.markWoopPromptShown()
-            } else if (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null) {
+            } else if (prefs.woopEnabled && !task.woopPromptShown && state.woopData == null &&
+                !state.isCompleted && task.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                !state.isSessionActive) {
                 showWoopPromptSheet = true
                 viewModel.markWoopPromptShown()
             }
@@ -89,6 +100,30 @@ fun FocusScreenV2(
     KeepScreenOnEffect(enabled = state.isSessionActive && !state.isPaused)
 
     val context = LocalContext.current
+    var hasDndPermission by remember {
+        mutableStateOf(
+            runCatching {
+                val nm = context.getSystemService(NotificationManager::class.java)
+                nm?.isNotificationPolicyAccessGranted == true
+            }.getOrDefault(false)
+        )
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val nm = runCatching { context.getSystemService(NotificationManager::class.java) }.getOrNull()
+                hasDndPermission = nm?.isNotificationPolicyAccessGranted == true
+                viewModel.onScreenResumed()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             val activity = generateSequence(context) { if (it is android.content.ContextWrapper) it.baseContext else null }
@@ -178,8 +213,28 @@ fun FocusScreenV2(
                 }
             }
 
+            // Do Not Disturb Access Notice (One-time notice with action button if DND is active in prefs but permission is missing)
+            val shouldShowDndNotice = (state.showDndNotice || (state.preferences.dndEnabled && !hasDndPermission)) &&
+                !dndNoticeDismissed && !state.isCompleted
+            if (shouldShowDndNotice) {
+                DndPermissionNoticeCard(
+                    onOpenSettings = {
+                        runCatching {
+                            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        }
+                    },
+                    onDismiss = {
+                        dndNoticeDismissed = true
+                        viewModel.dismissDndNotice()
+                    }
+                )
+            }
+
             // Hero Task Card: Full prominence for Task Title, Frog status, and Next Micro-Step
-            val nextStepForHero = if (state.isRunning && !state.isPaused) null else {
+            val nextStepForHero = if (state.isCompleted || (state.isRunning && !state.isPaused)) null else {
                 val activeSteps = state.microSteps
                 val nextIdx = activeSteps.indices.firstOrNull { idx ->
                     !activeSteps[idx].completed && idx !in state.skippedMicroStepIndices
@@ -203,20 +258,37 @@ fun FocusScreenV2(
 
             // Primary Control Actions
             if (state.isCompleted) {
-                Surface(
-                    color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.25f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f)),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Task Completed", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Task Completed", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
+                        }
+                    }
+                    if (state.nextTaskId != null) {
+                        Button(
+                            onClick = { onNavigateToNextTask(state.nextTaskId!!) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Start Next: ${state.nextTaskTitle ?: "Next Task"}", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
+                        }
                     }
                 }
             } else {
@@ -1423,4 +1495,99 @@ fun SprintCompletionSheet(
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
+
+@Composable
+private fun DndPermissionNoticeCard(
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = NeuroFlowThemeV2Colors.SlateSurface,
+        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeMute,
+                        contentDescription = "Do Not Disturb Inactive",
+                        tint = NeuroFlowThemeV2Colors.WarmAmber,
+                        modifier = Modifier.size(20.dp).padding(top = 2.dp)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "Do Not Disturb Inactive",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
+                        Text(
+                            text = "DND is enabled for focus sessions, but Do Not Disturb access is required to automatically mute notifications.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowThemeV2Colors.TextSecondary,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Dismiss notice",
+                        tint = NeuroFlowThemeV2Colors.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "Dismiss",
+                        fontSize = 12.sp,
+                        color = NeuroFlowThemeV2Colors.TextSecondary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = onOpenSettings,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.WarmAmber),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        "Open DND Settings",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.Black
+                    )
+                }
+            }
+        }
+    }
+}
+
 

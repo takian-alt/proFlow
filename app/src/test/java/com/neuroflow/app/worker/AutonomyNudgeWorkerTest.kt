@@ -184,4 +184,91 @@ class AutonomyNudgeWorkerTest : StringSpec({
             )
         }
     }
+
+    "BUG-383: AutonomyNudgeWorker does not drop task with absolute epoch deadline timestamp when scheduledDate is null" {
+        val now = System.currentTimeMillis()
+        val epochDeadlineToday = now + 2 * 3600_000L
+
+        val epochDeadlineTask = TaskEntity(
+            id = taskId,
+            title = "Task with Epoch Deadline",
+            status = TaskStatus.ACTIVE,
+            quadrant = Quadrant.SCHEDULE,
+            scheduledDate = null,
+            scheduledTime = null,
+            deadlineDate = null,
+            deadlineTime = epochDeadlineToday
+        )
+        coEvery { taskRepo.getById(taskId) } returns epochDeadlineTask
+        val worker = AutonomyNudgeWorker(context, workerParams, taskRepo, prefsDataStore)
+
+        val result = worker.doWork()
+        result shouldBe ListenableWorker.Result.success()
+    }
+
+    "BUG-425: skips notification when task is waitingFor external response or blocked by active dependency" {
+        val now = System.currentTimeMillis()
+        val waitingTask = TaskEntity(
+            id = taskId,
+            title = "Blocked Task",
+            status = TaskStatus.ACTIVE,
+            quadrant = Quadrant.SCHEDULE,
+            waitingFor = "Waiting on client approval",
+            scheduledDate = startOfLocalDay(now),
+            scheduledTime = 10 * 3600_000L
+        )
+
+        coEvery { taskRepo.getById(taskId) } returns waitingTask
+        val worker = AutonomyNudgeWorker(context, workerParams, taskRepo, prefsDataStore)
+
+        val result = worker.doWork()
+        result shouldBe ListenableWorker.Result.success()
+
+        val activePrereq = TaskEntity(
+            id = "prereq-1",
+            title = "Prerequisite Task",
+            status = TaskStatus.ACTIVE
+        )
+        val blockedByDepTask = TaskEntity(
+            id = taskId,
+            title = "Dependent Task",
+            status = TaskStatus.ACTIVE,
+            quadrant = Quadrant.SCHEDULE,
+            dependsOnTaskIds = "prereq-1",
+            scheduledDate = startOfLocalDay(now),
+            scheduledTime = 10 * 3600_000L
+        )
+
+        coEvery { taskRepo.getById(taskId) } returns blockedByDepTask
+        coEvery { taskRepo.getActiveTasks() } returns listOf(activePrereq, blockedByDepTask)
+
+        val result2 = worker.doWork()
+        result2 shouldBe ListenableWorker.Result.success()
+    }
+
+    "BUG-425: skips notification when task is continuation part with active parent or preceding part" {
+        val now = System.currentTimeMillis()
+        val parentTask = TaskEntity(
+            id = "parent-doc",
+            title = "Draft Document (Part 1/2)",
+            status = TaskStatus.ACTIVE
+        )
+        val part2Task = TaskEntity(
+            id = "parent-doc_part2",
+            parentTaskId = "parent-doc",
+            title = "Draft Document (Part 2/2)",
+            status = TaskStatus.ACTIVE,
+            quadrant = Quadrant.SCHEDULE,
+            scheduledDate = startOfLocalDay(now),
+            scheduledTime = 11 * 3600_000L
+        )
+
+        coEvery { taskRepo.getById("parent-doc_part2") } returns part2Task
+        coEvery { taskRepo.getActiveTasks() } returns listOf(parentTask, part2Task)
+        every { workerParams.inputData } returns workDataOf("taskId" to "parent-doc_part2")
+
+        val worker = AutonomyNudgeWorker(context, workerParams, taskRepo, prefsDataStore)
+        val result = worker.doWork()
+        result shouldBe ListenableWorker.Result.success()
+    }
 })

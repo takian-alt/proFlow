@@ -128,6 +128,10 @@ class WeeklyScheduleViewModel @Inject constructor(
         currentReferenceMillis.value = System.currentTimeMillis()
     }
 
+    fun goToDate(referenceMillis: Long) {
+        currentReferenceMillis.value = referenceMillis
+    }
+
     fun saveWeeklyIntent(intent: String) {
         viewModelScope.launch {
             val weekDays = _uiState.value.weekDays

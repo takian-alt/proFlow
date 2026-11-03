@@ -156,4 +156,18 @@ class PlacementStabilityTest : StringSpec({
         verdict shouldNotBe PlacementStability.ReplanVerdict.NEAR_TERM_FREEZE
         verdict.allowsReplan shouldBe true
     }
+
+    "BUG-AUDIT-008: isMoveWorthApplying rejects moves where nextStartMillis is in the past" {
+        val pastPlacement = now - 10 * minutes
+        val previousFuture = now + 2 * hours
+        val previousPast = now - 30 * minutes
+
+        // Must reject past placements whether previous was future, null, or in the past
+        PlacementStability.isMoveWorthApplying(previousFuture, pastPlacement, now) shouldBe false
+        PlacementStability.isMoveWorthApplying(null, pastPlacement, now) shouldBe false
+        PlacementStability.isMoveWorthApplying(previousPast, pastPlacement, now) shouldBe false
+
+        // Future placements should be accepted if valid move
+        PlacementStability.isMoveWorthApplying(previousPast, now + 1 * hours, now) shouldBe true
+    }
 })

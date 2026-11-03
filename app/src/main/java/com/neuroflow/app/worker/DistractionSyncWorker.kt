@@ -112,6 +112,7 @@ class DistractionSyncWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }

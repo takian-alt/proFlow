@@ -255,6 +255,50 @@ class FocusWidgetAuditTest : StringSpec({
         candidates.map { it.id } shouldBe listOf("parent-task")
     }
 
+    "BUG-384: FocusWidgetUpdateWorker filterCandidateTasks blocks subtask with parentTaskId when parent is active" {
+        val now = System.currentTimeMillis()
+        val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(now) - 1
+
+        val parentTask = TaskEntity(
+            id = "parent-uuid-1",
+            title = "Parent Goal",
+            status = TaskStatus.ACTIVE
+        )
+        val subtask = TaskEntity(
+            id = "subtask-uuid-2",
+            parentTaskId = "parent-uuid-1",
+            title = "Subtask 1",
+            status = TaskStatus.ACTIVE
+        )
+
+        val activeTasks = listOf(parentTask, subtask)
+        val candidates = FocusWidgetUpdateWorker.filterCandidateTasks(activeTasks, dayEnd)
+
+        candidates.map { it.id } shouldBe listOf("parent-uuid-1")
+    }
+
+    "BUG-384: FocusWidgetUpdateWorker filterCandidateTasks blocks #part2 task when parent is active" {
+        val now = System.currentTimeMillis()
+        val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(now) - 1
+
+        val parentTask = TaskEntity(
+            id = "deep-flow",
+            title = "Deep Flow (Part 1/2)",
+            status = TaskStatus.ACTIVE
+        )
+        val hashPart2Task = TaskEntity(
+            id = "deep-flow#part2",
+            parentTaskId = "deep-flow",
+            title = "Deep Flow (Part 2/2)",
+            status = TaskStatus.ACTIVE
+        )
+
+        val activeTasks = listOf(parentTask, hashPart2Task)
+        val candidates = FocusWidgetUpdateWorker.filterCandidateTasks(activeTasks, dayEnd)
+
+        candidates.map { it.id } shouldBe listOf("deep-flow")
+    }
+
     "FocusWidgetUpdateWorker filterCandidateTasks blocks task when prerequisite is active" {
         val now = System.currentTimeMillis()
         val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(now) - 1
@@ -326,5 +370,133 @@ class FocusWidgetAuditTest : StringSpec({
             plannedBlockMinutes = 45
         )
         com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(taskWithPlan) shouldBe 45
+    }
+
+    "BUG-338: FocusWidgetUpdateWorker filterCandidateTasks excludes future tasks scheduled via absolute scheduledTime epoch timestamp" {
+        val now = System.currentTimeMillis()
+        val dayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(now)
+        val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(now) - 1
+        val tomorrow = dayEnd + 3600_000L
+
+        val futureTimedTask = TaskEntity(
+            id = "future-epoch-task",
+            title = "Task Scheduled for Tomorrow",
+            status = TaskStatus.ACTIVE,
+            scheduledDate = null,
+            scheduledTime = tomorrow, // absolute epoch timestamp tomorrow
+            deadlineDate = null,
+            deadlineTime = null
+        )
+        val todayTask = TaskEntity(
+            id = "today-task",
+            title = "Task for Today",
+            status = TaskStatus.ACTIVE,
+            scheduledDate = dayStart,
+            scheduledTime = 10 * 3600_000L
+        )
+
+        val candidates = FocusWidgetUpdateWorker.filterCandidateTasks(listOf(futureTimedTask, todayTask), dayEnd)
+        candidates.map { it.id } shouldBe listOf("today-task")
+    }
+
+    "BUG-340: FocusService defines distinct high-importance CHANNEL_ID_COMPLETED for sprint completion alerts" {
+        FocusService.CHANNEL_ID shouldBe "focus_live"
+        FocusService.CHANNEL_ID_COMPLETED shouldBe "focus_completed"
+        FocusService.CHANNEL_ID shouldNotBe FocusService.CHANNEL_ID_COMPLETED
+    }
+
+    "BUG-341: CompleteTaskWidgetAction preserves open session focus minutes and updates telemetry" {
+        val context = mockk<Context>(relaxed = true)
+        val taskRepo = mockk<TaskRepository>()
+        val sessionRepo = mockk<SessionRepository>()
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        val existingTask = TaskEntity(
+            id = "task-with-session",
+            title = "Coding Sprint",
+            status = TaskStatus.ACTIVE,
+            estimatedDurationMinutes = 30,
+            totalTimeTrackedMinutes = 10f,
+            sessionCount = 1
+        )
+        val openSession = com.neuroflow.app.data.local.entity.TimeSessionEntity(
+            id = "open-sess-1",
+            taskId = "task-with-session",
+            startedAt = System.currentTimeMillis() - 25 * 60_000L,
+            totalPausedMs = 0L,
+            sessionType = "POMODORO_25"
+        )
+
+        coEvery { taskRepo.getById("task-with-session") } returns existingTask
+        coEvery { taskRepo.completeAndRecur(any(), any()) } returns null
+        coEvery { sessionRepo.getOpenSessionForTask("task-with-session") } returns openSession
+        coEvery { sessionRepo.update(any()) } just Runs
+
+        val entryPoint = mockk<CompleteTaskWidgetAction.WidgetActionEntryPoint>()
+        every { entryPoint.taskRepository() } returns taskRepo
+        every { entryPoint.sessionRepository() } returns sessionRepo
+        every { entryPoint.preferencesDataStore() } returns prefsDataStore
+        every { EntryPointAccessors.fromApplication(any(), CompleteTaskWidgetAction.WidgetActionEntryPoint::class.java) } returns entryPoint
+
+        val result = CompleteTaskWidgetAction.execute(context, "task-with-session")
+        result shouldBe true
+
+        // Verify task is completed with preserved tracked minutes
+        coVerify(exactly = 1) {
+            taskRepo.completeAndRecur(match {
+                it.id == "task-with-session" &&
+                it.totalTimeTrackedMinutes >= 34f && // 10f + ~25f
+                it.sessionCount == 2
+            }, any())
+        }
+    }
+
+    "BUG-386: CompleteTaskWidgetAction caps sprint duration by sessionType target duration and anchors endedAt" {
+        val context = mockk<Context>(relaxed = true)
+        val taskRepo = mockk<TaskRepository>()
+        val sessionRepo = mockk<SessionRepository>()
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        val existingTask = TaskEntity(
+            id = "task-micro-start",
+            title = "Micro Start Task",
+            status = TaskStatus.ACTIVE,
+            estimatedDurationMinutes = 15,
+            totalTimeTrackedMinutes = 0f,
+            sessionCount = 0
+        )
+        val now = System.currentTimeMillis()
+        // Started 2 hours ago for a JUST_5_MIN sprint
+        val twoHoursAgo = now - 120 * 60_000L
+        val openSession = com.neuroflow.app.data.local.entity.TimeSessionEntity(
+            id = "open-micro-sess",
+            taskId = "task-micro-start",
+            startedAt = twoHoursAgo,
+            totalPausedMs = 0L,
+            sessionType = "JUST_5_MIN" // 5 minutes duration
+        )
+
+        coEvery { taskRepo.getById("task-micro-start") } returns existingTask
+        coEvery { taskRepo.completeAndRecur(any(), any()) } returns null
+        coEvery { sessionRepo.getOpenSessionForTask("task-micro-start") } returns openSession
+        coEvery { sessionRepo.update(any()) } just Runs
+
+        val entryPoint = mockk<CompleteTaskWidgetAction.WidgetActionEntryPoint>()
+        every { entryPoint.taskRepository() } returns taskRepo
+        every { entryPoint.sessionRepository() } returns sessionRepo
+        every { entryPoint.preferencesDataStore() } returns prefsDataStore
+        every { EntryPointAccessors.fromApplication(any(), CompleteTaskWidgetAction.WidgetActionEntryPoint::class.java) } returns entryPoint
+
+        val result = CompleteTaskWidgetAction.execute(context, "task-micro-start")
+        result shouldBe true
+
+        // Verify openSession was updated with capped duration (5.0m, not 120m)
+        coVerify(exactly = 1) {
+            sessionRepo.update(match {
+                it.id == "open-micro-sess" &&
+                it.durationMinutes == 5.0f &&
+                it.endedAt == twoHoursAgo + 5 * 60_000L
+            })
+        }
     }
 })

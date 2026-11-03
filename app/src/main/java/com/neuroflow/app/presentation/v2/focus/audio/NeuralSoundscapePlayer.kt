@@ -55,12 +55,14 @@ class NeuralSoundscapePlayer(
         private set
 
     private val isPlaying = AtomicBoolean(false)
+    val isAudioPlaying: Boolean get() = isPlaying.get()
     private val isFadingOut = AtomicBoolean(false)
     private val isReleasePending = AtomicBoolean(false)
     @Volatile
     private var fadeTargetType: SoundscapeType? = null
     @Volatile
     private var needsFadeInReset = false
+    @Volatile
     private var wasPlayingBeforeFocusLoss = false
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
@@ -73,7 +75,7 @@ class NeuralSoundscapePlayer(
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (isPlaying.get()) {
                     wasPlayingBeforeFocusLoss = true
-                    pauseWithFadeOut()
+                    pauseWithFadeOut(clearFocusLossFlag = false)
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
@@ -100,7 +102,11 @@ class NeuralSoundscapePlayer(
         if (context != null && !isNoisyReceiverRegistered) {
             try {
                 val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-                context.registerReceiver(noisyReceiver, filter)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(noisyReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    context.registerReceiver(noisyReceiver, filter)
+                }
                 isNoisyReceiverRegistered = true
             } catch (t: Throwable) {
                 Log.w(TAG, "Could not register noisy receiver: ${t.message}")
@@ -136,6 +142,7 @@ class NeuralSoundscapePlayer(
 
         currentType = type
         isFadingOut.set(false)
+        isReleasePending.set(false)
         fadeTargetType = null
 
         val threadAlive = playbackThread?.isAlive == true
@@ -178,10 +185,19 @@ class NeuralSoundscapePlayer(
      * Initiates smooth fade-out over [FADE_OUT_DURATION_MS] and then halts playback.
      */
     @Synchronized
-    fun pauseWithFadeOut(targetTypeOnComplete: SoundscapeType? = null) {
+    fun pauseWithFadeOut(
+        targetTypeOnComplete: SoundscapeType? = null,
+        clearFocusLossFlag: Boolean = true
+    ) {
+        if (clearFocusLossFlag) {
+            wasPlayingBeforeFocusLoss = false
+        }
         if (!isPlaying.get() || isFadingOut.get()) {
             if (!isPlaying.get() && targetTypeOnComplete != null) {
                 currentType = targetTypeOnComplete
+            }
+            if (isFadingOut.get() && targetTypeOnComplete != null) {
+                fadeTargetType = targetTypeOnComplete
             }
             return
         }
@@ -211,6 +227,7 @@ class NeuralSoundscapePlayer(
         wasPlayingBeforeFocusLoss = false
         isPlaying.set(false)
         isFadingOut.set(false)
+        isReleasePending.set(false)
         fadeTargetType = null
         stopPlaybackThread()
         unregisterNoisyReceiver()
@@ -388,6 +405,7 @@ class NeuralSoundscapePlayer(
                             audioTrack?.release()
                         } catch (_: Throwable) {}
                         audioTrack = null
+                        generator.reset()
                     } else {
                         try {
                             audioTrack?.stop()

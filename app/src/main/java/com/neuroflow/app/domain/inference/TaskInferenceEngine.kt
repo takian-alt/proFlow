@@ -35,7 +35,9 @@ data class InferredTaskMetadata(
     val calibrationFactorApplied: Float = 1.0f,
     val isEnergyExplicit: Boolean = false,
     val isPriorityExplicit: Boolean = false,
-    val isQuadrantExplicit: Boolean = false
+    val isQuadrantExplicit: Boolean = false,
+    val isScheduledDateExplicit: Boolean = false,
+    val isDeadlineDateExplicit: Boolean = false
 ) {
     val estimatedDurationMinutes: Int get() = durationMinutes
     val energyLevel: EnergyLevel get() = energyDemand
@@ -76,9 +78,10 @@ object TaskInferenceEngine {
     private val TOMORROW_REGEX = Regex("""(?i)\b(tomorrow|tmrw)\b""")
     private val DUE_DATE_REGEX = Regex("""(?i)\b(?:due|by|deadline)\s*:?\s*(?:next\s+|this\s+)?(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
     private val SCHEDULE_DATE_REGEX = Regex("""(?i)\b(?:scheduled?(?:\s+for)?|on|next|this)\s*:?\s*(?:next\s+|this\s+)?(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
-    private val CLOCK_TIME_REGEX = Regex("""(?i)\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b""")
+    private val CLOCK_TIME_REGEX = Regex("""(?i)\b(?:at|by|due(?:\s+at|\s+by)?|deadline(?:\s+at|\s+by)?)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b""")
     private val RELATIVE_OFFSET_REGEX = Regex("""(?i)\b(?:(due|deadline)\s+)?in\s+(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)\b""")
-    private val TIME_OF_DAY_REGEX = Regex("""(?i)\b(?:this\s+)?(morning|afternoon|evening|tonight)\b""")
+    private val TIME_OF_DAY_REGEX = Regex("""(?i)\b(?:(due|deadline|by)\s+)?(?:this\s+)?(morning|afternoon|evening|tonight)\b""")
+    private val DANGLING_DUE_REGEX = Regex("""(?i)\b(?:due|deadline)\b""")
 
     fun calculateCalibrationFactorFromHistory(tasks: List<TaskEntity>): Float {
         val validPairs = tasks.filter { task ->
@@ -221,16 +224,21 @@ object TaskInferenceEngine {
         var inferredScheduledTimeMillis: Long? = null
 
         val dueMatch = DUE_DATE_REGEX.find(text)
+        var isExplicitDeadlineDate = false
         if (dueMatch != null) {
             val token = dueMatch.groupValues[1].lowercase(Locale.ROOT)
             val isNext = dueMatch.value.contains("next", ignoreCase = true) || text.contains(Regex("""(?i)\bnext\s+""" + token))
             inferredDeadlineDate = resolveDateTokenMillis(token, todayLocal, zoneId, isNext)
+            isExplicitDeadlineDate = true
         } else if (TODAY_REGEX.containsMatchIn(text) && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true))) {
             inferredDeadlineDate = todayStartMillis
+            isExplicitDeadlineDate = true
         } else if (TOMORROW_REGEX.containsMatchIn(text) && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true))) {
             inferredDeadlineDate = tomorrowStartMillis
+            isExplicitDeadlineDate = true
         }
 
+        var isExplicitScheduledDate = false
         val scheduleMatch = SCHEDULE_DATE_REGEX.find(text)?.takeIf { match ->
             dueMatch == null || (match.range.first > dueMatch.range.last || match.range.last < dueMatch.range.first)
         }
@@ -238,9 +246,15 @@ object TaskInferenceEngine {
             val token = scheduleMatch.groupValues[1].lowercase(Locale.ROOT)
             val isNext = scheduleMatch.value.contains("next", ignoreCase = true) || text.contains(Regex("""(?i)\bnext\s+""" + token))
             inferredScheduledDate = resolveDateTokenMillis(token, todayLocal, zoneId, isNext)
+            isExplicitScheduledDate = true
         } else if (inferredDeadlineDate == null) {
-            if (TODAY_REGEX.containsMatchIn(text)) inferredScheduledDate = todayStartMillis
-            else if (TOMORROW_REGEX.containsMatchIn(text)) inferredScheduledDate = tomorrowStartMillis
+            if (TODAY_REGEX.containsMatchIn(text)) {
+                inferredScheduledDate = todayStartMillis
+                isExplicitScheduledDate = true
+            } else if (TOMORROW_REGEX.containsMatchIn(text)) {
+                inferredScheduledDate = tomorrowStartMillis
+                isExplicitScheduledDate = true
+            }
         }
 
         val clockMatch = CLOCK_TIME_REGEX.find(text)
@@ -255,10 +269,16 @@ object TaskInferenceEngine {
                 else -> rawHour.coerceIn(0, 23)
             }
             val clockMillis = LocalTime.of(hour24, rawMin).toSecondOfDay() * 1000L
-            val isDueTime = (dueMatch != null && scheduleMatch == null) ||
-                (inferredDeadlineDate != null && inferredScheduledDate == null && (text.contains("due at", ignoreCase = true) || text.contains("deadline at", ignoreCase = true) || text.contains("by", ignoreCase = true)))
+            val prefix = clockMatch.value.lowercase(Locale.ROOT)
+            val hasDuePrefix = prefix.startsWith("by") || prefix.startsWith("due") || prefix.startsWith("deadline")
+            val isDueTime = hasDuePrefix ||
+                (dueMatch != null && scheduleMatch == null) ||
+                (scheduleMatch == null && (text.contains("due at", ignoreCase = true) || text.contains("deadline at", ignoreCase = true) || text.contains("due by", ignoreCase = true) || text.contains("deadline by", ignoreCase = true)))
             if (isDueTime) {
                 inferredDeadlineTimeMillis = clockMillis
+                if (inferredDeadlineDate == null) {
+                    inferredDeadlineDate = todayStartMillis
+                }
             } else {
                 inferredScheduledTimeMillis = clockMillis
                 if (inferredScheduledDate == null) {
@@ -280,16 +300,18 @@ object TaskInferenceEngine {
                     if (inferredDeadlineDate == null) {
                         inferredDeadlineDate = targetDateTime.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
                     }
+                    isExplicitDeadlineDate = true
                 } else {
                     inferredScheduledTimeMillis = targetDateTime.toLocalTime().toSecondOfDay() * 1000L
                     if (inferredScheduledDate == null) {
                         inferredScheduledDate = targetDateTime.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
                     }
+                    isExplicitScheduledDate = true
                 }
             } else {
                 val todMatch = TIME_OF_DAY_REGEX.find(text)
                 if (todMatch != null) {
-                    val tod = todMatch.groupValues[1].lowercase(Locale.ROOT)
+                    val tod = todMatch.groupValues[2].lowercase(Locale.ROOT)
                     val targetLocalTime = when (tod) {
                         "morning" -> LocalTime.of(9, 30)
                         "afternoon" -> LocalTime.of(14, 0)
@@ -297,10 +319,14 @@ object TaskInferenceEngine {
                         else -> null
                     }
                     if (targetLocalTime != null) {
-                        val isDueTime = (dueMatch != null && scheduleMatch == null) ||
-                            (inferredDeadlineDate != null && inferredScheduledDate == null && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true) || text.contains("by", ignoreCase = true)))
+                        val todPrefix = todMatch.groupValues[1].lowercase(Locale.ROOT)
+                        val hasDueTod = todPrefix.isNotBlank() || (scheduleMatch == null && (text.contains("due", ignoreCase = true) || text.contains("deadline", ignoreCase = true) || text.contains("by", ignoreCase = true)))
+                        val isDueTime = (dueMatch != null && scheduleMatch == null) || hasDueTod
                         if (isDueTime) {
                             inferredDeadlineTimeMillis = targetLocalTime.toSecondOfDay() * 1000L
+                            if (inferredDeadlineDate == null) {
+                                inferredDeadlineDate = todayStartMillis
+                            }
                         } else {
                             inferredScheduledTimeMillis = targetLocalTime.toSecondOfDay() * 1000L
                             if (inferredScheduledDate == null) {
@@ -351,6 +377,7 @@ object TaskInferenceEngine {
             .replace(TIME_OF_DAY_REGEX, " ")
             .replace(TODAY_REGEX, " ")
             .replace(TOMORROW_REGEX, " ")
+            .replace(DANGLING_DUE_REGEX, " ")
             .replace(TAG_REGEX, " ")
             .replace(Regex("""\s+"""), " ")
             .trim(' ', '-', ':', ',')
@@ -378,7 +405,9 @@ object TaskInferenceEngine {
             calibrationFactorApplied = safeCalibration,
             isEnergyExplicit = isExplicitEnergy,
             isPriorityExplicit = isExplicitPriority,
-            isQuadrantExplicit = isExplicitQuadrant
+            isQuadrantExplicit = isExplicitQuadrant,
+            isScheduledDateExplicit = isExplicitScheduledDate,
+            isDeadlineDateExplicit = isExplicitDeadlineDate
         )
     }
 

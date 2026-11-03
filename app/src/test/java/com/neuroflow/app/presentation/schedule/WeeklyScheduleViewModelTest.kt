@@ -60,6 +60,7 @@ class WeeklyScheduleViewModelTest : StringSpec({
 
             // 1. Initialize ViewModel on Sunday
             val viewModelSunday = WeeklyScheduleViewModel(taskRepo, prefsDataStore)
+            viewModelSunday.goToDate(sundayMillis)
             advanceUntilIdle()
 
             // Sunday in isolation evaluates to ISO week 43
@@ -76,7 +77,8 @@ class WeeklyScheduleViewModelTest : StringSpec({
             capturedPrefs.weeklyIntentIsoYear shouldBe 2026
 
             // 2. When saved from Monday of the same week, saveWeeklyIntent also resolves to ISO week 44!
-            viewModelSunday.goToCurrentWeek()
+            viewModelSunday.goToDate(mondayMillis)
+            advanceUntilIdle()
             viewModelSunday.saveWeeklyIntent("Goal set on Monday")
             advanceUntilIdle()
 

@@ -6,9 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
@@ -44,34 +42,38 @@ fun QuickNotesBottomSheet(
     var content by remember { mutableStateOf("") }
     var synthesis by remember { mutableStateOf<com.neuroflow.app.domain.service.QuickNoteSynthesis?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val noteDateFormatter = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
 
     LaunchedEffect(content, title) {
-        val trimmed = content.trim()
-        if (trimmed.length >= 5) {
+        val full = if (title.isNotBlank() && content.isNotBlank()) {
+            "$title: $content"
+        } else {
+            title.trim().ifBlank { content.trim() }
+        }
+        if (full.length >= 5) {
             kotlinx.coroutines.delay(600L)
-            val full = if (title.isNotBlank()) "$title: $content" else content
             try {
                 if (onSynthesizeNote != null) {
                     synthesis = onSynthesizeNote(full)
                 } else {
                     val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
                     synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
-                        extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+                        extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.trim().ifBlank { content.trim().take(35) } },
                         suggestedCategory = inferred.taskType.name,
                         estimatedMinutes = inferred.durationMinutes,
                         tags = inferred.contextTags,
-                        firstActionStep = "Review note: ${content.take(20)}..."
+                        firstActionStep = "Review note: ${(content.ifBlank { title }).trim().take(20)}..."
                     )
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(full)
                 synthesis = com.neuroflow.app.domain.service.QuickNoteSynthesis(
-                    extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.ifBlank { content.take(35) } },
+                    extractedTaskTitle = inferred.sanitizedTitle.ifBlank { title.trim().ifBlank { content.trim().take(35) } },
                     suggestedCategory = inferred.taskType.name,
                     estimatedMinutes = inferred.durationMinutes,
                     tags = inferred.contextTags,
-                    firstActionStep = "Review note: ${content.take(20)}..."
+                    firstActionStep = "Review note: ${(content.ifBlank { title }).trim().take(20)}..."
                 )
             }
         } else {
@@ -85,16 +87,16 @@ fun QuickNotesBottomSheet(
         containerColor = NeuroFlowThemeV2Colors.SlateSurface,
         dragHandle = { BottomSheetDefaults.DragHandle(color = NeuroFlowThemeV2Colors.SlateBorder) }
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState())
                 .imePadding(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Header
-            Row(
+            item(key = "header") {
+                Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -143,9 +145,11 @@ fun QuickNotesBottomSheet(
                     }
                 }
             }
+            }
 
             // Quick Composer Area
-            Surface(
+            item(key = "quick_composer") {
+                Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
@@ -187,13 +191,14 @@ fun QuickNotesBottomSheet(
                     ) {
                         Button(
                             onClick = {
-                                if (content.isNotBlank()) {
-                                    onSaveNote(title, content)
+                                if (content.isNotBlank() || title.isNotBlank()) {
+                                    val noteContent = content.ifBlank { title }
+                                    onSaveNote(title, noteContent)
                                     title = ""
                                     content = ""
                                 }
                             },
-                            enabled = content.isNotBlank(),
+                            enabled = content.isNotBlank() || title.isNotBlank(),
                             colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.heightIn(min = 44.dp)
@@ -205,48 +210,48 @@ fun QuickNotesBottomSheet(
                     }
                 }
             }
+            }
 
             // Quick Note AI Task Extraction Preview
             synthesis?.let { syn ->
-                com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
-                    synthesis = syn,
-                    onConvertToTaskClick = { finalSyn ->
-                        val finalTaskTitle = title.trim().ifBlank { finalSyn.extractedTaskTitle }
-                        val taskSynthesis = if (finalTaskTitle != finalSyn.extractedTaskTitle) finalSyn.copy(extractedTaskTitle = finalTaskTitle) else finalSyn
-                        if (onCreateTaskSynthesis != null) {
-                            onCreateTaskSynthesis(taskSynthesis, content)
-                            onSaveNote(finalTaskTitle, content)
-                        } else if (onCreateTask != null) {
-                            onCreateTask(finalTaskTitle, content)
-                            onSaveNote(finalTaskTitle, content)
-                        } else {
-                            onSaveNote(finalTaskTitle, content)
+                item(key = "synthesis_preview") {
+                    com.neuroflow.app.presentation.v2.settings.QuickNoteAiSynthesizerCard(
+                        synthesis = syn,
+                        onConvertToTaskClick = { finalSyn ->
+                            val finalTaskTitle = title.trim().ifBlank { finalSyn.extractedTaskTitle }
+                            val taskSynthesis = if (finalTaskTitle != finalSyn.extractedTaskTitle) finalSyn.copy(extractedTaskTitle = finalTaskTitle) else finalSyn
+                            if (onCreateTaskSynthesis != null) {
+                                onCreateTaskSynthesis(taskSynthesis, content)
+                                onSaveNote(finalTaskTitle, content)
+                            } else if (onCreateTask != null) {
+                                onCreateTask(finalTaskTitle, content)
+                                onSaveNote(finalTaskTitle, content)
+                            } else {
+                                onSaveNote(finalTaskTitle, content)
+                            }
+                            title = ""
+                            content = ""
+                            onDismiss()
                         }
-                        title = ""
-                        content = ""
-                        onDismiss()
-                    }
-                )
+                    )
+                }
             }
 
             // Recent Notes List
             if (notes.isNotEmpty()) {
-                Text(
-                    text = "Recent Notes (${notes.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                )
+                item(key = "recent_notes_header") {
+                    Text(
+                        text = "Recent Notes (${notes.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                    )
+                }
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 240.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(notes, key = { it.id }) { note ->
-                        val dateFormatted = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
-                            .format(Date(note.updatedAt))
+                items(notes, key = { it.id }) { note ->
+                        val dateFormatted = remember(note.updatedAt) {
+                            noteDateFormatter.format(Date(note.updatedAt))
+                        }
 
                         Surface(
                             modifier = Modifier
@@ -351,9 +356,10 @@ fun QuickNotesBottomSheet(
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            item(key = "bottom_spacer") {
+                Spacer(modifier = Modifier.height(20.dp))
+            }
         }
     }
 }

@@ -167,4 +167,39 @@ class TaskInferenceEngineTest {
         org.junit.Assert.assertNull(result.deadlineTime)
         assertEquals("Team catchup", result.sanitizedTitle)
     }
+
+    @Test
+    fun testBug418DueAtClockTimeWithoutDaySetsDeadlineAndDoesNotPolluteScheduled() {
+        val resultDueAt = TaskInferenceEngine.inferFromInput("Submit quarterly report due at 5pm")
+        org.junit.Assert.assertNotNull(resultDueAt.deadlineDate)
+        org.junit.Assert.assertNotNull(resultDueAt.deadlineTime)
+        assertEquals(17 * 3600_000L, resultDueAt.deadlineTime)
+        org.junit.Assert.assertNull(resultDueAt.scheduledDate)
+        org.junit.Assert.assertNull(resultDueAt.scheduledTime)
+        assertEquals("Submit quarterly report", resultDueAt.sanitizedTitle)
+        assertFalse(resultDueAt.isScheduledDateExplicit)
+        assertFalse(resultDueAt.isDeadlineDateExplicit) // Date wasn't explicitly named (intraday)
+
+        val resultBy = TaskInferenceEngine.inferFromInput("Submit tax forms by 5pm")
+        org.junit.Assert.assertNotNull(resultBy.deadlineDate)
+        org.junit.Assert.assertNotNull(resultBy.deadlineTime)
+        assertEquals(17 * 3600_000L, resultBy.deadlineTime)
+        org.junit.Assert.assertNull(resultBy.scheduledDate)
+        org.junit.Assert.assertNull(resultBy.scheduledTime)
+        assertEquals("Submit tax forms", resultBy.sanitizedTitle)
+
+        val resultDeadlineAt = TaskInferenceEngine.inferFromInput("Finalize presentation deadline at 3pm")
+        org.junit.Assert.assertNotNull(resultDeadlineAt.deadlineDate)
+        assertEquals(15 * 3600_000L, resultDeadlineAt.deadlineTime)
+        org.junit.Assert.assertNull(resultDeadlineAt.scheduledDate)
+        org.junit.Assert.assertNull(resultDeadlineAt.scheduledTime)
+        assertEquals("Finalize presentation", resultDeadlineAt.sanitizedTitle)
+
+        val resultDueTod = TaskInferenceEngine.inferFromInput("Send weekly update due this afternoon")
+        org.junit.Assert.assertNotNull(resultDueTod.deadlineDate)
+        assertEquals(14 * 3600_000L, resultDueTod.deadlineTime)
+        org.junit.Assert.assertNull(resultDueTod.scheduledDate)
+        org.junit.Assert.assertNull(resultDueTod.scheduledTime)
+        assertEquals("Send weekly update", resultDueTod.sanitizedTitle)
+    }
 }

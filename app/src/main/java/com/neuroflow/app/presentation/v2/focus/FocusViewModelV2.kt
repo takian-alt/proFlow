@@ -35,7 +35,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.local.entity.startOfPreviousLocalDay
+import com.neuroflow.app.data.local.entity.startOfNextLocalDay
 import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
+import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.data.local.entity.dependencyIds
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import java.util.UUID
 import javax.inject.Inject
@@ -80,7 +83,8 @@ data class FocusUiStateV2(
     val skippedMicroStepIndices: Set<Int> = emptySet(),
     val showSprintCompletionSheet: Boolean = false,
     val isSprintCompleted: Boolean = false,
-    val completionAffirmation: String? = null
+    val completionAffirmation: String? = null,
+    val showDndNotice: Boolean = false
 ) {
     val isSessionActive: Boolean get() = isRunning || isPaused
 }
@@ -196,13 +200,18 @@ class FocusViewModelV2 @Inject constructor(
                             )
                         )
                     }
+                    disableDnd()
+                    soundscapePlayer.pauseWithFadeOut()
                     FocusService.stopService(context)
 
                     viewModelScope.launch {
                         val currentTask = _uiState.value.task
                         if (currentTask != null) {
                             val updatedTask = currentTask.copy(
-                                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                                actualDurationMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                                sessionCount = currentTask.sessionCount + 1,
+                                lastSessionDurationMinutes = actualMinutes.toFloat()
                             )
                             taskRepository.update(updatedTask)
                             _uiState.update { it.copy(task = updatedTask) }
@@ -301,6 +310,10 @@ class FocusViewModelV2 @Inject constructor(
             preferencesDataStore.preferencesFlow
                 .collect { prefs ->
                     _uiState.update { it.copy(preferences = prefs) }
+                    checkDndNotice(prefs)
+                    if (!prefs.dndEnabled) {
+                        disableDnd()
+                    }
                     checkAutoTracker(prefs)
                 }
         }
@@ -309,12 +322,14 @@ class FocusViewModelV2 @Inject constructor(
     private fun checkAutoTracker(prefs: UserPreferences) {
         if (_uiState.value.isLoading || _uiState.value.task == null) return
         if (!prefs.autoTrackerEnabled || autoTrackerTriggered || _uiState.value.isRunning || _uiState.value.isPaused ||
-            _uiState.value.isCompleted || _uiState.value.task?.status == TaskStatus.COMPLETED) return
+            _uiState.value.isCompleted || _uiState.value.isSprintCompleted || _uiState.value.showSprintCompletionSheet ||
+            _uiState.value.task?.status == TaskStatus.COMPLETED) return
         if (autoTrackerJob == null || autoTrackerJob?.isActive == false) {
             autoTrackerJob = viewModelScope.launch {
                 delay(8000L)
                 if (!_uiState.value.isRunning && !_uiState.value.isPaused && !autoTrackerTriggered &&
-                    !_uiState.value.isCompleted && _uiState.value.task?.status != TaskStatus.COMPLETED) {
+                    !_uiState.value.isCompleted && !_uiState.value.isSprintCompleted && !_uiState.value.showSprintCompletionSheet &&
+                    _uiState.value.task?.status != TaskStatus.COMPLETED) {
                     autoTrackerTriggered = true
                     startTimer()
                 }
@@ -329,11 +344,15 @@ class FocusViewModelV2 @Inject constructor(
                     if (!_uiState.value.isCompleted) {
                         val task = taskRepository.getById(taskId)
                         if (task?.status == TaskStatus.COMPLETED) {
+                            val freshActiveTasks = taskRepository.getActiveTasks().filter { it.id != taskId }
+                            val freshNext = findNextActionableTask(freshActiveTasks, taskId)
                             _uiState.update {
                                 it.copy(
                                     isRunning = false,
                                     isPaused = false,
                                     isCompleted = true,
+                                    nextTaskId = freshNext?.id,
+                                    nextTaskTitle = freshNext?.title,
                                     showSprintCompletionSheet = false,
                                     showCompletionCelebration = true,
                                     pointsEarned = task.focusModePoints,
@@ -342,11 +361,53 @@ class FocusViewModelV2 @Inject constructor(
                             }
                             timerJob?.cancel()
                             timerJob = null
+                            disableDnd()
                             soundscapePlayer.pauseWithFadeOut()
+                        } else if (_uiState.value.isRunning) {
+                            val now = System.currentTimeMillis()
+                            val timing = FocusTimingCalculator.calculate(
+                                startedAtMillis = _uiState.value.startedAtMillis,
+                                accumulatedPauseMillis = _uiState.value.accumulatedPauseMillis,
+                                pausedAtMillis = _uiState.value.pausedAtMillis,
+                                nowMillis = now,
+                                targetDurationSeconds = _uiState.value.timerMode.durationSeconds
+                            )
+                            if (timing.isExpired && _uiState.value.timerMode != FocusTimerModeV2.FLOW_STOPWATCH) {
+                                timerJob?.cancel()
+                                timerJob = null
+                                disableDnd()
+                                soundscapePlayer.pauseWithFadeOut()
+                                _uiState.update {
+                                    it.copy(
+                                        isRunning = false,
+                                        isPaused = false,
+                                        elapsedSeconds = it.timerMode.durationSeconds,
+                                        remainingSeconds = 0L,
+                                        isSprintCompleted = true,
+                                        showSprintCompletionSheet = true
+                                    )
+                                }
+                            }
                         }
                     }
                 } else if (serviceSession.taskId == taskId) {
-                    if (serviceSession.isPaused && _uiState.value.isRunning && !_uiState.value.isPaused) {
+                    val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
+                    if (!isStopwatch && serviceSession.remainingSeconds <= 0L && _uiState.value.isRunning) {
+                        timerJob?.cancel()
+                        timerJob = null
+                        disableDnd()
+                        soundscapePlayer.pauseWithFadeOut()
+                        _uiState.update {
+                            it.copy(
+                                isRunning = false,
+                                isPaused = false,
+                                elapsedSeconds = it.timerMode.durationSeconds,
+                                remainingSeconds = 0L,
+                                isSprintCompleted = true,
+                                showSprintCompletionSheet = true
+                            )
+                        }
+                    } else if (serviceSession.isPaused && _uiState.value.isRunning && !_uiState.value.isPaused) {
                         val now = System.currentTimeMillis()
                         val timing = FocusTimingCalculator.calculate(
                             startedAtMillis = _uiState.value.startedAtMillis,
@@ -371,12 +432,25 @@ class FocusViewModelV2 @Inject constructor(
                         val now = System.currentTimeMillis()
                         val pausedAt = _uiState.value.pausedAtMillis ?: now
                         val (newAcc, _) = FocusTimingCalculator.onResume(pausedAt, _uiState.value.accumulatedPauseMillis, now)
+                        val timing = FocusTimingCalculator.calculate(
+                            startedAtMillis = _uiState.value.startedAtMillis,
+                            accumulatedPauseMillis = newAcc,
+                            pausedAtMillis = null,
+                            nowMillis = now,
+                            targetDurationSeconds = _uiState.value.timerMode.durationSeconds
+                        )
+                        val elapsed = maxOf(_uiState.value.elapsedSeconds, timing.elapsedSeconds)
+                        val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
+                        val remaining = if (isStopwatch) 0L else maxOf(0L, _uiState.value.timerMode.durationSeconds - elapsed)
+
                         _uiState.update {
                             it.copy(
                                 isRunning = true,
                                 isPaused = false,
                                 pausedAtMillis = null,
-                                accumulatedPauseMillis = newAcc
+                                accumulatedPauseMillis = newAcc,
+                                elapsedSeconds = elapsed,
+                                remainingSeconds = remaining
                             )
                         }
                         if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
@@ -423,13 +497,15 @@ class FocusViewModelV2 @Inject constructor(
     fun selectSoundscape(type: SoundscapeType) {
         activeSoundscape = type
         _uiState.update { it.copy(selectedSoundscape = type) }
-        if (_uiState.value.isRunning && !_uiState.value.isPaused) {
-            if (type == SoundscapeType.NONE) {
-                soundscapePlayer.play(SoundscapeType.NONE)
-            } else {
-                soundscapePlayer.setVolume(_uiState.value.soundscapeVolume)
-                soundscapePlayer.play(type)
-            }
+        if (type == SoundscapeType.NONE) {
+            soundscapePlayer.play(SoundscapeType.NONE)
+        } else if (_uiState.value.isRunning && !_uiState.value.isPaused) {
+            soundscapePlayer.setVolume(_uiState.value.soundscapeVolume)
+            soundscapePlayer.play(type)
+        } else if (soundscapePlayer.isAudioPlaying) {
+            // Audio was actively sounding (e.g. lingering from timer expiration frame); switch immediately
+            soundscapePlayer.setVolume(_uiState.value.soundscapeVolume)
+            soundscapePlayer.play(type)
         }
     }
 
@@ -444,6 +520,9 @@ class FocusViewModelV2 @Inject constructor(
         autoTrackerJob = null
         if (!_uiState.value.isSessionActive && _uiState.value.selectedSoundscape != SoundscapeType.NONE) {
             soundscapePlayer.pauseWithFadeOut()
+        }
+        if (!_uiState.value.isSessionActive || _uiState.value.isCompleted) {
+            disableDnd()
         }
     }
 
@@ -603,7 +682,10 @@ class FocusViewModelV2 @Inject constructor(
                 val currentTask = _uiState.value.task
                 if (currentTask != null) {
                     val updatedTask = currentTask.copy(
-                        totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes
+                        totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                        actualDurationMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                        sessionCount = currentTask.sessionCount + 1,
+                        lastSessionDurationMinutes = actualMinutes.toFloat()
                     )
                     taskRepository.update(updatedTask)
                     _uiState.update { it.copy(task = updatedTask) }
@@ -758,12 +840,41 @@ class FocusViewModelV2 @Inject constructor(
         disableDnd()
         soundscapePlayer.pauseWithFadeOut()
         FocusService.stopService(context)
-        context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
+        context?.let { ctx ->
+            runCatching { AutonomyNudgeEngine.cancelNudge(ctx, taskId) }
+            runCatching { com.neuroflow.app.worker.TaskReminderWorker.cancelReminder(ctx, taskId) }
+            runCatching {
+                val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+                nm?.cancel(taskId.hashCode())
+            }
+        }
 
         val now = System.currentTimeMillis()
-        val durationSec = _uiState.value.elapsedSeconds
         val wasSprintCompleted = _uiState.value.isSprintCompleted
-        val hasRunTimer = durationSec > 0L || _uiState.value.startedAtMillis > 0L
+        val hasRunTimer = _uiState.value.elapsedSeconds > 0L || _uiState.value.startedAtMillis > 0L
+
+        val timing = if (hasRunTimer && !wasSprintCompleted) {
+            FocusTimingCalculator.calculate(
+                startedAtMillis = _uiState.value.startedAtMillis,
+                accumulatedPauseMillis = _uiState.value.accumulatedPauseMillis,
+                pausedAtMillis = _uiState.value.pausedAtMillis,
+                nowMillis = now,
+                targetDurationSeconds = _uiState.value.timerMode.durationSeconds
+            )
+        } else null
+
+        val durationSec = when {
+            wasSprintCompleted -> _uiState.value.elapsedSeconds
+            timing != null -> {
+                val calcElapsed = maxOf(_uiState.value.elapsedSeconds, timing.elapsedSeconds)
+                if (_uiState.value.timerMode != FocusTimerModeV2.FLOW_STOPWATCH && _uiState.value.timerMode.durationSeconds > 0L) {
+                    minOf(calcElapsed, _uiState.value.timerMode.durationSeconds)
+                } else {
+                    minOf(calcElapsed, (TimeSessionEntity.LIVE_SESSION_CEILING_MINUTES * 60f).toLong())
+                }
+            }
+            else -> _uiState.value.elapsedSeconds
+        }
         val actualMinutes = if (hasRunTimer) max(1, (durationSec / 60).toInt()) else 0
 
         viewModelScope.launch {
@@ -797,11 +908,15 @@ class FocusViewModelV2 @Inject constructor(
 
             val points = 50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2)
 
+            val hasUnfinishedSession = hasRunTimer && !wasSprintCompleted
+            val finalSessionCount = if (hasUnfinishedSession) currentTask.sessionCount + 1 else currentTask.sessionCount
+            val finalLastSessionDuration = if (hasUnfinishedSession) actualMinutes.toFloat() else currentTask.lastSessionDurationMinutes
+
             val taskToComplete = currentTask.copy(
                 totalTimeTrackedMinutes = finalTracked,
                 actualDurationMinutes = finalTracked,
-                sessionCount = if (hasRunTimer) currentTask.sessionCount + 1 else currentTask.sessionCount,
-                lastSessionDurationMinutes = if (hasRunTimer) actualMinutes.toFloat() else currentTask.lastSessionDurationMinutes,
+                sessionCount = finalSessionCount,
+                lastSessionDurationMinutes = finalLastSessionDuration,
                 estimationErrorMape = mape,
                 estimationErrorSmape = smape,
                 focusModePoints = points
@@ -854,8 +969,8 @@ class FocusViewModelV2 @Inject constructor(
                     isRunning = false,
                     isPaused = false,
                     isCompleted = true,
-                    nextTaskId = freshNext?.id ?: it.nextTaskId,
-                    nextTaskTitle = freshNext?.title ?: it.nextTaskTitle,
+                    nextTaskId = freshNext?.id,
+                    nextTaskTitle = freshNext?.title,
                     showSprintCompletionSheet = false,
                     showCompletionCelebration = true,
                     showAffordanceRating = true,
@@ -906,6 +1021,7 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     fun takeDecompressionRest() {
+        soundscapePlayer.pauseWithFadeOut()
         _uiState.update {
             it.copy(
                 showSprintCompletionSheet = false,
@@ -914,7 +1030,13 @@ class FocusViewModelV2 @Inject constructor(
                 decompressionRemainingSeconds = 180,
                 isDecompressionSighActive = false,
                 decompressionSighRemainingSeconds = 0,
-                isDecompressionBypassed = false
+                isDecompressionBypassed = false,
+                startedAtMillis = if (!it.isCompleted) 0L else it.startedAtMillis,
+                accumulatedPauseMillis = if (!it.isCompleted) 0L else it.accumulatedPauseMillis,
+                pausedAtMillis = null,
+                elapsedSeconds = if (!it.isCompleted) 0L else it.elapsedSeconds,
+                remainingSeconds = if (!it.isCompleted && it.timerMode != FocusTimerModeV2.FLOW_STOPWATCH) it.timerMode.durationSeconds else it.remainingSeconds,
+                activeSessionId = if (!it.isCompleted) null else it.activeSessionId
             )
         }
         startDecompressionTicker()
@@ -1017,31 +1139,63 @@ class FocusViewModelV2 @Inject constructor(
             val planSteps = generated.map { StepByStepPlanStep(it.title, false) }
             val serialized = StepByStepPlanCodec.serialize(planSteps)
             val updated = task.copy(ifThenPlan = serialized, updatedAt = System.currentTimeMillis())
-            _uiState.update { it.copy(task = updated, microSteps = planSteps) }
+            _uiState.update { it.copy(task = updated, microSteps = planSteps, skippedMicroStepIndices = emptySet()) }
             taskRepository.deleteMicroStepsByTaskId(task.id)
             taskRepository.insertMicroSteps(microStepEntities)
             taskRepository.update(updated)
         }
     }
 
+    private var dndNoticeDismissed = false
+
+    fun dismissDndNotice() {
+        dndNoticeDismissed = true
+        _uiState.update { it.copy(showDndNotice = false) }
+    }
+
+    fun checkDndNotice(prefs: UserPreferences = _uiState.value.preferences) {
+        if (dndNoticeDismissed) return
+        val isDndEnabled = prefs.dndEnabled
+        val ctx = context
+        if (isDndEnabled && ctx != null) {
+            val nm = runCatching { ctx.getSystemService(android.app.NotificationManager::class.java) }.getOrNull()
+            val granted = nm?.isNotificationPolicyAccessGranted == true
+            _uiState.update { it.copy(showDndNotice = !granted) }
+        } else {
+            _uiState.update { it.copy(showDndNotice = false) }
+        }
+    }
+
+    fun onScreenResumed() {
+        val ctx = context
+        if (ctx != null) {
+            val nm = runCatching { ctx.getSystemService(android.app.NotificationManager::class.java) }.getOrNull()
+            if (nm?.isNotificationPolicyAccessGranted == true) {
+                _uiState.update { it.copy(showDndNotice = false) }
+                if (_uiState.value.isRunning && !_uiState.value.isPaused && _uiState.value.preferences.dndEnabled) {
+                    enableDndIfPermitted()
+                }
+            } else if (!dndNoticeDismissed) {
+                checkDndNotice()
+            }
+        }
+    }
+
     private fun enableDndIfPermitted() {
         try {
-            if (!_uiState.value.preferences.dndEnabled || context == null) return
-            val nm = context.getSystemService(android.app.NotificationManager::class.java)
+            val ctx = context ?: return
+            if (!_uiState.value.preferences.dndEnabled) return
+            val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
             if (nm != null && nm.isNotificationPolicyAccessGranted) {
                 nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+            } else if (nm != null && !nm.isNotificationPolicyAccessGranted && !dndNoticeDismissed) {
+                _uiState.update { it.copy(showDndNotice = true) }
             }
         } catch (_: Exception) {}
     }
 
     private fun disableDnd() {
-        try {
-            if (context == null) return
-            val nm = context.getSystemService(android.app.NotificationManager::class.java)
-            if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-            }
-        } catch (_: Exception) {}
+        FocusDndHelper.disableDnd(context)
     }
 
     private fun updateSessionRecord(isOpen: Boolean) {
@@ -1154,7 +1308,7 @@ class FocusViewModelV2 @Inject constructor(
             if (!_uiState.value.isCompleted) {
                 context?.let { ctx ->
                     _uiState.value.task?.let { task ->
-                        if (task.status == TaskStatus.ACTIVE) {
+                        if (task.status == TaskStatus.ACTIVE && task.quadrant != Quadrant.ELIMINATE) {
                             AutonomyNudgeEngine.scheduleNudge(ctx, task)
                         }
                     }
@@ -1167,35 +1321,66 @@ class FocusViewModelV2 @Inject constructor(
 
     private fun findNextActionableTask(activeTasks: List<TaskEntity>, currentTaskId: String): TaskEntity? {
         val activeTaskIds = activeTasks.map { it.id }.toSet()
+        val now = System.currentTimeMillis()
+        val dayEnd = startOfNextLocalDay(now) - 1
+
+        fun isContinuationBlocked(task: TaskEntity, activeIds: Set<String>): Boolean {
+            val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+            val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+            val isContinuation = (partNum != null && partNum >= 2) ||
+                task.id.endsWith("_part2") ||
+                task.id.contains("#part2") ||
+                task.parentTaskId != null
+            if (!isContinuation) return false
+            val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+            val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeIds) ||
+                (parentSlug != task.id && parentSlug in activeIds)
+            val hasPartRegex = task.id.contains(Regex("""[#_]part\d+"""))
+            val isPart1Active = if (hasPartRegex) {
+                val part1Id = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
+                part1Id != task.id && part1Id in activeIds
+            } else false
+            val isPrecedingPartActive = if (hasPartRegex && partNum != null) {
+                (1 until partNum).any { prevPart ->
+                    val prevId = task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart")
+                    prevId != task.id && prevId in activeIds
+                }
+            } else if (task.parentTaskId != null && partNum != null && partNum > 1) {
+                activeTasks.any { other ->
+                    other.id != task.id &&
+                        (other.parentTaskId == task.parentTaskId || other.id == task.parentTaskId) &&
+                        (Regex("""\(Part (\d+)/""").find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
+                }
+            } else false
+            return isParentActive || isPart1Active || isPrecedingPartActive
+        }
+
         return activeTasks
             .filter { task ->
                 if (task.id == currentTaskId || task.status != TaskStatus.ACTIVE) return@filter false
                 if (task.quadrant == Quadrant.ELIMINATE) return@filter false
                 if (task.waitingFor.isNotBlank()) return@filter false
 
-                val isPart2Blocked = task.id.endsWith("_part2") && (
-                    (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
-                    task.id.removeSuffix("_part2") in activeTaskIds ||
-                    task.id.replace("_part2", "_part1") in activeTaskIds
-                )
-                if (isPart2Blocked) return@filter false
+                if (isContinuationBlocked(task, activeTaskIds)) return@filter false
 
-                val isBlockedByPrereq = task.dependsOnTaskIds.isNotBlank() &&
-                    task.dependsOnTaskIds.split(',')
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .any { it in activeTaskIds }
+                val isBlockedByPrereq = task.dependencyIds().any { it in activeTaskIds }
                 if (isBlockedByPrereq) return@filter false
+
+                // Filter out tasks scheduled for future days
+                val scheduledStart = task.resolveScheduledEpochMillis(now)
+                val sDate = task.effectiveScheduledDateMillis()
+                val isScheduledInFuture = (scheduledStart != null && scheduledStart > dayEnd) || (sDate != null && sDate > dayEnd)
+                if (isScheduledInFuture) return@filter false
 
                 true
             }
             .sortedWith(
                 compareByDescending<TaskEntity> { it.isFrog }
+                    .thenBy { it.effectiveScheduledDateMillis() == null && (it.scheduledTime == null || it.scheduledTime!! < ONE_DAY_MILLIS) }
                     .thenBy { it.scheduledTime == null }
                     .thenBy {
-                        it.effectiveScheduledDateMillis()
-                            ?: it.scheduledTime?.takeIf { time -> time >= ONE_DAY_MILLIS }?.let { time -> startOfLocalDay(time) }
-                            ?: Long.MAX_VALUE
+                        it.resolveScheduledEpochMillis(now) ?: Long.MAX_VALUE
                     }
                     .thenBy { it.createdAt }
             )

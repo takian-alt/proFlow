@@ -1,0 +1,94 @@
+{
+  "completedTurns": 2,
+  "endedAt": "2026-10-31T20:35:14.609Z",
+  "failedTurns": 3,
+  "harness": "ori",
+  "lastEventType": "turn.failed",
+  "runIds": [
+    {
+      "cwd": "/home/takian",
+      "model": "z-ai/glm-5.3-flash:floor",
+      "prompt": "hey",
+      "runId": "211162fa-ec83-4843-ad2c-fd07b9b6d74a",
+      "source": {
+        "surface": "code"
+      }
+    },
+    {
+      "cwd": "/home/takian",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "prompt": "hey",
+      "runId": "77d9da53-b060-410b-bb80-3df631256b60",
+      "source": {
+        "surface": "code"
+      }
+    },
+    {
+      "cwd": "/home/takian",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "prompt": "check the PROCUS app",
+      "runId": "5db76a60-a238-4dbc-baf6-c970d05f2680",
+      "source": {
+        "surface": "code"
+      }
+    },
+    {
+      "cwd": "/home/takian/Project/PROCUS",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "prompt": "hey",
+      "runId": "2d55387e-82f4-4aa9-950d-f288c3ac82f5",
+      "source": {
+        "surface": "code"
+      }
+    },
+    {
+      "cwd": "/home/takian/Project/PROCUS",
+      "model": "openrouter/free:nitro",
+      "prompt": "what do u think of the app",
+      "runId": "0e06867d-1c25-419e-a931-ca6b4a8807a2",
+      "source": {
+        "surface": "code"
+      }
+    }
+  ],
+  "sessionId": "76cba87b-859f-4c0d-9647-ef95c0973cb6",
+  "startedAt": "2026-10-31T20:22:47.179Z",
+  "usage": {
+    "cacheCreationTokens": 0,
+    "cacheReadTokens": 60480,
+    "contextTokens": 0,
+    "costUsd": 0.00047565,
+    "generationIds": [
+      "gen-dec-1793478167-1vEDYwGIVKIMHLq9ot26",
+      "gen-dec-1793478168-tfAIkYHonEjYEXnEsjkl",
+      "gen-1793478543-lCNMX4Dox3vkoae5pJgl",
+      "gen-dec-1793478542-AGdqzU0Gci9AL0P9x7K0",
+      "gen-dec-1793478542-fZFpIuk613Hx7eOODjnE",
+      "gen-1793478562-t51r1AzZYpLfn1oT2ZoE",
+      "gen-1793478568-HtEOxnljnWLmA4AFu3Bc",
+      "gen-1793478571-qeehxybqtm9BRJYLa4eU",
+      "gen-1793478581-bV66tEu910jNebGlIr6s",
+      "gen-1793478583-zTFcwq2ivwFbAebaD7v0",
+      "gen-1793478585-v6sRHKS24iu7KyR1USl7",
+      "gen-1793478587-yAJDQeFvJorLIXSMJw50",
+      "gen-1793478589-wet9lB1iZFI1nDSQQYjH",
+      "gen-1793478591-lxObC44vci2YFvsWVuFn",
+      "gen-1793478594-NReXtXWAV4oGJxYh7Axf",
+      "gen-1793478598-8MMLSGaxfZsumMbl5AWm",
+      "gen-1793478601-h1Hpsykq8nnrP0WXuR1j",
+      "gen-1793478604-gGdGAGsxx4GYnnJpcSuw",
+      "gen-1793478606-SgrUx2WyKjwvcUEj4zSL",
+      "gen-1793478609-tuwBG3Ht3M3S0NlH0tKy",
+      "gen-1793478614-QVFamXIx1gf21kznZ56K",
+      "gen-dec-1793478561-8Sj1WkOQHBh8xyVDJif5",
+      "gen-dec-1793478561-1lhj7teKIJjveZHoJWSz",
+      "gen-dec-1793478829-sBpfkFogXHN6pDad6EPi",
+      "gen-dec-1793478829-REalTAHWxx06ANvJRUnz",
+      "gen-dec-1793478876-gpzXKNhsIdv7MBMYEWdS",
+      "gen-dec-1793478877-dUNRyLtKLvgBfctSLZvl"
+    ],
+    "inputTokens": 322978,
+    "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "outputTokens": 2477
+  }
+}

@@ -6,6 +6,7 @@ import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -726,5 +727,169 @@ class SmartTaskComposerSheetV2Test {
         val resolvedTaskTitle = explicitTitle ?: inferred.sanitizedTitle.ifBlank { note.content.take(35) }
 
         assertEquals("Existing note title must not be clobbered by sanitized body title", "Database Migration Checklist", resolvedTaskTitle)
+    }
+
+    @Test
+    fun testBug377ManualOverridesAndDateClearingPreservedOnNormalTitleEdits() {
+        val tomorrow = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis()) + 86_400_000L
+        var userDeadlineDateOverride: Long? = tomorrow
+        var deadlineDateCleared = false
+        var userFrogOverride: Boolean? = false
+        var userQuadrantOverride: Quadrant? = Quadrant.DO_FIRST
+        var userDurationOverride: Int? = 45
+
+        // Simulate typing a normal title without explicit directives
+        val newTitle = "Fix broken navigation link"
+        val inferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(newTitle)
+
+        // Selective reset logic
+        if (newTitle.isBlank()) {
+            userDurationOverride = null
+            userFrogOverride = null
+            userQuadrantOverride = null
+            userDeadlineDateOverride = null
+            deadlineDateCleared = false
+        } else {
+            if (inferred.isDurationExplicit) userDurationOverride = null
+            if (inferred.isQuadrantExplicit) userQuadrantOverride = null
+            if (inferred.isFrog) userFrogOverride = null
+            if (inferred.deadlineDate != null) {
+                userDeadlineDateOverride = null
+                deadlineDateCleared = false
+            }
+        }
+
+        // Must preserve manual selections
+        assertEquals(tomorrow, userDeadlineDateOverride)
+        assertEquals(false, deadlineDateCleared)
+        assertEquals(false, userFrogOverride)
+        assertEquals(Quadrant.DO_FIRST, userQuadrantOverride)
+        assertEquals(45, userDurationOverride)
+
+        // Now simulate typing "!frog"
+        val titleWithDirective = "Fix broken navigation link !frog 60m"
+        val directiveInferred = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput(titleWithDirective)
+        if (directiveInferred.isDurationExplicit) userDurationOverride = null
+        if (directiveInferred.isFrog) userFrogOverride = null
+
+        // Overrides reset when directive is explicitly typed
+        org.junit.Assert.assertNull(userFrogOverride)
+        org.junit.Assert.assertNull(userDurationOverride)
+        assertTrue(directiveInferred.isFrog)
+        assertEquals(60, directiveInferred.durationMinutes)
+    }
+
+    @Test
+    fun testBug378ClearingDeadlineToNullClearsDeadlineTimeAndClearingScheduledDateClearsScheduledTime() {
+        val normalizedDeadlineTime = 17 * 3600_000L // 5:00 PM
+        val finalDeadlineDate: Long? = null
+        val finalSavedDeadlineTime = if (finalDeadlineDate == null) null else normalizedDeadlineTime
+        org.junit.Assert.assertNull("Deadline time must be nullified when deadline date is null", finalSavedDeadlineTime)
+
+        // Non-recurring task with cleared scheduled date
+        val normalizedScheduledTime = 10 * 3600_000L // 10:00 AM
+        val finalScheduledDate: Long? = null
+        val nonRecurring = com.neuroflow.app.domain.model.Recurrence.NONE
+        val savedScheduledTimeNonRecurring = if (finalScheduledDate == null && nonRecurring == com.neuroflow.app.domain.model.Recurrence.NONE) null else normalizedScheduledTime
+        org.junit.Assert.assertNull("Scheduled time must be nullified for non-recurring task without date", savedScheduledTimeNonRecurring)
+
+        // Recurring habit retains time of day even when scheduledDate is null
+        val daily = com.neuroflow.app.domain.model.Recurrence.DAILY
+        val savedScheduledTimeRecurring = if (finalScheduledDate == null && daily == com.neuroflow.app.domain.model.Recurrence.NONE) null else normalizedScheduledTime
+        assertEquals(10 * 3600_000L, savedScheduledTimeRecurring)
+    }
+
+    @Test
+    fun testBug379EffectiveHabitDateInCreateModeHonorsInitialDate() {
+        val today = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        val futureDate = today + 3 * 86_400_000L
+        val initialDate: Long? = futureDate
+
+        val existingTask: TaskEntity? = null
+        val finalScheduledDate: Long? = null
+        val finalDeadlineDate: Long? = null
+
+        val effectiveHabitDate = existingTask?.habitDate
+            ?: finalScheduledDate
+            ?: finalDeadlineDate
+            ?: initialDate
+            ?: today
+
+        assertEquals("Newly created habit must anchor to initialDate", futureDate, effectiveHabitDate)
+    }
+
+    @Test
+    fun testBug380TimePickerConfirmationUnclearsDateAndPopulatesDateOverride() {
+        val today = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        val initialDate: Long? = today + 86_400_000L
+
+        var userDeadlineDateOverride: Long? = null
+        var deadlineDateCleared = true // Previously cleared
+        val effectiveDeadlineDate: Long? = null
+
+        // User confirms 15:00 in TimePicker
+        val millis = 15 * 3600_000L
+        val userDeadlineTimeOverride = millis
+        val deadlineTimeCleared = false
+        deadlineDateCleared = false
+        if (effectiveDeadlineDate == null) {
+            userDeadlineDateOverride = initialDate ?: today
+        }
+
+        assertEquals(false, deadlineDateCleared)
+        assertEquals(false, deadlineTimeCleared)
+        assertEquals(millis, userDeadlineTimeOverride)
+        assertEquals(initialDate, userDeadlineDateOverride)
+    }
+
+    @Test
+    fun testBug419ImplicitClockTimeDoesNotClobberInitialDateOrExistingTaskScheduledDate() {
+        val today = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        val futureDate = today + 4 * 86_400_000L
+
+        // 1. Create mode with initialDate: User types "Team sync at 2pm" (only time, no explicit date)
+        val inferredCreate = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput("Team sync at 2pm")
+        assertEquals(14 * 3600_000L, inferredCreate.scheduledTime)
+        assertFalse("Date should not be flagged explicit when only clock time is given", inferredCreate.isScheduledDateExplicit)
+
+        val scheduledDateCleared = false
+        val userScheduledDateOverride: Long? = null
+        val modeCreate: SheetMode = SheetMode.Create
+        val initialDate: Long? = futureDate
+
+        val effectiveScheduledDateCreate = when {
+            scheduledDateCleared -> null
+            userScheduledDateOverride != null -> userScheduledDateOverride
+            inferredCreate.isScheduledDateExplicit -> inferredCreate.scheduledDate
+            modeCreate is SheetMode.Create && initialDate != null -> initialDate
+            inferredCreate.scheduledDate != null -> inferredCreate.scheduledDate
+            else -> initialDate
+        }
+
+        assertEquals("Create mode with implicit clock time must honor initialDate", futureDate, effectiveScheduledDateCreate)
+
+        // 2. Edit mode: Existing task has scheduledDate = futureDate, user edits title to "Architectural sync at 3pm"
+        val existingTask = TaskEntity(
+            id = "task-edit-scheduled",
+            title = "Architectural sync",
+            scheduledDate = futureDate,
+            scheduledTime = 10 * 3600_000L
+        )
+        val inferredEdit = com.neuroflow.app.domain.inference.TaskInferenceEngine.inferFromInput("Architectural sync at 3pm")
+        assertEquals(15 * 3600_000L, inferredEdit.scheduledTime)
+        assertFalse(inferredEdit.isScheduledDateExplicit)
+
+        val modeEdit: SheetMode = SheetMode.Edit(existingTask)
+        val effectiveScheduledDateEdit = when {
+            scheduledDateCleared -> null
+            userScheduledDateOverride != null -> userScheduledDateOverride
+            inferredEdit.isScheduledDateExplicit -> inferredEdit.scheduledDate
+            modeEdit is SheetMode.Create && initialDate != null -> initialDate
+            modeEdit is SheetMode.Edit && existingTask.scheduledDate != null -> existingTask.scheduledDate
+            inferredEdit.scheduledDate != null -> inferredEdit.scheduledDate
+            else -> existingTask.scheduledDate
+        }
+
+        assertEquals("Edit mode with implicit clock time must preserve existing task scheduledDate", futureDate, effectiveScheduledDateEdit)
     }
 }

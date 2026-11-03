@@ -10,9 +10,12 @@ object AutoSchedulingContracts {
     /**
      * A manual schedule claims a full timestamp. A date with no time-of-day is not a finished
      * schedule — the scheduler is still expected to place the task, on that day.
+     * Dual representation epoch timestamps (scheduledTime >= ONE_DAY_MILLIS) contain both date and time (BUG-452).
      */
     fun hasManualScheduleData(task: TaskEntity): Boolean {
-        return task.scheduledDate != null && task.scheduledTime != null && !task.isAutoScheduled
+        val hasTime = task.scheduledTime != null
+        val hasDate = task.scheduledDate != null || (hasTime && task.scheduledTime!! >= com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS)
+        return hasDate && hasTime && !task.isAutoScheduled
     }
 
     fun isMutableByAutoScheduler(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {

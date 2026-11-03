@@ -17,14 +17,22 @@ fun TaskEntity.dependencyIds(): List<String> =
 fun TaskEntity.isRecurringWithAnchor(): Boolean =
     recurrence != Recurrence.NONE && habitDate != null
 
+const val ONE_DAY_MILLIS = 86_400_000L
+
 /**
  * Returns the effective date anchor (midnight start-of-day) for scheduling and filtering.
- * For recurring habits, this is [habitDate]; otherwise it is [scheduledDate].
+ * For recurring habits, this is [habitDate]; otherwise it is [scheduledDate] or the
+ * start-of-day of an absolute [scheduledTime] epoch timestamp.
  */
-fun TaskEntity.effectiveScheduledDateMillis(): Long? =
-    if (isRecurringWithAnchor()) habitDate else scheduledDate
-
-const val ONE_DAY_MILLIS = 86_400_000L
+fun TaskEntity.effectiveScheduledDateMillis(): Long? {
+    if (isRecurringWithAnchor() && habitDate != null) return habitDate
+    if (scheduledDate != null) return scheduledDate
+    val rawTime = scheduledTime
+    if (rawTime != null && rawTime >= ONE_DAY_MILLIS) {
+        return startOfLocalDay(rawTime)
+    }
+    return habitDate
+}
 
 /**
  * Resolves the scheduled epoch millis handling dual representation:
@@ -59,7 +67,11 @@ fun TaskEntity.resolveDeadlineEpochMillis(referenceDateMillis: Long = System.cur
     val rawTime = deadlineTime
     if (rawTime != null && rawTime >= ONE_DAY_MILLIS) return rawTime
     if (deadlineDate != null) {
-        return deadlineDate + (rawTime ?: 0L)
+        // BUG-AUDIT-003: When deadlineDate is start-of-day and no deadlineTime is provided,
+        // resolve to end-of-day (23:59:59.999) rather than midnight start-of-day (00:00:00).
+        val isDateOnly = (rawTime == null) && (startOfLocalDay(deadlineDate) == deadlineDate)
+        val timeOffset = rawTime ?: if (isDateOnly) (ONE_DAY_MILLIS - 1L) else 0L
+        return deadlineDate + timeOffset
     }
     if (isRecurringWithAnchor() && habitDate != null && rawTime != null) {
         return startOfLocalDay(habitDate) + rawTime

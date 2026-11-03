@@ -158,4 +158,16 @@ class TaskTagAndCategoryTest {
         assertEquals(listOf("deepwork", "coding", "study", "review", "admin"), cleaned)
         assertFalse("Tags must not contain internal commas", cleaned.any { it.contains(",") })
     }
+
+    @Test
+    fun testBug421NormalizeTagsSplitsSpaceSeparatedHashtagsAndPreservesPhrases() {
+        val rawInputTags = listOf("#deepwork #coding", "@work #admin", "#study", "deep work, hard work")
+        fun normalizeTags(tags: Collection<String>): List<String> {
+            return tags.flatMap { it.split(Regex("""(?=[#@])|[,;]""")) }
+                .mapNotNull { it.trim().removePrefix("#").removePrefix("@").takeIf(String::isNotBlank) }
+        }
+        val cleaned = normalizeTags(rawInputTags)
+        assertEquals(listOf("deepwork", "coding", "work", "admin", "study", "deep work", "hard work"), cleaned)
+        assertFalse("Tags must not contain embedded hashtags", cleaned.any { it.contains("#") })
+    }
 }

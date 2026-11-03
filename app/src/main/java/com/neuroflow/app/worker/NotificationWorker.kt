@@ -170,17 +170,36 @@ class DailyPlanWorker @AssistedInject constructor(
             val candidateTasks = tasks.filter { task ->
                 val sDate = task.effectiveScheduledDateMillis()
                 val dDate = task.resolveDeadlineEpochMillis()
-                val isNotFuture = (sDate != null && sDate <= dayEnd) ||
+                val scheduledStart = task.resolveScheduledEpochMillis()
+                val isScheduledInFuture = scheduledStart != null && scheduledStart > dayEnd
+                val isNotFuture = !isScheduledInFuture && (
+                    (sDate != null && sDate <= dayEnd) ||
                     (sDate == null && (dDate == null || dDate <= dayEnd))
-                val dependenciesMet = task.dependsOnTaskIds.isBlank() ||
-                    task.dependsOnTaskIds.split(",").map { it.trim() }.all { it in completedIds }
-                val isPart2Blocked = task.id.endsWith("_part2") && (
-                    (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
-                    task.id.removeSuffix("_part2") in activeTaskIds
                 )
+                val parentMet = task.parentTaskId == null || task.parentTaskId in completedIds
+                val dependenciesMet = parentMet && (task.dependsOnTaskIds.isBlank() ||
+                    task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.all { it in completedIds })
+                val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                    ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                val isContinuation = (partNum != null && partNum >= 2) ||
+                    task.id.contains(Regex("""[#_]part\d+""")) ||
+                    task.parentTaskId != null
+                val isPartBlocked = if (!isContinuation) {
+                    false
+                } else {
+                    val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                        (parentSlug != task.id && parentSlug in activeTaskIds)
+                    val isPart1Active = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in activeTaskIds
+                    val isPrecedingPartActive = partNum != null && (1 until partNum).any { prevPart ->
+                        task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart") in activeTaskIds
+                    }
+                    isParentActive || isPart1Active || isPrecedingPartActive
+                }
                 task.status == TaskStatus.ACTIVE &&
                     task.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE &&
-                    !isPart2Blocked &&
+                    !isPartBlocked &&
                     task.waitingFor.isBlank() &&
                     isNotFuture &&
                     dependenciesMet
@@ -236,6 +255,11 @@ class DailyPlanWorker @AssistedInject constructor(
                     deadlineMillis = task.resolveDeadlineEpochMillis(),
                     isLocked = task.isScheduleLocked,
                     parentTaskId = task.parentTaskId,
+                    prerequisiteIds = let {
+                        val parsed = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+                        task.parentTaskId?.trim()?.takeIf { it.isNotBlank() && it != task.id }?.let { parsed.add(it) }
+                        parsed
+                    },
                     impactScore = task.impactScore,
                     postponeCount = task.postponeCount,
                     isAnxietyTask = task.isAnxietyTask,
@@ -404,10 +428,11 @@ class DeadlineEscalationWorker @AssistedInject constructor(
 
             val urgentTasks = taskRepository.getActiveTasks().filter { task ->
                 task.quadrant != com.neuroflow.app.domain.model.Quadrant.DO_FIRST &&
+                task.quadrant != com.neuroflow.app.domain.model.Quadrant.ELIMINATE &&
                 task.recurrence == com.neuroflow.app.domain.model.Recurrence.NONE &&
                 let {
                     val deadlineMillis = task.resolveDeadlineEpochMillis()
-                    deadlineMillis != null && (deadlineMillis - now) in 0L..threshold
+                    deadlineMillis != null && (deadlineMillis - now) <= threshold && deadlineMillis >= now - 14 * 86_400_000L
                 }
             }
 
@@ -515,11 +540,8 @@ class TaskReminderWorker @AssistedInject constructor(
                 else  -> "$minutesBefore minutes"
             }
 
-            val notificationTitle = if (actualTargetMs <= now) {
-                "⏰ Task is due now"
-            } else {
-                "⏰ Task due in $timeLabel"
-            }
+            val isScheduledStart = task.deadlineTime == null && task.scheduledTime != null
+            val notificationTitle = resolveNotificationTitle(actualTargetMs, now, timeLabel, isScheduledStart)
 
             showNotification(
                 notificationTitle,
@@ -572,6 +594,19 @@ class TaskReminderWorker @AssistedInject constructor(
     }
 
     companion object {
+        internal fun resolveNotificationTitle(
+            actualTargetMs: Long,
+            now: Long,
+            timeLabel: String,
+            isScheduledStart: Boolean
+        ): String {
+            return if (actualTargetMs <= now) {
+                if (isScheduledStart) "⏰ Task starts now" else "⏰ Task is due now"
+            } else {
+                if (isScheduledStart) "⏰ Task starts in $timeLabel" else "⏰ Task due in $timeLabel"
+            }
+        }
+
         fun scheduleReminder(
             context: Context,
             task: TaskEntity,
@@ -592,11 +627,20 @@ class TaskReminderWorker @AssistedInject constructor(
             }
             val triggerMs = targetMs - (minutesBefore * 60_000L)
             val now = System.currentTimeMillis()
-            if (triggerMs <= now) {
-                cancelReminder(workManager, task.id)
-                return
+            val (effectiveTriggerMs, effectiveMinutesBefore) = if (triggerMs <= now) {
+                if (targetMs > now) {
+                    targetMs to 0L
+                } else {
+                    cancelReminder(workManager, task.id)
+                    return
+                }
+            } else {
+                triggerMs to minutesBefore
             }
-            val initialDelayMs = triggerMs - now
+            if (effectiveMinutesBefore == 0L) {
+                workManager.cancelUniqueWork("task_reminder_${task.id}_15")
+            }
+            val initialDelayMs = maxOf(0L, effectiveTriggerMs - now)
 
             val workRequest = OneTimeWorkRequestBuilder<TaskReminderWorker>()
                 .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
@@ -606,14 +650,14 @@ class TaskReminderWorker @AssistedInject constructor(
                     workDataOf(
                         "taskId" to task.id,
                         "taskTitle" to task.title,
-                        "minutesBefore" to minutesBefore,
+                        "minutesBefore" to effectiveMinutesBefore,
                         "targetMs" to targetMs
                     )
                 )
                 .build()
 
             workManager.enqueueUniqueWork(
-                "task_reminder_${task.id}_$minutesBefore",
+                "task_reminder_${task.id}_$effectiveMinutesBefore",
                 ExistingWorkPolicy.REPLACE,
                 workRequest
             )

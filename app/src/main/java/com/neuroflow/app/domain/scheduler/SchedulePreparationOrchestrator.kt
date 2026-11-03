@@ -124,25 +124,56 @@ class SchedulePreparationOrchestrator @Inject constructor(
             }
             val calibratedEnjoyment = (enjoymentCalibration.forecast(task.enjoymentScore) / 10.0).roundToInt().coerceIn(0, 10)
 
-            val isPart2Continuation = task.id.endsWith("_part2") ||
-                task.id.contains("#part2") ||
-                task.parentTaskId != null ||
-                task.title.contains("(Part 2/")
+            val isPart1 = task.id.contains(Regex("""[#_]part1""")) || task.title.contains("(Part 1/")
+            // BUG-328 & BUG-417 Fix: Ensure Part 1 is not erroneously flagged as a Part 2+ continuation,
+            // and isolate Part 2+ continuation tasks while preserving subtask metadata.
+            val isPart2Continuation = !isPart1 && (
+                task.id.endsWith("_part2") ||
+                task.id.contains(Regex("""[#_]part[2-9]""")) ||
+                (task.parentTaskId != null && (task.id.contains(Regex("""[#_]part""")) || task.title.contains(Regex("""\((Part|part) \d+/\d+\)""")))) ||
+                task.title.contains(Regex("""\(Part (?!1/)\d+/\d+\)"""))
+            )
 
             val cleanTitle = if (!isPart2Continuation) {
                 task.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").replace(Regex("""\s*#part\d+"""), "").trim()
             } else {
                 task.title
             }
-            // BUG-328 Fix: Only wipe plannedBlockMinutes on Part 1 tasks to re-evaluate the full estimate.
-            // Part 2 continuation tasks must retain their allocated continuation duration and Part 2 title.
-            val taskToEstimate = if (!isPart2Continuation && !task.isScheduleLocked && (task.title.contains("(Part 1/") || task.title.contains("#part1"))) {
+            // BUG-328 & BUG-376 Fix: Wipe plannedBlockMinutes on Part 1 tasks to re-evaluate the full estimate.
+            // Part 2+ continuation tasks retain their allocated continuation duration and Part 2+ title.
+            val taskToEstimate = if (!isPart2Continuation && !task.isScheduleLocked && isPart1) {
                 task.copy(title = cleanTitle, plannedBlockMinutes = 0)
             } else {
                 task
             }
             val expectedDuration = TaskBlockPlan.expectedMinutes(taskToEstimate)
             val isDurationExplicit = task.isScheduleLocked || isPart2Continuation
+
+            // BUG-376 & BUG-415 & BUG-451 Fix: Synchronize parentTaskId and continuation part dependencies into prerequisiteIds.
+            // Part 1 is the initial part and must never depend on parent (preventing self/cross-day deadlock).
+            val parsedPrereqs = task.dependsOnTaskIds.split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .toMutableSet()
+            val parent = task.parentTaskId?.trim().orEmpty()
+            if (parent.isNotBlank() && parent != task.id && !isPart1) {
+                parsedPrereqs.add(parent)
+            }
+            if (task.id.contains(Regex("""[#_]part([2-9]|\d{2,})"""))) {
+                val inferredParent = task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                if (inferredParent.isNotBlank() && inferredParent != task.id) {
+                    parsedPrereqs.add(inferredParent)
+                    val p1Hash = "${inferredParent}#part1"
+                    val p1Underscore = "${inferredParent}_part1"
+                    if (candidateTasks.any { it.id == p1Hash }) parsedPrereqs.add(p1Hash)
+                    if (candidateTasks.any { it.id == p1Underscore }) parsedPrereqs.add(p1Underscore)
+                }
+            } else if (task.id.endsWith("_part2")) {
+                val inferredParent = task.id.removeSuffix("_part2")
+                if (inferredParent.isNotBlank() && inferredParent != task.id) {
+                    parsedPrereqs.add(inferredParent)
+                }
+            }
 
             SchedulableTask(
                 id = task.id,
@@ -161,18 +192,21 @@ class SchedulePreparationOrchestrator @Inject constructor(
                     else -> EnergyDemand.LOW
                 },
                 isFrog = task.isFrog,
-                scheduledStartMillis = task.resolveScheduledEpochMillis(dayStartMillis),
+                // BUG-451 Fix: Date-only untimed tasks (scheduledTime == null) represent day-level intent and must not resolve to midnight
+                scheduledStartMillis = if (task.scheduledTime != null) task.resolveScheduledEpochMillis(dayStartMillis) else null,
                 deadlineMillis = task.resolveDeadlineEpochMillis(dayStartMillis),
                 isLocked = task.isScheduleLocked,
                 parentTaskId = task.parentTaskId,
                 completedMicroSteps = microStepCounts[task.id]?.first ?: 0,
                 totalMicroSteps = microStepCounts[task.id]?.second ?: 0,
-                isCurrentlyActive = (activeTaskId != null && (task.id == activeTaskId || task.id.startsWith("$activeTaskId#"))),
+                isCurrentlyActive = (activeTaskId != null && (
+                    task.id == activeTaskId ||
+                    task.id.startsWith("$activeTaskId#") ||
+                    task.id.startsWith("${activeTaskId}_") ||
+                    task.parentTaskId == activeTaskId
+                )),
                 createdAtMillis = task.createdAt,
-                prerequisiteIds = task.dependsOnTaskIds.split(",")
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .toSet(),
+                prerequisiteIds = parsedPrereqs,
                 impactScore = task.impactScore,
                 estimatedEnjoyment = calibratedEnjoyment,
                 postponeCount = task.postponeCount,

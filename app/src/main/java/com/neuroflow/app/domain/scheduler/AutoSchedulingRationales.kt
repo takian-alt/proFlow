@@ -54,11 +54,21 @@ data class SchedulingReport(
     val dailyCognitiveLoadUtilized: Float
 )
 
+/**
+ * Test and transparency coordinator for calculating mock placement reports.
+ * NOTE: This is a simplified linear capacity stub used for test assertions and transparency reporting,
+ * not for production circadian scheduling (which is executed by [TaskSchedulerService]).
+ */
 object AutoSchedulingEngineCoordinator {
+    /**
+     * Calculates a mock schedule report based on linear cognitive budget and available minutes.
+     * Evaluates task duration against remaining cognitive capacity and remaining available slots consistently.
+     */
     fun planSchedule(
         tasks: List<TaskEntity>,
         availableSlotsMinutes: Int,
-        dailyCognitiveCapacityMinutes: Int
+        dailyCognitiveCapacityMinutes: Int,
+        referenceNowMillis: Long = System.currentTimeMillis()
     ): SchedulingReport {
         var usedMinutes = 0
         val placedRationales = mutableListOf<PlacementRationale>()
@@ -68,7 +78,8 @@ object AutoSchedulingEngineCoordinator {
             // BUG-297 Fix: Use TaskBlockPlan.plannedMinutes to prevent cognitive meter inflation on split Part 2 tasks
             val duration = TaskBlockPlan.plannedMinutes(task)
             val remainingSlots = availableSlotsMinutes - usedMinutes
-            if (usedMinutes + duration > dailyCognitiveCapacityMinutes) {
+            val remainingCapacity = dailyCognitiveCapacityMinutes - usedMinutes
+            if (duration > remainingCapacity) {
                 deferrals.add(
                     DeferralRationale(
                         taskId = task.id,
@@ -87,7 +98,7 @@ object AutoSchedulingEngineCoordinator {
                     )
                 )
             } else {
-                val slotStart = System.currentTimeMillis() + usedMinutes.toLong() * 60_000L
+                val slotStart = referenceNowMillis + usedMinutes.toLong() * 60_000L
                 val slotEnd = slotStart + duration.toLong() * 60_000L
                 placedRationales.add(
                     PlacementRationale(
@@ -128,8 +139,8 @@ object ConflictResolver {
         val sortedIntervals = occupiedIntervals.sortedBy { it.first }
         // Bug 5 Fix (ADR-030): Clamp suggested conflict-free start to workDayStart
         var candidate = maxOf(searchStartMinute, workDayStartHour.coerceIn(0, 23) * 60)
-        val effectiveEndHour = if (workDayEndHour == 0) 24 else workDayEndHour
-        val maxMinute = effectiveEndHour * 60
+        // BUG-AUDIT-005 Fix: Midnight end-of-day boundary clamped to 23:59 (1439m) to prevent next-day spillover
+        val maxMinute = if (workDayEndHour == 0 || workDayEndHour >= 24) (24 * 60 - 1) else workDayEndHour * 60
         while (candidate + duration <= maxMinute) {
             val overlapping = sortedIntervals.firstOrNull { (start, end) ->
                 maxOf(candidate, start) < minOf(candidate + duration, end)
@@ -161,7 +172,9 @@ object ConflictResolver {
             targetDayMillis: Long
         ): List<ScheduleConflict> {
             val conflicts = mutableListOf<ScheduleConflict>()
-            val sortedTasks = dayTasks.sortedBy { taskStartMinuteOfDay(it, zoneId, targetDayMillis) }
+            val sortedTasks = dayTasks
+                .filter { taskStartMinuteOfDay(it, zoneId, targetDayMillis) != Int.MAX_VALUE }
+                .sortedBy { taskStartMinuteOfDay(it, zoneId, targetDayMillis) }
 
             val activeSlots = protectedSlots.filter { slot ->
                 slot.isEnabled && ProtectedSlotClock.occursOnDay(slot, targetDayMillis)
@@ -274,7 +287,7 @@ object ConflictResolver {
             analyzeForSingleDay(dayTasks, dayMillis)
         } else {
             val groups = scheduledTasks.groupBy { task ->
-                val sMillis = task.resolveScheduledEpochMillis() ?: 0L
+                val sMillis = task.resolveScheduledEpochMillis(referenceNow) ?: 0L
                 Instant.ofEpochMilli(sMillis).atZone(zoneId).toLocalDate()
             }
             groups.flatMap { (date, dateTasks) ->
@@ -293,7 +306,11 @@ object ConflictResolver {
         if (rawTime != null && rawTime in 0 until ONE_DAY_MILLIS) {
             return (rawTime / 60_000L).toInt().coerceIn(0, 1439)
         }
-        val anchorMillis = task.resolveScheduledEpochMillis(referenceDateMillis) ?: return 0
+        // BUG-AUDIT-006: Tasks without explicit scheduledTime should not default to 00:00 midnight
+        if (task.scheduledTime == null) {
+            return Int.MAX_VALUE
+        }
+        val anchorMillis = task.resolveScheduledEpochMillis(referenceDateMillis) ?: return Int.MAX_VALUE
         val zdt = Instant.ofEpochMilli(anchorMillis).atZone(zoneId)
         return (zdt.hour * 60 + zdt.minute).coerceIn(0, 1439)
     }
