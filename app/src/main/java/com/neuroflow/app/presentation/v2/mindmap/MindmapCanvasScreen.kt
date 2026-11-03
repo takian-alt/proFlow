@@ -430,12 +430,13 @@ fun MindmapCanvasScreen(
         }
 
         // 8. Task Context Action Bottom Sheet (2B)
-        selectedTaskForAction?.let { task ->
+        val taskForAction = selectedTaskForAction
+        if (taskForAction != null) {
             TaskActionBottomSheet(
-                task = task,
+                task = taskForAction,
                 onDismiss = { selectedTaskForAction = null },
                 onEdit = {
-                    val taskId = task.id
+                    val taskId = taskForAction.id
                     selectedTaskForAction = null
                     coroutineScope.launch {
                         val entity = viewModel.getTaskEntity(taskId)
@@ -445,16 +446,16 @@ fun MindmapCanvasScreen(
                     }
                 },
                 onStartFocus = {
-                    val taskId = task.id
+                    val taskId = taskForAction.id
                     selectedTaskForAction = null
                     onTaskClick(taskId)
                 },
                 onDisconnect = {
-                    viewModel.disconnectNode(task.id)
+                    viewModel.disconnectNode(taskForAction.id)
                     selectedTaskForAction = null
                 },
                 onDelete = {
-                    viewModel.deleteTask(task.id)
+                    viewModel.deleteTask(taskForAction.id)
                     selectedTaskForAction = null
                 }
             )
@@ -502,20 +503,22 @@ fun MindmapCanvasScreen(
 @Composable
 private fun GoalHubNodeView(
     goal: MindmapGoalNode,
+    isConnectingSource: Boolean,
     onDrag: (Offset) -> Unit,
     onDragEnd: (Offset) -> Unit,
-    onStartWire: () -> Unit,
-    onUpdateWire: (Offset) -> Unit,
-    onEndWire: (Offset) -> Unit,
+    onClick: () -> Unit,
+    onToggleConnect: () -> Unit,
     onPositionChanged: (androidx.compose.ui.geometry.Rect) -> Unit
 ) {
     var localOffset by remember(goal.x, goal.y) { mutableStateOf(Offset(goal.x, goal.y)) }
+
+    val borderColor = if (isConnectingSource) Color(0xFF818CF8) else Color(0xFF6366F1)
+    val borderWidth = if (isConnectingSource) 3.dp else 2.dp
 
     Box(
         modifier = Modifier
             .offset { IntOffset(localOffset.x.roundToInt(), localOffset.y.roundToInt()) }
             .onGloballyPositioned { layoutCoordinates ->
-                val pos = layoutCoordinates.localToRoot(Offset.Zero)
                 onPositionChanged(
                     androidx.compose.ui.geometry.Rect(
                         left = localOffset.x,
@@ -525,18 +528,10 @@ private fun GoalHubNodeView(
                     )
                 )
             }
-            .pointerInput(goal.id) {
-                detectDragGestures(
-                    onDragEnd = { onDragEnd(localOffset) }
-                ) { change, dragAmount ->
-                    change.consume()
-                    localOffset += dragAmount
-                    onDrag(localOffset)
-                }
-            }
             .width(180.dp)
             .background(Color(0xFF13151B), RoundedCornerShape(16.dp))
-            .border(2.dp, Color(0xFF6366F1), RoundedCornerShape(16.dp))
+            .border(borderWidth, borderColor, RoundedCornerShape(16.dp))
+            .clickable { onClick() }
             .padding(14.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -545,27 +540,48 @@ private fun GoalHubNodeView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Dedicated Drag Handle
+                Icon(
+                    imageVector = Icons.Default.DragIndicator,
+                    contentDescription = "Drag Goal",
+                    tint = Color(0xFF94A3B8),
+                    modifier = Modifier
+                        .size(20.dp)
+                        .pointerInput(goal.id) {
+                            detectDragGestures(
+                                onDragEnd = { onDragEnd(localOffset) }
+                            ) {
+ change, dragAmount ->
+                                change.consume()
+                                localOffset += dragAmount
+                                onDrag(localOffset)
+                            }
+                        }
+                )
+
                 Text(
                     text = "GOAL",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF818CF8)
                 )
-                // Connector Port
+
+                // 3B Tap-to-Connect Dot
                 Box(
                     modifier = Modifier
-                        .size(18.dp)
-                        .background(Color(0xFF6366F1), CircleShape)
-                        .pointerInput(goal.id) {
-                            detectDragGestures(
-                                onDragStart = { onStartWire() },
-                                onDragEnd = { onEndWire(localOffset) }
-                            ) { change, dragAmount ->
-                                change.consume()
-                                onUpdateWire(localOffset + change.position)
-                            }
-                        }
-                )
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (isConnectingSource) Color(0xFF818CF8) else Color(0xFF6366F1))
+                        .clickable { onToggleConnect() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = "Connect",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
@@ -596,13 +612,12 @@ private fun GoalHubNodeView(
 @Composable
 private fun TaskNodeCardView(
     task: MindmapTaskNode,
+    isConnectingSource: Boolean,
     onToggleComplete: () -> Unit,
     onClick: () -> Unit,
     onDrag: (Offset) -> Unit,
     onDragEnd: (Offset) -> Unit,
-    onStartWire: () -> Unit,
-    onUpdateWire: (Offset) -> Unit,
-    onEndWire: (Offset) -> Unit,
+    onToggleConnect: () -> Unit,
     onPositionChanged: (androidx.compose.ui.geometry.Rect) -> Unit
 ) {
     var localOffset by remember(task.x, task.y) { mutableStateOf(Offset(task.x, task.y)) }
@@ -614,7 +629,14 @@ private fun TaskNodeCardView(
     }
 
     val cardBg = if (task.isCompleted) Color(0xFF16181F) else Color(0xFF13151B)
-    val borderColor = if (task.isCompleted) Color(0xFF2A2E3B) else priorityColor.copy(alpha = 0.6f)
+    val borderColor = if (isConnectingSource) {
+        Color(0xFF818CF8)
+    } else if (task.isCompleted) {
+        Color(0xFF2A2E3B)
+    } else {
+        priorityColor.copy(alpha = 0.6f)
+    }
+    val borderWidth = if (isConnectingSource) 2.5.dp else 1.5.dp
     val textColor = if (task.isCompleted) Color(0xFF64748B) else Color(0xFFF8FAFC)
 
     Box(
@@ -630,18 +652,9 @@ private fun TaskNodeCardView(
                     )
                 )
             }
-            .pointerInput(task.id) {
-                detectDragGestures(
-                    onDragEnd = { onDragEnd(localOffset) }
-                ) { change, dragAmount ->
-                    change.consume()
-                    localOffset += dragAmount
-                    onDrag(localOffset)
-                }
-            }
-            .width(190.dp)
+            .width(200.dp)
             .background(cardBg, RoundedCornerShape(12.dp))
-            .border(1.5.dp, borderColor, RoundedCornerShape(12.dp))
+            .border(borderWidth, borderColor, RoundedCornerShape(12.dp))
             .clickable { onClick() }
             .padding(10.dp)
     ) {
@@ -670,6 +683,7 @@ private fun TaskNodeCardView(
 
             Spacer(modifier = Modifier.width(8.dp))
 
+            // Title
             Text(
                 text = task.title,
                 fontSize = 13.sp,
@@ -683,20 +697,106 @@ private fun TaskNodeCardView(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Connector handle dot on the right
-            Box(
+            // Dedicated Drag Handle
+            Icon(
+                imageVector = Icons.Default.DragIndicator,
+                contentDescription = "Drag Handle",
+                tint = Color(0xFF64748B),
                 modifier = Modifier
-                    .size(16.dp)
-                    .background(priorityColor, CircleShape)
+                    .size(20.dp)
                     .pointerInput(task.id) {
                         detectDragGestures(
-                            onDragStart = { onStartWire() },
-                            onDragEnd = { onEndWire(localOffset) }
+                            onDragEnd = { onDragEnd(localOffset) }
                         ) { change, dragAmount ->
                             change.consume()
-                            onUpdateWire(localOffset + change.position)
+                            localOffset += dragAmount
+                            onDrag(localOffset)
                         }
                     }
+            )
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // 3B Tap-to-Connect Dot
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(if (isConnectingSource) Color(0xFF818CF8) else priorityColor)
+                    .clickable { onToggleConnect() },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(Color.White, CircleShape)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskActionBottomSheet(
+    task: MindmapTaskNode,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onStartFocus: () -> Unit,
+    onDisconnect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF141720),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0xFF334155)) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        ) {
+            Text(
+                text = task.title,
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Edit Task
+            ListItem(
+                headlineContent = { Text("Edit Task Details", color = Color.White) },
+                leadingContent = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color(0xFF818CF8)) },
+                modifier = Modifier.clickable { onEdit() },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            )
+
+            // Start Focus Session
+            ListItem(
+                headlineContent = { Text("Start Focus Session", color = Color.White) },
+                leadingContent = { Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF10B981)) },
+                modifier = Modifier.clickable { onStartFocus() },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            )
+
+            // Disconnect All Wires
+            ListItem(
+                headlineContent = { Text("Disconnect Connections", color = Color(0xFFF59E0B)) },
+                leadingContent = { Icon(Icons.Default.AccountTree, contentDescription = null, tint = Color(0xFFF59E0B)) },
+                modifier = Modifier.clickable { onDisconnect() },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            )
+
+            // Delete Task
+            ListItem(
+                headlineContent = { Text("Delete Task", color = Color(0xFFEF4444)) },
+                leadingContent = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444)) },
+                modifier = Modifier.clickable { onDelete() },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
             )
         }
     }
