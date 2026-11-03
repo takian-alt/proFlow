@@ -113,4 +113,53 @@ class MindmapRepository @Inject constructor(
             )
         )
     }
+
+    suspend fun getTaskById(taskId: String): TaskEntity? = taskRepository.getById(taskId)
+
+    suspend fun addTask(task: TaskEntity, x: Float, y: Float) {
+        taskRepository.insert(task)
+        savePosition(task.id, "TASK", x, y)
+    }
+
+    suspend fun updateTask(task: TaskEntity) {
+        taskRepository.update(task)
+    }
+
+    suspend fun deleteTask(taskId: String) {
+        val task = taskRepository.getById(taskId)
+        if (task != null) {
+            taskRepository.delete(task)
+        }
+        mindmapDao.deletePositionByEntityId(taskId)
+        mindmapDao.deleteEdgesForEntity(taskId)
+    }
+
+    suspend fun disconnectNode(nodeId: String) {
+        mindmapDao.deleteEdgesForEntity(nodeId)
+        val task = taskRepository.getById(nodeId)
+        if (task != null) {
+            taskRepository.update(
+                task.copy(
+                    goalId = null,
+                    dependsOnTaskIds = "",
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+        val allTasks = taskRepository.getAllTasks()
+        allTasks.forEach { other ->
+            if (other.dependsOnTaskIds.contains(nodeId)) {
+                val newDeps = other.dependsOnTaskIds.split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() && it != nodeId }
+                    .joinToString(",")
+                taskRepository.update(
+                    other.copy(
+                        dependsOnTaskIds = newDeps,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
 }

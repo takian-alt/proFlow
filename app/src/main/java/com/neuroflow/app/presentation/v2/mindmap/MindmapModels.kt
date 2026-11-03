@@ -56,5 +56,6 @@ data class MindmapUiState(
     val goals: List<MindmapGoalNode> = emptyList(),
     val tasks: List<MindmapTaskNode> = emptyList(),
     val edges: List<MindmapEdgeUi> = emptyList(),
-    val connectionPrompt: Pair<MindmapNode, MindmapNode>? = null // (source, target)
+    val connectionPrompt: Pair<MindmapNode, MindmapNode>? = null,
+    val connectingSourceNodeId: String? = null
 )

@@ -29,6 +29,7 @@ class MindmapViewModel @Inject constructor(
 
     private val _showCompleted = MutableStateFlow(false)
     private val _connectionPrompt = MutableStateFlow<Pair<MindmapNode, MindmapNode>?>(null)
+    private val _connectingSourceNodeId = MutableStateFlow<String?>(null)
 
     private val _uiState = MutableStateFlow(MindmapUiState())
     val uiState: StateFlow<MindmapUiState> = _uiState.asStateFlow()
@@ -128,6 +129,60 @@ class MindmapViewModel @Inject constructor(
     fun dismissConnectionPrompt() {
         _connectionPrompt.value = null
         _uiState.update { it.copy(connectionPrompt = null) }
+    }
+
+    fun toggleConnectMode(nodeId: String) {
+        if (_connectingSourceNodeId.value == nodeId) {
+            _connectingSourceNodeId.value = null
+        } else {
+            _connectingSourceNodeId.value = nodeId
+        }
+        _uiState.update { it.copy(connectingSourceNodeId = _connectingSourceNodeId.value) }
+    }
+
+    fun cancelConnectMode() {
+        _connectingSourceNodeId.value = null
+        _uiState.update { it.copy(connectingSourceNodeId = null) }
+    }
+
+    fun handleNodeClick(nodeId: String, onActionSheet: (String) -> Unit) {
+        val sourceId = _connectingSourceNodeId.value
+        if (sourceId != null) {
+            if (sourceId != nodeId) {
+                onConnectNodes(sourceId, nodeId)
+            }
+            cancelConnectMode()
+        } else {
+            onActionSheet(nodeId)
+        }
+    }
+
+    fun addTask(task: TaskEntity, position: Offset) {
+        viewModelScope.launch {
+            repository.addTask(task, position.x, position.y)
+        }
+    }
+
+    fun updateTask(task: TaskEntity) {
+        viewModelScope.launch {
+            repository.updateTask(task)
+        }
+    }
+
+    fun deleteTask(taskId: String) {
+        viewModelScope.launch {
+            repository.deleteTask(taskId)
+        }
+    }
+
+    fun disconnectNode(nodeId: String) {
+        viewModelScope.launch {
+            repository.disconnectNode(nodeId)
+        }
+    }
+
+    suspend fun getTaskEntity(taskId: String): TaskEntity? {
+        return repository.getTaskById(taskId)
     }
 
     private fun computeUiState(
@@ -270,7 +325,8 @@ class MindmapViewModel @Inject constructor(
             goals = goalNodes,
             tasks = taskNodes,
             edges = edgeList,
-            connectionPrompt = _connectionPrompt.value
+            connectionPrompt = _connectionPrompt.value,
+            connectingSourceNodeId = _connectingSourceNodeId.value
         )
     }
 

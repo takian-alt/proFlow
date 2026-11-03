@@ -1,6 +1,8 @@
 package com.neuroflow.app.presentation.v2.mindmap
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,9 +14,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -38,10 +46,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.presentation.v2.composer.SheetMode
+import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MindmapCanvasScreen(
     viewModel: MindmapViewModel,
@@ -49,17 +62,19 @@ fun MindmapCanvasScreen(
     onTaskClick: (String) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     // Canvas transformations
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // Dynamic active connecting wire state
-    var wireStartNodeId by remember { mutableStateOf<String?>(null) }
-    var wireCurrentDragOffset by remember { mutableStateOf<Offset?>(null) }
-
     // Node layout tracking for hit testing connectors
     val nodeRects = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
+
+    // Action Sheet & Composer states
+    var selectedTaskForAction by remember { mutableStateOf<MindmapTaskNode?>(null) }
+    var showComposerForCreate by remember { mutableStateOf(false) }
+    var editingTaskEntity by remember { mutableStateOf<TaskEntity?>(null) }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -140,27 +155,32 @@ fun MindmapCanvasScreen(
                     )
                 }
 
-                // Render live dragging connection wire
-                val startId = wireStartNodeId
-                val currentDrag = wireCurrentDragOffset
-                if (startId != null && currentDrag != null) {
-                    val startNode = (state.goals as List<MindmapNode> + state.tasks).find { it.id == startId }
-                    if (startNode != null) {
-                        val liveStart = Offset(startNode.x + 120f, startNode.y + 40f)
-                        val livePath = Path().apply {
-                            moveTo(liveStart.x, liveStart.y)
-                            val cx1 = (liveStart.x + currentDrag.x) / 2
-                            val cy1 = liveStart.y
-                            val cx2 = (liveStart.x + currentDrag.x) / 2
-                            val cy2 = currentDrag.y
-                            cubicTo(cx1, cy1, cx2, cy2, currentDrag.x, currentDrag.y)
-                        }
-                        drawPath(
-                            path = livePath,
-                            color = Color(0xFF818CF8),
-                            style = Stroke(width = 3f, cap = StrokeCap.Round)
-                        )
+                // Draw established connection wires (Bézier curves)
+                state.edges.forEach { edge ->
+                    val wireColor = when (edge.edgeType) {
+                        MindmapEdgeType.GOAL_LINK -> Color(0xFF6366F1) // Indigo
+                        MindmapEdgeType.DEPENDENCY -> Color(0xFFF59E0B) // Amber
+                        MindmapEdgeType.VISUAL -> Color(0xFF38BDF8) // Cyan
                     }
+
+                    val finalColor = if (edge.isCompleted) Color(0xFF334155).copy(alpha = 0.5f) else wireColor.copy(alpha = 0.85f)
+                    val p1 = edge.start
+                    val p2 = edge.end
+
+                    val path = Path().apply {
+                        moveTo(p1.x, p1.y)
+                        val cx1 = (p1.x + p2.x) / 2
+                        val cy1 = p1.y
+                        val cx2 = (p1.x + p2.x) / 2
+                        val cy2 = p2.y
+                        cubicTo(cx1, cy1, cx2, cy2, p2.x, p2.y)
+                    }
+
+                    drawPath(
+                        path = path,
+                        color = finalColor,
+                        style = Stroke(width = if (edge.edgeType == MindmapEdgeType.DEPENDENCY) 3.5f else 2.5f, cap = StrokeCap.Round)
+                    )
                 }
             }
 
@@ -168,18 +188,11 @@ fun MindmapCanvasScreen(
             state.goals.forEach { goal ->
                 GoalHubNodeView(
                     goal = goal,
+                    isConnectingSource = state.connectingSourceNodeId == goal.id,
                     onDrag = { newPos -> viewModel.onNodeDrag(goal.id, newPos) },
                     onDragEnd = { finalPos -> viewModel.onNodeDragEnd(goal.id, "GOAL", finalPos) },
-                    onStartWire = { wireStartNodeId = goal.id },
-                    onUpdateWire = { wireCurrentDragOffset = it },
-                    onEndWire = { releaseVirtualPos ->
-                        val hit = nodeRects.entries.firstOrNull { it.value.contains(releaseVirtualPos) && it.key != goal.id }
-                        if (hit != null) {
-                            viewModel.onConnectNodes(goal.id, hit.key)
-                        }
-                        wireStartNodeId = null
-                        wireCurrentDragOffset = null
-                    },
+                    onClick = { viewModel.handleNodeClick(goal.id) { /* Goal tapped */ } },
+                    onToggleConnect = { viewModel.toggleConnectMode(goal.id) },
                     onPositionChanged = { rect -> nodeRects[goal.id] = rect }
                 )
             }
@@ -188,20 +201,12 @@ fun MindmapCanvasScreen(
             state.tasks.forEach { task ->
                 TaskNodeCardView(
                     task = task,
+                    isConnectingSource = state.connectingSourceNodeId == task.id,
                     onToggleComplete = { viewModel.onToggleTaskCompletion(task.id) },
-                    onClick = { onTaskClick(task.id) },
+                    onClick = { viewModel.handleNodeClick(task.id) { selectedTaskForAction = task } },
                     onDrag = { newPos -> viewModel.onNodeDrag(task.id, newPos) },
                     onDragEnd = { finalPos -> viewModel.onNodeDragEnd(task.id, "TASK", finalPos) },
-                    onStartWire = { wireStartNodeId = task.id },
-                    onUpdateWire = { wireCurrentDragOffset = it },
-                    onEndWire = { releaseVirtualPos ->
-                        val hit = nodeRects.entries.firstOrNull { it.value.contains(releaseVirtualPos) && it.key != task.id }
-                        if (hit != null) {
-                            viewModel.onConnectNodes(task.id, hit.key)
-                        }
-                        wireStartNodeId = null
-                        wireCurrentDragOffset = null
-                    },
+                    onToggleConnect = { viewModel.toggleConnectMode(task.id) },
                     onPositionChanged = { rect -> nodeRects[task.id] = rect }
                 )
             }
@@ -279,7 +284,77 @@ fun MindmapCanvasScreen(
             }
         }
 
-        // 5. Floating Zoom & Map Controls (Bottom Right)
+        // 5. Connect Mode Banner (3B: Two-step connect state)
+        AnimatedVisibility(
+            visible = state.connectingSourceNodeId != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 62.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF1E1B4B),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF818CF8)),
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = null,
+                        tint = Color(0xFF818CF8),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    val sourceNode = (state.goals as List<MindmapNode> + state.tasks).find { it.id == state.connectingSourceNodeId }
+                    Text(
+                        text = "Tap target node to connect with '${sourceNode?.title?.take(18) ?: "Node"}'",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    IconButton(
+                        onClick = { viewModel.cancelConnectMode() },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = Color(0xFFF87171),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // 6. Floating "Add Task" Action Button (1A: Bottom Left)
+        FloatingActionButton(
+            onClick = { showComposerForCreate = true },
+            containerColor = Color(0xFF6366F1),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 16.dp, bottom = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(imageVector = Icons.Default.Add, contentDescription = "Add Task", modifier = Modifier.size(20.dp))
+                Text(text = "New Task", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+        }
+
+        // 7. Floating Zoom & Map Controls (Bottom Right)
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -354,9 +429,66 @@ fun MindmapCanvasScreen(
             }
         }
 
-        // 6. Connection Type Selection Modal Sheet
-        val prompt = state.connectionPrompt
-        if (prompt != null) {
+        // 8. Task Context Action Bottom Sheet (2B)
+        selectedTaskForAction?.let { task ->
+            TaskActionBottomSheet(
+                task = task,
+                onDismiss = { selectedTaskForAction = null },
+                onEdit = {
+                    val taskId = task.id
+                    selectedTaskForAction = null
+                    coroutineScope.launch {
+                        val entity = viewModel.getTaskEntity(taskId)
+                        if (entity != null) {
+                            editingTaskEntity = entity
+                        }
+                    }
+                },
+                onStartFocus = {
+                    val taskId = task.id
+                    selectedTaskForAction = null
+                    onTaskClick(taskId)
+                },
+                onDisconnect = {
+                    viewModel.disconnectNode(task.id)
+                    selectedTaskForAction = null
+                },
+                onDelete = {
+                    viewModel.deleteTask(task.id)
+                    selectedTaskForAction = null
+                }
+            )
+        }
+
+        // 9. Smart Task Composer (Create Mode)
+        if (showComposerForCreate) {
+            SmartTaskComposerSheetV2(
+                onDismiss = { showComposerForCreate = false },
+                mode = SheetMode.Create,
+                onSave = { newTask ->
+                    showComposerForCreate = false
+                    // Spawn at the center of the current canvas viewport
+                    val spawnX = -panOffset.x / zoomScale + (screenWidth / 2f) / zoomScale - 110f
+                    val spawnY = -panOffset.y / zoomScale + (screenHeight / 2f) / zoomScale - 35f
+                    viewModel.addTask(newTask, Offset(spawnX, spawnY))
+                }
+            )
+        }
+
+        // 10. Smart Task Composer (Edit Mode)
+        editingTaskEntity?.let { entity ->
+            SmartTaskComposerSheetV2(
+                onDismiss = { editingTaskEntity = null },
+                mode = SheetMode.Edit(entity),
+                onSave = { updated ->
+                    editingTaskEntity = null
+                    viewModel.updateTask(updated)
+                }
+            )
+        }
+
+        // 11. Connection Type Selection Modal Sheet
+        state.connectionPrompt?.let { prompt ->
             ConnectionPromptDialog(
                 source = prompt.first,
                 target = prompt.second,
