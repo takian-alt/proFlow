@@ -8,6 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.MindmapDao
 import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.ProtectedSlotDao
 import com.neuroflow.app.data.local.dao.QuickNoteDao
@@ -20,6 +21,8 @@ import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import com.neuroflow.app.data.local.entity.FocusSessionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
+import com.neuroflow.app.data.local.entity.MindmapEdgeEntity
+import com.neuroflow.app.data.local.entity.MindmapNodePositionEntity
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.ProtectedSlotEntity
 import com.neuroflow.app.data.local.entity.QuickNoteEntity
@@ -457,6 +460,40 @@ val MIGRATION_21_22 = object : Migration(21, 22) {
     }
 }
 
+val MIGRATION_22_23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `mindmap_node_positions` (
+                `id` TEXT NOT NULL,
+                `entityId` TEXT NOT NULL,
+                `entityType` TEXT NOT NULL,
+                `x` REAL NOT NULL,
+                `y` REAL NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_mindmap_node_positions_entityId` ON `mindmap_node_positions` (`entityId`)")
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `mindmap_edges` (
+                `id` TEXT NOT NULL,
+                `sourceId` TEXT NOT NULL,
+                `targetId` TEXT NOT NULL,
+                `edgeType` TEXT NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_mindmap_edges_sourceId` ON `mindmap_edges` (`sourceId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_mindmap_edges_targetId` ON `mindmap_edges` (`targetId`)")
+    }
+}
+
 @Database(
     entities = [
         TaskEntity::class,
@@ -473,9 +510,11 @@ val MIGRATION_21_22 = object : Migration(21, 22) {
         TaskMicroStepEntity::class,
         FocusSessionEntity::class,
         QuickNoteEntity::class,
-        ProtectedSlotEntity::class
+        ProtectedSlotEntity::class,
+        MindmapNodePositionEntity::class,
+        MindmapEdgeEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -495,4 +534,5 @@ abstract class NeuroFlowDatabase : RoomDatabase() {
     abstract fun focusSessionDao(): FocusSessionDao
     abstract fun quickNoteDao(): QuickNoteDao
     abstract fun protectedSlotDao(): ProtectedSlotDao
+    abstract fun mindmapDao(): MindmapDao
 }

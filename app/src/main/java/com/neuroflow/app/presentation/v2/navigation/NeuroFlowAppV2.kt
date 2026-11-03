@@ -48,6 +48,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
+import com.neuroflow.app.presentation.v2.mindmap.MindmapCanvasScreen
+import com.neuroflow.app.presentation.v2.mindmap.MindmapViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,20 +77,33 @@ fun NeuroFlowAppV2(
     }
 
     LaunchedEffect(initialTaskId) {
-        if (!initialTaskId.isNullOrBlank()) {
-            if (initialTaskId == "tab_focus") {
-                if (currentRoute.isNotEmpty() && currentRoute != NavHubsV2.Flow.route) {
-                    navController.navigate(NavHubsV2.Flow.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
+        if (initialTaskId != null) {
+            if (initialTaskId.isNotBlank()) {
+                if (initialTaskId == "tab_focus") {
+                    if (currentRoute.isNotEmpty() && currentRoute != NavHubsV2.Flow.route) {
+                        navController.navigate(NavHubsV2.Flow.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
                         }
-                        launchSingleTop = true
-                        restoreState = true
                     }
-                }
-            } else {
-                navController.navigate("focus_v2/${android.net.Uri.encode(initialTaskId)}") {
-                    launchSingleTop = true
+                } else {
+                    val isAlreadyOnFocus = currentRoute.startsWith("focus_v2") || currentRoute.startsWith("focus/")
+                    val currentTaskId = navBackStackEntry?.arguments?.getString("taskId")
+                    // Avoid redundant recreation and timer reset if already viewing this exact task (BUG-433)
+                    if (!isAlreadyOnFocus || currentTaskId != initialTaskId) {
+                        val currentDestId = navController.currentDestination?.id
+                        navController.navigate("focus_v2/${android.net.Uri.encode(initialTaskId)}") {
+                            if (isAlreadyOnFocus && currentDestId != null) {
+                                popUpTo(currentDestId) {
+                                    inclusive = true
+                                }
+                            }
+                            launchSingleTop = true
+                        }
+                    }
                 }
             }
             onInitialTaskConsumed()
@@ -96,9 +111,23 @@ fun NeuroFlowAppV2(
     }
 
     LaunchedEffect(initialWoopTaskId) {
-        if (!initialWoopTaskId.isNullOrBlank()) {
-            navController.navigate("focus_v2/${android.net.Uri.encode(initialWoopTaskId)}?openWoop=true") {
-                launchSingleTop = true
+        if (initialWoopTaskId != null) {
+            if (initialWoopTaskId.isNotBlank()) {
+                val isAlreadyOnFocus = currentRoute.startsWith("focus_v2") || currentRoute.startsWith("focus/")
+                val currentTaskId = navBackStackEntry?.arguments?.getString("taskId")
+                val currentOpenWoop = navBackStackEntry?.arguments?.getBoolean("openWoop") ?: false
+                // Avoid redundant recreation if already on this task with WOOP open (BUG-433)
+                if (!isAlreadyOnFocus || currentTaskId != initialWoopTaskId || !currentOpenWoop) {
+                    val currentDestId = navController.currentDestination?.id
+                    navController.navigate("focus_v2/${android.net.Uri.encode(initialWoopTaskId)}?openWoop=true") {
+                        if (isAlreadyOnFocus && currentDestId != null) {
+                            popUpTo(currentDestId) {
+                                inclusive = true
+                            }
+                        }
+                        launchSingleTop = true
+                    }
+                }
             }
             onInitialWoopConsumed()
         }
@@ -222,7 +251,8 @@ fun NeuroFlowAppV2(
                     FlowScreenV2(
                         initialOpenComposer = initialOpenComposer,
                         onInitialComposerConsumed = onInitialComposerConsumed,
-                        onNavigateToSettings = { navController.navigate("settings") },
+                        onNavigateToSettings = { navController.navigate("settings") { launchSingleTop = true } },
+                        onNavigateToMindmap = { navController.navigate("mindmap_canvas") { launchSingleTop = true } },
                         onStartFocus = { taskId ->
                             if (taskId.isNotBlank()) {
                                 navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
@@ -230,9 +260,9 @@ fun NeuroFlowAppV2(
                                 }
                             }
                         },
-                        onNavigateToMEQ = { navController.navigate("meq_quiz") },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
-                        onNavigateToNotes = { navController.navigate("notes") },
+                        onNavigateToMEQ = { navController.navigate("meq_quiz") { launchSingleTop = true } },
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
+                        onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
                         viewModel = flowViewModel
                     )
                 }
@@ -246,33 +276,33 @@ fun NeuroFlowAppV2(
                                 }
                             }
                         },
-                        onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") },
-                        onNavigateToNotes = { navController.navigate("notes") },
+                        onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") { launchSingleTop = true } },
+                        onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
                         viewModel = planViewModel
                     )
                 }
 
                 composable(NavHubsV2.Insights.route) {
                     InsightsScreenV2(
-                        onNavigateToMEQ = { navController.navigate("meq_quiz") },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
-                        onNavigateToAnalytics = { navController.navigate("analytics") },
-                        onNavigateToHistory = { navController.navigate("history") },
-                        onNavigateToIdentity = { navController.navigate("identity") }
+                        onNavigateToMEQ = { navController.navigate("meq_quiz") { launchSingleTop = true } },
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
+                        onNavigateToAnalytics = { navController.navigate("analytics") { launchSingleTop = true } },
+                        onNavigateToHistory = { navController.navigate("history") { launchSingleTop = true } },
+                        onNavigateToIdentity = { navController.navigate("identity") { launchSingleTop = true } }
                     )
                 }
 
                 composable("settings") {
                     SettingsScreen(
                         onNavigateBack = { navController.popBackStack() },
-                        onNavigateToPriorityWeights = { navController.navigate("priority_weights") },
-                        onNavigateToHyperFocusAllowlist = { navController.navigate("hyperfocus_allowlist") },
-                        onNavigateToAppGuide = { navController.navigate("app_guide") },
-                        onNavigateToPrivacyPermissions = { navController.navigate("privacy_permissions") },
-                        onNavigateToMEQQuiz = { navController.navigate("meq_quiz") },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") },
-                        onNavigateToAccountSync = { navController.navigate("account_sync") },
-                        onNavigateToLogTime = { navController.navigate("log_time") }
+                        onNavigateToPriorityWeights = { navController.navigate("priority_weights") { launchSingleTop = true } },
+                        onNavigateToHyperFocusAllowlist = { navController.navigate("hyperfocus_allowlist") { launchSingleTop = true } },
+                        onNavigateToAppGuide = { navController.navigate("app_guide") { launchSingleTop = true } },
+                        onNavigateToPrivacyPermissions = { navController.navigate("privacy_permissions") { launchSingleTop = true } },
+                        onNavigateToMEQQuiz = { navController.navigate("meq_quiz") { launchSingleTop = true } },
+                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
+                        onNavigateToAccountSync = { navController.navigate("account_sync") { launchSingleTop = true } },
+                        onNavigateToLogTime = { navController.navigate("log_time") { launchSingleTop = true } }
                     )
                 }
 
@@ -332,7 +362,7 @@ fun NeuroFlowAppV2(
                             )
                         }
                     ) { innerPadding ->
-                        Box(modifier = Modifier.padding(innerPadding)) {
+                        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                             AnalyticsScreen(hideTopBar = true)
                         }
                     }
@@ -352,7 +382,7 @@ fun NeuroFlowAppV2(
                                     }
                                 },
                                 actions = {
-                                    IconButton(onClick = { navController.navigate("log_time") }) {
+                                    IconButton(onClick = { navController.navigate("log_time") { launchSingleTop = true } }) {
                                         Icon(
                                             imageVector = Icons.Default.Add,
                                             contentDescription = "Log Time"
@@ -367,10 +397,10 @@ fun NeuroFlowAppV2(
                             )
                         }
                     ) { innerPadding ->
-                        Box(modifier = Modifier.padding(innerPadding)) {
+                        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                             HistoryScreen(
                                 hideTopBar = true,
-                                onNavigateToLogTime = { navController.navigate("log_time") }
+                                onNavigateToLogTime = { navController.navigate("log_time") { launchSingleTop = true } }
                             )
                         }
                     }
@@ -471,6 +501,21 @@ fun NeuroFlowAppV2(
                                 }
                             } else {
                                 navController.popBackStack()
+                            }
+                        }
+                    )
+                }
+
+                composable("mindmap_canvas") {
+                    val mindmapViewModel: MindmapViewModel = hiltViewModel()
+                    MindmapCanvasScreen(
+                        viewModel = mindmapViewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onTaskClick = { taskId ->
+                            if (taskId.isNotBlank()) {
+                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                    launchSingleTop = true
+                                }
                             }
                         }
                     )

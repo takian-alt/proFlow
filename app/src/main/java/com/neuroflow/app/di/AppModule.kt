@@ -26,11 +26,13 @@ import com.neuroflow.app.data.local.MIGRATION_17_19
 import com.neuroflow.app.data.local.MIGRATION_19_20
 import com.neuroflow.app.data.local.MIGRATION_20_21
 import com.neuroflow.app.data.local.MIGRATION_21_22
+import com.neuroflow.app.data.local.MIGRATION_22_23
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.MindmapDao
 import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.ProtectedSlotDao
 import com.neuroflow.app.data.local.dao.QuickNoteDao
@@ -84,7 +86,8 @@ object AppModule {
                 MIGRATION_17_19,
                 MIGRATION_19_20,
                 MIGRATION_20_21,
-                MIGRATION_21_22
+                MIGRATION_21_22,
+                MIGRATION_22_23
             )
             .addCallback(object : androidx.room.RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -131,6 +134,9 @@ object AppModule {
 
     @Provides
     fun provideNoteDao(database: NeuroFlowDatabase): NoteDao = database.noteDao()
+
+    @Provides
+    fun provideMindmapDao(database: NeuroFlowDatabase): MindmapDao = database.mindmapDao()
 
     @Provides
     @Singleton

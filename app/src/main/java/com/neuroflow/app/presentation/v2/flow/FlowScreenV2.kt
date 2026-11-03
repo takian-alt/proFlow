@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -28,6 +29,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.common.FrogConfettiOverlay
@@ -41,6 +43,7 @@ import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 fun FlowScreenV2(
     onNavigateToSettings: () -> Unit,
     onStartFocus: (String) -> Unit,
+    onNavigateToMindmap: () -> Unit = {},
     onNavigateToMEQ: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
     onNavigateToNotes: () -> Unit = {},
@@ -56,6 +59,7 @@ fun FlowScreenV2(
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var showNotesSheet by remember { mutableStateOf(false) }
     var showFrogConfetti by remember { mutableStateOf(false) }
+    var locallyCompletedIds by remember { mutableStateOf(emptySet<String>()) }
 
     LaunchedEffect(initialOpenComposer) {
         if (initialOpenComposer) {
@@ -79,7 +83,10 @@ fun FlowScreenV2(
             )
             if (result == SnackbarResult.ActionPerformed) {
                 when {
-                    msg.startsWith("Completed") -> viewModel.undoCompleteTask()
+                    msg.startsWith("Completed") -> {
+                        locallyCompletedIds = emptySet()
+                        viewModel.undoCompleteTask()
+                    }
                     msg.startsWith("Deferred") -> viewModel.undoDeferTask()
                     msg.startsWith("Stimulant logged:") -> viewModel.undoLogStimulant()
                     msg.startsWith("Bio-event logged:") -> viewModel.undoLogPhysiologicalEvent()
@@ -161,6 +168,17 @@ fun FlowScreenV2(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
+                        onClick = onNavigateToMindmap,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountTree,
+                            contentDescription = "Mind Map Planning Canvas",
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+
+                    IconButton(
                         onClick = { showNotesSheet = true },
                         modifier = Modifier.size(48.dp)
                     ) {
@@ -233,20 +251,70 @@ fun FlowScreenV2(
             }
 
             // Flow Spotlight Hero Card (Takeover or Top Action)
-            val nowMillis = System.currentTimeMillis()
-            val activeTakeoverSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
+            val nowMinute by produceState(System.currentTimeMillis() / 60_000L) {
+                while (true) {
+                    kotlinx.coroutines.delay(60_000L)
+                    value = System.currentTimeMillis() / 60_000L
+                }
+            }
+            val nowMillis = remember(nowMinute) { nowMinute * 60_000L }
+            val activeTakeoverSlot = remember(state.preferences.protectedTimeSlots, nowMinute) {
                 ProtectedSlotClock.takeoverOf(state.preferences.protectedTimeSlots, nowMillis)
             }
-            val approachingSlot = remember(state.preferences.protectedTimeSlots, nowMillis) {
+            val approachingSlot = remember(state.preferences.protectedTimeSlots, nowMinute) {
                 ProtectedSlotClock.approaching(state.preferences.protectedTimeSlots, nowMillis, leadInMinutes = 45).firstOrNull()
             }
-            val topTask = remember(state.recommendedTask, state.filteredTasks, state.selectedTag) {
+            val completedIds = remember(state.completedTasks, locallyCompletedIds) {
+                state.completedTasks.map { it.id }.toSet() + locallyCompletedIds
+            }
+            val activeIds = remember(state.activeTasks, locallyCompletedIds) {
+                state.activeTasks.map { it.id }.toSet() - locallyCompletedIds
+            }
+            val topTask = remember(state.recommendedTask, state.filteredTasks, state.selectedTag, completedIds, activeIds) {
+                fun isTaskActionable(task: TaskEntity): Boolean {
+                    val isActionableStatus = task.id !in completedIds &&
+                        task.id in activeIds &&
+                        task.status == TaskStatus.ACTIVE
+                    val dependenciesMet = task.dependsOnTaskIds.isBlank() ||
+                        task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.all { it in completedIds }
+                    val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                    val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                        ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                    val isContinuation = (partNum != null && partNum >= 2) ||
+                        task.id.endsWith("_part2") ||
+                        task.id.contains("#part2") ||
+                        task.parentTaskId != null
+                    val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeIds) ||
+                        (parentSlug != task.id && parentSlug in activeIds)
+                    val hasPartRegex = task.id.contains(Regex("""[#_]part\d+"""))
+                    val isPart1Active = if (hasPartRegex) {
+                        val part1Id = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
+                        part1Id != task.id && part1Id in activeIds
+                    } else false
+                    val isPrecedingPartActive = if (hasPartRegex && partNum != null) {
+                        (1 until partNum).any { prevPart ->
+                            val prevId = task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart")
+                            prevId != task.id && prevId in activeIds
+                        }
+                    } else if (task.parentTaskId != null && partNum != null && partNum > 1) {
+                        state.activeTasks.any { other ->
+                            other.id != task.id &&
+                                (other.parentTaskId == task.parentTaskId || other.id == task.parentTaskId) &&
+                                (Regex("""\(Part (\d+)/""").find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
+                        }
+                    } else false
+                    val isPartBlocked = isContinuation && (isParentActive || isPart1Active || isPrecedingPartActive)
+                    return isActionableStatus && task.waitingFor.isBlank() && dependenciesMet && !isPartBlocked
+                }
+
+                val actionableFiltered = state.filteredTasks.filter { isTaskActionable(it) }
                 if (state.selectedTag.isNullOrBlank() || state.selectedTag.equals("All", ignoreCase = true)) {
-                    state.recommendedTask ?: state.filteredTasks.firstOrNull { it.isFrog } ?: state.filteredTasks.firstOrNull()
+                    state.recommendedTask?.takeIf { isTaskActionable(it) } ?: actionableFiltered.firstOrNull { it.isFrog } ?: actionableFiltered.firstOrNull()
                 } else {
-                    state.filteredTasks.firstOrNull { it.id == state.recommendedTask?.id }
-                        ?: state.filteredTasks.firstOrNull { it.isFrog }
-                        ?: state.filteredTasks.firstOrNull()
+                    state.filteredTasks.firstOrNull { it.id == state.recommendedTask?.id && isTaskActionable(it) }
+                        ?: actionableFiltered.firstOrNull { it.isFrog }
+                        ?: actionableFiltered.firstOrNull()
                 }
             }
             if (topTask != null || activeTakeoverSlot != null) {
@@ -274,6 +342,7 @@ fun FlowScreenV2(
                         onCompleteQuickClick = { taskId ->
                             val taskToComplete = state.activeTasks.find { it.id == taskId } ?: topTask
                             if (taskToComplete != null) {
+                                locallyCompletedIds = locallyCompletedIds + taskToComplete.id
                                 if (taskToComplete.isFrog) showFrogConfetti = true
                                 viewModel.completeTask(taskToComplete)
                             }
