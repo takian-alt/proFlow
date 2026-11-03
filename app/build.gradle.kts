@@ -24,8 +24,8 @@ android {
         applicationId = "com.neuroflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "20.2"
+        versionCode = 27
+        versionName = "20.7"
 
         // Toggle strict kiosk behavior at build time:
         // -PkioskStrictMode=true  => full lock task + hard restrictions
@@ -40,9 +40,19 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("/home/takian/Downloads/backup/Project/keysigned/PROCUS/proFlow.jks")
+            storePassword = "takianthegreat"
+            keyAlias = "procus"
+            keyPassword = "tahithegreat"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
