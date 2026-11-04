@@ -1,10 +1,17 @@
 package com.neuroflow.app.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
-@Entity(tableName = "time_sessions")
+@Entity(
+    tableName = "time_sessions",
+    indices = [
+        Index(value = ["taskId"], name = "index_time_sessions_taskId"),
+        Index(value = ["startedAt"], name = "index_time_sessions_startedAt")
+    ]
+)
 data class TimeSessionEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val taskId: String,

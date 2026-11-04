@@ -387,7 +387,10 @@ class AppBlockingService : AccessibilityService() {
             for (index in 0 until node.childCount) {
                 node.getChild(index)?.let { queue.addLast(it) }
             }
-
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                @Suppress("DEPRECATION")
+                node.recycle()
+            }
         }
         return builder.toString()
     }

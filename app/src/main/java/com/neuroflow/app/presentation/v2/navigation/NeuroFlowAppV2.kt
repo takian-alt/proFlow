@@ -73,7 +73,7 @@ fun NeuroFlowAppV2(
     val currentDestination = navBackStackEntry?.destination
     val currentRoute = currentDestination?.route.orEmpty()
     val showBottomBar = remember(currentRoute) {
-        !currentRoute.startsWith("focus_v2") && !currentRoute.startsWith("hyperfocus_v2") && !currentRoute.startsWith("focus/")
+        NavHubsV2.isHubRoute(currentRoute)
     }
 
     LaunchedEffect(initialTaskId) {

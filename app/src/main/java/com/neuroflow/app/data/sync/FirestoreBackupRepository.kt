@@ -6,6 +6,8 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.WriteBatch
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
+import com.neuroflow.app.data.local.entity.MindmapEdgeEntity
+import com.neuroflow.app.data.local.entity.MindmapNodePositionEntity
 import com.neuroflow.app.data.local.entity.NoteEntity
 import com.neuroflow.app.data.local.entity.ProtectedSlotEntity
 import com.neuroflow.app.data.local.entity.QuickNoteEntity
@@ -45,7 +47,9 @@ data class BackupPayload(
     val notes: List<NoteEntity> = emptyList(),
     val protectedSlots: List<ProtectedSlotEntity> = emptyList(),
     val taskMicroSteps: List<TaskMicroStepEntity> = emptyList(),
-    val quickNotes: List<QuickNoteEntity> = emptyList()
+    val quickNotes: List<QuickNoteEntity> = emptyList(),
+    val mindmapPositions: List<MindmapNodePositionEntity> = emptyList(),
+    val mindmapEdges: List<MindmapEdgeEntity> = emptyList()
 )
 
 // ---------------------------------------------------------------------------
@@ -102,7 +106,9 @@ class FirestoreBackupRepository @Inject constructor(
                 "noteCount" to payload.notes.size,
                 "protectedSlotCount" to payload.protectedSlots.size,
                 "taskMicroStepCount" to payload.taskMicroSteps.size,
-                "quickNoteCount" to payload.quickNotes.size
+                "quickNoteCount" to payload.quickNotes.size,
+                "mindmapPositionCount" to payload.mindmapPositions.size,
+                "mindmapEdgeCount" to payload.mindmapEdges.size
             )
 
             // 1. Write document directly at users/{uid}/backups/{backupId} so it is never a virtual document
@@ -141,6 +147,8 @@ class FirestoreBackupRepository @Inject constructor(
             uploadCollection(backupRef.collection("protectedSlots"), payload.protectedSlots.map { it.toMap() })
             uploadCollection(backupRef.collection("taskMicroSteps"), payload.taskMicroSteps.map { it.toMap() })
             uploadCollection(backupRef.collection("quickNotes"), payload.quickNotes.map { it.toMap() })
+            uploadCollection(backupRef.collection("mindmapPositions"), payload.mindmapPositions.map { it.toMap() })
+            uploadCollection(backupRef.collection("mindmapEdges"), payload.mindmapEdges.map { it.toMap() })
 
             // --- preferences (single document) ---------------------------
             if (payload.preferences.isNotEmpty()) {
@@ -392,6 +400,12 @@ class FirestoreBackupRepository @Inject constructor(
         val quickNotes = backupRef.collection("quickNotes").get().await()
             .documents.mapNotNull { it.data?.toQuickNoteEntity() }
 
+        val mindmapPositions = backupRef.collection("mindmapPositions").get().await()
+            .documents.mapNotNull { it.data?.toMindmapNodePositionEntity() }
+
+        val mindmapEdges = backupRef.collection("mindmapEdges").get().await()
+            .documents.mapNotNull { it.data?.toMindmapEdgeEntity() }
+
         @Suppress("UNCHECKED_CAST")
         val preferences = backupRef.collection("preferences").document("data")
             .get().await().data?.mapValues { it.value?.toString() ?: "" }
@@ -410,7 +424,9 @@ class FirestoreBackupRepository @Inject constructor(
             notes = notes,
             protectedSlots = protectedSlots,
             taskMicroSteps = taskMicroSteps,
-            quickNotes = quickNotes
+            quickNotes = quickNotes,
+            mindmapPositions = mindmapPositions,
+            mindmapEdges = mindmapEdges
         )
     }
 }
@@ -874,6 +890,44 @@ private fun Map<String, Any?>.toQuickNoteEntity(): QuickNoteEntity? = runCatchin
         convertedTaskId = str("convertedTaskId"),
         createdAt = long("createdAt") ?: System.currentTimeMillis(),
         updatedAt = long("updatedAt") ?: System.currentTimeMillis()
+    )
+}.getOrNull()
+
+private fun MindmapNodePositionEntity.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "entityId" to entityId,
+    "entityType" to entityType,
+    "x" to x,
+    "y" to y,
+    "updatedAt" to updatedAt
+)
+
+private fun Map<String, Any?>.toMindmapNodePositionEntity(): MindmapNodePositionEntity? = runCatching {
+    MindmapNodePositionEntity(
+        id = str("id") ?: return null,
+        entityId = str("entityId") ?: "",
+        entityType = str("entityType") ?: "TASK",
+        x = float("x") ?: 0f,
+        y = float("y") ?: 0f,
+        updatedAt = long("updatedAt") ?: System.currentTimeMillis()
+    )
+}.getOrNull()
+
+private fun MindmapEdgeEntity.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "sourceId" to sourceId,
+    "targetId" to targetId,
+    "edgeType" to edgeType,
+    "createdAt" to createdAt
+)
+
+private fun Map<String, Any?>.toMindmapEdgeEntity(): MindmapEdgeEntity? = runCatching {
+    MindmapEdgeEntity(
+        id = str("id") ?: return null,
+        sourceId = str("sourceId") ?: "",
+        targetId = str("targetId") ?: "",
+        edgeType = str("edgeType") ?: "VISUAL",
+        createdAt = long("createdAt") ?: System.currentTimeMillis()
     )
 }.getOrNull()
 

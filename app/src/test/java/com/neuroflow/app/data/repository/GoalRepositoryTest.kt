@@ -13,7 +13,7 @@ class GoalRepositoryTest : StringSpec({
 
     val goalDao = mockk<GoalDao>(relaxed = true)
     val preferencesDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
-    val repository = GoalRepository(goalDao, preferencesDataStore)
+    val repository = GoalRepository(goalDao = goalDao, preferencesDataStore = preferencesDataStore)
 
     beforeTest {
         clearMocks(goalDao, preferencesDataStore)

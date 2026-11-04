@@ -7,6 +7,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.MindmapDao
 import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.ProtectedSlotDao
 import com.neuroflow.app.data.local.dao.QuickNoteDao
@@ -68,7 +69,8 @@ object SyncModule {
         protectedSlotDao: ProtectedSlotDao,
         taskMicroStepDao: TaskMicroStepDao,
         quickNoteDao: QuickNoteDao,
-        focusSessionDao: FocusSessionDao
+        focusSessionDao: FocusSessionDao,
+        mindmapDao: MindmapDao
     ): CloudBackupManager = CloudBackupManager(
         taskDao = taskDao,
         goalDao = goalDao,
@@ -86,6 +88,7 @@ object SyncModule {
         protectedSlotDao = protectedSlotDao,
         taskMicroStepDao = taskMicroStepDao,
         quickNoteDao = quickNoteDao,
-        focusSessionDao = focusSessionDao
+        focusSessionDao = focusSessionDao,
+        mindmapDao = mindmapDao
     )
 }

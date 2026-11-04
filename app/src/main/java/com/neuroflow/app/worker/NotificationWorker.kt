@@ -340,11 +340,12 @@ class StreakCheckWorker @AssistedInject constructor(
             val today = startOfLocalDay(System.currentTimeMillis())
             val yesterday = startOfPreviousLocalDay(today)
 
-            val completedToday = taskRepository.getCompletedTasks().any { task ->
+            val completedTasks = taskRepository.getCompletedTasks()
+            val completedToday = completedTasks.any { task ->
                 task.completedAt != null && task.completedAt >= today
             }
 
-            val completedYesterday = taskRepository.getCompletedTasks().any { task ->
+            val completedYesterday = completedTasks.any { task ->
                 val comp = task.completedAt ?: return@any false
                 comp in yesterday until today
             }

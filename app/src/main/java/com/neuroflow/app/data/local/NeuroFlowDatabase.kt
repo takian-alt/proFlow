@@ -494,6 +494,15 @@ val MIGRATION_22_23 = object : Migration(22, 23) {
     }
 }
 
+val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_time_sessions_taskId` ON `time_sessions` (`taskId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_time_sessions_startedAt` ON `time_sessions` (`startedAt`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_goalId` ON `tasks` (`goalId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_status_quadrant` ON `tasks` (`status`, `quadrant`)")
+    }
+}
+
 @Database(
     entities = [
         TaskEntity::class,
@@ -514,7 +523,7 @@ val MIGRATION_22_23 = object : Migration(22, 23) {
         MindmapNodePositionEntity::class,
         MindmapEdgeEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

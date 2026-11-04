@@ -16,7 +16,9 @@ import java.util.UUID
     indices = [
         Index(value = ["status", "scheduledDate"], name = "index_tasks_status_scheduledDate"),
         Index(value = ["status", "deadlineDate"], name = "index_tasks_status_deadlineDate"),
-        Index(value = ["parentTaskId"], name = "index_tasks_parentTaskId")
+        Index(value = ["parentTaskId"], name = "index_tasks_parentTaskId"),
+        Index(value = ["goalId"], name = "index_tasks_goalId"),
+        Index(value = ["status", "quadrant"], name = "index_tasks_status_quadrant")
     ]
 )
 data class TaskEntity(

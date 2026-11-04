@@ -89,6 +89,12 @@ class AccessibilityWatchdogWorker @AssistedInject constructor(
             )
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                appContext, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        }
     }
 }

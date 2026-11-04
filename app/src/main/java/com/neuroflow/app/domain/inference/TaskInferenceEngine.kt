@@ -91,8 +91,8 @@ object TaskInferenceEngine {
         }
         if (validPairs.isEmpty()) return 1.0f
 
-        val actuals = validPairs.map { it.actualDurationMinutes!!.roundToInt() }
-        val estimates = validPairs.map { it.estimatedDurationMinutes }
+        val actuals = validPairs.map { it.actualDurationMinutes!!.roundToInt().coerceAtLeast(1) }
+        val estimates = validPairs.map { it.estimatedDurationMinutes.coerceAtLeast(1) }
         return BehavioralInsightsEngine.calculateCalibrationFactor(
             actualMinutes = actuals,
             estimatedMinutes = estimates

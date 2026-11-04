@@ -36,6 +36,9 @@ interface MindmapDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEdge(edge: MindmapEdgeEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEdges(edges: List<MindmapEdgeEntity>)
+
     @Delete
     suspend fun deleteEdge(edge: MindmapEdgeEntity)
 

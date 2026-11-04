@@ -6,6 +6,7 @@ import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
 import com.neuroflow.app.data.local.dao.FocusSessionDao
 import com.neuroflow.app.data.local.dao.GoalDao
+import com.neuroflow.app.data.local.dao.MindmapDao
 import com.neuroflow.app.data.local.dao.NoteDao
 import com.neuroflow.app.data.local.dao.ProtectedSlotDao
 import com.neuroflow.app.data.local.dao.QuickNoteDao
@@ -52,7 +53,8 @@ class CloudBackupManager @Inject constructor(
     private val protectedSlotDao: ProtectedSlotDao? = null,
     private val taskMicroStepDao: TaskMicroStepDao? = null,
     private val quickNoteDao: QuickNoteDao? = null,
-    private val focusSessionDao: FocusSessionDao? = null
+    private val focusSessionDao: FocusSessionDao? = null,
+    private val mindmapDao: MindmapDao? = null
 ) {
 
     // -------------------------------------------------------------------------
@@ -82,6 +84,8 @@ class CloudBackupManager @Inject constructor(
                 val protectedSlots = protectedSlotDao?.getAll() ?: emptyList()
                 val taskMicroSteps = taskMicroStepDao?.getAll() ?: emptyList()
                 val quickNotes = quickNoteDao?.getAll() ?: emptyList()
+                val mindmapPositions = mindmapDao?.getAllPositions() ?: emptyList()
+                val mindmapEdges = mindmapDao?.getAllEdges() ?: emptyList()
 
                 val prefs = preferencesDataStore.preferencesFlow.first()
                 val prefsMap = prefs.toBackupMap()
@@ -99,7 +103,9 @@ class CloudBackupManager @Inject constructor(
                     notes = notes,
                     protectedSlots = protectedSlots,
                     taskMicroSteps = taskMicroSteps,
-                    quickNotes = quickNotes
+                    quickNotes = quickNotes,
+                    mindmapPositions = mindmapPositions,
+                    mindmapEdges = mindmapEdges
                 )
 
                 firestoreRepo.uploadBackup(uid, payload).fold(
@@ -236,6 +242,12 @@ class CloudBackupManager @Inject constructor(
         }
         payload.quickNotes.forEach { qNote ->
             runCatching { quickNoteDao?.insert(qNote); itemCount++ }
+        }
+        payload.mindmapPositions.forEach { pos ->
+            runCatching { mindmapDao?.upsertPosition(pos); itemCount++ }
+        }
+        payload.mindmapEdges.forEach { edge ->
+            runCatching { mindmapDao?.insertEdge(edge); itemCount++ }
         }
 
         if (payload.preferences.isNotEmpty()) {

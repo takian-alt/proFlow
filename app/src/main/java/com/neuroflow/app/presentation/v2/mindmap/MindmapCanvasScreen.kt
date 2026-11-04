@@ -176,6 +176,7 @@ fun MindmapCanvasScreen(
             state.goals.forEach { goal ->
                 GoalHubNodeView(
                     goal = goal,
+                    zoomScale = zoomScale,
                     isConnectingSource = state.connectingSourceNodeId == goal.id,
                     onDrag = { newPos -> viewModel.onNodeDrag(goal.id, newPos) },
                     onDragEnd = { finalPos -> viewModel.onNodeDragEnd(goal.id, "GOAL", finalPos) },
@@ -189,6 +190,7 @@ fun MindmapCanvasScreen(
             state.tasks.forEach { task ->
                 TaskNodeCardView(
                     task = task,
+                    zoomScale = zoomScale,
                     isConnectingSource = state.connectingSourceNodeId == task.id,
                     onToggleComplete = { viewModel.onToggleTaskCompletion(task.id) },
                     onClick = { viewModel.handleNodeClick(task.id) { selectedTaskForAction = task } },
@@ -491,6 +493,7 @@ fun MindmapCanvasScreen(
 @Composable
 private fun GoalHubNodeView(
     goal: MindmapGoalNode,
+    zoomScale: Float = 1f,
     isConnectingSource: Boolean,
     onDrag: (Offset) -> Unit,
     onDragEnd: (Offset) -> Unit,
@@ -538,10 +541,10 @@ private fun GoalHubNodeView(
                         .pointerInput(goal.id) {
                             detectDragGestures(
                                 onDragEnd = { onDragEnd(localOffset) }
-                            ) {
- change, dragAmount ->
+                            ) { change, dragAmount ->
                                 change.consume()
-                                localOffset += dragAmount
+                                val effectiveScale = zoomScale.coerceAtLeast(0.1f)
+                                localOffset += dragAmount / effectiveScale
                                 onDrag(localOffset)
                             }
                         }
@@ -600,6 +603,7 @@ private fun GoalHubNodeView(
 @Composable
 private fun TaskNodeCardView(
     task: MindmapTaskNode,
+    zoomScale: Float = 1f,
     isConnectingSource: Boolean,
     onToggleComplete: () -> Unit,
     onClick: () -> Unit,
@@ -697,7 +701,8 @@ private fun TaskNodeCardView(
                             onDragEnd = { onDragEnd(localOffset) }
                         ) { change, dragAmount ->
                             change.consume()
-                            localOffset += dragAmount
+                            val effectiveScale = zoomScale.coerceAtLeast(0.1f)
+                            localOffset += dragAmount / effectiveScale
                             onDrag(localOffset)
                         }
                     }

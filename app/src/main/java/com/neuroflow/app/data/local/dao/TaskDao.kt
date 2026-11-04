@@ -85,6 +85,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE goalId = :goalId AND status = 'ACTIVE'")
     fun observeByGoalId(goalId: String): Flow<List<TaskEntity>>
 
+    @Query("UPDATE tasks SET goalId = NULL WHERE goalId = :goalId")
+    suspend fun clearGoalId(goalId: String)
+
     @Query("SELECT * FROM tasks WHERE parentTaskId = :parentId")
     fun observeSubtasks(parentId: String): Flow<List<TaskEntity>>
 

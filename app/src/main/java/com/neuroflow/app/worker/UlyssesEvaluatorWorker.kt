@@ -81,7 +81,13 @@ class UlyssesEvaluatorWorker @AssistedInject constructor(
                     .setContentIntent(pendingIntent)
                     .setAutoCancel(true)
                     .build()
-                manager.notify(contract.id.hashCode(), notification)
+                if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        applicationContext, android.Manifest.permission.POST_NOTIFICATIONS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    manager.notify(contract.id.hashCode(), notification)
+                }
             }
         }
 

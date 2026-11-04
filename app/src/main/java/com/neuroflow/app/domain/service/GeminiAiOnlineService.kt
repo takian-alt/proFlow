@@ -563,14 +563,15 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
 
         var encountered429 = false
         for (model in CANDIDATE_MODELS) {
-            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
             var connection: HttpsURLConnection? = null
             try {
                 connection = (URL(endpoint).openConnection() as HttpsURLConnection).apply {
                     requestMethod = "POST"
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                    connectTimeout = 10_000
-                    readTimeout = 15_000
+                    setRequestProperty("x-goog-api-key", apiKey)
+                    connectTimeout = 6_000
+                    readTimeout = 8_000
                     doOutput = true
                 }
 

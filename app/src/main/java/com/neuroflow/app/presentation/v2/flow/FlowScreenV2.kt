@@ -38,6 +38,11 @@ import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
+private val PART_NUM_ID_REGEX = Regex("""[#_]part(\d+)""")
+private val PART_NUM_TITLE_REGEX = Regex("""\(Part (\d+)/""")
+private val PARENT_SLUG_REGEX = Regex("""[#_]part\d+.*$""")
+private val PART_PREFIX_REGEX = Regex("""([#_]part)\d+""")
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FlowScreenV2(
@@ -277,31 +282,31 @@ fun FlowScreenV2(
                         task.status == TaskStatus.ACTIVE
                     val dependenciesMet = task.dependsOnTaskIds.isBlank() ||
                         task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.all { it in completedIds }
-                    val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                    val partNumMatch = PART_NUM_ID_REGEX.find(task.id)
                     val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
-                        ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: PART_NUM_TITLE_REGEX.find(task.title)?.groupValues?.get(1)?.toIntOrNull()
                     val isContinuation = (partNum != null && partNum >= 2) ||
                         task.id.endsWith("_part2") ||
                         task.id.contains("#part2") ||
                         task.parentTaskId != null
-                    val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val parentSlug = task.parentTaskId ?: task.id.replace(PARENT_SLUG_REGEX, "")
                     val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeIds) ||
                         (parentSlug != task.id && parentSlug in activeIds)
-                    val hasPartRegex = task.id.contains(Regex("""[#_]part\d+"""))
+                    val hasPartRegex = task.id.contains(PART_NUM_ID_REGEX)
                     val isPart1Active = if (hasPartRegex) {
-                        val part1Id = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
+                        val part1Id = task.id.replace(PART_PREFIX_REGEX, "$1" + "1")
                         part1Id != task.id && part1Id in activeIds
                     } else false
                     val isPrecedingPartActive = if (hasPartRegex && partNum != null) {
                         (1 until partNum).any { prevPart ->
-                            val prevId = task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart")
+                            val prevId = task.id.replace(PART_PREFIX_REGEX, "$1$prevPart")
                             prevId != task.id && prevId in activeIds
                         }
                     } else if (task.parentTaskId != null && partNum != null && partNum > 1) {
                         state.activeTasks.any { other ->
                             other.id != task.id &&
                                 (other.parentTaskId == task.parentTaskId || other.id == task.parentTaskId) &&
-                                (Regex("""\(Part (\d+)/""").find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
+                                (PART_NUM_TITLE_REGEX.find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
                         }
                     } else false
                     val isPartBlocked = isContinuation && (isParentActive || isPart1Active || isPrecedingPartActive)

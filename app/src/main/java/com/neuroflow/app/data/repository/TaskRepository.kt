@@ -5,6 +5,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.dao.FocusSessionDao
+import com.neuroflow.app.data.local.dao.MindmapDao
 import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
@@ -77,7 +78,8 @@ class TaskRepository @Inject constructor(
     private val taskMicroStepDao: TaskMicroStepDao? = null,
     private val calendarSyncRepository: CalendarSyncRepository? = null,
     private val timeSessionDao: TimeSessionDao? = null,
-    private val focusSessionDao: FocusSessionDao? = null
+    private val focusSessionDao: FocusSessionDao? = null,
+    private val mindmapDao: MindmapDao? = null
 ) {
     // Secondary constructors for tests or callers providing subsets of dependencies
     constructor(
@@ -314,6 +316,8 @@ class TaskRepository @Inject constructor(
             AutonomyNudgeEngine.cancelNudge(workManager, id)
             timeSessionDao?.deleteOpenSessionsByTaskId(id)
             runCatching { focusSessionDao?.deleteOpenSessionsByTaskId(id) }
+            mindmapDao?.deletePositionByEntityId(id)
+            mindmapDao?.deleteEdgesForEntity(id)
         }
 
         taskDao.delete(task)
