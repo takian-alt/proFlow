@@ -515,4 +515,88 @@ class ScheduleAutoTasksWorkerTest : StringSpec({
         val isBlocked = isContinuation && (isParentActive || isPart1Active || isPrecedingPartActive)
         isBlocked shouldBe true
     }
+
+    "shouldSyncToCalendar correctly filters based on calendarSyncScope" {
+        val frogTask = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "frog_1",
+            title = "Eat the Frog",
+            isFrog = true,
+            isScheduleLocked = false
+        )
+        val regularTask = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "regular_1",
+            title = "Regular Task",
+            isFrog = false,
+            isScheduleLocked = false
+        )
+        val lockedTask = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "locked_1",
+            title = "Locked Task",
+            isFrog = false,
+            isScheduleLocked = true
+        )
+
+        fun shouldSync(task: com.neuroflow.app.data.local.entity.TaskEntity, scope: String): Boolean {
+            return when (scope) {
+                "ALL_SCHEDULED" -> true
+                "DISABLED" -> false
+                else -> task.isFrog || task.isScheduleLocked
+            }
+        }
+
+        // ALL_SCHEDULED
+        shouldSync(frogTask, "ALL_SCHEDULED") shouldBe true
+        shouldSync(regularTask, "ALL_SCHEDULED") shouldBe true
+        shouldSync(lockedTask, "ALL_SCHEDULED") shouldBe true
+
+        // FROGS_AND_LOCKED
+        shouldSync(frogTask, "FROGS_AND_LOCKED") shouldBe true
+        shouldSync(regularTask, "FROGS_AND_LOCKED") shouldBe false
+        shouldSync(lockedTask, "FROGS_AND_LOCKED") shouldBe true
+
+        // DISABLED
+        shouldSync(frogTask, "DISABLED") shouldBe false
+        shouldSync(regularTask, "DISABLED") shouldBe false
+        shouldSync(lockedTask, "DISABLED") shouldBe false
+    }
+
+    "inbound external delta resolution logic: MOVED locks task, DELETED unschedules to backlog" {
+        val task = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "task_sync_test",
+            title = "Test Task",
+            scheduledDate = 1770000000000L,
+            scheduledTime = 36000000L,
+            isAutoScheduled = true,
+            isScheduleLocked = false
+        )
+
+        // MOVED delta
+        val movedDelta = com.neuroflow.app.data.calendar.ExternalCalendarDelta(
+            taskId = task.id,
+            type = com.neuroflow.app.data.calendar.ExternalDeltaType.MOVED,
+            newStartMillis = 1770000000000L + 54000000L, // new time
+            newEndMillis = 1770000000000L + 57600000L
+        )
+
+        val (newDate, newTime) = ScheduleAutoTasksWorker.splitMillisToDateAndTime(movedDelta.newStartMillis!!)
+        val movedTask = task.copy(
+            scheduledDate = newDate,
+            scheduledTime = newTime,
+            isScheduleLocked = true
+        )
+        movedTask.isScheduleLocked shouldBe true
+        movedTask.scheduledTime shouldBe newTime
+
+        // DELETED delta
+        val deletedTask = task.copy(
+            scheduledDate = null,
+            scheduledTime = null,
+            isAutoScheduled = false,
+            isScheduleLocked = false
+        )
+        deletedTask.scheduledDate shouldBe null
+        deletedTask.scheduledTime shouldBe null
+        deletedTask.isAutoScheduled shouldBe false
+        deletedTask.isScheduleLocked shouldBe false
+    }
 })

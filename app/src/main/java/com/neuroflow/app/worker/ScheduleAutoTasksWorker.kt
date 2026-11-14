@@ -170,9 +170,51 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 return Result.success()
             }
 
+            val nowMillis = System.currentTimeMillis()
+
+            // Inbound external calendar delta synchronization
+            calendarSyncRepository?.let { calRepo ->
+                try {
+                    val deltas = calRepo.detectExternalModifications(prefs.lastCalendarInboundSyncAt)
+                    for (delta in deltas) {
+                        val existing = taskRepository.getById(delta.taskId)
+                        if (existing != null && existing.status == TaskStatus.ACTIVE) {
+                            when (delta.type) {
+                                com.neuroflow.app.data.calendar.ExternalDeltaType.MOVED -> {
+                                    if (delta.newStartMillis != null) {
+                                        val (newDate, newTime) = splitMillisToDateAndTime(delta.newStartMillis)
+                                        taskRepository.update(
+                                            existing.copy(
+                                                scheduledDate = newDate,
+                                                scheduledTime = newTime,
+                                                isScheduleLocked = true,
+                                                updatedAt = nowMillis
+                                            )
+                                        )
+                                    }
+                                }
+                                com.neuroflow.app.data.calendar.ExternalDeltaType.DELETED -> {
+                                    taskRepository.update(
+                                        existing.copy(
+                                            scheduledDate = null,
+                                            scheduledTime = null,
+                                            isAutoScheduled = false,
+                                            isScheduleLocked = false,
+                                            updatedAt = nowMillis
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    preferencesDataStore.setLastCalendarInboundSyncAt(nowMillis)
+                } catch (e: Exception) {
+                    android.util.Log.w("ScheduleAutoTasksWorker", "Inbound calendar sync failed", e)
+                }
+            }
+
             val allKnownTasks = taskRepository.getAllTasks()
             val allTasks = allKnownTasks.filter { it.status == TaskStatus.ACTIVE }
-            val nowMillis = System.currentTimeMillis()
 
             val zoneId = ZoneId.systemDefault()
             val dayDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
@@ -305,7 +347,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             }
             val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
 
-            val placements = scheduleOrchestrator.orchestrateDaySchedule(
+            val outcome = scheduleOrchestrator.orchestrateDayScheduleWithOutcome(
                 candidateTasks = targetTasks,
                 allKnownTasks = allKnownTasks,
                 closedSessions = closedSessions,
@@ -319,10 +361,34 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 activeTaskId = activeTaskId,
                 microStepCounts = microStepCounts
             )
+            val placements = outcome.placements
 
             if (placements.isNotEmpty()) {
-                applyPlacementsTransactionally(placements)
+                applyPlacementsTransactionally(placements, prefs)
                 FocusWidgetUpdateWorker.enqueueImmediateUpdate(context)
+            }
+
+            // ADR-031: Deferral handling & cleanup in background worker to prevent orphaned or stale blocks
+            for (def in outcome.deferrals) {
+                val taskToDefer = allTasks.firstOrNull { it.id == def.taskId } ?: continue
+                if (taskToDefer.isScheduleLocked || !AutoSchedulingContracts.isMutableByAutoScheduler(taskToDefer, nowMillis)) continue
+                if (taskToDefer.isAutoScheduled && (taskToDefer.scheduledDate != null || taskToDefer.scheduledTime != null)) {
+                    taskRepository.update(
+                        taskToDefer.copy(
+                            scheduledDate = null,
+                            scheduledTime = null,
+                            isAutoScheduled = false,
+                            updatedAt = nowMillis
+                        )
+                    )
+                    calendarSyncRepository?.deleteTaskEvent(taskToDefer.id)
+                }
+                val part2Id = "${def.taskId}#part2"
+                val existingPart2 = taskRepository.getById(part2Id) ?: taskRepository.getById("${def.taskId}_part2")
+                if (existingPart2 != null && existingPart2.status != TaskStatus.COMPLETED && existingPart2.id !in focusedTaskIds) {
+                    taskRepository.delete(existingPart2)
+                    calendarSyncRepository?.deleteTaskEvent(existingPart2.id)
+                }
             }
 
             Result.success()
@@ -338,7 +404,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
     }
 
     private suspend fun applyPlacementsTransactionally(
-        placements: List<ScheduledPlacement>
+        placements: List<ScheduledPlacement>,
+        prefs: com.neuroflow.app.data.local.UserPreferences
     ) {
         val nowMillis = System.currentTimeMillis()
         val focusedTaskIds = sessionRepository.getOpenSessions().filter { session ->
@@ -421,15 +488,22 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 isAutoScheduled = true,
                 plannedBlockMinutes = primaryPlacement.window.durationMinutes,
                 lastAutoScheduledAt = nowMillis,
+                lastStabilizedAt = nowMillis,
                 updatedAt = nowMillis
             )
 
             taskRepository.update(updatedTask)
-            if (updatedTask.isFrog) {
+            val shouldSyncToCalendar = when (prefs.calendarSyncScope) {
+                "ALL_SCHEDULED" -> true
+                "DISABLED" -> false
+                else -> updatedTask.isFrog || updatedTask.isScheduleLocked
+            }
+            if (shouldSyncToCalendar) {
                 calendarSyncRepository?.upsertTaskEvent(
                     updatedTask,
                     startMillis = primaryPlacement.window.startMillis,
-                    durationMinutes = primaryPlacement.window.durationMinutes
+                    durationMinutes = primaryPlacement.window.durationMinutes,
+                    targetCalendarId = prefs.calendarSyncTargetId
                 )
             }
 
@@ -456,6 +530,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                     actualDurationMinutes = existingPart2?.actualDurationMinutes ?: 0f,
                     lastSessionDurationMinutes = existingPart2?.lastSessionDurationMinutes ?: 0f,
                     lastAutoScheduledAt = nowMillis,
+                    lastStabilizedAt = nowMillis,
                     updatedAt = nowMillis
                 )
                 if (existingPart2 != null) {
@@ -463,13 +538,23 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 } else {
                     taskRepository.insert(part2Entity)
                 }
+                if (shouldSyncToCalendar) {
+                    calendarSyncRepository?.upsertTaskEvent(
+                        part2Entity,
+                        startMillis = part2Placement.window.startMillis,
+                        durationMinutes = part2Placement.window.durationMinutes,
+                        targetCalendarId = prefs.calendarSyncTargetId
+                    )
+                }
             } else if (!isExistingContinuation) {
                 if (existingPart2 != null && existingPart2.status != TaskStatus.COMPLETED) {
                     taskRepository.delete(existingPart2)
+                    calendarSyncRepository?.deleteTaskEvent(existingPart2.id)
                 }
                 val legacyPart2 = taskRepository.getById("${baseTaskId}_part2")
                 if (legacyPart2 != null && legacyPart2.status != TaskStatus.COMPLETED) {
                     taskRepository.delete(legacyPart2)
+                    calendarSyncRepository?.deleteTaskEvent(legacyPart2.id)
                 }
             }
         }
