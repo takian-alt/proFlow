@@ -31,6 +31,17 @@ data class AvailableCalendar(
     val isPrimary: Boolean
 )
 
+enum class ExternalDeltaType {
+    MOVED, DELETED
+}
+
+data class ExternalCalendarDelta(
+    val taskId: String,
+    val type: ExternalDeltaType,
+    val newStartMillis: Long? = null,
+    val newEndMillis: Long? = null
+)
+
 interface CalendarSyncRepository {
     suspend fun getBusyWindows(startMillis: Long, endMillis: Long): List<TimeSlotWindow>
     suspend fun upsertTaskEvent(
@@ -42,6 +53,7 @@ interface CalendarSyncRepository {
     suspend fun deleteTaskEvent(taskId: String): Boolean
     suspend fun handleTaskStateChanged(task: TaskEntity, targetCalendarId: Long? = null): Boolean
     suspend fun getAvailableCalendars(): List<AvailableCalendar>
+    suspend fun detectExternalModifications(sinceMillis: Long): List<ExternalCalendarDelta>
 }
 
 interface AndroidCalendarSyncRepository : CalendarSyncRepository {
@@ -231,6 +243,75 @@ class CalendarSyncDataSource @Inject constructor(
         } catch (e: Exception) {
             android.util.Log.w("CalendarSyncDataSource", "Failed to query available calendars", e)
         }
+        results
+    }
+
+    override suspend fun detectExternalModifications(sinceMillis: Long): List<ExternalCalendarDelta> = withContext(Dispatchers.IO) {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasPermission) return@withContext emptyList()
+
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.DELETED,
+            CalendarContract.Events.CUSTOM_APP_PACKAGE,
+            CalendarContract.Events.CUSTOM_APP_URI,
+            CalendarContract.Events.DESCRIPTION
+        )
+
+        val results = mutableListOf<ExternalCalendarDelta>()
+        val taskIdRegex = Regex("""\[neuroflow:task:([^\]]+)\]""")
+
+        try {
+            val selection = "${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? OR ${CalendarContract.Events.CUSTOM_APP_URI} LIKE ? OR ${CalendarContract.Events.DESCRIPTION} LIKE ?"
+            val selectionArgs = arrayOf(
+                NEUROFLOW_PACKAGE_ID,
+                "$CUSTOM_APP_URI_PREFIX%",
+                "%[neuroflow:task:%"
+            )
+
+            context.contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                null
+            )?.use { cursor ->
+                val uriIdx = cursor.getColumnIndex(CalendarContract.Events.CUSTOM_APP_URI)
+                val descIdx = cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)
+                val startIdx = cursor.getColumnIndex(CalendarContract.Events.DTSTART)
+                val endIdx = cursor.getColumnIndex(CalendarContract.Events.DTEND)
+                val delIdx = cursor.getColumnIndex(CalendarContract.Events.DELETED)
+
+                while (cursor.moveToNext()) {
+                    val uri = if (uriIdx >= 0) cursor.getString(uriIdx) else null
+                    val desc = if (descIdx >= 0) cursor.getString(descIdx) else null
+                    val isDeleted = if (delIdx >= 0) cursor.getInt(delIdx) == 1 else false
+                    val start = if (startIdx >= 0) cursor.getLong(startIdx) else null
+                    val end = if (endIdx >= 0) cursor.getLong(endIdx) else null
+
+                    val taskId = when {
+                        uri != null && uri.startsWith(CUSTOM_APP_URI_PREFIX) -> uri.removePrefix(CUSTOM_APP_URI_PREFIX)
+                        desc != null -> taskIdRegex.find(desc)?.groupValues?.getOrNull(1)
+                        else -> null
+                    } ?: continue
+
+                    if (isDeleted) {
+                        results.add(ExternalCalendarDelta(taskId = taskId, type = ExternalDeltaType.DELETED))
+                    } else if (start != null && end != null && start > 0) {
+                        results.add(ExternalCalendarDelta(taskId = taskId, type = ExternalDeltaType.MOVED, newStartMillis = start, newEndMillis = end))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("CalendarSyncDataSource", "Failed to detect external modifications", e)
+        }
+
         results
     }
 
