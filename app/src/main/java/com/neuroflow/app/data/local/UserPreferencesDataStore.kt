@@ -182,7 +182,11 @@ data class UserPreferences(
     val recentlyDeletedTasksJson: String = "[]",
     val stimulantLogsJson: String = "[]",
     val quickPhysiologicalLogsJson: String = "[]",
-    val meqScore: Int = 0
+    val schedulingRejectionsJson: String = "{}",
+    val meqScore: Int = 0,
+    val calendarSyncScope: String = "FROGS_AND_LOCKED",
+    val calendarSyncTargetId: Long? = null,
+    val lastCalendarInboundSyncAt: Long = 0L
 )
 
 @Singleton
@@ -198,6 +202,10 @@ class UserPreferencesDataStore @Inject constructor(
         val RECENTLY_DELETED_TASKS_JSON = stringPreferencesKey("recently_deleted_tasks_json")
         val STIMULANT_LOGS_JSON = stringPreferencesKey("stimulant_logs_json")
         val QUICK_PHYSIOLOGICAL_LOGS_JSON = stringPreferencesKey("quick_physiological_logs_json")
+        val SCHEDULING_REJECTIONS_JSON = stringPreferencesKey("scheduling_rejections_json")
+        val CALENDAR_SYNC_SCOPE = stringPreferencesKey("calendar_sync_scope")
+        val CALENDAR_SYNC_TARGET_ID = longPreferencesKey("calendar_sync_target_id")
+        val LAST_CALENDAR_INBOUND_SYNC_AT = longPreferencesKey("last_calendar_inbound_sync_at")
         val WAKE_UP_HOUR = intPreferencesKey("wake_up_hour")
         val SLEEP_HOUR = intPreferencesKey("sleep_hour")
         val PEAK_ENERGY_START = intPreferencesKey("peak_energy_start")
@@ -458,7 +466,11 @@ class UserPreferencesDataStore @Inject constructor(
             weeklyAiAuditJson = prefs[Keys.WEEKLY_AI_AUDIT_JSON] ?: "",
             recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]",
             stimulantLogsJson = prefs[Keys.STIMULANT_LOGS_JSON] ?: "[]",
-            quickPhysiologicalLogsJson = prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] ?: "[]"
+            quickPhysiologicalLogsJson = prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] ?: "[]",
+            schedulingRejectionsJson = prefs[Keys.SCHEDULING_REJECTIONS_JSON] ?: "{}",
+            calendarSyncScope = prefs[Keys.CALENDAR_SYNC_SCOPE] ?: "FROGS_AND_LOCKED",
+            calendarSyncTargetId = prefs[Keys.CALENDAR_SYNC_TARGET_ID]?.takeIf { it != -1L },
+            lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L
         )
     }
 
@@ -672,7 +684,11 @@ class UserPreferencesDataStore @Inject constructor(
                 weeklyAiAuditJson = prefs[Keys.WEEKLY_AI_AUDIT_JSON] ?: "",
                 recentlyDeletedTasksJson = prefs[Keys.RECENTLY_DELETED_TASKS_JSON] ?: "[]",
                 stimulantLogsJson = prefs[Keys.STIMULANT_LOGS_JSON] ?: "[]",
-                quickPhysiologicalLogsJson = prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] ?: "[]"
+                quickPhysiologicalLogsJson = prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] ?: "[]",
+                schedulingRejectionsJson = prefs[Keys.SCHEDULING_REJECTIONS_JSON] ?: "{}",
+                calendarSyncScope = prefs[Keys.CALENDAR_SYNC_SCOPE] ?: "FROGS_AND_LOCKED",
+                calendarSyncTargetId = prefs[Keys.CALENDAR_SYNC_TARGET_ID]?.takeIf { it != -1L },
+                lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L
             )
             val updated = update(current)
             prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
@@ -812,6 +828,44 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.RECENTLY_DELETED_TASKS_JSON] = updated.recentlyDeletedTasksJson
             prefs[Keys.STIMULANT_LOGS_JSON] = updated.stimulantLogsJson
             prefs[Keys.QUICK_PHYSIOLOGICAL_LOGS_JSON] = updated.quickPhysiologicalLogsJson
+            prefs[Keys.SCHEDULING_REJECTIONS_JSON] = updated.schedulingRejectionsJson
+            prefs[Keys.CALENDAR_SYNC_SCOPE] = updated.calendarSyncScope
+            if (updated.calendarSyncTargetId != null) {
+                prefs[Keys.CALENDAR_SYNC_TARGET_ID] = updated.calendarSyncTargetId
+            } else {
+                prefs.remove(Keys.CALENDAR_SYNC_TARGET_ID)
+            }
+            prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] = updated.lastCalendarInboundSyncAt
+        }
+    }
+
+    suspend fun setCalendarSyncScope(scope: String) {
+        updatePreferences { it.copy(calendarSyncScope = scope) }
+    }
+
+    suspend fun setCalendarSyncTargetId(targetId: Long?) {
+        updatePreferences { it.copy(calendarSyncTargetId = targetId) }
+    }
+
+    suspend fun setLastCalendarInboundSyncAt(timestamp: Long) {
+        updatePreferences { it.copy(lastCalendarInboundSyncAt = timestamp) }
+    }
+
+    suspend fun recordSchedulingFeedback(
+        category: String,
+        hour: Int,
+        isNegative: Boolean,
+        timestampMillis: Long = System.currentTimeMillis()
+    ) {
+        updatePreferences { prefs ->
+            val updatedJson = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.recordFeedback(
+                currentJson = prefs.schedulingRejectionsJson,
+                category = category,
+                hour = hour,
+                isNegative = isNegative,
+                timestampMillis = timestampMillis
+            )
+            prefs.copy(schedulingRejectionsJson = updatedJson)
         }
     }
 

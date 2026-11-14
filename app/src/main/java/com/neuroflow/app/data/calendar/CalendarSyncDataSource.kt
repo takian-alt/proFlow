@@ -24,19 +24,28 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
 
+data class AvailableCalendar(
+    val id: Long,
+    val displayName: String,
+    val accountName: String,
+    val isPrimary: Boolean
+)
+
 interface CalendarSyncRepository {
     suspend fun getBusyWindows(startMillis: Long, endMillis: Long): List<TimeSlotWindow>
     suspend fun upsertTaskEvent(
         task: TaskEntity,
         startMillis: Long? = null,
-        durationMinutes: Int? = null
+        durationMinutes: Int? = null,
+        targetCalendarId: Long? = null
     ): Long?
     suspend fun deleteTaskEvent(taskId: String): Boolean
-    suspend fun handleTaskStateChanged(task: TaskEntity): Boolean
+    suspend fun handleTaskStateChanged(task: TaskEntity, targetCalendarId: Long? = null): Boolean
+    suspend fun getAvailableCalendars(): List<AvailableCalendar>
 }
 
 interface AndroidCalendarSyncRepository : CalendarSyncRepository {
-    suspend fun findPrimaryWritableCalendarId(): Long?
+    suspend fun findPrimaryWritableCalendarId(preferredTargetId: Long? = null): Long?
     suspend fun findEventIdByTaskId(taskId: String): Long?
 }
 
@@ -175,7 +184,57 @@ class CalendarSyncDataSource @Inject constructor(
         return results
     }
 
-    override suspend fun findPrimaryWritableCalendarId(): Long? = withContext(Dispatchers.IO) {
+    override suspend fun getAvailableCalendars(): List<AvailableCalendar> = withContext(Dispatchers.IO) {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.WRITE_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasPermission) return@withContext emptyList()
+
+        val projection = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Calendars.ACCOUNT_NAME,
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+        )
+
+        val results = mutableListOf<AvailableCalendar>()
+        try {
+            val selection = "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ?"
+            val selectionArgs = arrayOf(CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR.toString())
+            val sortOrder = "${CalendarContract.Calendars.IS_PRIMARY} DESC, ${CalendarContract.Calendars.CALENDAR_DISPLAY_NAME} ASC"
+            context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                sortOrder
+            )?.use { cursor ->
+                val idIdx = cursor.getColumnIndex(CalendarContract.Calendars._ID)
+                val nameIdx = cursor.getColumnIndex(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
+                val accountIdx = cursor.getColumnIndex(CalendarContract.Calendars.ACCOUNT_NAME)
+                val primaryIdx = cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
+
+                while (cursor.moveToNext()) {
+                    val id = if (idIdx >= 0) cursor.getLong(idIdx) else continue
+                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "Calendar $id" else "Calendar $id"
+                    val account = if (accountIdx >= 0) cursor.getString(accountIdx) ?: "" else ""
+                    val isPrimary = if (primaryIdx >= 0) cursor.getInt(primaryIdx) == 1 else false
+                    results.add(AvailableCalendar(id, name, account, isPrimary))
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("CalendarSyncDataSource", "Failed to query available calendars", e)
+        }
+        results
+    }
+
+    override suspend fun findPrimaryWritableCalendarId(preferredTargetId: Long?): Long? = withContext(Dispatchers.IO) {
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
             android.Manifest.permission.READ_CALENDAR
@@ -191,6 +250,30 @@ class CalendarSyncDataSource @Inject constructor(
             CalendarContract.Calendars.IS_PRIMARY,
             CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
         )
+
+        // 0. Preferred user target calendar if specified and writable
+        if (preferredTargetId != null) {
+            try {
+                val selection = "${CalendarContract.Calendars._ID} = ? AND ${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ?"
+                val selectionArgs = arrayOf(preferredTargetId.toString(), CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR.toString())
+                context.contentResolver.query(
+                    CalendarContract.Calendars.CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idIdx = cursor.getColumnIndex(CalendarContract.Calendars._ID)
+                        if (idIdx >= 0) {
+                            return@withContext cursor.getLong(idIdx)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("CalendarSyncDataSource", "Preferred calendar check failed for ID $preferredTargetId", e)
+            }
+        }
 
         // 1. Primary writable calendar: IS_PRIMARY == 1 and access >= CAL_ACCESS_CONTRIBUTOR
         try {
@@ -305,7 +388,8 @@ class CalendarSyncDataSource @Inject constructor(
     override suspend fun upsertTaskEvent(
         task: TaskEntity,
         startMillis: Long?,
-        durationMinutes: Int?
+        durationMinutes: Int?,
+        targetCalendarId: Long?
     ): Long? = withContext(Dispatchers.IO) {
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
@@ -318,7 +402,7 @@ class CalendarSyncDataSource @Inject constructor(
 
         // CALENDAR_ID is required for inserting new events, but must not be modified or required for updating existing events
         val calendarId = if (existingEventId == null) {
-            findPrimaryWritableCalendarId() ?: return@withContext null
+            findPrimaryWritableCalendarId(targetCalendarId) ?: return@withContext null
         } else {
             null
         }
@@ -423,12 +507,12 @@ class CalendarSyncDataSource @Inject constructor(
         }
     }
 
-    override suspend fun handleTaskStateChanged(task: TaskEntity): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun handleTaskStateChanged(task: TaskEntity, targetCalendarId: Long?): Boolean = withContext(Dispatchers.IO) {
         when (task.status) {
             TaskStatus.COMPLETED -> {
                 val existingEventId = findEventIdByTaskId(task.id)
                 if (existingEventId != null) {
-                    upsertTaskEvent(task) != null
+                    upsertTaskEvent(task, targetCalendarId = targetCalendarId) != null
                 } else {
                     false
                 }
@@ -440,7 +524,7 @@ class CalendarSyncDataSource @Inject constructor(
                 if (task.effectiveScheduledDateMillis() == null && task.deadlineDate == null && task.scheduledTime == null) {
                     deleteTaskEvent(task.id)
                 } else if (task.isScheduleLocked || task.isFrog) {
-                    upsertTaskEvent(task) != null
+                    upsertTaskEvent(task, targetCalendarId = targetCalendarId) != null
                 } else {
                     deleteTaskEvent(task.id)
                 }
