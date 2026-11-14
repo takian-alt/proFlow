@@ -19,6 +19,7 @@ import com.neuroflow.app.presentation.v2.flow.TaskSlotEnergyFitBadge
 import com.neuroflow.app.presentation.v2.flow.UltradianRecoveryDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -33,6 +34,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +49,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import java.time.LocalDate
+import java.time.ZoneId
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.domain.model.Quadrant
@@ -65,13 +75,29 @@ fun PlanScreenV2(
     onNavigateToFocus: (String) -> Unit,
     onNavigateToWeeklySchedule: () -> Unit = {},
     onNavigateToNotes: () -> Unit = {},
+    onNavigateToMindmap: () -> Unit = {},
     viewModel: PlanViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val sevenDayLoads by viewModel.sevenDayLoadDistribution.collectAsState()
+    val effectiveState = remember(state, sevenDayLoads) { state.copy(sevenDayLoadDistribution = sevenDayLoads) }
     val recentNotes by viewModel.recentNotes.collectAsState(initial = emptyList())
     val completedTasks by viewModel.completedTasks.collectAsState(initial = emptyList())
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onScreenResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     var showNotesSheet by remember { mutableStateOf(false) }
     var showComposer by remember { mutableStateOf(false) }
@@ -204,6 +230,17 @@ fun PlanScreenV2(
                         Icon(
                             imageVector = Icons.Default.CalendarMonth,
                             contentDescription = "Weekly Schedule",
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onNavigateToMindmap,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountTree,
+                            contentDescription = "Mind Map Planner",
                             tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                         )
                     }
@@ -588,7 +625,7 @@ fun PlanScreenV2(
             // 5. Mode-Scoped Content View
             when (state.viewMode) {
                 PlanViewModeV2.TIMELINE -> TimelineScheduleView(
-                    state = state,
+                    state = effectiveState,
                     onSelectDate = { viewModel.selectDate(it) },
                     onResolveConflict = { viewModel.resolveConflict(it) },
                     onAutoBalanceClick = { viewModel.triggerAutoScheduleNow() },
@@ -599,7 +636,8 @@ fun PlanScreenV2(
                     onShiftToPeak = { viewModel.shiftTaskToPeak(it) },
                     onAssignTaskTime = { task -> taskToScheduleTime = task },
                     onLogPastTime = { taskToLogTime = it },
-                    onEditTask = { task -> editingTask = task }
+                    onEditTask = { task -> editingTask = task },
+                    onRatePlacement = { task, rating -> viewModel.ratePlacement(task, rating) }
                 )
                 PlanViewModeV2.MATRIX -> MatrixPlanView(
                     state = state,
@@ -746,6 +784,44 @@ fun PlanScreenV2(
 }
 
 @Composable
+fun SevenDayCapacityBar(
+    loadDistribution: Map<LocalDate, Float>,
+    selectedDateMillis: Long,
+    modifier: Modifier = Modifier
+) {
+    val zoneId = remember { ZoneId.systemDefault() }
+    val today = remember { LocalDate.now(zoneId) }
+    val days = remember(today) { (0..6).map { today.plusDays(it.toLong()) } }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        days.forEach { date ->
+            val load = (loadDistribution[date] ?: 0f).coerceIn(0f, 2.0f)
+            val segmentColor = when {
+                load > 1.0f -> NeuroFlowThemeV2Colors.PulseCoral
+                load > 0.8f -> NeuroFlowThemeV2Colors.WarmAmber
+                load > 0.0f -> NeuroFlowThemeV2Colors.BioMint
+                else -> NeuroFlowThemeV2Colors.SlateBorder
+            }
+            val dateMillis = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val isSelected = isSameDay(selectedDateMillis, dateMillis)
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(if (isSelected) 6.dp else 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (load > 0f) segmentColor else NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.5f))
+            )
+        }
+    }
+}
+
+@Composable
 fun DateCarouselStrip(
     selectedDateMillis: Long,
     onSelectDate: (Long) -> Unit
@@ -874,7 +950,8 @@ fun TimelineScheduleView(
     onShiftToPeak: (TaskEntity) -> Unit = {},
     onAssignTaskTime: (TaskEntity) -> Unit = {},
     onLogPastTime: (TaskEntity) -> Unit = {},
-    onEditTask: (TaskEntity) -> Unit = {}
+    onEditTask: (TaskEntity) -> Unit = {},
+    onRatePlacement: (TaskEntity, Int) -> Unit = { _, _ -> }
 ) {
     val peakPrefs = state.preferences
     val manualPeak = if (peakPrefs.manualPeakProfileEnabled) (peakPrefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
@@ -893,6 +970,11 @@ fun TimelineScheduleView(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        SevenDayCapacityBar(
+            loadDistribution = state.sevenDayLoadDistribution,
+            selectedDateMillis = state.selectedDateMillis
+        )
+
         DateCarouselStrip(
             selectedDateMillis = state.selectedDateMillis,
             onSelectDate = onSelectDate
@@ -908,12 +990,16 @@ fun TimelineScheduleView(
         ) {
             // 1. Daily Cognitive Budget Meter (Scoped inside scrollable timeline)
             item(key = "budget_meter") {
-                val scheduledMinutes = state.tasksForDay.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
-                val capacityMinutes = state.preferences.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
-                    ?: state.circadianSummary?.recommendedDeepWorkMinutes ?: 360
+                val scheduledMinutes = if (state.scheduledMinutesToday > 0 || state.tasksForDay.isEmpty()) {
+                    state.scheduledMinutesToday
+                } else {
+                    state.tasksForDay.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
+                }
+                val capacityMinutes = state.recommendedCapacityMinutes
                 com.neuroflow.app.presentation.v2.theme.CognitiveBudgetMeterCard(
                     scheduledMinutesToday = scheduledMinutes,
                     recommendedCapacityMinutes = capacityMinutes,
+                    completedMinutesToday = state.completedMinutesToday,
                     conflictCount = state.conflicts.size,
                     onAutoBalanceClick = onAutoBalanceClick
                 )
@@ -1194,6 +1280,61 @@ fun TimelineScheduleView(
                                             timeline = state.energyTimeline,
                                             onShiftToPeakClick = { onShiftToPeak(task) }
                                         )
+                                    }
+
+                                    if (task.isAutoScheduled) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "✨ AI Placed",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                IconButton(
+                                                    onClick = { onRatePlacement(task, if (task.userSchedulingRating == 1) 0 else 1) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (task.userSchedulingRating == 1) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
+                                                        contentDescription = "Good placement",
+                                                        tint = if (task.userSchedulingRating == 1) NeuroFlowThemeV2Colors.BioMint else NeuroFlowThemeV2Colors.TextSecondary,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { onRatePlacement(task, if (task.userSchedulingRating == -1) 0 else -1) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (task.userSchedulingRating == -1) Icons.Default.ThumbDown else Icons.Outlined.ThumbDown,
+                                                        contentDescription = "Disliked time window",
+                                                        tint = if (task.userSchedulingRating == -1) NeuroFlowThemeV2Colors.RoseCoral else NeuroFlowThemeV2Colors.TextSecondary,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
 
                                     val microSteps = remember(task.ifThenPlan) { StepByStepPlanCodec.parse(task.ifThenPlan) }

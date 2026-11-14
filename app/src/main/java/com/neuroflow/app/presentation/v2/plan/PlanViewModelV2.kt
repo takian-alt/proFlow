@@ -43,6 +43,7 @@ import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
+import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.DeferralRationale
 import com.neuroflow.app.domain.scheduler.ScheduleConflict
@@ -61,6 +62,10 @@ import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
+import com.neuroflow.app.domain.scheduler.MultiDayScheduleOrchestrator
+import com.neuroflow.app.domain.scheduler.DeferralReasonCode
+import com.neuroflow.app.domain.service.SchedulableTask
+import com.neuroflow.app.data.calendar.ExternalDeltaType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -115,7 +120,11 @@ data class PlanUiStateV2(
     val isSearchVisible: Boolean = false,
     val decomposingTaskId: String? = null,
     val selectedQuadrant: Quadrant? = null,
-    val deferrals: List<DeferralRationale> = emptyList()
+    val deferrals: List<DeferralRationale> = emptyList(),
+    val scheduledMinutesToday: Int = 0,
+    val completedMinutesToday: Int = 0,
+    val recommendedCapacityMinutes: Int = 240,
+    val sevenDayLoadDistribution: Map<LocalDate, Float> = emptyMap()
 )
 
 internal fun startOfTodayMillis(zoneId: ZoneId = ZoneId.systemDefault()): Long {
@@ -140,7 +149,8 @@ class PlanViewModelV2 @Inject constructor(
     private val calendarSyncRepository: com.neuroflow.app.data.calendar.CalendarSyncRepository? = null,
     private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null,
     @ApplicationContext private val context: Context? = null,
-    private val geminiAiOnlineService: GeminiAiOnlineService? = null
+    private val geminiAiOnlineService: GeminiAiOnlineService? = null,
+    private val multiDayScheduleOrchestrator: MultiDayScheduleOrchestrator? = null
 ) : ViewModel() {
 
     private val scheduleOrchestrator = SchedulePreparationOrchestrator(
@@ -168,6 +178,42 @@ class PlanViewModelV2 @Inject constructor(
 
     val completedTasks: StateFlow<List<TaskEntity>> = taskRepository.observeCompletedTasks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val sevenDayLoadDistribution: StateFlow<Map<LocalDate, Float>> = combine(
+        taskRepository.observeActiveTasks(),
+        preferencesDataStore.preferencesFlow
+    ) { allTasks, prefs ->
+        val zoneId = ZoneId.systemDefault()
+        val today = LocalDate.now(zoneId)
+        val capacity = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 } ?: 240
+        (0 until 7).associate { offset ->
+            val d = today.plusDays(offset.toLong())
+            val dStart = d.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val dEnd = d.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+            val dayTasks = allTasks.filter { task ->
+                if (task.quadrant == Quadrant.ELIMINATE) return@filter false
+                val sDate = task.effectiveScheduledDateMillis()
+                if (sDate != null) {
+                    if (offset == 0) sDate <= dEnd else sDate in dStart..dEnd
+                } else {
+                    val rawScheduledTime = task.scheduledTime
+                    if (rawScheduledTime != null && rawScheduledTime >= ONE_DAY_MILLIS) {
+                        if (offset == 0) rawScheduledTime <= dEnd else rawScheduledTime in dStart..dEnd
+                    } else {
+                        val dDate = task.resolveDeadlineEpochMillis(dStart)
+                        dDate != null && (if (offset == 0) dDate <= dEnd else dDate in dStart..dEnd)
+                    }
+                }
+            }
+            val scheduledMins = dayTasks.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
+            val fraction = (scheduledMins.toFloat() / capacity.toFloat().coerceAtLeast(1f))
+            d to fraction
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyMap()
+    )
 
     private data class PlanNavParams(
         val dateMillis: Long,
@@ -301,11 +347,11 @@ class PlanViewModelV2 @Inject constructor(
             stimulantDoses = allStimulants
         )
 
-        val baseTasks = if (params.pendingDeletedTask != null) {
+        val baseTasks = (if (params.pendingDeletedTask != null) {
             allTasks.filter { it.id != params.pendingDeletedTask.id }
         } else {
             allTasks
-        }
+        }).filterNot { it.id == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
 
         val defaultTags = listOf("All", "#deepwork", "#offline", "#admin", "#quickwin")
         val dynamicTags = (prefs.tagCatalog + baseTasks.flatMap { task ->
@@ -424,6 +470,24 @@ class PlanViewModelV2 @Inject constructor(
             )
         }.getOrDefault(emptyList())
 
+        val scheduledMinutes = tasksForDay.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
+        val completedOnDate = completedTasks.value.filter { task ->
+            val completionTime = task.completedAt ?: task.updatedAt
+            completionTime in dayStart..dayEnd || (task.effectiveScheduledDateMillis()?.let { it in dayStart..dayEnd } ?: false)
+        }.sumOf { task ->
+            (task.actualDurationMinutes?.let { kotlin.math.round(it).toInt() }
+                ?: task.totalTimeTrackedMinutes.let { kotlin.math.round(it).toInt() }.takeIf { it > 0 }
+                ?: com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)).coerceAtLeast(1)
+        }
+        val untrackedSessionsToday = runCatching {
+            sessionRepository?.getAllSessions().orEmpty()
+                .filter { it.endedAt != null && it.startedAt in dayStart..dayEnd && it.taskId == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
+                .sumOf { kotlin.math.round(it.durationMinutes.takeIf { d -> d > 0f } ?: it.trackedMinutes(it.endedAt ?: now)).toInt() }
+        }.getOrDefault(0)
+        val completedMinutesToday = completedOnDate + untrackedSessionsToday
+        val capacityMinutes = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
+            ?: circadianSummary?.recommendedDeepWorkMinutes ?: 240
+
         PlanUiStateV2(
             selectedDateMillis = dateMillis,
             viewMode = mode,
@@ -450,7 +514,10 @@ class PlanViewModelV2 @Inject constructor(
             isSearchVisible = params.isSearchVisible,
             decomposingTaskId = params.decomposingTaskId,
             selectedQuadrant = params.selectedQuadrant,
-            deferrals = params.deferrals
+            deferrals = params.deferrals,
+            scheduledMinutesToday = scheduledMinutes,
+            completedMinutesToday = completedMinutesToday,
+            recommendedCapacityMinutes = capacityMinutes
         )
     }.stateIn(
         viewModelScope,
@@ -609,6 +676,17 @@ class PlanViewModelV2 @Inject constructor(
                 }
                 val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
 
+                // Cognitive budget accounting: deduct committed minutes (fixed/locked/manual tasks and completed tasks)
+                // so the scheduler defers candidate auto-tasks if total day load exceeds safe daily capacity.
+                val completedMinutesToday = allKnownTasks
+                    .filter { it.status == com.neuroflow.app.domain.model.TaskStatus.COMPLETED && it.effectiveScheduledDateMillis() in dayStart..dayEnd }
+                    .sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
+                val fixedCommittedMinutes = fixedWindows.sumOf { (it.endMillis - it.startMillis) / 60_000L }.toInt()
+                val totalPrecommittedMinutes = fixedCommittedMinutes + completedMinutesToday
+
+                val capacityMinutes = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 } ?: 240
+                val effectiveRemainingCapacity = (capacityMinutes - totalPrecommittedMinutes).coerceAtLeast(0)
+
                 val outcome = scheduleOrchestrator.orchestrateDayScheduleWithOutcome(
                     candidateTasks = candidateTasks,
                     allKnownTasks = allKnownTasks,
@@ -621,7 +699,8 @@ class PlanViewModelV2 @Inject constructor(
                     forceReplan = forceReplan,
                     zoneId = zoneId,
                     activeTaskId = activeTaskId,
-                    microStepCounts = microStepCounts
+                    microStepCounts = microStepCounts,
+                    dailyCognitiveCapacityMinutes = effectiveRemainingCapacity
                 )
                 val placements = outcome.placements
                 _deferrals.value = outcome.deferrals
@@ -656,6 +735,7 @@ class PlanViewModelV2 @Inject constructor(
                         isAutoScheduled = true,
                         plannedBlockMinutes = primaryPlacement.window.durationMinutes,
                         lastAutoScheduledAt = nowMillis,
+                        lastStabilizedAt = nowMillis,
                         updatedAt = nowMillis
                     )
                     taskRepository.update(updated)
@@ -700,6 +780,7 @@ class PlanViewModelV2 @Inject constructor(
                                 actualDurationMinutes = existingPart2?.actualDurationMinutes ?: 0f,
                                 lastSessionDurationMinutes = existingPart2?.lastSessionDurationMinutes ?: 0f,
                                 lastAutoScheduledAt = nowMillis,
+                                lastStabilizedAt = nowMillis,
                                 updatedAt = nowMillis
                             )
                             if (existingPart2 != null) {
@@ -727,6 +808,59 @@ class PlanViewModelV2 @Inject constructor(
                         }
                     }
                 }
+
+                // Deferral cleanup & cognitive budget protection: clear scheduledTime/scheduledDate for deferred candidate tasks
+                var deferredCount = 0
+                val candidateBaseIds = candidateTasks.map { it.id.replace(Regex("""[#_]part\d+.*$"""), "") }.toSet()
+                for (def in outcome.deferrals) {
+                    val baseTaskId = def.taskId.replace(Regex("""[#_]part\d+.*$"""), "")
+                    if (baseTaskId !in candidateBaseIds) continue
+                    val fresh = taskRepository.getById(baseTaskId) ?: continue
+                    if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
+                        fresh.id in focusedTaskIds ||
+                        fresh.isScheduleLocked
+                    ) continue
+
+                    val updatedDeferred = fresh.copy(
+                        scheduledDate = null,
+                        scheduledTime = null,
+                        isAutoScheduled = false,
+                        plannedBlockMinutes = 0,
+                        updatedAt = nowMillis
+                    )
+                    taskRepository.update(updatedDeferred)
+                    calendarSyncRepository?.deleteTaskEvent(updatedDeferred.id)
+                    context?.let { AutonomyNudgeEngine.cancelNudge(it, updatedDeferred.id) }
+
+                    val part2Id = "${baseTaskId}#part2"
+                    val existingPart2 = taskRepository.getById(part2Id) ?: taskRepository.getById("${baseTaskId}_part2")
+                    if (existingPart2 != null &&
+                        existingPart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                        existingPart2.id !in focusedTaskIds
+                    ) {
+                        context?.let { AutonomyNudgeEngine.cancelNudge(it, existingPart2.id) }
+                        taskRepository.delete(existingPart2)
+                    }
+
+                    deferredCount++
+                }
+
+                val scheduledCount = placementsByBaseId.size
+                val message = when {
+                    scheduledCount > 0 && deferredCount > 0 ->
+                        "Auto-balanced: scheduled $scheduledCount tasks, deferred $deferredCount tasks to backlog to protect your cognitive budget."
+                    scheduledCount > 0 && totalPrecommittedMinutes > capacityMinutes ->
+                        "Scheduled $scheduledCount tasks. Day remains overloaded due to fixed/manual tasks."
+                    scheduledCount > 0 ->
+                        "Auto-scheduled $scheduledCount tasks successfully."
+                    deferredCount > 0 ->
+                        "Deferred $deferredCount tasks to backlog to protect cognitive budget."
+                    totalPrecommittedMinutes > capacityMinutes ->
+                        "Cannot auto-rebalance: day is overloaded by locked or manually placed tasks."
+                    else ->
+                        "No eligible tasks found to schedule."
+                }
+                _userActionMessage.emit(message)
             } catch (e: Exception) {
                 android.util.Log.e("PlanViewModelV2", "Auto-schedule failed", e)
             } finally {
@@ -735,8 +869,147 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
-    fun triggerAutoScheduleNow() {
-        autoScheduleDay(_selectedDate.value, forceReplan = false)
+    fun triggerAutoScheduleNow(forceReplan: Boolean = true) {
+        autoScheduleDay(_selectedDate.value, forceReplan = forceReplan)
+    }
+
+    fun onScreenResume() {
+        viewModelScope.launch {
+            val calRepo = calendarSyncRepository ?: return@launch
+            try {
+                val lastSync = preferencesDataStore.preferencesFlow.first().lastCalendarInboundSyncAt
+                val deltas = calRepo.detectExternalModifications(lastSync)
+                if (deltas.isNotEmpty()) {
+                    val nowMillis = System.currentTimeMillis()
+                    for (delta in deltas) {
+                        val existing = taskRepository.getById(delta.taskId)
+                        if (existing != null && existing.status == com.neuroflow.app.domain.model.TaskStatus.ACTIVE) {
+                            when (delta.type) {
+                                ExternalDeltaType.MOVED -> {
+                                    if (delta.newStartMillis != null) {
+                                        val startDay = startOfLocalDay(delta.newStartMillis)
+                                        val timeOffset = delta.newStartMillis - startDay
+                                        taskRepository.update(
+                                            existing.copy(
+                                                scheduledDate = startDay,
+                                                scheduledTime = timeOffset,
+                                                isScheduleLocked = true,
+                                                updatedAt = nowMillis
+                                            )
+                                        )
+                                    }
+                                }
+                                ExternalDeltaType.DELETED -> {
+                                    taskRepository.update(
+                                        existing.copy(
+                                            scheduledDate = null,
+                                            scheduledTime = null,
+                                            isAutoScheduled = false,
+                                            isScheduleLocked = false,
+                                            updatedAt = nowMillis
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    preferencesDataStore.setLastCalendarInboundSyncAt(nowMillis)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("PlanViewModelV2", "Inbound calendar sync failed on resume", e)
+            }
+        }
+    }
+
+    fun autoBalance(horizonDays: Int = 7): kotlinx.coroutines.Job {
+        if (_isAutoScheduling.value) return kotlinx.coroutines.Job().apply { complete() }
+        return viewModelScope.launch {
+            _isAutoScheduling.value = true
+            try {
+                val orch = multiDayScheduleOrchestrator ?: MultiDayScheduleOrchestrator(
+                    schedulerService = taskSchedulerService,
+                    circadianEnergyService = circadianEnergyService,
+                    calendarSyncRepository = calendarSyncRepository
+                )
+                val allTasks = taskRepository.getActiveTasks()
+                val nowMillis = System.currentTimeMillis()
+                val candidateTasks = allTasks.filter {
+                    AutoSchedulingContracts.isMutableByAutoScheduler(it, nowMillis)
+                }.map { task ->
+                    val resolvedCat = when (task.determineCategory()) {
+                        com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
+                        com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
+                        com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
+                        com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
+                        com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                        com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
+                        com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
+                        com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
+                    }
+                    val energyDemand = when (task.energyLevel) {
+                        com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
+                        com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
+                        else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
+                    }
+                    SchedulableTask(
+                        id = task.id,
+                        title = task.title,
+                        category = resolvedCat,
+                        priority = when (task.priority) {
+                            com.neuroflow.app.domain.model.Priority.HIGH -> 2
+                            com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
+                            else -> 0
+                        },
+                        estimatedMinutes = com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task),
+                        energyDemand = energyDemand,
+                        deadlineMillis = task.resolveDeadlineEpochMillis(),
+                        isFrog = task.isFrog
+                    )
+                }
+                val zoneId = ZoneId.systemDefault()
+                val startDate = Instant.ofEpochMilli(_selectedDate.value).atZone(zoneId).toLocalDate()
+                val outcome = orch.orchestrateMultiDaySchedule(
+                    tasks = candidateTasks,
+                    startDate = startDate,
+                    horizonDays = horizonDays,
+                    zoneId = zoneId
+                )
+                for ((dayDate, dayOutcome) in outcome.dayOutcomes) {
+                    val dayStart = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                    for (placement in dayOutcome.placements) {
+                        val baseId = placement.task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                        val fresh = taskRepository.getById(baseId) ?: continue
+                        if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE) continue
+                        val timeOffset = placement.window.startMillis - dayStart
+                        taskRepository.update(
+                            fresh.copy(
+                                scheduledDate = dayStart,
+                                scheduledTime = timeOffset,
+                                isAutoScheduled = true,
+                                plannedBlockMinutes = placement.window.durationMinutes,
+                                lastAutoScheduledAt = nowMillis,
+                                updatedAt = nowMillis
+                            )
+                        )
+                    }
+                }
+                _deferrals.value = outcome.finalDeferred.map { task ->
+                    DeferralRationale(
+                        taskId = task.id,
+                        reasonCode = DeferralReasonCode.COGNITIVE_BUDGET_EXCEEDED,
+                        explanation = "Deferred past $horizonDays-day horizon.",
+                        actionableSuggestion = "Move to backlog or break down."
+                    )
+                }
+                _userActionMessage.emit(
+                    "Auto-balanced 7-day schedule: placed ${outcome.totalScheduledTasks} tasks across horizon."
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("PlanViewModelV2", "Multi-day auto-balance failed", e)
+            } finally {
+                _isAutoScheduling.value = false
+            }
+        }
     }
 
     fun resolveConflict(conflict: ScheduleConflict) {
@@ -753,6 +1026,45 @@ class PlanViewModelV2 @Inject constructor(
             }
         } else {
             triggerAutoScheduleNow()
+        }
+    }
+
+    /**
+     * ADR-031: Records thumbs-up / thumbs-down user feedback on auto-scheduled task placement.
+     * When rejected (-1), immediately reschedules the task away from the rejected hour.
+     */
+    fun ratePlacement(task: TaskEntity, rating: Int) {
+        viewModelScope.launch {
+            val nowMillis = System.currentTimeMillis()
+            val category = task.determineCategory().name
+            val startMinute = task.scheduledTime?.let {
+                if (it in 0 until com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) (it / 60_000L).toInt() else {
+                    val sMillis = task.resolveScheduledEpochMillis(uiState.value.selectedDateMillis) ?: 0L
+                    java.time.Instant.ofEpochMilli(sMillis).atZone(java.time.ZoneId.systemDefault()).hour * 60
+                }
+            } ?: 0
+            val startHour = startMinute / 60
+
+            val isNegative = rating < 0
+            val updatedTask = task.copy(
+                userSchedulingRating = rating,
+                schedulingRejectedSlotHour = if (isNegative) startHour else null,
+                updatedAt = nowMillis
+            )
+            taskRepository.update(updatedTask)
+            preferencesDataStore.recordSchedulingFeedback(
+                category = category,
+                hour = startHour,
+                isNegative = isNegative,
+                timestampMillis = nowMillis
+            )
+
+            if (isNegative) {
+                _userActionMessage.emit("Disliked slot noted. Rescheduling '${task.title.take(20)}'...")
+                autoScheduleDay(uiState.value.selectedDateMillis, forceReplan = true)
+            } else {
+                _userActionMessage.emit("Placement approved! Learning your preferences.")
+            }
         }
     }
 
