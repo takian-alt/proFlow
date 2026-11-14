@@ -64,15 +64,31 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
+    val calendarSyncScope by viewModel.calendarSyncScope.collectAsStateWithLifecycle()
+    val calendarSyncTargetId by viewModel.calendarSyncTargetId.collectAsStateWithLifecycle()
+    val availableCalendars by viewModel.availableCalendars.collectAsStateWithLifecycle()
+    val calendarSyncStatus by viewModel.calendarSyncStatus.collectAsStateWithLifecycle()
     val circadianSummary by viewModel.circadianSummary.collectAsStateWithLifecycle()
     val aiTestStatus by viewModel.aiTestStatus.collectAsStateWithLifecycle()
     val isTestingAi by viewModel.isTestingAi.collectAsStateWithLifecycle()
+    val seedResult by viewModel.seedResult.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearTelemetryDialog by remember { mutableStateOf(false) }
     var showDistractingAppsDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(seedResult) {
+        seedResult?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearSeedResult()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadAvailableCalendars()
+    }
 
     Scaffold(
         topBar = {
@@ -1130,8 +1146,166 @@ fun SettingsScreen(
                 }
             }
 
+            // Google & Android Calendar Sync
+            SettingsSection("Google & Android Calendar Sync") {
+                Text(
+                    text = "Sync NeuroFlow tasks bidirectionally with Android & Google Calendar",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Sync Scope",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val scopes = listOf(
+                    "ALL_SCHEDULED" to "All Tasks",
+                    "FROGS_AND_LOCKED" to "Frogs & Locked",
+                    "DISABLED" to "Disabled"
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    scopes.forEach { (scopeValue, label) ->
+                        val isSelected = calendarSyncScope == scopeValue
+                        OutlinedButton(
+                            onClick = { viewModel.setCalendarSyncScope(scopeValue) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            ),
+                            border = BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        ) {
+                            Text(
+                                label,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Target Calendar",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                var calendarMenuExpanded by remember { mutableStateOf(false) }
+                val targetName = if (calendarSyncTargetId == null) {
+                    "Primary Calendar (Default)"
+                } else {
+                    availableCalendars.firstOrNull { it.id == calendarSyncTargetId }?.let {
+                        "${it.displayName} (${it.accountName})"
+                    } ?: "Primary Calendar (Default)"
+                }
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.loadAvailableCalendars()
+                            calendarMenuExpanded = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            targetName,
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+
+                    DropdownMenu(
+                        expanded = calendarMenuExpanded,
+                        onDismissRequest = { calendarMenuExpanded = false },
+                        modifier = Modifier.fillMaxWidth(0.85f)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Primary Calendar (Default)") },
+                            onClick = {
+                                viewModel.setTargetCalendar(null)
+                                calendarMenuExpanded = false
+                            }
+                        )
+                        availableCalendars.forEach { cal ->
+                            DropdownMenuItem(
+                                text = { Text("${cal.displayName} (${cal.accountName})") },
+                                onClick = {
+                                    viewModel.setTargetCalendar(cal.id)
+                                    calendarMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = { viewModel.syncNow() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sync Now")
+                }
+
+                if (prefs.lastCalendarInboundSyncAt > 0L) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val syncDate = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(prefs.lastCalendarInboundSyncAt))
+                    Text(
+                        text = "Last synced: $syncDate",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                calendarSyncStatus?.let { status ->
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = status,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             // Data
             SettingsSection("Data") {
+                OutlinedButton(
+                    onClick = { viewModel.seedSystemsRoadmap() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.AccountTree, "Seed Roadmap")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Seed 24-Month Systems Roadmap")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 OutlinedButton(
                     onClick = { showClearDialog = true },
                     modifier = Modifier.fillMaxWidth(),

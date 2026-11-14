@@ -17,6 +17,8 @@ import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.repository.SleepPressureRepository
+import com.neuroflow.app.data.calendar.AvailableCalendar
+import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.worker.scheduleNotificationWorkers
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -44,10 +46,12 @@ class SettingsViewModel @Inject constructor(
     private val sleepPressureRepository: SleepPressureRepository,
     private val energyMetricsRepository: EnergyMetricsRepository,
     private val databaseCleaner: DatabaseCleaner,
+    private val systemsRoadmapSeeder: com.neuroflow.app.data.local.SystemsRoadmapSeeder? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService,
-    val passiveSleepSyncRepository: com.neuroflow.app.domain.repository.PassiveSleepSyncRepository? = null
+    val passiveSleepSyncRepository: com.neuroflow.app.domain.repository.PassiveSleepSyncRepository? = null,
+    private val calendarSyncRepository: CalendarSyncRepository? = null
 ) : ViewModel() {
 
     // Test convenience constructor
@@ -58,17 +62,20 @@ class SettingsViewModel @Inject constructor(
         energyMetricsRepository: EnergyMetricsRepository,
         databaseCleaner: DatabaseCleaner,
         circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
-        sleepTelemetryRepository: SleepTelemetryRepository? = null
+        sleepTelemetryRepository: SleepTelemetryRepository? = null,
+        calendarSyncRepository: CalendarSyncRepository? = null
     ) : this(
         context,
         preferencesDataStore,
         sleepPressureRepository,
         energyMetricsRepository,
         databaseCleaner,
+        null,
         circadianEnergyService,
         sleepTelemetryRepository,
         com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService(),
-        null
+        null,
+        calendarSyncRepository
     )
 
     val isPassiveSyncing = MutableStateFlow(false)
@@ -182,6 +189,61 @@ class SettingsViewModel @Inject constructor(
 
     val preferences: StateFlow<UserPreferences> = preferencesDataStore.preferencesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserPreferences())
+
+    val calendarSyncScope: StateFlow<String> = preferencesDataStore.preferencesFlow
+        .map { it.calendarSyncScope }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "FROGS_AND_LOCKED")
+
+    val calendarSyncTargetId: StateFlow<Long?> = preferencesDataStore.preferencesFlow
+        .map { it.calendarSyncTargetId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _availableCalendars = MutableStateFlow<List<AvailableCalendar>>(emptyList())
+    val availableCalendars: StateFlow<List<AvailableCalendar>> = _availableCalendars.asStateFlow()
+
+    private val _calendarSyncStatus = MutableStateFlow<String?>(null)
+    val calendarSyncStatus: StateFlow<String?> = _calendarSyncStatus.asStateFlow()
+
+    fun loadAvailableCalendars() {
+        viewModelScope.launch {
+            try {
+                val list = calendarSyncRepository?.getAvailableCalendars().orEmpty()
+                _availableCalendars.value = list
+            } catch (e: Exception) {
+                _availableCalendars.value = emptyList()
+            }
+        }
+    }
+
+    fun setCalendarSyncScope(scope: String) {
+        viewModelScope.launch {
+            preferencesDataStore.setCalendarSyncScope(scope)
+        }
+    }
+
+    fun setTargetCalendar(calendarId: Long?) {
+        viewModelScope.launch {
+            preferencesDataStore.setCalendarSyncTargetId(calendarId)
+        }
+    }
+
+    fun syncNow() {
+        viewModelScope.launch {
+            _calendarSyncStatus.value = "Triggering calendar sync..."
+            try {
+                androidx.work.WorkManager.getInstance(context).enqueue(
+                    com.neuroflow.app.worker.ScheduleAutoTasksWorker.buildOneTimeWorkRequest(forceReplan = false)
+                )
+                _calendarSyncStatus.value = "Sync enqueued successfully"
+            } catch (e: Exception) {
+                _calendarSyncStatus.value = "Sync failed: ${e.message}"
+            }
+        }
+    }
+
+    fun clearCalendarSyncStatus() {
+        _calendarSyncStatus.value = null
+    }
 
     val sleepLogs: StateFlow<List<SleepLogEntity>> = sleepPressureRepository.observeSleepLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -322,5 +384,28 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             energyMetricsRepository.clearAllPredictions()
         }
+    }
+
+    private val _seedResult = MutableStateFlow<String?>(null)
+    val seedResult: StateFlow<String?> = _seedResult.asStateFlow()
+
+    fun seedSystemsRoadmap() {
+        viewModelScope.launch {
+            systemsRoadmapSeeder?.let { seeder ->
+                val res = seeder.seedRoadmap()
+                if (res.isSuccess) {
+                    val (g, t) = res.getOrThrow()
+                    _seedResult.value = "Seeded $g Goals and $t Tasks successfully!"
+                } else {
+                    _seedResult.value = "Failed to seed: ${res.exceptionOrNull()?.message}"
+                }
+            } ?: run {
+                _seedResult.value = "Seeder service not injected."
+            }
+        }
+    }
+
+    fun clearSeedResult() {
+        _seedResult.value = null
     }
 }

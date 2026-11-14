@@ -839,6 +839,9 @@ class UserPreferencesDataStore @Inject constructor(
         }
     }
 
+    val calendarSyncScope: Flow<String> = preferencesFlow.map { it.calendarSyncScope }
+    val calendarSyncTargetId: Flow<Long?> = preferencesFlow.map { it.calendarSyncTargetId }
+
     suspend fun setCalendarSyncScope(scope: String) {
         updatePreferences { it.copy(calendarSyncScope = scope) }
     }
