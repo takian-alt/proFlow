@@ -47,8 +47,38 @@ data class SchedulableTask(
     val isAnxietyTask: Boolean = false,
     val hasImplementationIntention: Boolean = false,
     val fragmentationTolerance: Float = 0.5f,
-    val distractionScore: Float = 0f
-)
+    val distractionScore: Float = 0f,
+    val isPersonalTask: Boolean = false,
+    val userSchedulingRating: Int = 0,
+    val schedulingRejectedSlotHour: Int? = null
+) {
+    constructor(
+        id: String,
+        title: String,
+        durationMinutes: Int,
+        energyLevel: com.neuroflow.app.domain.model.EnergyLevel = com.neuroflow.app.domain.model.EnergyLevel.MEDIUM,
+        quadrant: com.neuroflow.app.domain.model.Quadrant = com.neuroflow.app.domain.model.Quadrant.SCHEDULE,
+        category: TaskCategory = TaskCategory.DEEP_WORK,
+        priority: Int = when (quadrant) {
+            com.neuroflow.app.domain.model.Quadrant.DO_FIRST -> 2
+            com.neuroflow.app.domain.model.Quadrant.SCHEDULE -> 1
+            else -> 0
+        },
+        estimatedMinutes: Int = durationMinutes,
+        energyDemand: EnergyDemand = when (energyLevel) {
+            com.neuroflow.app.domain.model.EnergyLevel.HIGH -> EnergyDemand.HIGH
+            com.neuroflow.app.domain.model.EnergyLevel.LOW -> EnergyDemand.LOW
+            else -> EnergyDemand.MODERATE
+        }
+    ) : this(
+        id = id,
+        title = title,
+        category = category,
+        priority = priority,
+        estimatedMinutes = estimatedMinutes,
+        energyDemand = energyDemand
+    )
+}
 
 data class TaskScoreBreakdown(
     val taskId: String,
@@ -87,8 +117,28 @@ data class ProtectedLocalSlot(
 data class ScheduledPlacement(
     val task: SchedulableTask,
     val window: TimeSlotWindow,
-    val scoreBreakdown: TaskScoreBreakdown
-)
+    val scoreBreakdown: TaskScoreBreakdown,
+    val confidenceScore: Float = 1.0f,
+    val rationale: String = ""
+) {
+    constructor(
+        task: SchedulableTask,
+        window: TimeSlotWindow,
+        score: Double = 80.0
+    ) : this(
+        task = task,
+        window = window,
+        scoreBreakdown = TaskScoreBreakdown(
+            taskId = task.id,
+            totalScore = score,
+            urgencyScore = score,
+            impactScore = score,
+            energyFitScore = score,
+            momentumScore = score,
+            bufferedDurationMinutes = window.durationMinutes
+        )
+    )
+}
 
 data class PriorityWeightProfile(
     val urgencyWeight: Double = 1.0,
@@ -153,7 +203,9 @@ interface TaskSchedulerService {
         socialJetlagLagHours: Double = 0.0,
         activeUncompletedTaskIds: Set<String> = emptySet(),
         workDayStartHour: Int? = null,
-        workDayEndHour: Int? = null
+        workDayEndHour: Int? = null,
+        dailyCognitiveCapacityMinutes: Int? = null,
+        rejectionPatternsJson: String = "{}"
     ): List<ScheduledPlacement>
 
     fun scheduleDayWithOutcome(
@@ -178,7 +230,9 @@ interface TaskSchedulerService {
         socialJetlagLagHours: Double = 0.0,
         activeUncompletedTaskIds: Set<String> = emptySet(),
         workDayStartHour: Int? = null,
-        workDayEndHour: Int? = null
+        workDayEndHour: Int? = null,
+        dailyCognitiveCapacityMinutes: Int? = null,
+        rejectionPatternsJson: String = "{}"
     ): SchedulingOutcome
 
     companion object {
@@ -255,7 +309,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         } else 0.0
         val frogBonus = if (task.isFrog) (25.0 * weights.frogBonusMultiplier.coerceIn(0.5, 2.0)) else 0.0
         val dependencyBonus = 10.0 * min(3, dependentCount)
-        val impact = (basePriority + impactAdj + frogBonus + dependencyBonus).coerceIn(0.0, 100.0)
+        val personalBonus = if (task.isPersonalTask) 30.0 else 0.0
+        val impact = (basePriority + impactAdj + frogBonus + dependencyBonus + personalBonus).coerceIn(0.0, 100.0)
 
         // 3. Energy & Category Fit Vector E in [0..100] + Dread Desensitization Routing
         val energyDiff = snapshot.usableEnergy.toDouble() - task.energyDemand.targetScore
@@ -264,14 +319,18 @@ class DefaultTaskSchedulerService @Inject constructor(
         val categoryAffinity = (rawCategoryAffinity * weights.focusModeWeight.coerceIn(0.2, 3.0)).coerceIn(0.0, 100.0)
         val dreadAlignmentAdj = if (task.isAnxietyTask || task.postponeCount >= 3) {
             when (snapshot.phase) {
+                EnergyPhase.SURGE -> 12.0
                 EnergyPhase.PEAK, EnergyPhase.REBOUND -> 8.0
                 EnergyPhase.DIP, EnergyPhase.WIND_DOWN -> -10.0
-                else -> 0.0
+                EnergyPhase.INERTIA, EnergyPhase.CRASH -> -15.0
+                EnergyPhase.TROUGH, EnergyPhase.RECOVERY_NEEDED, EnergyPhase.RECOVERY -> -20.0
             }
         } else 0.0
-        val distractionAdj = if (task.distractionScore > 0.3f && snapshot.phase == EnergyPhase.DIP) {
-            -8.0 * task.distractionScore
-        } else 0.0
+        val distractionAdj = when {
+            task.distractionScore > 0.3f && snapshot.phase == EnergyPhase.DIP -> -8.0 * task.distractionScore
+            task.distractionScore > 0.3f && (snapshot.phase == EnergyPhase.INERTIA || snapshot.phase == EnergyPhase.CRASH) -> -12.0 * task.distractionScore
+            else -> 0.0
+        }
         val energyFit = (0.70 * demandGaussian + 0.30 * categoryAffinity + dreadAlignmentAdj + distractionAdj).coerceIn(0.0, 100.0)
 
         // 4. Momentum Vector M in [0..100] with Zeigarnik Pull & WOOP Implementation Intention Shield
@@ -359,7 +418,9 @@ class DefaultTaskSchedulerService @Inject constructor(
         socialJetlagLagHours: Double,
         activeUncompletedTaskIds: Set<String>,
         workDayStartHour: Int?,
-        workDayEndHour: Int?
+        workDayEndHour: Int?,
+        dailyCognitiveCapacityMinutes: Int?,
+        rejectionPatternsJson: String
     ): List<ScheduledPlacement> = scheduleDayWithOutcome(
         tasks = tasks,
         dayDate = dayDate,
@@ -382,7 +443,9 @@ class DefaultTaskSchedulerService @Inject constructor(
         socialJetlagLagHours = socialJetlagLagHours,
         activeUncompletedTaskIds = activeUncompletedTaskIds,
         workDayStartHour = workDayStartHour,
-        workDayEndHour = workDayEndHour
+        workDayEndHour = workDayEndHour,
+        dailyCognitiveCapacityMinutes = dailyCognitiveCapacityMinutes,
+        rejectionPatternsJson = rejectionPatternsJson
     ).placements
 
     override fun scheduleDayWithOutcome(
@@ -407,7 +470,9 @@ class DefaultTaskSchedulerService @Inject constructor(
         socialJetlagLagHours: Double,
         activeUncompletedTaskIds: Set<String>,
         workDayStartHour: Int?,
-        workDayEndHour: Int?
+        workDayEndHour: Int?,
+        dailyCognitiveCapacityMinutes: Int?,
+        rejectionPatternsJson: String
     ): SchedulingOutcome {
         if (tasks.isEmpty()) return SchedulingOutcome(emptyList())
 
@@ -540,7 +605,16 @@ class DefaultTaskSchedulerService @Inject constructor(
                     task, snap, dependentsMap[task.id]?.size ?: 0, calibrationRatio, priorityWeights,
                     referenceNowMillis = nowMillis
                 )
-                placements.add(ScheduledPlacement(task, existingWindow, breakdown))
+                val (conf, rat) = computePlacementConfidenceAndRationale(
+                    task = task,
+                    window = existingWindow,
+                    breakdown = breakdown,
+                    rejectionPenalty = 0.0,
+                    zoneId = zoneId,
+                    wakeTimeMillis = effectiveWakeTimeMillis,
+                    lastSleepDurationMinutes = lastSleepDurationMinutes
+                )
+                placements.add(ScheduledPlacement(task, existingWindow, breakdown, conf, rat))
                 val isPart1 = task.id.endsWith("#part1") || task.id.endsWith("_part1") || task.title.contains("(Part 1/")
                 val bufferMins = if (isPart1) ULTRADIAN_RECOVERY_BUFFER_MINUTES else TRANSITION_BUFFER_MINUTES
                 val nextLockedStart = sanitizedTasks.filter { it.isLocked && it.scheduledStartMillis != null }
@@ -732,15 +806,16 @@ class DefaultTaskSchedulerService @Inject constructor(
         }.toMutableMap()
 
         val readyQueue = PriorityQueue<SchedulableTask>(
-            compareByDescending<SchedulableTask> { task ->
-                val baseScore = scoreCache[task.id]?.totalScore ?: 0.0
-                val scarcityBonus = when (task.energyDemand) {
-                    EnergyDemand.HIGH -> 12.0
-                    EnergyDemand.MODERATE -> 4.0
-                    EnergyDemand.LOW -> 0.0
-                }
-                baseScore + scarcityBonus
-            }.thenBy { it.id }
+            compareByDescending<SchedulableTask> { it.isPersonalTask }
+                .thenByDescending { task ->
+                    val baseScore = scoreCache[task.id]?.totalScore ?: 0.0
+                    val scarcityBonus = when (task.energyDemand) {
+                        EnergyDemand.HIGH -> 12.0
+                        EnergyDemand.MODERATE -> 4.0
+                        EnergyDemand.LOW -> 0.0
+                    }
+                    baseScore + scarcityBonus
+                }.thenBy { it.id }
         )
         schedulableTodayTasks.filter { (inDegree[it.id] ?: 0) == 0 }.forEach { readyQueue.add(it) }
 
@@ -750,6 +825,25 @@ class DefaultTaskSchedulerService @Inject constructor(
                 ?: evaluateTaskScoreWithWeights(current, nowSnapshot, dependentsMap[current.id]?.size ?: 0, calibrationRatio, priorityWeights, referenceNowMillis = nowMillis)
             val durationMillis = breakdown.bufferedDurationMinutes * 60_000L
             val rawDurationMillis = max(5, current.estimatedMinutes) * 60_000L
+            val baseId = cleanSplitTaskId(current.id)
+
+            // Cognitive budget protection: if daily capacity is specified, non-locked tasks that exceed
+            // remaining daily cognitive capacity are deferred to backlog to prevent daily overbooking.
+            val currentPlacedMinutes = placements.sumOf { it.window.durationMinutes }
+            val taskDurationMinutes = breakdown.bufferedDurationMinutes
+            if (!current.isLocked && dailyCognitiveCapacityMinutes != null && (currentPlacedMinutes + taskDurationMinutes > dailyCognitiveCapacityMinutes)) {
+                if (deferrals.none { it.taskId == baseId }) {
+                    deferrals.add(
+                        DeferralRationale(
+                            taskId = baseId,
+                            reasonCode = DeferralReasonCode.COGNITIVE_BUDGET_EXCEEDED,
+                            explanation = "Daily cognitive budget of ${dailyCognitiveCapacityMinutes}m reached.",
+                            actionableSuggestion = "Move to backlog or schedule for tomorrow's peak focus window."
+                        )
+                    )
+                }
+                continue
+            }
 
             val allPrereqs = current.prerequisiteIds
             val isUltradianPrereq = current.id.endsWith("#part2") || current.id.endsWith("_part2") ||
@@ -820,7 +914,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                     stimulantDoses = stimulantDoses,
                     socialJetlagLagHours = socialJetlagLagHours,
                     latestAllowedEndMillis = taskCeiling,
-                    referenceNowMillis = nowMillis
+                    referenceNowMillis = nowMillis,
+                    rejectionPatternsJson = rejectionPatternsJson
                 ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
                     findBestCircadianWindow(
                         task = current,
@@ -843,7 +938,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                         stimulantDoses = stimulantDoses,
                         socialJetlagLagHours = socialJetlagLagHours,
                         latestAllowedEndMillis = taskCeiling,
-                        referenceNowMillis = nowMillis
+                        referenceNowMillis = nowMillis,
+                        rejectionPatternsJson = rejectionPatternsJson
                     )
                 } else null
             }
@@ -873,7 +969,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                     socialJetlagLagHours = socialJetlagLagHours,
                     latestAllowedEndMillis = structuralCeiling,
                     referenceNowMillis = nowMillis,
-                    allowDeadlineBreach = true
+                    allowDeadlineBreach = true,
+                    rejectionPatternsJson = rejectionPatternsJson
                 ) ?: if (!current.isDurationExplicit && rawDurationMillis < durationMillis) {
                     findBestCircadianWindow(
                         task = current,
@@ -897,7 +994,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                         socialJetlagLagHours = socialJetlagLagHours,
                         latestAllowedEndMillis = structuralCeiling,
                         referenceNowMillis = nowMillis,
-                        allowDeadlineBreach = true
+                        allowDeadlineBreach = true,
+                        rejectionPatternsJson = rejectionPatternsJson
                     )
                 } else null
             } else null
@@ -911,7 +1009,17 @@ class DefaultTaskSchedulerService @Inject constructor(
                 } else {
                     slotBreakdown
                 }
-                placements.add(ScheduledPlacement(current, window, finalBreakdown))
+                val rejPen = computeRejectionPenalty(current, window.startMillis, zoneId, rejectionPatternsJson)
+                val (conf, rat) = computePlacementConfidenceAndRationale(
+                    task = current,
+                    window = window,
+                    breakdown = finalBreakdown,
+                    rejectionPenalty = rejPen,
+                    zoneId = zoneId,
+                    wakeTimeMillis = effectiveWakeTimeMillis,
+                    lastSleepDurationMinutes = lastSleepDurationMinutes
+                )
+                placements.add(ScheduledPlacement(current, window, finalBreakdown, conf, rat))
                 completionEndMap[current.id] = window.endMillis
                 // BUG-373 & BUG-449 Fix: Support parentTaskId and continuation markers, updating parentId and unlocking downstream tasks ONLY on the final continuation part
                 val isPart1Current = current.id.endsWith("#part1") || current.id.endsWith("_part1") || current.id.contains(Regex("""[#_]part1(\D|$)""")) || current.title.contains("(Part 1/")
@@ -1027,7 +1135,8 @@ class DefaultTaskSchedulerService @Inject constructor(
                             socialJetlagLagHours = socialJetlagLagHours,
                             latestAllowedEndMillis = p1Ceiling,
                             referenceNowMillis = nowMillis,
-                            allowDeadlineBreach = allowBreach
+                            allowDeadlineBreach = allowBreach,
+                            rejectionPatternsJson = rejectionPatternsJson
                         ) ?: return false
 
                         val (p1Window, p1Breakdown) = p1Slot
@@ -1062,13 +1171,34 @@ class DefaultTaskSchedulerService @Inject constructor(
                             socialJetlagLagHours = socialJetlagLagHours,
                             latestAllowedEndMillis = ceilingToUse,
                             referenceNowMillis = nowMillis,
-                            allowDeadlineBreach = allowBreach
+                            allowDeadlineBreach = allowBreach,
+                            rejectionPatternsJson = rejectionPatternsJson
                         ) ?: return false
 
                         // Both parts verified! Commit both atomically to placements.
                         val (p2Window, p2Breakdown) = p2Slot
-                        placements.add(ScheduledPlacement(part1, p1Window, p1Breakdown))
-                        placements.add(ScheduledPlacement(part2, p2Window, p2Breakdown))
+                        val p1Rej = computeRejectionPenalty(part1, p1Window.startMillis, zoneId, rejectionPatternsJson)
+                        val (p1Conf, p1Rat) = computePlacementConfidenceAndRationale(
+                            task = part1,
+                            window = p1Window,
+                            breakdown = p1Breakdown,
+                            rejectionPenalty = p1Rej,
+                            zoneId = zoneId,
+                            wakeTimeMillis = effectiveWakeTimeMillis,
+                            lastSleepDurationMinutes = lastSleepDurationMinutes
+                        )
+                        val p2Rej = computeRejectionPenalty(part2, p2Window.startMillis, zoneId, rejectionPatternsJson)
+                        val (p2Conf, p2Rat) = computePlacementConfidenceAndRationale(
+                            task = part2,
+                            window = p2Window,
+                            breakdown = p2Breakdown,
+                            rejectionPenalty = p2Rej,
+                            zoneId = zoneId,
+                            wakeTimeMillis = effectiveWakeTimeMillis,
+                            lastSleepDurationMinutes = lastSleepDurationMinutes
+                        )
+                        placements.add(ScheduledPlacement(part1, p1Window, p1Breakdown, p1Conf, p1Rat))
+                        placements.add(ScheduledPlacement(part2, p2Window, p2Breakdown, p2Conf, p2Rat))
 
                         val p2ContiguousMins = computeSimulatedFocusLoadAt(p2Window.startMillis, simulatedPlacementsWithP1) + p2Window.durationMinutes
                         val p2BufferMins = if (p2ContiguousMins >= 90) 15 else TRANSITION_BUFFER_MINUTES
@@ -1197,12 +1327,50 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
+        // Invariant Safeguard (ADR-031): Guarantee 0 overlapping windows in placements
+        val sortedCandidates = placements.sortedBy { it.window.startMillis }.toMutableList()
+        val sanitizedPlacements = mutableListOf<ScheduledPlacement>()
+        for (candidatePlacement in sortedCandidates) {
+            val overlapping = sanitizedPlacements.firstOrNull { existing ->
+                max(existing.window.startMillis, candidatePlacement.window.startMillis) <
+                    min(existing.window.endMillis, candidatePlacement.window.endMillis)
+            }
+            if (overlapping != null) {
+                // Collision violation: Keep locked/higher priority task, defer the other
+                if (candidatePlacement.task.isLocked && !overlapping.task.isLocked) {
+                    sanitizedPlacements.remove(overlapping)
+                    sanitizedPlacements.add(candidatePlacement)
+                    val baseId = cleanSplitTaskId(overlapping.task.id)
+                    deferrals.add(
+                        DeferralRationale(
+                            taskId = baseId,
+                            reasonCode = DeferralReasonCode.TASK_COLLISION,
+                            explanation = "Task '${overlapping.task.title}' was displaced by locked placement '${candidatePlacement.task.title}'.",
+                            actionableSuggestion = "Move to tomorrow or adjust locked slot."
+                        )
+                    )
+                } else {
+                    val baseId = cleanSplitTaskId(candidatePlacement.task.id)
+                    deferrals.add(
+                        DeferralRationale(
+                            taskId = baseId,
+                            reasonCode = DeferralReasonCode.TASK_COLLISION,
+                            explanation = "Task '${candidatePlacement.task.title}' conflicted with '${overlapping.task.title}'.",
+                            actionableSuggestion = "Move to tomorrow or rebalance."
+                        )
+                    )
+                }
+            } else {
+                sanitizedPlacements.add(candidatePlacement)
+            }
+        }
+
         // Clean deferral task IDs so none carry #part or _part suffixes (BUG-375: regex-safe)
         val sanitizedDeferrals = deferrals.map { d ->
             if (d.taskId.contains(Regex("""[#_]part\d+"""))) d.copy(taskId = cleanSplitTaskId(d.taskId)) else d
         }.distinctBy { it.taskId }
 
-        return SchedulingOutcome(placements.sortedBy { it.window.startMillis }, sanitizedDeferrals)
+        return SchedulingOutcome(sanitizedPlacements.sortedBy { it.window.startMillis }, sanitizedDeferrals)
     }
 
     internal fun cleanSplitTaskId(id: String): String =
@@ -1325,6 +1493,58 @@ class DefaultTaskSchedulerService @Inject constructor(
         return accumulatedMins
     }
 
+    private fun computeRejectionPenalty(
+        task: SchedulableTask,
+        startMillis: Long,
+        zoneId: ZoneId,
+        rejectionPatternsJson: String
+    ): Double {
+        val hour = Instant.ofEpochMilli(startMillis).atZone(zoneId).hour
+        val historical = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.computePenalty(
+            json = rejectionPatternsJson,
+            category = task.category.name,
+            hour = hour,
+            nowMillis = startMillis
+        )
+        val direct = if (task.userSchedulingRating == -1 && task.schedulingRejectedSlotHour == hour) 30.0 else 0.0
+        return historical + direct
+    }
+
+    private fun computePlacementConfidenceAndRationale(
+        task: SchedulableTask,
+        window: TimeSlotWindow,
+        breakdown: TaskScoreBreakdown,
+        rejectionPenalty: Double,
+        zoneId: ZoneId,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int
+    ): Pair<Float, String> {
+        val energyFitNormalized = (breakdown.energyFitScore / 100.0).coerceIn(0.0, 1.0)
+        val urgencyNormalized = (breakdown.urgencyScore / 100.0).coerceIn(0.0, 1.0)
+        val impactNormalized = (breakdown.impactScore / 100.0).coerceIn(0.0, 1.0)
+        val penaltyDeduction = (rejectionPenalty / 40.0).coerceIn(0.0, 0.4)
+
+        val rawConfidence = ((energyFitNormalized * 0.45 + urgencyNormalized * 0.25 + impactNormalized * 0.30) - penaltyDeduction).toFloat()
+        val confidence = rawConfidence.coerceIn(0.15f, 1.0f)
+
+        val snap = circadianService.evaluateSnapshot(
+            timestampMillis = window.startMillis + (window.durationMinutes * 30_000L),
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = lastSleepDurationMinutes,
+            zoneId = zoneId
+        )
+        val phaseName = snap.phase.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+        val fitPct = breakdown.energyFitScore.roundToInt()
+        val rationale = when {
+            task.isLocked -> "Pinned to this time window by user."
+            rejectionPenalty > 15.0 -> "Lower confidence: scheduled here despite historical rejection due to tight schedule constraints."
+            breakdown.urgencyScore >= 80.0 -> "Prioritized here due to impending deadline ($fitPct% energy match)."
+            snap.phase == EnergyPhase.PEAK || snap.phase == EnergyPhase.SURGE -> "Aligned to your $phaseName window ($fitPct% energy match)."
+            else -> "Matched to $phaseName energy phase ($fitPct% match)."
+        }
+        return confidence to rationale
+    }
+
     private fun findBestCircadianWindow(
         task: SchedulableTask,
         durationMillis: Long,
@@ -1347,7 +1567,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         socialJetlagLagHours: Double = 0.0,
         latestAllowedEndMillis: Long = Long.MAX_VALUE,
         referenceNowMillis: Long? = null,
-        allowDeadlineBreach: Boolean = false
+        allowDeadlineBreach: Boolean = false,
+        rejectionPatternsJson: String = "{}"
     ): Pair<TimeSlotWindow, TaskScoreBreakdown>? {
         var bestWindow: TimeSlotWindow? = null
         var bestBreakdown: TaskScoreBreakdown? = null
@@ -1397,15 +1618,47 @@ class DefaultTaskSchedulerService @Inject constructor(
                     else -> 0.45
                 }
 
+                val candidateHour = Instant.ofEpochMilli(candidateStart).atZone(zoneId).hour
+
+                // ADR-031: Historical and direct task rejection penalties
+                val historicalRejectionPenalty = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.computePenalty(
+                    json = rejectionPatternsJson,
+                    category = task.category.name,
+                    hour = candidateHour,
+                    nowMillis = referenceNowMillis ?: candidateStart
+                )
+                val directTaskRejectionPenalty = if (
+                    task.userSchedulingRating == -1 &&
+                    task.schedulingRejectedSlotHour != null &&
+                    task.schedulingRejectedSlotHour == candidateHour
+                ) {
+                    30.0
+                } else 0.0
+                val totalRejectionPenalty = historicalRejectionPenalty + directTaskRejectionPenalty
+
+                // ADR-031: Proportional peak cannibalization penalty
+                val peakMinutesUsed = placements
+                    .filter { it.task.energyDemand != EnergyDemand.HIGH && it.task.category != TaskCategory.DEEP_WORK }
+                    .sumOf { it.window.durationMinutes }
+                val peakFraction = (peakMinutesUsed / 120.0).coerceIn(0.0, 1.0)
                 val peakCannibalizationPenalty = if (
-                    snap.phase == EnergyPhase.PEAK &&
+                    (snap.phase == EnergyPhase.PEAK || snap.phase == EnergyPhase.SURGE) &&
                     breakdown.urgencyScore < 75.0 &&
                     (task.energyDemand == EnergyDemand.LOW || task.category == TaskCategory.ADMIN)
                 ) {
-                    16.0
+                    16.0 + peakFraction * 14.0
                 } else {
                     0.0
                 }
+
+                // ADR-031: Cumulative high-energy debt penalty
+                val priorHighEnergyMinsInBlock = placements
+                    .filter { it.window.endMillis <= candidateStart && candidateStart - it.window.endMillis <= 45 * 60_000L }
+                    .filter { it.task.energyDemand == EnergyDemand.HIGH || it.task.category == TaskCategory.DEEP_WORK }
+                    .sumOf { it.window.durationMinutes }
+                val energyDebtPenalty = if (priorHighEnergyMinsInBlock >= 90 && (task.energyDemand == EnergyDemand.HIGH || task.category == TaskCategory.DEEP_WORK)) {
+                    ((priorHighEnergyMinsInBlock - 60) / 30.0) * 8.0
+                } else 0.0
 
                 // Feature 1 (ADR-023): Pharmacokinetic-Aware Scheduling & Crash Shield
                 val stimEffect = if (stimulantDoses.isNotEmpty()) {
@@ -1436,7 +1689,37 @@ class DefaultTaskSchedulerService @Inject constructor(
                     0.0
                 }
 
-                val utility = breakdown.totalScore - (hourlyDecayLambda * hoursFromNow) - peakCannibalizationPenalty + contextDelta + stimAlignmentDelta - deadlineBreachPenalty
+                // Feature 3: Anti-Fragmentation & Edge-Packing (Anti-Sliver)
+                val effectiveStart = max(interval.startMillis, earliestStartMillis)
+                val leftRemnant = candidateStart - effectiveStart
+                val rightRemnant = effectiveIntervalEnd - candidateEnd
+                val minUsableSliverMillis = 30 * 60_000L
+
+                val isFlushLeft = leftRemnant == 0L
+                val isFlushRight = rightRemnant == 0L
+                val edgePackingBonus = when {
+                    isFlushLeft && isFlushRight -> 5.0
+                    isFlushLeft || isFlushRight -> 2.5
+                    else -> 0.0
+                }
+
+                val leftSliverPenalty = if (leftRemnant in 1 until minUsableSliverMillis) 6.0 else 0.0
+                val rightSliverPenalty = if (rightRemnant in 1 until minUsableSliverMillis) 6.0 else 0.0
+                val sliverPenalty = leftSliverPenalty + rightSliverPenalty
+
+                val internalSplitPenalty = if (
+                    !isFlushLeft && !isFlushRight &&
+                    (effectiveIntervalEnd - effectiveStart) >= 90 * 60_000L &&
+                    task.energyDemand != EnergyDemand.HIGH
+                ) {
+                    3.5
+                } else {
+                    0.0
+                }
+
+                val antiFragmentationDelta = edgePackingBonus - sliverPenalty - internalSplitPenalty
+
+                val utility = breakdown.totalScore - (hourlyDecayLambda * hoursFromNow) - peakCannibalizationPenalty + contextDelta + stimAlignmentDelta - deadlineBreachPenalty + antiFragmentationDelta - totalRejectionPenalty - energyDebtPenalty
 
                 if (utility > bestUtility) {
                     bestUtility = utility

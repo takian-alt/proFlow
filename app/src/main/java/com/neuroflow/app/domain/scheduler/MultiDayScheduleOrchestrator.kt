@@ -1,11 +1,17 @@
 package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.calendar.CalendarSyncRepository
+import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.bedTimeMillis
+import com.neuroflow.app.data.local.entity.wakeTimeMillis
+import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.SchedulableTask
 import com.neuroflow.app.domain.service.ScheduledPlacement
 import com.neuroflow.app.domain.service.SchedulingOutcome
 import com.neuroflow.app.domain.service.TaskSchedulerService
+import kotlinx.coroutines.flow.firstOrNull
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
@@ -29,7 +35,9 @@ data class MultiDaySchedulingOutcome(
 class MultiDayScheduleOrchestrator @Inject constructor(
     private val schedulerService: TaskSchedulerService,
     private val circadianEnergyService: CircadianEnergyService,
-    private val calendarSyncRepository: CalendarSyncRepository? = null
+    private val calendarSyncRepository: CalendarSyncRepository? = null,
+    private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
+    private val preferencesDataStore: UserPreferencesDataStore? = null
 ) {
     suspend fun orchestrateMultiDaySchedule(
         tasks: List<SchedulableTask>,
@@ -43,18 +51,37 @@ class MultiDayScheduleOrchestrator @Inject constructor(
         val crossDaySplits = mutableListOf<CrossDaySplitInfo>()
         val carriedOverTasks = tasks.toMutableList()
 
+        val prefs = preferencesDataStore?.preferencesFlow?.firstOrNull() ?: UserPreferences()
+        val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.firstOrNull() ?: emptyList()
+        val recentSleep = sleepLogs.maxByOrNull { it.wakeTimeMillis }
+
+        val dailyCapacityMinutes = prefs.dailyDeepWorkTargetMinutes.coerceIn(30, 720)
+
+        val rawWakeHour = if (prefs.wakeTimeHour != 7) prefs.wakeTimeHour else prefs.wakeUpHour
+        val wakeHour = rawWakeHour.coerceIn(4, 12)
+        val wakeMinute = prefs.wakeTimeMinute.coerceIn(0, 59)
+
+        val sleepDurationMinutes = recentSleep?.let {
+            ((it.wakeTimeMillis - it.bedTimeMillis) / 60_000L).toInt().coerceIn(240, 660)
+        } ?: 480
+
         for (dayOffset in 0 until horizonDays.coerceIn(1, 14)) {
             val currentDate = startDate.plusDays(dayOffset.toLong())
             val dayStartEpoch = currentDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
             val dayEndEpoch = currentDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
 
-            val dayNowMillis = if (dayOffset == 0) {
-                referenceNowMillis.coerceIn(dayStartEpoch, dayEndEpoch - 60_000L)
+            val dayNowMillis = if (dayOffset == 0 && referenceNowMillis in dayStartEpoch until dayEndEpoch) {
+                referenceNowMillis
             } else {
                 dayStartEpoch
             }
 
-            val wakeTimeMillis = dayStartEpoch + (7 * 3600_000L) // 07:00 wake anchor
+            val calculatedWakeEpoch = dayStartEpoch + (wakeHour * 3600_000L) + (wakeMinute * 60_000L)
+            val wakeTimeMillis = if (dayOffset == 0 && recentSleep != null && recentSleep.wakeTimeMillis in dayStartEpoch..dayEndEpoch) {
+                recentSleep.wakeTimeMillis
+            } else {
+                calculatedWakeEpoch
+            }
 
             val busyWindows = calendarSyncRepository?.getBusyWindows(dayStartEpoch, dayEndEpoch) ?: emptyList()
 
@@ -69,26 +96,54 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 dayDate = currentDate,
                 nowMillis = dayNowMillis,
                 wakeTimeMillis = wakeTimeMillis,
-                lastSleepDurationMinutes = 480,
+                lastSleepDurationMinutes = sleepDurationMinutes,
                 zoneId = zoneId,
                 busyWindows = busyWindows,
+                dailyCognitiveCapacityMinutes = dailyCapacityMinutes,
                 rejectionPatternsJson = rejectionPatternsJson
             )
 
-            dayOutcomes[currentDate] = outcome
+            // Enforce cognitive capacity boundary on placed tasks to guarantee overflow
+            var accumulatedMinutes = 0
+            val effectivePlacements = mutableListOf<ScheduledPlacement>()
+            for (p in outcome.placements) {
+                val dur = p.window.durationMinutes
+                if (!p.task.isLocked && accumulatedMinutes + dur > dailyCapacityMinutes) {
+                    continue
+                }
+                effectivePlacements.add(p)
+                accumulatedMinutes += dur
+            }
+
+            dayOutcomes[currentDate] = SchedulingOutcome(effectivePlacements, outcome.deferrals)
 
             // Placed tasks are removed from the carried-over pool
-            val placedIds = outcome.placements.map { it.task.id }.toSet()
+            val placedIds = effectivePlacements.map { it.task.id }.toSet()
             carriedOverTasks.removeAll { it.id in placedIds }
 
-            // Detect cross-day splits: Part 1 placed today without Part 2 fitting today
-            for (p in outcome.placements) {
-                if (p.task.id.endsWith("_part1") || p.task.id.endsWith("#part1")) {
-                    val baseId = p.task.id.substringBefore("_part1").substringBefore("#part1")
-                    val part2Placed = outcome.placements.any {
-                        it.task.id.startsWith(baseId) && (it.task.id.endsWith("_part2") || it.task.id.endsWith("#part2"))
+            // Detect cross-day splits: Part i placed today without Part i+1 fitting today
+            for (p in effectivePlacements) {
+                val partMatch = Regex("""^(.*?)(?:[#_]part(\d+)|\s*\(Part\s*(\d+)/\d+\))$""").find(p.task.id)
+                    ?: Regex("""^(.*?)\s*\(Part\s*(\d+)/\d+\)""").find(p.task.title)
+                val baseId = partMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: p.task.parentTaskId
+                    ?: p.task.id.substringBefore("_part1").substringBefore("#part1")
+                val partNum = partMatch?.let { m ->
+                    m.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }?.toIntOrNull()
+                        ?: m.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }?.toIntOrNull()
+                } ?: if (p.task.id.endsWith("_part1") || p.task.id.endsWith("#part1")) 1 else null
+
+                if (partNum != null) {
+                    val nextPartNum = partNum + 1
+                    val nextPartPlaced = effectivePlacements.any {
+                        it.task.id.startsWith(baseId) && (
+                            it.task.id.endsWith("_part$nextPartNum") ||
+                            it.task.id.endsWith("#part$nextPartNum") ||
+                            it.task.id.contains(Regex("""[#_]part$nextPartNum(\D|$)""")) ||
+                            it.task.title.contains("(Part $nextPartNum/")
+                        )
                     }
-                    if (!part2Placed && dayOffset + 1 < horizonDays) {
+                    if (!nextPartPlaced && dayOffset + 1 < horizonDays) {
                         val part2Date = currentDate.plusDays(1)
                         val warmupMins = 15
                         crossDaySplits.add(

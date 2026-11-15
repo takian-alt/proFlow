@@ -186,7 +186,9 @@ data class UserPreferences(
     val meqScore: Int = 0,
     val calendarSyncScope: String = "FROGS_AND_LOCKED",
     val calendarSyncTargetId: Long? = null,
-    val lastCalendarInboundSyncAt: Long = 0L
+    val lastCalendarInboundSyncAt: Long = 0L,
+    val wakeTimeHour: Int = wakeUpHour,
+    val wakeTimeMinute: Int = 0
 )
 
 @Singleton

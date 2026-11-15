@@ -21,3 +21,8 @@ data class SleepLogEntity(
     val notes: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
+
+val SleepLogEntity.bedTimeMillis: Long get() = startAt
+val SleepLogEntity.wakeTimeMillis: Long get() = endAt
+val SleepLogEntity.qualityRating: Int get() = 4
+
