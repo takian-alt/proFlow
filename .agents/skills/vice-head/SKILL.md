@@ -1622,6 +1622,39 @@ When the user returns with the Vice Head's recommendations:
   - `SettingsCalendarSyncTest`: Scope preferences and available calendars query.
   - 100% test pass rate across all 1414 unit tests.
 
+### ADR-059: Auto-Pilot Daily Blueprint, Context-Aware AI Feedback Remedy, Dynamic Sleep Anchoring & Unified V2 UI Polish
+- **Context & Drivers**:
+  1. Daily Planning Friction: Users had to manually trigger complex multi-day or single-day scheduling and lacked an intelligent single-action blueprint that bundles dynamic sleep telemetry, cognitive capacity capping (240m ceiling), and personalized coaching advice.
+  2. Hardcoded Circadian Wake/Sleep Anchors: `MultiDayScheduleOrchestrator` assumed a static 7:00 AM wake time and 22:00 PM wind-down, diverging from user preferences or wearable sleep tracking (`SleepTelemetryDataStore`).
+  3. External Calendar Drift & Jitter: Repeated auto-scheduling triggered jittery rescheduling of already scheduled external events and lacked domain-level zero-jitter calendar reconciliation.
+  4. Blind Rejection Feedback: The scheduling feedback system stored numeric rejections without qualitative structured reasons, preventing targeted slot recovery or dynamic parameter adjustments.
+  5. UI Inconsistencies on Timeline: Task cards on the Flow/Plan timeline lacked quick duration visibility (`⚡ XXm`), split-task progression tracking (`Part X/Y`), circadian alignment glow, and tactile haptic feedback.
+- **Decision & Architecture**:
+  1. **Daily Blueprint Orchestrator (`DailyBlueprintOrchestrator.kt`)**:
+     - Coordinates dynamic sleep telemetry anchors (`wakeTime`, `bedtime`, `sleepQuality`), daily cognitive capacity clamping (240m default ceiling), and calendar busy intervals.
+     - Runs multi-day candidate placement via `MultiDayScheduleOrchestrator`, but strictly bounds applied changes to the target day ($D=0$), keeping forward overflow tasks safely deferred in the backlog.
+     - Bundles single-shot Gemini BYOK coaching (`GeminiAiOnlineService.generateDailyBlueprintCoach`) with graceful offline heuristic fallbacks (`HeuristicBlueprintFallback`) when network or API keys are unavailable.
+  2. **Domain-Level Zero-Jitter Calendar Reconciliation (`SchedulePreparationOrchestrator.kt`)**:
+     - Merges external calendar busy windows with already-committed locked slots.
+     - Protects locked, active, and completed tasks from unwanted displacement across subsequent schedule preparation passes.
+  3. **Context-Aware Scheduling Feedback & Smart Remedy (`SchedulingFeedbackDialog.kt`, `SchedulingFeedbackViewModel.kt`, `GeminiAiOnlineService.kt`)**:
+     - Introduces structured rejection reason tags: `TOO_LOW_ENERGY`, `TOO_EARLY`, `NEEDS_LONGER_BLOCK`, and `ROUTINE_CONFLICT`.
+     - Invokes `GeminiAiOnlineService.remedyRejectedSlot` to propose intelligent alternate placement windows or adjustments, falling back to local heuristic recovery when offline.
+     - Records negative preference vectors in `SchedulingFeedbackStore` to permanently penalize repeating the same scheduling error pattern.
+  4. **Unified V2 Timeline Card & Entry-Point Polish (`TimelineTaskCard.kt`, `FreeFlowHeroCard.kt`)**:
+     - Added duration chip badge (`⚡ XXm`), split-task fractional pill badge (`Part X/Y`), start-end time chips (`HH:mm - HH:mm`), and dynamic circadian glow indicator.
+     - Integrated tactile haptic feedback (`LocalHapticFeedback`) on card interactions.
+     - Enhanced `FreeFlowHeroCard` with prominent "✨ Plan My Day" entry point directly triggering the Daily Blueprint orchestration flow.
+- **Verification**:
+  - `DailyBlueprintOrchestratorTest`: Blueprint generation with dynamic sleep telemetry, multi-day capacity overflow, target-day scoping, and offline heuristic fallback.
+  - `DailyBlueprintIntegrationTest`: Full ViewModel flow with blueprint trigger, preview, and atomic target-day schedule commit.
+  - `GeminiAiBlueprintAndRemedyTest`: Bundled AI coaching prompt formatting, response parsing, and slot remedy fallback.
+  - `SchedulingFeedbackViewModelTest`: Structured rejection reason tag recording and alternate slot remedy generation.
+  - `MultiDayScheduleOrchestratorTest`: Dynamic sleep telemetry anchoring and multi-day cascade with cross-day split warmup.
+  - `ZeroJitterCalendarReconciliationTest`: Locked slot preservation and zero displacement against external calendar changes.
+  - `TimelineTaskCardVisualPolishTest`: Duration badge, split part pill, circadian glow, and haptic feedback composition.
+- **Status**: Ratified & Implemented.
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
