@@ -14,6 +14,10 @@ import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.PlacementStability
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.scheduler.determineCategory
+import java.time.LocalTime
+import androidx.compose.ui.graphics.Color
+import com.neuroflow.app.presentation.v2.focus.FocusUiStateV2
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -178,8 +182,8 @@ class AuditBugsAndFeaturesTest {
     fun testCircadianEnergySummaryRespectsDailyDeepWorkTarget() {
         val snapshot = CircadianSnapshot(
             timestampMillis = System.currentTimeMillis(),
-            usableEnergy = 75,
-            baselineBiologicalEnergy = 75,
+            usableEnergy = 100,
+            baselineBiologicalEnergy = 100,
             circadianAlertnessC = 0.8,
             homeostaticPressureS = 0.25,
             focusDepletionPenalty = 0.0,
@@ -189,14 +193,16 @@ class AuditBugsAndFeaturesTest {
         val summaryCustom = buildCircadianEnergySummary(
             dailySummary = null,
             snapshot = snapshot,
-            dailyDeepWorkTargetMinutes = 300
+            dailyDeepWorkTargetMinutes = 300,
+            currentTime = LocalTime.of(9, 0)
         )
         assertEquals(300, summaryCustom.cognitiveBudgetMinutesRemaining)
 
         val summaryFallback = buildCircadianEnergySummary(
             dailySummary = null,
             snapshot = snapshot,
-            dailyDeepWorkTargetMinutes = null
+            dailyDeepWorkTargetMinutes = null,
+            currentTime = LocalTime.of(9, 0)
         )
         assertEquals(240, summaryFallback.cognitiveBudgetMinutesRemaining)
     }
@@ -410,9 +416,201 @@ class AuditBugsAndFeaturesTest {
             snapshot = snapshot,
             sleepHour = 22,
             dailyDeepWorkTargetMinutes = 240,
-            completedDeepWorkMinutes = 90
+            completedDeepWorkMinutes = 90,
+            currentTime = LocalTime.of(9, 0)
         )
-        assertEquals(java.time.LocalTime.of(20, 0), summary.windDownStart)
+        assertEquals(LocalTime.of(20, 0), summary.windDownStart)
         assertEquals(150, summary.cognitiveBudgetMinutesRemaining)
+    }
+
+    @Test
+    fun testCognitiveBudgetAvailableAtPeakEnergyWithTimeRemaining() {
+        val snapshot = CircadianSnapshot(
+            timestampMillis = System.currentTimeMillis(),
+            usableEnergy = 100,
+            baselineBiologicalEnergy = 100,
+            circadianAlertnessC = 0.9,
+            homeostaticPressureS = 0.15,
+            focusDepletionPenalty = 0.0,
+            phase = EnergyPhase.PEAK
+        )
+        // Morning at 09:00 AM with 21:00 wind down (12 hours remaining)
+        val summary = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = snapshot,
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(9, 0)
+        )
+        assertEquals(240, summary.cognitiveBudgetMinutesRemaining)
+
+        // After completing 60 minutes
+        val summaryWithWork = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = snapshot,
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 60,
+            currentTime = LocalTime.of(9, 0)
+        )
+        assertEquals(180, summaryWithWork.cognitiveBudgetMinutesRemaining)
+    }
+
+    @Test
+    fun testCognitiveBudgetClampsToZeroDuringWindDownOrPastWindDownStart() {
+        // Case 1: Phase is WIND_DOWN even in early evening / afternoon with usable energy and zero completed work
+        val windDownSnapshot = CircadianSnapshot(
+            timestampMillis = System.currentTimeMillis(),
+            usableEnergy = 60,
+            homeostaticPressureS = 0.5,
+            circadianAlertnessC = 0.3,
+            focusDepletionPenalty = 0.0,
+            phase = EnergyPhase.WIND_DOWN
+        )
+        val summaryWindDownPhase = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = windDownSnapshot,
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(19, 15)
+        )
+        assertEquals("Budget must clamp to 0 during WIND_DOWN phase", 0, summaryWindDownPhase.cognitiveBudgetMinutesRemaining)
+
+        // Case 2: Phase is RECOVERY_NEEDED
+        val recoverySnapshot = CircadianSnapshot(
+            timestampMillis = System.currentTimeMillis(),
+            usableEnergy = 70,
+            homeostaticPressureS = 0.4,
+            circadianAlertnessC = 0.4,
+            focusDepletionPenalty = 0.0,
+            phase = EnergyPhase.RECOVERY_NEEDED
+        )
+        val summaryRecoveryPhase = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = recoverySnapshot,
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(10, 0)
+        )
+        assertEquals("Budget must clamp to 0 during RECOVERY_NEEDED phase", 0, summaryRecoveryPhase.cognitiveBudgetMinutesRemaining)
+
+        // Case 3: Current time has reached windDownStart (21:00) with PEAK phase
+        val peakSnapshot = CircadianSnapshot(
+            timestampMillis = System.currentTimeMillis(),
+            usableEnergy = 85,
+            homeostaticPressureS = 0.2,
+            circadianAlertnessC = 0.8,
+            focusDepletionPenalty = 0.0,
+            phase = EnergyPhase.PEAK
+        )
+        val summaryAtWindDownStart = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = peakSnapshot,
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(21, 0)
+        )
+        assertEquals("Budget must clamp to 0 when currentTime == windDownStart", 0, summaryAtWindDownStart.cognitiveBudgetMinutesRemaining)
+
+        // Case 4: Current time is past windDownStart (21:30 > 21:00)
+        val summaryPastWindDownStart = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = peakSnapshot,
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(21, 30)
+        )
+        assertEquals("Budget must clamp to 0 when currentTime > windDownStart", 0, summaryPastWindDownStart.cognitiveBudgetMinutesRemaining)
+    }
+
+    @Test
+    fun testCognitiveBudgetEnergyScalingWithDegradedUsableEnergy() {
+        val baseSnapshot = CircadianSnapshot(
+            timestampMillis = System.currentTimeMillis(),
+            usableEnergy = 50,
+            homeostaticPressureS = 0.3,
+            circadianAlertnessC = 0.6,
+            focusDepletionPenalty = 0.0,
+            phase = EnergyPhase.PEAK
+        )
+        // totalBudget = 240, usableEnergy = 50% -> physiologicalBudget = round(240 * 0.5) = 120
+        val summary50 = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = baseSnapshot.copy(usableEnergy = 50),
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(10, 0)
+        )
+        assertEquals("50% usable energy scales 240m budget down to 120m", 120, summary50.cognitiveBudgetMinutesRemaining)
+
+        // usableEnergy = 25% -> physiologicalBudget = round(240 * 0.25) = 60
+        val summary25 = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = baseSnapshot.copy(usableEnergy = 25),
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(10, 0)
+        )
+        assertEquals("25% usable energy scales 240m budget down to 60m", 60, summary25.cognitiveBudgetMinutesRemaining)
+
+        // usableEnergy = 0% -> physiologicalBudget = 0
+        val summary0 = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = baseSnapshot.copy(usableEnergy = 0),
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(10, 0)
+        )
+        assertEquals("0% usable energy scales budget down to 0m", 0, summary0.cognitiveBudgetMinutesRemaining)
+
+        // Temporal ceiling narrower than physiological budget:
+        // currentTime = 20:30, windDownStart = 21:00 -> temporalBudget = 30m, usableEnergy = 100%
+        val summaryTemporalCeiling = buildCircadianEnergySummary(
+            dailySummary = null,
+            snapshot = baseSnapshot.copy(usableEnergy = 100),
+            sleepHour = 23,
+            dailyDeepWorkTargetMinutes = 240,
+            completedDeepWorkMinutes = 0,
+            currentTime = LocalTime.of(20, 30)
+        )
+        assertEquals("Temporal ceiling must clamp cognitive budget to remaining minutes before wind-down", 30, summaryTemporalCeiling.cognitiveBudgetMinutesRemaining)
+    }
+
+    @Test
+    fun testWindDownPhaseMelatoninProtectionAccentPalette() {
+        // Option 3A: EnergyPhase.WIND_DOWN must resolve to warm sunset amber / melatonin-protective accent
+        val accent = NeuroFlowPaletteV2.staticAccentForPhase(EnergyPhase.WIND_DOWN)
+        assertEquals(NeuroFlowPaletteV2.WindDownAmber, accent)
+        assertEquals(Color(0xFFD97706), accent)
+
+        // Melatonin protection verification: Red channel must significantly exceed blue channel
+        // (warm amber/sepia avoids suppressing melatonin secretion unlike cold blue/indigo)
+        assertTrue("Melatonin protection requires high red wavelength", accent.red > 0.8f)
+        assertTrue("Melatonin protection requires low blue wavelength to prevent suppression", accent.blue < 0.1f)
+    }
+
+    @Test
+    fun testFocusUiStateUltradian90MinuteThreshold() {
+        // Option 1A: 90m (5400s) threshold activates ultradian warning
+        val subLimitState = FocusUiStateV2(elapsedSeconds = 5399L)
+        assertFalse(subLimitState.isUltradianLimitExceeded)
+        assertNull(subLimitState.ultradianWarning)
+
+        val limitReachedState = FocusUiStateV2(elapsedSeconds = 5400L)
+        assertTrue(limitReachedState.isUltradianLimitExceeded)
+        assertNotNull(limitReachedState.ultradianWarning)
+        assertTrue(limitReachedState.ultradianWarning!!.contains("90m ultradian limit reached"))
+
+        val beyondLimitState = FocusUiStateV2(elapsedSeconds = 7200L)
+        assertTrue(beyondLimitState.isUltradianLimitExceeded)
+        assertNotNull(beyondLimitState.ultradianWarning)
     }
 }

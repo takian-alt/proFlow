@@ -47,4 +47,10 @@ interface MindmapDao {
 
     @Query("DELETE FROM mindmap_edges WHERE sourceId = :entityId OR targetId = :entityId")
     suspend fun deleteEdgesForEntity(entityId: String)
+
+    @Query("SELECT * FROM mindmap_edges WHERE sourceId = :entityId OR targetId = :entityId ORDER BY createdAt ASC")
+    suspend fun getEdgesForEntity(entityId: String): List<MindmapEdgeEntity>
+
+    @Query("DELETE FROM mindmap_edges WHERE (sourceId = :sourceId AND targetId = :targetId) OR (sourceId = :targetId AND targetId = :sourceId)")
+    suspend fun deleteEdgeBetween(sourceId: String, targetId: String)
 }

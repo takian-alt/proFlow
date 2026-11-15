@@ -91,14 +91,39 @@ object NeuroFlowPaletteV2 {
     val OptimalEmerald: Color
         @Composable @ReadOnlyComposable get() = LocalNeuroFlowPalette.current.energyPeakMint
 
+    /**
+     * Option 3A: Melatonin-protective warm sunset amber accent for evening wind-down.
+     * Prevents cold blue/indigo wavelength exposure and supports natural circadian melatonin secretion.
+     */
+    val WindDownAmber: Color = Color(0xFFD97706)
+    val MelatoninWarmAmber: Color = Color(0xFFD97706)
+
+    fun staticAccentForPhase(phase: EnergyPhase): Color = when (phase) {
+        EnergyPhase.SURGE -> Color(0xFF06B6D4)
+        EnergyPhase.PEAK -> Color(0xFF10B981)
+        EnergyPhase.REBOUND -> Color(0xFF6366F1)
+        EnergyPhase.DIP -> Color(0xFFF59E0B)
+        EnergyPhase.WIND_DOWN -> WindDownAmber
+        EnergyPhase.TROUGH -> Color(0xFF1E293B)
+        EnergyPhase.RECOVERY -> Color(0xFF14B8A6)
+        EnergyPhase.RECOVERY_NEEDED -> Color(0xFFE11D48)
+        EnergyPhase.INERTIA -> Color(0xFFA78BFA)
+        EnergyPhase.CRASH -> Color(0xFFEA580C)
+    }
+
     @Composable
     @ReadOnlyComposable
     fun accentForPhase(phase: EnergyPhase): Color = when (phase) {
+        EnergyPhase.SURGE -> Color(0xFF06B6D4)
         EnergyPhase.PEAK -> OptimalEmerald
         EnergyPhase.REBOUND -> ReboundCyan
         EnergyPhase.DIP -> PeakAmber
-        EnergyPhase.WIND_DOWN -> DipIndigo
+        EnergyPhase.WIND_DOWN -> WindDownAmber
+        EnergyPhase.TROUGH -> Color(0xFF1E293B)
+        EnergyPhase.RECOVERY -> Color(0xFF14B8A6)
         EnergyPhase.RECOVERY_NEEDED -> RecoveryRose
+        EnergyPhase.INERTIA -> Color(0xFFA78BFA)
+        EnergyPhase.CRASH -> Color(0xFFEA580C)
     }
 
     /**
@@ -163,21 +188,29 @@ fun PhaseAmbientScreenContainer(
 fun CognitiveBudgetMeterCard(
     scheduledMinutesToday: Int,
     recommendedCapacityMinutes: Int,
+    completedMinutesToday: Int = 0,
     conflictCount: Int = 0,
     onAutoBalanceClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val totalCommittedMinutes = (scheduledMinutesToday + completedMinutesToday).coerceAtLeast(0)
     val safeCapacity = recommendedCapacityMinutes.coerceAtLeast(60)
-    val ratio = (scheduledMinutesToday.toFloat() / safeCapacity.toFloat()).coerceIn(0f, 1.25f)
-    val animatedProgress by animateFloatAsState(
-        targetValue = ratio.coerceAtMost(1f),
+    val ratio = (totalCommittedMinutes.toFloat() / safeCapacity.toFloat()).coerceIn(0f, 2.0f)
+    val completedRatio = (completedMinutesToday.toFloat() / safeCapacity.toFloat()).coerceIn(0f, 1f)
+    val animatedTotalProgress by animateFloatAsState(
+        targetValue = ratio.coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
         label = "capacity_progress"
     )
+    val animatedCompletedProgress by animateFloatAsState(
+        targetValue = completedRatio,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "completed_progress"
+    )
 
-    val isOverbooked = scheduledMinutesToday > safeCapacity
+    val isOverbooked = totalCommittedMinutes > safeCapacity
     val barColor = when {
-        isOverbooked || conflictCount > 0 -> NeuroFlowPaletteV2.RecoveryRose
+        isOverbooked -> NeuroFlowPaletteV2.RecoveryRose
         ratio >= 0.85f -> NeuroFlowPaletteV2.PeakAmber
         else -> NeuroFlowPaletteV2.OptimalEmerald
     }
@@ -209,25 +242,35 @@ fun CognitiveBudgetMeterCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isOverbooked || conflictCount > 0) Icons.Default.WarningAmber else Icons.Default.Bolt,
+                        imageVector = if (isOverbooked) Icons.Default.WarningAmber else Icons.Default.Bolt,
                         contentDescription = null,
                         tint = barColor,
                         modifier = Modifier.size(15.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isOverbooked) "COGNITIVE OVERLOAD RISK" else "DAILY COGNITIVE BUDGET",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = NeuroFlowPaletteV2.TextSecondary,
-                    letterSpacing = 0.9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column {
+                    Text(
+                        text = if (isOverbooked) "COGNITIVE OVERLOAD RISK" else "DAILY COGNITIVE BUDGET",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        letterSpacing = 0.9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (completedMinutesToday > 0) {
+                        Text(
+                            text = "${completedMinutesToday}m done · ${scheduledMinutesToday}m active",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextTertiary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "${scheduledMinutesToday}m / ${safeCapacity}m",
+                text = "${totalCommittedMinutes}m / ${safeCapacity}m",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
                 color = barColor
             )
@@ -242,17 +285,32 @@ fun CognitiveBudgetMeterCard(
                 .clip(CircleShape)
                 .background(NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.25f))
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(animatedProgress)
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(barColor.copy(alpha = 0.75f), barColor)
+            if (animatedTotalProgress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedTotalProgress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(barColor.copy(alpha = 0.65f), barColor)
+                            )
                         )
-                    )
-            )
+                )
+            }
+            if (animatedCompletedProgress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedCompletedProgress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.85f), NeuroFlowPaletteV2.OptimalEmerald)
+                            )
+                        )
+                )
+            }
         }
 
         if ((isOverbooked || conflictCount > 0) && onAutoBalanceClick != null) {
@@ -263,9 +321,12 @@ fun CognitiveBudgetMeterCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val warningText = when {
+                    isOverbooked && conflictCount > 0 -> "Overbooked by ${totalCommittedMinutes - safeCapacity}m · $conflictCount overlap(s)"
+                    isOverbooked -> "Booked ${totalCommittedMinutes - safeCapacity}m past your high-focus budget."
                     conflictCount > 0 -> "$conflictCount schedule overlap(s) detected."
-                    else -> "Booked ${scheduledMinutesToday - safeCapacity}m past your high-focus budget."
+                    else -> ""
                 }
+                val actionColor = if (isOverbooked) NeuroFlowPaletteV2.RecoveryRose else if (conflictCount > 0) NeuroFlowPaletteV2.PeakAmber else barColor
                 Text(
                     text = warningText,
                     style = MaterialTheme.typography.bodyMedium,
@@ -276,9 +337,9 @@ fun CognitiveBudgetMeterCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Surface(
-                    color = barColor.copy(alpha = 0.14f),
+                    color = actionColor.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, barColor.copy(alpha = 0.4f)),
+                    border = BorderStroke(1.dp, actionColor.copy(alpha = 0.4f)),
                     modifier = Modifier.clickable { onAutoBalanceClick() }
                 ) {
                     Row(
@@ -288,14 +349,14 @@ fun CognitiveBudgetMeterCard(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = null,
-                            tint = barColor,
+                            tint = actionColor,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = "Auto-Rebalance",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = barColor
+                            color = actionColor
                         )
                     }
                 }

@@ -101,10 +101,13 @@ class InsightsViewModelV2 @Inject constructor(
                     }
                 }.toString()
 
+                val rejectionsSummary = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.formatSummaryForLlm(prefs.schedulingRejectionsJson)
+
                 val result = geminiAiOnlineService.conductWeeklyAuditAndDirective(
                     weeklyTelemetryJson = telemetryJson,
                     recentlyDeletedTasksJson = deletedJson,
                     chronicallyPostponedTasksJson = postponedJson,
+                    recentRejectionsJson = rejectionsSummary,
                     apiKey = prefs.geminiApiKey,
                     useAi = prefs.geminiAiEnabled
                 )

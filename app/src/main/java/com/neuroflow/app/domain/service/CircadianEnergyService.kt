@@ -29,7 +29,16 @@ enum class TaskCategory {
 }
 
 enum class EnergyPhase {
-    PEAK, REBOUND, DIP, WIND_DOWN, RECOVERY_NEEDED
+    PEAK,
+    REBOUND,
+    DIP,
+    WIND_DOWN,
+    TROUGH,
+    RECOVERY,
+    RECOVERY_NEEDED,
+    INERTIA,
+    CRASH,
+    SURGE
 }
 
 enum class ChronotypeProfile(val peakOffsetFromWakeHours: Double) {
@@ -848,6 +857,101 @@ data class CircadianSnapshot(
     val homeostaticSleepPressure: Double get() = homeostaticPressureS
 }
 
+/**
+ * ADR-028 Priority Precedence Resolver across all 10 EnergyPhase states.
+ * 1. RECOVERY (Active restorative session)
+ * 2. INERTIA (Post-wake grogginess: first 30-45m after wake with active sleep inertia)
+ * 3. CRASH (Metabolic/pharmacokinetic crash: high sleep pressure unmasked or severe postprandial drop)
+ * 4. RECOVERY_NEEDED (Synaptic exhaustion from continuous focus >= 90m, or depleted morning awakening)
+ * 5. SURGE (Hyperfocus / stimulant peak surge with high cognitive energy)
+ * 6. PEAK (Optimal circadian baseline)
+ * 7. DIP (Midday post-prandial / circadian lull)
+ * 8. REBOUND (Alertness second wind or morning ramp-up post-inertia)
+ * 9. WIND_DOWN (Evening deceleration window before bedtime)
+ * 10. TROUGH (Circadian Nadir / core biological floor)
+ */
+fun resolveEnergyPhase(
+    continuousActiveFocusMinutes: Int,
+    usableEnergy: Int,
+    hoursAwake: Double,
+    processC: Double,
+    processS: Double,
+    sleepInertiaPenalty: Double,
+    physiologicalImpulse: Double,
+    stimAlertnessBoost: Double,
+    isRestSessionActive: Boolean,
+    clockHour: Double,
+    sleepHour: Int = 23
+): EnergyPhase {
+    // 1. RECOVERY (Top priority: User is in an active restorative session)
+    if (isRestSessionActive) {
+        return EnergyPhase.RECOVERY
+    }
+
+    // 2. INERTIA (Post-wake grogginess: first 30-45m after wake with active sleep inertia penalty)
+    if (sleepInertiaPenalty >= 0.04 && hoursAwake < 0.75) {
+        return EnergyPhase.INERTIA
+    }
+
+    // Check if within nocturnal sleep nadir (past bedtime or deep night before wake)
+    val targetWindDownHour = ((sleepHour - 2) % 24 + 24) % 24
+    val isPastBedtime = if (sleepHour >= targetWindDownHour) {
+        clockHour >= sleepHour || clockHour < 6.0
+    } else {
+        clockHour >= sleepHour && clockHour < 6.0
+    }
+
+    // Core biological nadir / nocturnal sleep window takes precedence over daytime crash
+    if (isPastBedtime && processC < 0.28) {
+        return EnergyPhase.TROUGH
+    }
+
+    // 3. CRASH (Metabolic or pharmacokinetic crash: high sleep pressure unmasked or severe postprandial drop)
+    val isCaffeineCrash = !isPastBedtime && processS > 0.60 && stimAlertnessBoost <= 2.0 && usableEnergy < 40 && hoursAwake > 4.0
+    val isPostprandialCrash = physiologicalImpulse <= -6.0 && usableEnergy < 42
+    if (isCaffeineCrash || isPostprandialCrash) {
+        return EnergyPhase.CRASH
+    }
+
+    // 4. RECOVERY_NEEDED (Synaptic exhaustion from continuous focus >= 90m, or depleted morning awakening)
+    if (continuousActiveFocusMinutes >= 90 || (hoursAwake < 6.0 && usableEnergy < 35)) {
+        return EnergyPhase.RECOVERY_NEEDED
+    }
+
+    // 5. SURGE (Hyperfocus / stimulant peak surge with high cognitive energy)
+    if (usableEnergy >= 85 && (stimAlertnessBoost >= 8.0 || usableEnergy >= 90)) {
+        return EnergyPhase.SURGE
+    }
+
+    // 6. PEAK (Optimal circadian baseline)
+    if (usableEnergy >= 72) {
+        return EnergyPhase.PEAK
+    }
+
+    // 7. DIP (Midday post-prandial / circadian lull)
+    if (hoursAwake in 6.0..9.5 && (processC < 0.48 || physiologicalImpulse <= -3.0)) {
+        return EnergyPhase.DIP
+    }
+
+    // 8. REBOUND (Alertness second wind or morning ramp-up post-inertia)
+    if (hoursAwake > 9.5 && usableEnergy >= 50) {
+        return EnergyPhase.REBOUND
+    }
+    if (hoursAwake < 6.0 && usableEnergy >= 50) {
+        return EnergyPhase.REBOUND
+    }
+    if (usableEnergy >= 55) {
+        return EnergyPhase.REBOUND
+    }
+
+    // 9. WIND_DOWN vs 10. TROUGH
+    if (processC < 0.28 && (isPastBedtime || hoursAwake > 16.0)) {
+        return EnergyPhase.TROUGH
+    }
+
+    return EnergyPhase.WIND_DOWN
+}
+
 data class DailyCircadianSummary(
     val currentSnapshot: CircadianSnapshot,
     val peakWindowStartHour: Int,
@@ -943,7 +1047,7 @@ interface CircadianEnergyService {
         cognitiveBlocks: List<CognitiveBlockWindow> = emptyList(),
         stimulantDoses: List<StimulantDoseBout> = emptyList(),
         socialJetlagLagHours: Double = 0.0
-    ): CircadianSnapshot = evaluateSnapshot(
+    ): CircadianSnapshot = evaluateSnapshotWithStimulants(
         timestampMillis = timestampMillis,
         wakeTimeMillis = wakeTimeMillis,
         lastSleepDurationMinutes = lastSleepDurationMinutes,
@@ -954,8 +1058,30 @@ interface CircadianEnergyService {
         manualPeakStartHour = manualPeakStartHour,
         learnedProfile = learnedProfile,
         rollingAverageSleepMinutes = rollingAverageSleepMinutes,
-        cognitiveBlocks = cognitiveBlocks
+        cognitiveBlocks = cognitiveBlocks,
+        stimulantDoses = stimulantDoses,
+        socialJetlagLagHours = socialJetlagLagHours,
+        isRestSessionActive = false,
+        sleepHour = 23
     )
+
+    fun evaluateSnapshotWithStimulants(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int = 0,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        naps: List<DaytimeNapBout> = emptyList(),
+        chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour: Int? = null,
+        learnedProfile: LearnedCircadianProfile? = null,
+        rollingAverageSleepMinutes: Double? = null,
+        cognitiveBlocks: List<CognitiveBlockWindow> = emptyList(),
+        stimulantDoses: List<StimulantDoseBout> = emptyList(),
+        socialJetlagLagHours: Double = 0.0,
+        isRestSessionActive: Boolean = false,
+        sleepHour: Int = 23
+    ): CircadianSnapshot
 
     fun projectDayTimeline(
         dayStartMillis: Long,
@@ -1201,6 +1327,40 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         cognitiveBlocks: List<CognitiveBlockWindow>,
         stimulantDoses: List<StimulantDoseBout>,
         socialJetlagLagHours: Double
+    ): CircadianSnapshot = evaluateSnapshotWithStimulants(
+        timestampMillis = timestampMillis,
+        wakeTimeMillis = wakeTimeMillis,
+        lastSleepDurationMinutes = lastSleepDurationMinutes,
+        continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+        zoneId = zoneId,
+        naps = naps,
+        chronotype = chronotype,
+        manualPeakStartHour = manualPeakStartHour,
+        learnedProfile = learnedProfile,
+        rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+        cognitiveBlocks = cognitiveBlocks,
+        stimulantDoses = stimulantDoses,
+        socialJetlagLagHours = socialJetlagLagHours,
+        isRestSessionActive = false,
+        sleepHour = 23
+    )
+
+    override fun evaluateSnapshotWithStimulants(
+        timestampMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        continuousActiveFocusMinutes: Int,
+        zoneId: ZoneId,
+        naps: List<DaytimeNapBout>,
+        chronotype: ChronotypeProfile,
+        manualPeakStartHour: Int?,
+        learnedProfile: LearnedCircadianProfile?,
+        rollingAverageSleepMinutes: Double?,
+        cognitiveBlocks: List<CognitiveBlockWindow>,
+        stimulantDoses: List<StimulantDoseBout>,
+        socialJetlagLagHours: Double,
+        isRestSessionActive: Boolean,
+        sleepHour: Int
     ): CircadianSnapshot {
         // 0. Multi-Day Allostatic Sleep Debt Carryover
         val allostaticDebtHours = if (rollingAverageSleepMinutes != null && rollingAverageSleepMinutes > 0.0) {
@@ -1306,18 +1466,20 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         val predConf = learnedProfile?.confidence ?: 0.85
 
         val hoursAwake = max(0.0, (timestampMillis - wakeTimeMillis) / 3_600_000.0)
-        // Bug 5 Fix (ADR-026): Morning ramp-up phase guard
-        // Prevents morning hours (hoursAwake < 6.0) from falling into WIND_DOWN
-        val phase = when {
-            continuousActiveFocusMinutes >= 90 -> EnergyPhase.RECOVERY_NEEDED
-            usableEnergy >= 72 -> EnergyPhase.PEAK
-            hoursAwake in 6.0..9.5 && processC < 0.48 -> EnergyPhase.DIP
-            hoursAwake > 9.5 && usableEnergy >= 55 -> EnergyPhase.REBOUND
-            hoursAwake < 6.0 && usableEnergy >= 50 -> EnergyPhase.REBOUND
-            hoursAwake < 6.0 -> EnergyPhase.RECOVERY_NEEDED
-            usableEnergy >= 55 -> EnergyPhase.REBOUND
-            else -> EnergyPhase.WIND_DOWN
-        }
+        // ADR-028: Priority Precedence Resolver across all 10 EnergyPhase states
+        val phase = resolveEnergyPhase(
+            continuousActiveFocusMinutes = continuousActiveFocusMinutes,
+            usableEnergy = usableEnergy,
+            hoursAwake = hoursAwake,
+            processC = processC,
+            processS = processS,
+            sleepInertiaPenalty = inertiaPenalty,
+            physiologicalImpulse = physioImpulse,
+            stimAlertnessBoost = stimEffect.acuteAlertnessBoostPoints,
+            isRestSessionActive = isRestSessionActive,
+            clockHour = clockHour,
+            sleepHour = sleepHour
+        )
 
         return CircadianSnapshot(
             timestampMillis = timestampMillis,
@@ -1632,20 +1794,66 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
     ): Double {
         val e = snapshot.usableEnergy.toDouble()
         return when (category) {
-            TaskCategory.DEEP_WORK -> e
+            TaskCategory.DEEP_WORK -> {
+                when (snapshot.phase) {
+                    EnergyPhase.SURGE -> min(100.0, e + 15.0)
+                    EnergyPhase.PEAK -> e
+                    EnergyPhase.REBOUND -> e * 0.85
+                    EnergyPhase.DIP -> e * 0.60
+                    EnergyPhase.INERTIA, EnergyPhase.CRASH -> e * 0.40
+                    EnergyPhase.WIND_DOWN -> e * 0.50
+                    EnergyPhase.TROUGH -> 10.0
+                    EnergyPhase.RECOVERY, EnergyPhase.RECOVERY_NEEDED -> 20.0
+                }
+            }
             TaskCategory.CREATIVE -> {
-                if (snapshot.phase == EnergyPhase.REBOUND) min(100.0, e + 15.0) else e * 0.9
+                when (snapshot.phase) {
+                    EnergyPhase.REBOUND -> min(100.0, e + 15.0)
+                    EnergyPhase.SURGE, EnergyPhase.PEAK -> e * 0.95
+                    EnergyPhase.DIP -> e * 0.75
+                    EnergyPhase.INERTIA, EnergyPhase.CRASH -> e * 0.45
+                    EnergyPhase.WIND_DOWN -> e * 0.70
+                    EnergyPhase.TROUGH -> 10.0
+                    EnergyPhase.RECOVERY, EnergyPhase.RECOVERY_NEEDED -> 25.0
+                }
             }
             TaskCategory.ADMIN -> {
-                100.0 * exp(-((e - 50.0) * (e - 50.0)) / (2.0 * 22.0 * 22.0))
+                val base = 100.0 * exp(-((e - 50.0) * (e - 50.0)) / (2.0 * 22.0 * 22.0))
+                when (snapshot.phase) {
+                    EnergyPhase.DIP -> min(100.0, base + 15.0)
+                    EnergyPhase.INERTIA -> min(100.0, base + 10.0)
+                    EnergyPhase.SURGE -> base * 0.60
+                    EnergyPhase.TROUGH -> 10.0
+                    EnergyPhase.RECOVERY, EnergyPhase.RECOVERY_NEEDED -> 30.0
+                    else -> base
+                }
             }
             TaskCategory.EXERCISE -> {
-                100.0 * exp(-((e - 65.0) * (e - 65.0)) / (2.0 * 25.0 * 25.0))
+                val base = 100.0 * exp(-((e - 65.0) * (e - 65.0)) / (2.0 * 25.0 * 25.0))
+                when (snapshot.phase) {
+                    EnergyPhase.SURGE -> min(100.0, base + 10.0)
+                    EnergyPhase.CRASH, EnergyPhase.TROUGH, EnergyPhase.RECOVERY_NEEDED -> base * 0.40
+                    else -> base
+                }
             }
             TaskCategory.MINDFULNESS -> {
-                if (snapshot.phase == EnergyPhase.RECOVERY_NEEDED) 100.0 else (100.0 - e * 0.5).coerceIn(30.0, 95.0)
+                when (snapshot.phase) {
+                    EnergyPhase.RECOVERY, EnergyPhase.RECOVERY_NEEDED -> 100.0
+                    EnergyPhase.CRASH -> 95.0
+                    EnergyPhase.INERTIA -> 85.0
+                    EnergyPhase.WIND_DOWN -> 90.0
+                    EnergyPhase.TROUGH -> 90.0
+                    else -> (100.0 - e * 0.5).coerceIn(30.0, 95.0)
+                }
             }
-            TaskCategory.GENERAL -> 70.0
+            TaskCategory.GENERAL -> {
+                when (snapshot.phase) {
+                    EnergyPhase.TROUGH -> 20.0
+                    EnergyPhase.CRASH -> 35.0
+                    EnergyPhase.RECOVERY_NEEDED -> 40.0
+                    else -> 70.0
+                }
+            }
         }.coerceIn(0.0, 100.0)
     }
 }

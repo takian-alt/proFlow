@@ -1671,4 +1671,126 @@ class FocusScreenV2AuditTest {
             viewModel.clearForTest()
         }
     }
+
+    @Test
+    fun testUntrackedFocusSessionLifecycleAndForeignKeyIntegrity() = runTest(testDispatcher) {
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to TaskEntity.TASK_UNTRACKED_FOCUS))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        val syntheticTask = TaskEntity.createUntrackedFocusTask()
+        coEvery { taskRepo.getById(TaskEntity.TASK_UNTRACKED_FOCUS) } returns null
+        coEvery { taskRepo.ensureUntrackedFocusTask() } returns syntheticTask
+        coEvery { sessionRepo.getOpenSessionForTask(TaskEntity.TASK_UNTRACKED_FOCUS) } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = null
+        )
+
+        try {
+            testScheduler.runCurrent()
+
+            // 1. Synthetic task automatically initialized with Free Flow title
+            assertEquals("Free Flow Focus", viewModel.uiState.value.task?.title)
+            assertEquals(TaskEntity.TASK_UNTRACKED_FOCUS, viewModel.uiState.value.task?.id)
+            assertNull("Untracked focus session must have null WOOP", viewModel.uiState.value.woopData)
+            assertTrue("Untracked focus session must have empty microSteps", viewModel.uiState.value.microSteps.isEmpty())
+            assertFalse(viewModel.uiState.value.isCompleted)
+
+            // 2. Starting timer creates TimeSessionEntity with TASK_UNTRACKED_FOCUS preserving FK
+            viewModel.startTimer()
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.isRunning)
+
+            val sessionSlot = slot<TimeSessionEntity>()
+            coVerify { sessionRepo.insert(capture(sessionSlot)) }
+            assertEquals(TaskEntity.TASK_UNTRACKED_FOCUS, sessionSlot.captured.taskId)
+
+            // 3. autoBreakDownTask is a no-op for untracked session
+            viewModel.autoBreakDownTask()
+            testScheduler.runCurrent()
+            assertTrue(viewModel.uiState.value.microSteps.isEmpty())
+
+            // 4. Completing task logs session, awards points, but preserves ACTIVE status of synthetic task
+            coEvery { sessionRepo.getOpenSessionForTask(TaskEntity.TASK_UNTRACKED_FOCUS) } returns sessionSlot.captured
+            viewModel.completeTask()
+            testScheduler.runCurrent()
+
+            assertTrue(viewModel.uiState.value.isCompleted)
+            assertFalse("Untracked focus session must not show task affordance rating", viewModel.uiState.value.showAffordanceRating)
+            coVerify(exactly = 0) { taskRepo.completeAndRecur(any(), any()) }
+            coVerify { taskRepo.update(match { it.id == TaskEntity.TASK_UNTRACKED_FOCUS && it.status == TaskStatus.ACTIVE }) }
+            coVerify { sessionRepo.update(match { it.taskId == TaskEntity.TASK_UNTRACKED_FOCUS && it.endedAt != null }) }
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
+
+    @Test
+    fun testUltradian90MinuteLimitActivatesAndTimerKeepsRunning() = runTest(testDispatcher) {
+        val task = makeTask(id = TaskEntity.TASK_UNTRACKED_FOCUS, title = "Free Flow Focus")
+        val savedStateHandle = SavedStateHandle(mapOf("taskId" to TaskEntity.TASK_UNTRACKED_FOCUS))
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val sessionRepo = mockk<SessionRepository>(relaxed = true)
+        val woopRepo = mockk<WoopRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        coEvery { taskRepo.getById(TaskEntity.TASK_UNTRACKED_FOCUS) } returns task
+        coEvery { taskRepo.getActiveTasks() } returns emptyList()
+        coEvery { sessionRepo.getOpenSessionForTask(TaskEntity.TASK_UNTRACKED_FOCUS) } returns null
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val viewModel = FocusViewModelV2(
+            savedStateHandle = savedStateHandle,
+            taskRepository = taskRepo,
+            sessionRepository = sessionRepo,
+            woopRepository = woopRepo,
+            preferencesDataStore = prefsDataStore,
+            context = mockContext
+        )
+
+        try {
+            testScheduler.runCurrent()
+            viewModel.selectTimerMode(FocusTimerModeV2.FLOW_STOPWATCH)
+            viewModel.startTimer()
+            testScheduler.runCurrent()
+
+            assertTrue(viewModel.uiState.value.isRunning)
+            assertFalse(viewModel.uiState.value.isUltradianLimitExceeded)
+            assertNull(viewModel.uiState.value.ultradianWarning)
+
+            // When elapsed is under 5400 seconds (e.g. 5399 seconds = 89m 59s)
+            val subLimitTiming = FocusUiStateV2(
+                elapsedSeconds = 5399L,
+                isRunning = true,
+                timerMode = FocusTimerModeV2.FLOW_STOPWATCH
+            )
+            assertFalse(subLimitTiming.isUltradianLimitExceeded)
+            assertNull(subLimitTiming.ultradianWarning)
+
+            // When elapsed hits 5400 seconds (90 min)
+            val limitReachedTiming = FocusUiStateV2(
+                elapsedSeconds = 5400L,
+                isRunning = true,
+                timerMode = FocusTimerModeV2.FLOW_STOPWATCH
+            )
+            assertTrue(limitReachedTiming.isUltradianLimitExceeded)
+            assertNotNull(limitReachedTiming.ultradianWarning)
+            assertTrue(limitReachedTiming.ultradianWarning!!.contains("90m ultradian limit reached"))
+
+            // Verify Option 1A invariant: Session is NOT automatically stopped; it keeps running
+            assertTrue("Timer must keep running normally under Option 1A", limitReachedTiming.isRunning)
+            assertFalse("Sprint must not be forced completed", limitReachedTiming.isSprintCompleted)
+        } finally {
+            viewModel.clearForTest()
+        }
+    }
 }

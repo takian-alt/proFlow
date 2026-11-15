@@ -398,7 +398,7 @@ object AnalyticsEngine {
             focusMinutesTotal / closedSessions.size else 0f
         // Most focused task (most total tracked minutes)
         val mostFocusedTask = allTasks
-            .filter { it.totalTimeTrackedMinutes > 0f }
+            .filter { it.totalTimeTrackedMinutes > 0f && it.id != com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
             .maxByOrNull { it.totalTimeTrackedMinutes }
 
         val sevenDayTrend = sevenDayFocusTrend(allSessions, nowMillis)

@@ -93,16 +93,26 @@ fun EnhancedCircadianEnergyGraph(
     val DipAmber = palette.energyModerateAmber
     val RecoveryRose = palette.energyLowCoral
     val WindDownViolet = palette.hyperFocusViolet
+    val SurgeCyan = Color(0xFF06B6D4)
+    val InertiaLavender = Color(0xFFA78BFA)
+    val CrashRust = Color(0xFFEA580C)
+    val TroughNavy = Color(0xFF1E293B)
+    val RestoringMint = Color(0xFF14B8A6)
     val GridLineColor = palette.border.copy(alpha = if (isDark) 0.4f else 0.55f)
     val TextPrimary = palette.textPrimary
     val TextSecondary = palette.textSecondary
 
     fun resolvePhaseColor(phase: EnergyPhase): Color = when (phase) {
+        EnergyPhase.SURGE -> SurgeCyan
         EnergyPhase.PEAK -> PeakEmerald
         EnergyPhase.REBOUND -> ReboundIndigo
         EnergyPhase.DIP -> DipAmber
+        EnergyPhase.INERTIA -> InertiaLavender
+        EnergyPhase.CRASH -> CrashRust
+        EnergyPhase.RECOVERY -> RestoringMint
         EnergyPhase.RECOVERY_NEEDED -> RecoveryRose
         EnergyPhase.WIND_DOWN -> WindDownViolet
+        EnergyPhase.TROUGH -> TroughNavy
     }
 
     val activeAccent = resolvePhaseColor(activeSnapshot.phase)

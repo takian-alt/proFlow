@@ -84,9 +84,17 @@ data class FocusUiStateV2(
     val showSprintCompletionSheet: Boolean = false,
     val isSprintCompleted: Boolean = false,
     val completionAffirmation: String? = null,
-    val showDndNotice: Boolean = false
+    val showDndNotice: Boolean = false,
+    val isUltradianLimitExceeded: Boolean = elapsedSeconds >= ULTRADIAN_LIMIT_SECONDS,
+    val ultradianWarning: String? = if (isUltradianLimitExceeded) ULTRADIAN_WARNING_MESSAGE else null
 ) {
     val isSessionActive: Boolean get() = isRunning || isPaused
+
+    companion object {
+        const val ULTRADIAN_LIMIT_SECONDS = 5400L // 90 minutes
+        const val ULTRADIAN_WARNING_MESSAGE =
+            "⚠️ 90m ultradian limit reached. Neural efficiency is declining — consider wrapping up or taking a break."
+    }
 }
 
 @HiltViewModel
@@ -125,10 +133,14 @@ class FocusViewModelV2 @Inject constructor(
     private fun loadTask() {
         context?.let { AutonomyNudgeEngine.cancelNudge(it, taskId) }
         viewModelScope.launch {
-            val task = taskRepository.getById(taskId)
-            val woop = woopRepository.getByTaskId(taskId)
-            var steps = task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
-            if (steps.isEmpty() && task != null) {
+            val isUntracked = taskId == TaskEntity.TASK_UNTRACKED_FOCUS
+            var task = taskRepository.getById(taskId)
+            if (task == null && isUntracked) {
+                task = taskRepository.ensureUntrackedFocusTask()
+            }
+            val woop = if (isUntracked) null else woopRepository.getByTaskId(taskId)
+            var steps = if (isUntracked) emptyList() else task?.let { StepByStepPlanCodec.parse(it.ifThenPlan) } ?: emptyList()
+            if (!isUntracked && steps.isEmpty() && task != null) {
                 val dbSteps = taskRepository.getMicroSteps(task.id)
                 if (dbSteps.isNotEmpty()) {
                     steps = dbSteps.map { StepByStepPlanStep(it.title, it.isCompleted) }
@@ -136,7 +148,7 @@ class FocusViewModelV2 @Inject constructor(
             }
 
             // Find next task (prioritizing frogs and actionable non-icebox tasks)
-            val activeTasks = taskRepository.getActiveTasks()
+            val activeTasks = taskRepository.getActiveTasks().filterNot { it.id == TaskEntity.TASK_UNTRACKED_FOCUS }
             val next = findNextActionableTask(activeTasks, taskId)
 
             val openSession = sessionRepository.getOpenSessionForTask(taskId)?.takeIf { it.id.isNotBlank() && it.startedAt > 0L }
@@ -255,6 +267,8 @@ class FocusViewModelV2 @Inject constructor(
                             isPaused = isPaused,
                             elapsedSeconds = timing.elapsedSeconds,
                             remainingSeconds = timing.remainingSeconds,
+                            isUltradianLimitExceeded = timing.elapsedSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS,
+                            ultradianWarning = if (timing.elapsedSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null,
                             isLoading = false
                         )
                     }
@@ -289,7 +303,7 @@ class FocusViewModelV2 @Inject constructor(
                     }
                 }
             } else {
-                val isCompleted = task?.status == TaskStatus.COMPLETED
+                val isCompleted = if (isUntracked) false else task?.status == TaskStatus.COMPLETED
                 _uiState.update {
                     it.copy(
                         task = task,
@@ -419,13 +433,16 @@ class FocusViewModelV2 @Inject constructor(
                         timerJob?.cancel()
                         timerJob = null
                         soundscapePlayer.pauseWithFadeOut()
+                        val isUltradian = timing.elapsedSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS
                         _uiState.update {
                             it.copy(
                                 isRunning = false,
                                 isPaused = true,
                                 pausedAtMillis = now,
                                 elapsedSeconds = timing.elapsedSeconds,
-                                remainingSeconds = if (it.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 0L else timing.remainingSeconds
+                                remainingSeconds = if (it.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 0L else timing.remainingSeconds,
+                                isUltradianLimitExceeded = isUltradian,
+                                ultradianWarning = if (isUltradian) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
                             )
                         }
                     } else if (!serviceSession.isPaused && _uiState.value.isPaused) {
@@ -443,6 +460,7 @@ class FocusViewModelV2 @Inject constructor(
                         val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
                         val remaining = if (isStopwatch) 0L else maxOf(0L, _uiState.value.timerMode.durationSeconds - elapsed)
 
+                        val isUltradian = elapsed >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS
                         _uiState.update {
                             it.copy(
                                 isRunning = true,
@@ -450,7 +468,9 @@ class FocusViewModelV2 @Inject constructor(
                                 pausedAtMillis = null,
                                 accumulatedPauseMillis = newAcc,
                                 elapsedSeconds = elapsed,
-                                remainingSeconds = remaining
+                                remainingSeconds = remaining,
+                                isUltradianLimitExceeded = isUltradian,
+                                ultradianWarning = if (isUltradian) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
                             )
                         }
                         if (_uiState.value.selectedSoundscape != SoundscapeType.NONE) {
@@ -489,7 +509,9 @@ class FocusViewModelV2 @Inject constructor(
                 accumulatedPauseMillis = 0L,
                 pausedAtMillis = null,
                 isSprintCompleted = false,
-                showSprintCompletionSheet = false
+                showSprintCompletionSheet = false,
+                isUltradianLimitExceeded = false,
+                ultradianWarning = null
             )
         }
     }
@@ -585,7 +607,9 @@ class FocusViewModelV2 @Inject constructor(
                 elapsedSeconds = 0L,
                 remainingSeconds = if (it.timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 0L else it.timerMode.durationSeconds,
                 isSprintCompleted = false,
-                showSprintCompletionSheet = false
+                showSprintCompletionSheet = false,
+                isUltradianLimitExceeded = false,
+                ultradianWarning = null
             )
         }
 
@@ -657,12 +681,17 @@ class FocusViewModelV2 @Inject constructor(
                     elapsedSeconds = current.timerMode.durationSeconds,
                     remainingSeconds = 0L,
                     isSprintCompleted = true,
-                    showSprintCompletionSheet = true
+                    showSprintCompletionSheet = true,
+                    isUltradianLimitExceeded = current.timerMode.durationSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS,
+                    ultradianWarning = if (current.timerMode.durationSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
                 )
             } else {
+                val isUltradian = elapsed >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS
                 current.copy(
                     elapsedSeconds = elapsed,
-                    remainingSeconds = remaining
+                    remainingSeconds = remaining,
+                    isUltradianLimitExceeded = isUltradian,
+                    ultradianWarning = if (isUltradian) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
                 )
             }
         }
@@ -744,13 +773,16 @@ class FocusViewModelV2 @Inject constructor(
         val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
         val remaining = if (isStopwatch) 0L else maxOf(0L, _uiState.value.timerMode.durationSeconds - elapsed)
 
+        val isUltradian = elapsed >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS
         _uiState.update {
             it.copy(
                 isPaused = true,
                 isRunning = false,
                 pausedAtMillis = newPausedAt,
                 elapsedSeconds = elapsed,
-                remainingSeconds = remaining
+                remainingSeconds = remaining,
+                isUltradianLimitExceeded = isUltradian,
+                ultradianWarning = if (isUltradian) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
             )
         }
 
@@ -799,6 +831,7 @@ class FocusViewModelV2 @Inject constructor(
         val isStopwatch = _uiState.value.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
         val remaining = if (isStopwatch) 0L else maxOf(0L, _uiState.value.timerMode.durationSeconds - elapsed)
 
+        val isUltradian = elapsed >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -806,7 +839,9 @@ class FocusViewModelV2 @Inject constructor(
                 pausedAtMillis = null,
                 accumulatedPauseMillis = newAcc,
                 elapsedSeconds = elapsed,
-                remainingSeconds = remaining
+                remainingSeconds = remaining,
+                isUltradianLimitExceeded = isUltradian,
+                ultradianWarning = if (isUltradian) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
             )
         }
 
@@ -921,14 +956,47 @@ class FocusViewModelV2 @Inject constructor(
                 estimationErrorSmape = smape,
                 focusModePoints = points
             )
-            taskRepository.completeAndRecur(taskToComplete, now)
-            val updatedTask = taskToComplete.copy(
-                status = TaskStatus.COMPLETED,
-                completedAt = now,
-                updatedAt = now
-            )
+            val isUntracked = taskId == TaskEntity.TASK_UNTRACKED_FOCUS
+            val updatedTask = if (isUntracked) {
+                val updated = taskToComplete.copy(
+                    status = TaskStatus.ACTIVE,
+                    completedAt = null,
+                    updatedAt = now
+                )
+                taskRepository.update(updated)
+                updated
+            } else {
+                taskRepository.completeAndRecur(taskToComplete, now)
+                taskToComplete.copy(
+                    status = TaskStatus.COMPLETED,
+                    completedAt = now,
+                    updatedAt = now
+                )
+            }
 
-            if (hasRunTimer && !wasSprintCompleted) {
+            if (isUntracked) {
+                if (hasRunTimer && !wasSprintCompleted) {
+                    preferencesDataStore.updatePreferences { prefs ->
+                        val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
+                        val lastActive = prefs.lastActiveDate
+                        val todayStart = startOfLocalDay(now)
+                        val isNewDay = lastActive < todayStart
+                        val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+                        val newStreak = when {
+                            isConsecutive -> prefs.dailyStreak + 1
+                            isNewDay -> 1
+                            else -> prefs.dailyStreak
+                        }
+                        val longest = maxOf(prefs.longestStreak, newStreak)
+                        prefs.copy(
+                            totalFocusMinutes = newFocusMinutes,
+                            dailyStreak = newStreak,
+                            longestStreak = longest,
+                            lastActiveDate = now
+                        )
+                    }
+                }
+            } else if (hasRunTimer && !wasSprintCompleted) {
                 preferencesDataStore.updatePreferences { prefs ->
                     val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
                     val newCompleted = prefs.totalTasksCompleted + 1
@@ -973,7 +1041,7 @@ class FocusViewModelV2 @Inject constructor(
                     nextTaskTitle = freshNext?.title,
                     showSprintCompletionSheet = false,
                     showCompletionCelebration = true,
-                    showAffordanceRating = true,
+                    showAffordanceRating = !isUntracked,
                     pointsEarned = points,
                     showDecompressionZone = true,
                     decompressionRemainingSeconds = 180,
@@ -1118,6 +1186,7 @@ class FocusViewModelV2 @Inject constructor(
 
     fun autoBreakDownTask() {
         val task = _uiState.value.task ?: return
+        if (task.id == TaskEntity.TASK_UNTRACKED_FOCUS) return
         viewModelScope.launch {
             val prefs = preferencesDataStore.preferencesFlow.first()
             val generated = behavioralSupportService.generateMicroStepsWithAi(

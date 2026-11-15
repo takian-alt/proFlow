@@ -3,6 +3,7 @@ package com.neuroflow.app.domain.model
 import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.EnergyPhase
+import java.time.Duration
 import java.time.LocalTime
 
 typealias EnergyPhase = com.neuroflow.app.domain.service.EnergyPhase
@@ -27,7 +28,8 @@ fun buildCircadianEnergySummary(
     sleepPressurePoints: Int = 450,
     dailyDeepWorkTargetMinutes: Int? = null,
     sleepHour: Int = 23,
-    completedDeepWorkMinutes: Int = 0
+    completedDeepWorkMinutes: Int = 0,
+    currentTime: LocalTime = LocalTime.now()
 ): CircadianEnergySummary {
     val peakStart = dailySummary?.let { LocalTime.of(it.peakWindowStartHour.coerceIn(0, 23), 0) }
         ?: LocalTime.of(9, 30)
@@ -45,7 +47,22 @@ fun buildCircadianEnergySummary(
         (sleepPressurePoints / 1000f).coerceIn(0f, 1f)
     }
     val totalBudget = dailyDeepWorkTargetMinutes?.takeIf { it > 0 } ?: dailySummary?.recommendedDeepWorkMinutes ?: 240
-    val cognitiveBudget = kotlin.math.max(0, totalBudget - completedDeepWorkMinutes)
+    val unworkedBudget = kotlin.math.max(0, totalBudget - completedDeepWorkMinutes)
+    val energyFactor = (snapshot.usableEnergy.coerceIn(0, 100) / 100.0)
+    val physiologicalBudget = kotlin.math.round((totalBudget * energyFactor)).toInt()
+    val temporalBudget = if (
+        snapshot.phase == EnergyPhase.WIND_DOWN ||
+        snapshot.phase == EnergyPhase.TROUGH ||
+        snapshot.phase == EnergyPhase.RECOVERY_NEEDED ||
+        snapshot.phase == EnergyPhase.RECOVERY ||
+        snapshot.phase == EnergyPhase.CRASH ||
+        currentTime >= windDownStart
+    ) {
+        0
+    } else {
+        Duration.between(currentTime, windDownStart).toMinutes().toInt().coerceAtLeast(0)
+    }
+    val cognitiveBudget = minOf(unworkedBudget, physiologicalBudget, temporalBudget).coerceAtLeast(0)
     val confidence = snapshot.predictionConfidence.toFloat().coerceIn(0.1f, 1.0f)
 
     return CircadianEnergySummary(

@@ -89,7 +89,7 @@ class DistractionSyncWorker @AssistedInject constructor(
                             wakeTimeMillis = timeMs - 8 * 3600_000L,
                             lastSleepDurationMinutes = 480
                         )
-                        if (snapshot.phase == EnergyPhase.PEAK) {
+                        if (snapshot.phase == EnergyPhase.PEAK || snapshot.phase == EnergyPhase.SURGE) {
                             peakDistractionCount++
                         } else if (snapshot.phase == EnergyPhase.DIP) {
                             dipDistractionCount++

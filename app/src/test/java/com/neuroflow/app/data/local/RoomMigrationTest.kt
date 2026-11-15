@@ -147,4 +147,31 @@ class RoomMigrationTest {
             db.close()
         }
     }
+
+    @Test
+    fun testMigration24To25AddsSchedulingFeedbackColumns() {
+        val db = createInMemoryDb(24) { database ->
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS `tasks` (
+                    `id` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `description` TEXT NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+            """.trimIndent())
+        }
+        try {
+            db.execSQL("INSERT INTO tasks (id, title, description) VALUES ('t1', 'Test', 'Desc')")
+            MIGRATION_24_25.migrate(db)
+
+            val cursor = db.query("SELECT userSchedulingRating, schedulingRejectedSlotHour, lastStabilizedAt FROM tasks WHERE id = 't1'")
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+            assertTrue(cursor.isNull(1))
+            assertTrue(cursor.isNull(2))
+            cursor.close()
+        } finally {
+            db.close()
+        }
+    }
 }

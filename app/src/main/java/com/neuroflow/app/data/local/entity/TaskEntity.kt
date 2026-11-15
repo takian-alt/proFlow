@@ -109,5 +109,31 @@ data class TaskEntity(
     // planner inflates the raw estimate by the user's learned bias and the slot's energy, so
     // anything asking "did this task get its time?" must read this rather than re-derive it.
     // 0 = never placed automatically (manual schedule, or scheduled before this field existed).
-    val plannedBlockMinutes: Int = 0
-)
+    val plannedBlockMinutes: Int = 0,
+
+    // ADR-031: User feedback on auto-scheduling: -1 = rejected (thumbs down), 0 = unrated, 1 = approved (thumbs up)
+    val userSchedulingRating: Int = 0,
+
+    // When userSchedulingRating == -1, the hour-of-day (0..23) rejected by the user
+    val schedulingRejectedSlotHour: Int? = null,
+
+    // Timestamp when the scheduler or user stabilized this placement
+    val lastStabilizedAt: Long? = null
+) {
+    companion object {
+        const val TASK_UNTRACKED_FOCUS = "untracked_focus_session"
+
+        fun createUntrackedFocusTask(): TaskEntity = TaskEntity(
+            id = TASK_UNTRACKED_FOCUS,
+            title = "Free Flow Focus",
+            description = "Untracked free-flow focus session",
+            quadrant = Quadrant.SCHEDULE,
+            status = TaskStatus.ACTIVE,
+            taskType = TaskType.CREATIVE,
+            energyLevel = EnergyLevel.HIGH,
+            contextTag = "deepwork",
+            tags = "deepwork,freeflow",
+            estimatedDurationMinutes = 25
+        )
+    }
+}

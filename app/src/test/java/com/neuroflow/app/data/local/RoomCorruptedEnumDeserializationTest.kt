@@ -52,7 +52,7 @@ class RoomCorruptedEnumDeserializationTest {
                     estimatedDurationMinutes, recurrenceIntervalDays, createdAt, updatedAt,
                     contextTag, ifThenPlan, isHabitual, habitStreak, isFrog, postponeCount,
                     focusModePoints, enjoymentScore, isPublicCommitment, isAnxietyTask,
-                    goalRiskLevel, woopPromptShown, distractionScore, isAutoScheduled, plannedBlockMinutes
+                    goalRiskLevel, woopPromptShown, distractionScore, isAutoScheduled, plannedBlockMinutes, userSchedulingRating
                 ) VALUES (
                     'corrupted_task_1', 'Corrupted Task', 'Desc', 'FUTURE_QUADRANT_AI', 'URGENT_CRITICAL', 'TRIWEEKLY', 'VAULT_ARCHIVED',
                     'SUPERNOVA_ENERGY', 'QUANTUM_SOLVING', '', 0, 50, 50,
@@ -61,7 +61,7 @@ class RoomCorruptedEnumDeserializationTest {
                     30, 1, 10000, 10000,
                     '', '', 0, 0, 0, 0,
                     0, 50, 0, 0,
-                    0, 0, -1.0, 0, 0
+                    0, 0, -1.0, 0, 0, 0
                 )
             """.trimIndent())
 

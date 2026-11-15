@@ -7,8 +7,10 @@ import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.MindmapEdgeEntity
 import com.neuroflow.app.data.local.entity.MindmapNodePositionEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
-import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.data.repository.MindmapRepository
+import com.neuroflow.app.data.repository.NodeConnection
+import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.model.TaskStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +20,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.math.cos
-import kotlin.math.sin
+import kotlin.math.sqrt
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -28,8 +29,19 @@ class MindmapViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _showCompleted = MutableStateFlow(false)
+    private val _layoutMode = MutableStateFlow(MindmapLayoutMode.HORIZONTAL)
     private val _connectionPrompt = MutableStateFlow<Pair<MindmapNode, MindmapNode>?>(null)
     private val _connectingSourceNodeId = MutableStateFlow<String?>(null)
+    private val _collapsedNodeIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _draggingNodeId = MutableStateFlow<String?>(null)
+    private val _dropTargetNodeId = MutableStateFlow<String?>(null)
+    private val _inlineSproutParentNode = MutableStateFlow<MindmapNode?>(null)
+    private val _inlineSproutMode = MutableStateFlow(SproutMode.CHILD)
+    private val _searchQuery = MutableStateFlow("")
+    private val _disconnectTargetNode = MutableStateFlow<MindmapTaskNode?>(null)
+    private val _disconnectConnections = MutableStateFlow<List<NodeConnection>>(emptyList())
+    private val _isGoalCreateOpen = MutableStateFlow(false)
+    private val _editingGoalNode = MutableStateFlow<MindmapGoalNode?>(null)
 
     private val _uiState = MutableStateFlow(MindmapUiState())
     val uiState: StateFlow<MindmapUiState> = _uiState.asStateFlow()
@@ -37,9 +49,24 @@ class MindmapViewModel @Inject constructor(
     // Local volatile cache of dragging offsets
     private val temporaryPositions = mutableMapOf<String, Offset>()
 
+    // Cache of latest data from repository
+    private var cachedGoals: List<GoalEntity> = emptyList()
+    private var cachedTasks: List<TaskEntity> = emptyList()
+    private var cachedPositions: List<MindmapNodePositionEntity> = emptyList()
+    private var cachedEdges: List<MindmapEdgeEntity> = emptyList()
+    private var hasInitializedDefaultCollapse = false
+
+    private data class RepoData(
+        val goals: List<GoalEntity>,
+        val tasks: List<TaskEntity>,
+        val positions: List<MindmapNodePositionEntity>,
+        val edges: List<MindmapEdgeEntity>,
+        val showCompleted: Boolean
+    )
+
     init {
         viewModelScope.launch {
-            _showCompleted
+            val repositoryDataFlow = _showCompleted
                 .flatMapLatest { showComp ->
                     combine(
                         repository.observeGoals(),
@@ -47,34 +74,399 @@ class MindmapViewModel @Inject constructor(
                         repository.observePositions(),
                         repository.observeEdges()
                     ) { goals, tasks, positions, edges ->
-                        computeUiState(goals, tasks, positions, edges, showComp)
+                        RepoData(goals, tasks, positions, edges, showComp)
                     }
                 }
-                .collect { state ->
-                    _uiState.value = state
+
+            combine(
+                repositoryDataFlow,
+                _collapsedNodeIds,
+                _layoutMode,
+                _searchQuery,
+                _inlineSproutMode
+            ) { repo, collapsed, mode, query, sproutMode ->
+                cachedGoals = repo.goals
+                cachedTasks = repo.tasks
+                cachedPositions = repo.positions
+                cachedEdges = repo.edges
+
+                val effectiveCollapsed = if (!hasInitializedDefaultCollapse && (repo.goals.isNotEmpty() || repo.tasks.isNotEmpty())) {
+                    hasInitializedDefaultCollapse = true
+                    val defaults = computeDefaultCollapsedNodeIds(repo.goals, repo.tasks)
+                    _collapsedNodeIds.value = defaults
+                    defaults
+                } else {
+                    collapsed
                 }
+
+                computeUiState(
+                    goals = repo.goals,
+                    tasks = repo.tasks,
+                    positions = repo.positions,
+                    edges = repo.edges,
+                    showCompleted = repo.showCompleted,
+                    collapsedNodeIds = effectiveCollapsed,
+                    layoutMode = mode,
+                    searchQuery = query,
+                    inlineSproutMode = sproutMode
+                )
+            }.collect { state ->
+                _uiState.value = state
+            }
         }
+    }
+
+    internal fun computeDefaultCollapsedNodeIds(goals: List<GoalEntity>, tasks: List<TaskEntity>): Set<String> {
+        val collapsed = mutableSetOf<String>()
+        // 1. Stage goals: Collapse all stages except Stage 1
+        goals.forEach { goal ->
+            val isStage1 = goal.id.equals("goal_stage_1", ignoreCase = true) ||
+                goal.title.contains("Stage 1", ignoreCase = true)
+            if (!isStage1) {
+                collapsed.add(goal.id)
+            }
+        }
+
+        // 2. Subtrees: For tasks with children, collapse all month subtrees except Month 1
+        val parentIds = tasks.mapNotNull { it.parentTaskId }.toSet()
+        tasks.forEach { task ->
+            if (task.id in parentIds) {
+                val isMonth1 = task.id.equals("task_s1_m1", ignoreCase = true) ||
+                    task.title.contains("Month 1", ignoreCase = true)
+                if (!isMonth1) {
+                    collapsed.add(task.id)
+                }
+            }
+        }
+        return collapsed
+    }
+
+    internal fun findActiveStartingNodeId(tasks: List<TaskEntity>): String? {
+        val uncompleted = tasks.filter { it.status != TaskStatus.COMPLETED }
+        if (uncompleted.isEmpty()) return null
+
+        val taskMap = tasks.associateBy { it.id }
+        val parentIds = tasks.mapNotNull { it.parentTaskId }.toSet()
+        // Actionable leaf tasks
+        val actionableTasks = uncompleted.filter { it.id !in parentIds }
+        val candidatePool = actionableTasks.ifEmpty { uncompleted }
+
+        val prereqsMet = candidatePool.filter { task ->
+            val prereqIds = task.dependsOnTaskIds.split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            prereqIds.all { pId ->
+                val pTask = taskMap[pId]
+                pTask == null || pTask.status == TaskStatus.COMPLETED
+            }
+        }
+
+        val pool = prereqsMet.ifEmpty { candidatePool }
+        val curriculumTasks = pool.filter { com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.isCurriculumTask(it) }
+        val finalPool = curriculumTasks.ifEmpty { pool }
+
+        val sorted = finalPool.sortedWith(
+            compareBy<TaskEntity> { task ->
+                when {
+                    task.id.startsWith("task_s1_m1") || task.parentTaskId == "task_s1_m1" -> 0
+                    task.tags.contains("month1", ignoreCase = true) -> 0
+                    task.tags.contains("stage1", ignoreCase = true) -> 1
+                    task.tags.contains("stage2", ignoreCase = true) -> 2
+                    task.tags.contains("stage3", ignoreCase = true) -> 3
+                    task.tags.contains("stage4", ignoreCase = true) -> 4
+                    else -> 5
+                }
+            }.thenBy { task ->
+                task.scheduledDate ?: Long.MAX_VALUE
+            }.thenBy { task ->
+                task.id
+            }
+        )
+
+        return sorted.firstOrNull()?.id
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
     }
 
     fun toggleShowCompleted() {
         _showCompleted.value = !_showCompleted.value
     }
 
+    fun toggleLayoutMode() {
+        val newMode = if (_layoutMode.value == MindmapLayoutMode.HORIZONTAL) {
+            MindmapLayoutMode.RADIAL
+        } else {
+            MindmapLayoutMode.HORIZONTAL
+        }
+        applyAutoLayout(newMode)
+    }
+
+    fun toggleCollapse(nodeId: String) {
+        _collapsedNodeIds.update { current ->
+            if (current.contains(nodeId)) {
+                current - nodeId
+            } else {
+                current + nodeId
+            }
+        }
+    }
+
+    fun collapseAll() {
+        val allParentIds = mutableSetOf<String>()
+        cachedGoals.forEach { allParentIds.add(it.id) }
+        val taskParents = cachedTasks.mapNotNull { it.parentTaskId }.toSet()
+        allParentIds.addAll(taskParents)
+        _collapsedNodeIds.value = allParentIds
+    }
+
+    fun expandAll() {
+        _collapsedNodeIds.value = emptySet()
+    }
+
+    fun resetToDefaultCollapse() {
+        _collapsedNodeIds.value = computeDefaultCollapsedNodeIds(cachedGoals, cachedTasks)
+    }
+
+    fun openInlineSprout(parentNode: MindmapNode, mode: SproutMode = SproutMode.CHILD) {
+        _inlineSproutParentNode.value = parentNode
+        _inlineSproutMode.value = mode
+        _uiState.update { it.copy(inlineSproutParentNode = parentNode, inlineSproutMode = mode) }
+    }
+
+    fun dismissInlineSprout() {
+        _inlineSproutParentNode.value = null
+        _uiState.update { it.copy(inlineSproutParentNode = null) }
+    }
+
+    fun spawnChildTask(parentId: String, title: String, priority: Priority = Priority.MEDIUM) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            // Uncollapse parent so the new child is visible
+            _collapsedNodeIds.update { it - parentId }
+            val newTask = repository.spawnChildTask(parentId, cleanTitle, priority)
+            dismissInlineSprout()
+
+            // Repack layout so new child gets clean position without collision
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun spawnSiblingTask(referenceTaskId: String, title: String, priority: Priority = Priority.MEDIUM) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            val refTask = repository.getTaskById(referenceTaskId)
+            refTask?.parentTaskId?.let { pId ->
+                _collapsedNodeIds.update { it - pId }
+            }
+            refTask?.goalId?.let { gId ->
+                _collapsedNodeIds.update { it - gId }
+            }
+            repository.spawnSiblingTask(referenceTaskId, cleanTitle, priority)
+            dismissInlineSprout()
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun reparentTask(childId: String, newParentId: String) {
+        if (childId == newParentId) return
+        viewModelScope.launch {
+            repository.reparentTask(childId, newParentId)
+            temporaryPositions.clear()
+            _collapsedNodeIds.update { it - newParentId }
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun openDisconnectPicker(task: MindmapTaskNode) {
+        viewModelScope.launch {
+            val connections = repository.getConnectionsForNode(task.id)
+            _disconnectTargetNode.value = task
+            _disconnectConnections.value = connections
+            _uiState.update {
+                it.copy(
+                    disconnectTargetNode = task,
+                    disconnectConnections = connections
+                )
+            }
+        }
+    }
+
+    fun dismissDisconnectPicker() {
+        _disconnectTargetNode.value = null
+        _disconnectConnections.value = emptyList()
+        _uiState.update {
+            it.copy(
+                disconnectTargetNode = null,
+                disconnectConnections = emptyList()
+            )
+        }
+    }
+
+    fun removeSingleConnection(nodeId: String, connection: NodeConnection) {
+        viewModelScope.launch {
+            repository.removeSingleConnection(nodeId, connection)
+            temporaryPositions.clear()
+            val updated = repository.getConnectionsForNode(nodeId)
+            _disconnectConnections.value = updated
+            _uiState.update { it.copy(disconnectConnections = updated) }
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun openGoalCreateDialog() {
+        _isGoalCreateOpen.value = true
+        _uiState.update { it.copy(isGoalCreateOpen = true) }
+    }
+
+    fun dismissGoalCreateDialog() {
+        _isGoalCreateOpen.value = false
+        _uiState.update { it.copy(isGoalCreateOpen = false) }
+    }
+
+    fun openGoalEditDialog(goal: MindmapGoalNode) {
+        _editingGoalNode.value = goal
+        _uiState.update { it.copy(editingGoalNode = goal) }
+    }
+
+    fun dismissGoalEditDialog() {
+        _editingGoalNode.value = null
+        _uiState.update { it.copy(editingGoalNode = null) }
+    }
+
+    fun createGoal(title: String, description: String = "", targetDate: Long? = null) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            repository.createGoal(cleanTitle, description, targetDate)
+            dismissGoalCreateDialog()
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun updateGoal(goalId: String, title: String, description: String = "", targetDate: Long? = null) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            val existing = repository.getGoalById(goalId) ?: return@launch
+            repository.updateGoal(
+                existing.copy(
+                    title = cleanTitle,
+                    description = description,
+                    targetDate = targetDate
+                )
+            )
+            dismissGoalEditDialog()
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun deleteGoal(goalId: String) {
+        viewModelScope.launch {
+            repository.deleteGoal(goalId)
+            temporaryPositions.clear()
+            _collapsedNodeIds.update { it - goalId }
+            dismissGoalEditDialog()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun applyAutoLayout(mode: MindmapLayoutMode? = null) {
+        if (mode != null) {
+            _layoutMode.value = mode
+        }
+        temporaryPositions.clear()
+        viewModelScope.launch {
+            recomputeAndPersistLayout()
+        }
+    }
+
+    private suspend fun recomputeAndPersistLayout() {
+        val autoPositions = MindmapTreeLayoutEngine.computeLayout(
+            goals = cachedGoals,
+            tasks = cachedTasks,
+            collapsedNodeIds = _collapsedNodeIds.value,
+            layoutMode = _layoutMode.value
+        )
+        val positionEntities = autoPositions.map { (entityId, pos) ->
+            val entityType = if (cachedGoals.any { it.id == entityId }) "GOAL" else "TASK"
+            MindmapNodePositionEntity(
+                entityId = entityId,
+                entityType = entityType,
+                x = pos.x,
+                y = pos.y,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        repository.savePositions(positionEntities)
+    }
+
     fun onNodeDrag(entityId: String, offset: Offset) {
         temporaryPositions[entityId] = offset
-        _uiState.update { current ->
-            current.copy(
-                goals = current.goals.map { if (it.id == entityId) it.copy(x = offset.x, y = offset.y) else it },
-                tasks = current.tasks.map { if (it.id == entityId) it.copy(x = offset.x, y = offset.y) else it },
-                edges = recalculateEdges(current.goals, current.tasks, current.edges)
+        val current = _uiState.value
+
+        // Hit-test for drop targets (drag-to-reparent)
+        val allVisibleNodes = (current.goals as List<MindmapNode> + current.tasks)
+        val descendants = getDescendantIds(entityId, current.tasks)
+
+        val candidate = allVisibleNodes.firstOrNull { target ->
+            if (target.id == entityId) return@firstOrNull false
+            if (target.id in descendants) return@firstOrNull false // Cycle avoidance
+
+            val draggingCenter = Offset(offset.x + 100f, offset.y + 35f)
+            val targetCenter = Offset(target.x + 100f, target.y + 35f)
+            val dx = draggingCenter.x - targetCenter.x
+            val dy = draggingCenter.y - targetCenter.y
+            val dist = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            dist < 110f // Hover detection threshold
+        }
+
+        val targetId = candidate?.id
+        _draggingNodeId.value = entityId
+        _dropTargetNodeId.value = targetId
+
+        val newGoals = current.goals.map {
+            val isTarget = it.id == targetId
+            if (it.id == entityId) it.copy(x = offset.x, y = offset.y, isDropTarget = isTarget)
+            else it.copy(isDropTarget = isTarget)
+        }
+        val newTasks = current.tasks.map {
+            val isTarget = it.id == targetId
+            if (it.id == entityId) it.copy(x = offset.x, y = offset.y, isDropTarget = isTarget)
+            else it.copy(isDropTarget = isTarget)
+        }
+
+        _uiState.update { state ->
+            state.copy(
+                draggingNodeId = entityId,
+                dropTargetNodeId = targetId,
+                goals = newGoals,
+                tasks = newTasks,
+                edges = recalculateEdges(newGoals, newTasks, state.edges)
             )
         }
     }
 
     fun onNodeDragEnd(entityId: String, entityType: String, finalOffset: Offset) {
-        temporaryPositions[entityId] = finalOffset
-        viewModelScope.launch {
-            repository.savePosition(entityId, entityType, finalOffset.x, finalOffset.y)
+        val targetId = _dropTargetNodeId.value
+        _draggingNodeId.value = null
+        _dropTargetNodeId.value = null
+
+        if (targetId != null) {
+            // Drag-to-reparent drop!
+            reparentTask(entityId, targetId)
+        } else {
+            temporaryPositions[entityId] = finalOffset
+            viewModelScope.launch {
+                repository.savePosition(entityId, entityType, finalOffset.x, finalOffset.y)
+            }
         }
     }
 
@@ -113,8 +505,10 @@ class MindmapViewModel @Inject constructor(
                         repository.linkTaskToGoal(source.id, target.id)
                     }
                 }
+                MindmapEdgeType.SUBTASK_LINK -> {
+                    repository.reparentTask(target.id, source.id)
+                }
                 MindmapEdgeType.DEPENDENCY -> {
-                    // Source must finish before Target can begin
                     repository.addTaskDependency(target.id, source.id)
                 }
                 MindmapEdgeType.VISUAL -> {
@@ -184,84 +578,170 @@ class MindmapViewModel @Inject constructor(
         return repository.getTaskById(taskId)
     }
 
+    private fun getDescendantIds(nodeId: String, allTasks: List<MindmapTaskNode>): Set<String> {
+        val descendants = mutableSetOf<String>()
+        fun collect(id: String) {
+            val directChildren = allTasks.filter { it.parentTaskId == id }
+            for (child in directChildren) {
+                if (descendants.add(child.id)) {
+                    collect(child.id)
+                }
+            }
+        }
+        collect(nodeId)
+        return descendants
+    }
+
     private fun computeUiState(
         goals: List<GoalEntity>,
         tasks: List<TaskEntity>,
         positions: List<MindmapNodePositionEntity>,
         edges: List<MindmapEdgeEntity>,
-        showCompleted: Boolean
+        showCompleted: Boolean,
+        collapsedNodeIds: Set<String>,
+        layoutMode: MindmapLayoutMode,
+        searchQuery: String = "",
+        inlineSproutMode: SproutMode = SproutMode.CHILD
     ): MindmapUiState {
         val posMap = positions.associateBy { it.entityId }
+        val taskMap = tasks.associateBy { it.id }
+        val goalMap = goals.associateBy { it.id }
 
-        // 1. Build Goal Nodes with auto-clustering fallback
+        // Find hidden descendants from collapsed nodes
+        val hiddenTaskIds = mutableSetOf<String>()
+        fun hideSubtree(taskId: String) {
+            if (hiddenTaskIds.add(taskId)) {
+                tasks.filter { it.parentTaskId == taskId }.forEach { hideSubtree(it.id) }
+            }
+        }
+
+        collapsedNodeIds.forEach { collapsedId ->
+            if (goalMap.containsKey(collapsedId)) {
+                tasks.filter { it.goalId == collapsedId && (it.parentTaskId == null || !taskMap.containsKey(it.parentTaskId)) }
+                    .forEach { hideSubtree(it.id) }
+            } else if (taskMap.containsKey(collapsedId)) {
+                tasks.filter { it.parentTaskId == collapsedId }.forEach { hideSubtree(it.id) }
+            }
+        }
+
+        val visibleTasks = tasks.filter { it.id !in hiddenTaskIds }
+
+        // Compute auto layout coordinates as fallback/default
+        val autoPositions = MindmapTreeLayoutEngine.computeLayout(
+            goals = goals,
+            tasks = visibleTasks,
+            collapsedNodeIds = collapsedNodeIds,
+            layoutMode = layoutMode
+        )
+
+        // Compute search matches
+        val trimmedQuery = searchQuery.trim()
+        val highlightedIds = if (trimmedQuery.isNotBlank()) {
+            val matchingGoals = goals.filter { it.title.contains(trimmedQuery, ignoreCase = true) }.map { it.id }.toSet()
+            val matchingTasks = visibleTasks.filter {
+                it.title.contains(trimmedQuery, ignoreCase = true) || it.tags.contains(trimmedQuery, ignoreCase = true)
+            }.map { it.id }.toSet()
+            matchingGoals + matchingTasks
+        } else {
+            emptySet()
+        }
+
+        // 1. Build Goal Nodes
         val goalNodes = goals.mapIndexed { index, goal ->
-            val savedPos = temporaryPositions[goal.id] ?: posMap[goal.id]?.let { Offset(it.x, it.y) }
+            val savedPos = temporaryPositions[goal.id] ?: posMap[goal.id]?.let { Offset(it.x, it.y) } ?: autoPositions[goal.id]
             val x = savedPos?.x ?: (index * 420f)
-            val y = savedPos?.y ?: 0f
+            val y = savedPos?.y ?: (index * 200f)
+
             val associatedTasks = tasks.filter { it.goalId == goal.id }
+            val directTasks = tasks.filter { it.goalId == goal.id && (it.parentTaskId == null || !taskMap.containsKey(it.parentTaskId)) }
+
             MindmapGoalNode(
                 id = goal.id,
                 title = goal.title,
                 x = x,
                 y = y,
+                width = MindmapTreeLayoutEngine.GOAL_WIDTH,
+                height = MindmapTreeLayoutEngine.estimateGoalHeight(goal),
                 totalTasks = associatedTasks.size,
-                completedTasks = associatedTasks.count { it.status == TaskStatus.COMPLETED }
+                completedTasks = associatedTasks.count { it.status == TaskStatus.COMPLETED },
+                isCollapsed = collapsedNodeIds.contains(goal.id),
+                childCount = directTasks.size,
+                isDropTarget = _dropTargetNodeId.value == goal.id,
+                isHighlighted = highlightedIds.contains(goal.id)
             )
         }
 
-        val goalMap = goalNodes.associateBy { it.id }
-
-        // 2. Build Task Nodes
-        val tasksByGoal = tasks.groupBy { it.goalId }
-        val taskNodes = mutableListOf<MindmapTaskNode>()
-
-        tasks.forEach { task ->
-            val savedPos = temporaryPositions[task.id] ?: posMap[task.id]?.let { Offset(it.x, it.y) }
-            val (x, y) = if (savedPos != null) {
-                Pair(savedPos.x, savedPos.y)
-            } else if (task.goalId != null && goalMap.containsKey(task.goalId)) {
-                // Orbit around associated goal
-                val parentGoal = goalMap[task.goalId]!!
-                val siblings = tasksByGoal[task.goalId].orEmpty()
-                val siblingIndex = siblings.indexOf(task)
-                val angle = (siblingIndex * (2 * Math.PI / siblings.size.coerceAtLeast(1))).toFloat()
-                val radius = 240f
-                Pair(parentGoal.x + (radius * cos(angle.toDouble())).toFloat(), parentGoal.y + (radius * sin(angle.toDouble())).toFloat())
-            } else {
-                // Standalone cluster
-                val standaloneTasks = tasksByGoal[null].orEmpty()
-                val standaloneIndex = standaloneTasks.indexOf(task).coerceAtLeast(0)
-                Pair((standaloneIndex % 4) * 260f - 300f, ((standaloneIndex / 4) + 1) * 180f + 250f)
+        // 2. Build Task Nodes with recursive depth
+        fun computeDepth(task: TaskEntity, visited: Set<String> = emptySet()): Int {
+            if (task.id in visited) return 0
+            val parentId = task.parentTaskId
+            if (parentId != null && taskMap.containsKey(parentId)) {
+                return computeDepth(taskMap[parentId]!!, visited + task.id) + 1
             }
+            if (task.goalId != null && goalMap.containsKey(task.goalId)) {
+                return 1
+            }
+            return 0
+        }
+
+        val taskNodes = visibleTasks.map { task ->
+            val savedPos = temporaryPositions[task.id] ?: posMap[task.id]?.let { Offset(it.x, it.y) } ?: autoPositions[task.id]
+            val x = savedPos?.x ?: 200f
+            val y = savedPos?.y ?: 100f
 
             val depList = task.dependsOnTaskIds
                 .split(",")
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
 
-            taskNodes.add(
-                MindmapTaskNode(
-                    id = task.id,
-                    title = task.title,
-                    x = x,
-                    y = y,
-                    priority = task.priority,
-                    deadlineDate = task.deadlineDate,
-                    isCompleted = task.status == TaskStatus.COMPLETED,
-                    goalId = task.goalId,
-                    dependsOnTaskIds = depList
-                )
+            val directSubtasks = tasks.filter { it.parentTaskId == task.id }
+
+            MindmapTaskNode(
+                id = task.id,
+                title = task.title,
+                x = x,
+                y = y,
+                width = MindmapTreeLayoutEngine.TASK_WIDTH,
+                height = MindmapTreeLayoutEngine.estimateTaskHeight(task),
+                priority = task.priority,
+                deadlineDate = task.deadlineDate,
+                tags = task.tags,
+                isCompleted = task.status == TaskStatus.COMPLETED,
+                goalId = task.goalId,
+                parentTaskId = task.parentTaskId,
+                dependsOnTaskIds = depList,
+                isCollapsed = collapsedNodeIds.contains(task.id),
+                childCount = directSubtasks.size,
+                depth = computeDepth(task),
+                isDropTarget = _dropTargetNodeId.value == task.id,
+                isHighlighted = highlightedIds.contains(task.id)
             )
         }
 
-        // 3. Synthesize Edges (Natural Goal Links + Dependencies + Custom Room Edges)
+        // 3. Synthesize Edges
         val nodeMap = (goalNodes as List<MindmapNode> + taskNodes).associateBy { it.id }
         val edgeList = mutableListOf<MindmapEdgeUi>()
         val seenPairs = mutableSetOf<Pair<String, String>>()
 
-        // Goal -> Task implicit edges
         taskNodes.forEach { task ->
-            if (task.goalId != null && nodeMap.containsKey(task.goalId)) {
+            // Subtask parent-child edge
+            if (task.parentTaskId != null && nodeMap.containsKey(task.parentTaskId)) {
+                val parentNode = nodeMap[task.parentTaskId]!!
+                if (seenPairs.add(Pair(parentNode.id, task.id))) {
+                    edgeList.add(
+                        MindmapEdgeUi(
+                            id = "sub_${parentNode.id}_${task.id}",
+                            sourceId = parentNode.id,
+                            targetId = task.id,
+                            start = Offset(parentNode.x, parentNode.y),
+                            end = Offset(task.x, task.y),
+                            edgeType = MindmapEdgeType.SUBTASK_LINK,
+                            isCompleted = task.isCompleted
+                        )
+                    )
+                }
+            } else if (task.goalId != null && nodeMap.containsKey(task.goalId)) {
+                // Goal -> Root Task edge
                 val goal = nodeMap[task.goalId]!!
                 if (seenPairs.add(Pair(goal.id, task.id))) {
                     edgeList.add(
@@ -316,6 +796,7 @@ class MindmapViewModel @Inject constructor(
                             edgeType = when (edge.edgeType) {
                                 "DEPENDENCY" -> MindmapEdgeType.DEPENDENCY
                                 "GOAL_LINK" -> MindmapEdgeType.GOAL_LINK
+                                "SUBTASK_LINK" -> MindmapEdgeType.SUBTASK_LINK
                                 else -> MindmapEdgeType.VISUAL
                             },
                             isCompleted = (tgt as? MindmapTaskNode)?.isCompleted == true
@@ -325,14 +806,29 @@ class MindmapViewModel @Inject constructor(
             }
         }
 
+        val activeStartingId = findActiveStartingNodeId(tasks)
+
         return MindmapUiState(
             isLoading = false,
             showCompleted = showCompleted,
+            layoutMode = layoutMode,
             goals = goalNodes,
             tasks = taskNodes,
             edges = edgeList,
             connectionPrompt = _connectionPrompt.value,
-            connectingSourceNodeId = _connectingSourceNodeId.value
+            connectingSourceNodeId = _connectingSourceNodeId.value,
+            collapsedNodeIds = collapsedNodeIds,
+            draggingNodeId = _draggingNodeId.value,
+            dropTargetNodeId = _dropTargetNodeId.value,
+            inlineSproutParentNode = _inlineSproutParentNode.value,
+            inlineSproutMode = inlineSproutMode,
+            activeStartingNodeId = activeStartingId,
+            searchQuery = searchQuery,
+            highlightedNodeIds = highlightedIds,
+            disconnectTargetNode = _disconnectTargetNode.value,
+            disconnectConnections = _disconnectConnections.value,
+            isGoalCreateOpen = _isGoalCreateOpen.value,
+            editingGoalNode = _editingGoalNode.value
         )
     }
 

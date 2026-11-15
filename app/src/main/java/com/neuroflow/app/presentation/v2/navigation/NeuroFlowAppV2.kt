@@ -278,6 +278,7 @@ fun NeuroFlowAppV2(
                         },
                         onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") { launchSingleTop = true } },
                         onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
+                        onNavigateToMindmap = { navController.navigate("mindmap_canvas") { launchSingleTop = true } },
                         viewModel = planViewModel
                     )
                 }

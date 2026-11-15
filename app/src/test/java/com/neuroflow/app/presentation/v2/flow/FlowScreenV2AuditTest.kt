@@ -5,8 +5,10 @@ import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -15,8 +17,11 @@ import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.DailyCircadianSummary
+import com.neuroflow.app.domain.service.EnergyPhase
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -581,9 +586,26 @@ class FlowScreenV2AuditTest : StringSpec({
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(listOf(completedContextTask))
             every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(tagCatalog = listOf("customtag")))
 
+            val morningNow = todayStart + 9 * 3600_000L
+            val peakSnapshot = CircadianSnapshot(
+                timestampMillis = morningNow,
+                usableEnergy = 100,
+                homeostaticPressureS = 0.2,
+                circadianAlertnessC = 0.85,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.PEAK
+            )
+            val mockCircadian = mockk<CircadianEnergyService>(relaxed = true)
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns peakSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any(), any(), any(), any()) } returns peakSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns peakSnapshot
+            every { mockCircadian.evaluateSnapshotWithStimulants(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns peakSnapshot
+
             val viewModel = FlowViewModelV2(
                 taskRepository = taskRepo,
-                preferencesDataStore = prefsDataStore
+                preferencesDataStore = prefsDataStore,
+                circadianEnergyService = mockCircadian,
+                nowProvider = { morningNow }
             )
 
             val state = viewModel.uiState.filter { !it.isLoading }.first()
@@ -1384,6 +1406,233 @@ class FlowScreenV2AuditTest : StringSpec({
                         updated.scheduledTime == 570 * 60_000L
                 })
             }
+        }
+    }
+
+    "Untracked synthetic task is excluded from activeTasks and filteredTasks so virtual task never pollutes the queue" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+            val normalTask = TaskEntity(
+                id = "normal_task_1",
+                title = "Regular Work",
+                status = TaskStatus.ACTIVE
+            )
+            val untrackedSynthetic = TaskEntity.createUntrackedFocusTask()
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(normalTask, untrackedSynthetic))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            state.activeTasks.map { it.id } shouldBe listOf("normal_task_1")
+            state.filteredTasks.map { it.id } shouldBe listOf("normal_task_1")
+            state.activeTasks.any { it.id == TaskEntity.TASK_UNTRACKED_FOCUS } shouldBe false
+        }
+    }
+
+    "Untracked focus sessions for today count toward daily completed deep work and reduce remaining cognitive budget" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            val untrackedSession = TimeSessionEntity(
+                id = "sess_untracked_1",
+                taskId = TaskEntity.TASK_UNTRACKED_FOCUS,
+                startedAt = todayStart + 3600_000L,
+                endedAt = todayStart + 6600_000L,
+                durationMinutes = 50f
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(emptyList())
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences(dailyDeepWorkTargetMinutes = 240))
+            coEvery { sessionRepo.getAllSessions() } returns listOf(untrackedSession)
+
+            val morningNow = todayStart + 9 * 3600_000L
+            val peakSnapshot = CircadianSnapshot(
+                timestampMillis = morningNow,
+                usableEnergy = 100,
+                homeostaticPressureS = 0.2,
+                circadianAlertnessC = 0.85,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.PEAK
+            )
+            val mockCircadian = mockk<CircadianEnergyService>(relaxed = true)
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns peakSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any(), any(), any(), any()) } returns peakSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns peakSnapshot
+            every { mockCircadian.evaluateSnapshotWithStimulants(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns peakSnapshot
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                sessionRepository = sessionRepo,
+                circadianEnergyService = mockCircadian,
+                nowProvider = { morningNow }
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            // 240 daily budget - 50m untracked focus session = 190m remaining
+            state.circadianEnergySummary?.cognitiveBudgetMinutesRemaining shouldBe (240 - 50)
+        }
+    }
+
+    "Option 2C: FlowViewModelV2 in WIND_DOWN prioritizes low-stress tasks and subdues high-intensity frogs" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            // High intensity frog (Analytical, 90 mins, High Energy)
+            val intenseFrog = TaskEntity(
+                id = "intense-frog",
+                title = "Complex System Architecture",
+                taskType = TaskType.ANALYTICAL,
+                energyLevel = EnergyLevel.HIGH,
+                isFrog = true,
+                estimatedDurationMinutes = 90,
+                impactScore = 95,
+                scheduledDate = todayStart,
+                status = TaskStatus.ACTIVE
+            )
+
+            // Low-stress wrap-up task (Admin/General, 10 mins, Low Energy)
+            val wrapUpTask = TaskEntity(
+                id = "wrap-up-task",
+                title = "Clear Desktop & Review Scratchpad",
+                taskType = TaskType.ADMIN,
+                energyLevel = EnergyLevel.LOW,
+                isFrog = false,
+                estimatedDurationMinutes = 10,
+                impactScore = 30,
+                scheduledDate = todayStart,
+                status = TaskStatus.ACTIVE
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(intenseFrog, wrapUpTask))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+            coEvery { sessionRepo.getAllSessions() } returns emptyList()
+
+            val eveningNow = todayStart + 21 * 3600_000L // 9:00 PM
+            val windDownSnapshot = CircadianSnapshot(
+                timestampMillis = eveningNow,
+                usableEnergy = 20,
+                homeostaticPressureS = 0.85,
+                circadianAlertnessC = 0.15,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.WIND_DOWN
+            )
+            val dailySummary = DailyCircadianSummary(
+                currentSnapshot = windDownSnapshot,
+                peakWindowStartHour = 9,
+                peakWindowEndHour = 11,
+                peakEnergyScore = 80,
+                dipWindowStartHour = 14,
+                dipWindowEndHour = 16,
+                recommendedDeepWorkMinutes = 60
+            )
+            val mockCircadian = mockk<CircadianEnergyService>(relaxed = true)
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.evaluateSnapshotWithStimulants(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.computeDailySummary(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns dailySummary
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                sessionRepository = sessionRepo,
+                circadianEnergyService = mockCircadian,
+                nowProvider = { eveningNow }
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            state.circadianSummary?.currentSnapshot?.phase shouldBe EnergyPhase.WIND_DOWN
+            // In WIND_DOWN, low-effort wrap-up task MUST be recommended over the high-intensity frog!
+            state.recommendedTask shouldNotBe null
+            state.recommendedTask?.id shouldBe "wrap-up-task"
+            state.recommendedTask?.energyLevel shouldBe EnergyLevel.LOW
+        }
+    }
+
+    "Option 2C: FlowViewModelV2 in WIND_DOWN subdues frogs when only high-intensity tasks exist" {
+        runTest(testDispatcher) {
+            val taskRepo = mockk<TaskRepository>(relaxed = true)
+            val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+            val sessionRepo = mockk<SessionRepository>(relaxed = true)
+
+            val now = System.currentTimeMillis()
+            val todayStart = startOfLocalDay(now)
+
+            // Only high-intensity analytical frog available
+            val intenseFrog = TaskEntity(
+                id = "intense-frog-only",
+                title = "Complex Deep Work",
+                taskType = TaskType.ANALYTICAL,
+                energyLevel = EnergyLevel.HIGH,
+                isFrog = true,
+                estimatedDurationMinutes = 90,
+                impactScore = 95,
+                scheduledDate = todayStart,
+                status = TaskStatus.ACTIVE
+            )
+
+            every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(intenseFrog))
+            every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+            every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+            coEvery { sessionRepo.getAllSessions() } returns emptyList()
+
+            val eveningNow = todayStart + 22 * 3600_000L
+            val windDownSnapshot = CircadianSnapshot(
+                timestampMillis = eveningNow,
+                usableEnergy = 15,
+                homeostaticPressureS = 0.9,
+                circadianAlertnessC = 0.1,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.WIND_DOWN
+            )
+            val dailySummary = DailyCircadianSummary(
+                currentSnapshot = windDownSnapshot,
+                peakWindowStartHour = 9,
+                peakWindowEndHour = 11,
+                peakEnergyScore = 80,
+                dipWindowStartHour = 14,
+                dipWindowEndHour = 16,
+                recommendedDeepWorkMinutes = 60
+            )
+            val mockCircadian = mockk<CircadianEnergyService>(relaxed = true)
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.evaluateSnapshotWithStimulants(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns windDownSnapshot
+            every { mockCircadian.computeDailySummary(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns dailySummary
+
+            val viewModel = FlowViewModelV2(
+                taskRepository = taskRepo,
+                preferencesDataStore = prefsDataStore,
+                sessionRepository = sessionRepo,
+                circadianEnergyService = mockCircadian,
+                nowProvider = { eveningNow }
+            )
+
+            val state = viewModel.uiState.filter { !it.isLoading }.first()
+            state.circadianSummary?.currentSnapshot?.phase shouldBe EnergyPhase.WIND_DOWN
+            state.recommendedTask?.id shouldBe "intense-frog-only"
         }
     }
 })

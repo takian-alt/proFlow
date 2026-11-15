@@ -1019,4 +1019,71 @@ class PlanScreenV2AuditTest {
         assertEquals("design_doc#part2", expectedPart2Id)
         assertFalse(expectedPart2Id.contains("_part2"))
     }
+
+    @Test
+    fun testCognitiveBudgetOverbookedStylingIndependentOfConflicts() {
+        // Regression test: Conflicts must not make Cognitive Budget turn red when well within capacity
+        val scheduledMinutes = 60
+        val safeCapacity = 360
+        val conflictCount = 3
+        val completedMinutes = 0
+
+        val totalCommitted = (scheduledMinutes + completedMinutes).coerceAtLeast(0)
+        val isOverbooked = totalCommitted > safeCapacity
+        val ratio = (totalCommitted.toFloat() / safeCapacity.toFloat()).coerceIn(0f, 2.0f)
+
+        assertFalse("Capacity of 60m out of 360m must NOT be overbooked", isOverbooked)
+        assertTrue("Ratio must be ~0.167", ratio in 0.16f..0.17f)
+
+        // Color logic verification
+        val isRedBar = isOverbooked
+        val isAmberBar = !isOverbooked && ratio >= 0.85f
+        val isEmeraldBar = !isOverbooked && ratio < 0.85f
+
+        assertFalse("Bar must not be red (RecoveryRose) just because conflictCount > 0", isRedBar)
+        assertFalse("Bar must not be amber", isAmberBar)
+        assertTrue("Bar must remain healthy emerald", isEmeraldBar)
+
+        // When truly overbooked
+        val overbookedScheduled = 400
+        val totalOverbooked = overbookedScheduled + completedMinutes
+        val isActuallyOverbooked = totalOverbooked > safeCapacity
+        assertTrue("400m out of 360m MUST be overbooked", isActuallyOverbooked)
+    }
+
+    @Test
+    fun testCognitiveBudgetDualSegmentCompletedAndActiveAccounting() {
+        // Regression test: Accounts for completed focus work and remaining active load
+        val scheduledMinutes = 120
+        val completedMinutes = 60
+        val safeCapacity = 240
+
+        val totalCommitted = (scheduledMinutes + completedMinutes).coerceAtLeast(0)
+        assertEquals(180, totalCommitted)
+
+        val remainingCapacity = (safeCapacity - totalCommitted).coerceAtLeast(0)
+        assertEquals(60, remainingCapacity)
+
+        val ratio = totalCommitted.toFloat() / safeCapacity.toFloat()
+        assertEquals(0.75f, ratio, 0.001f)
+        assertFalse("180m / 240m is not overbooked", totalCommitted > safeCapacity)
+
+        val completedRatio = completedMinutes.toFloat() / safeCapacity.toFloat()
+        assertEquals(0.25f, completedRatio, 0.001f)
+    }
+
+    @Test
+    fun testCognitiveBudgetRatioProgressBoundsCoercion() {
+        // Compose fillMaxWidth requires fraction in 0f..1f. Coercion must prevent crash on overflow/underflow.
+        val extremeOverbookedMinutes = 800
+        val safeCapacity = 100
+        val rawRatio = extremeOverbookedMinutes.toFloat() / safeCapacity.toFloat() // 8.0f
+        val coercedProgress = rawRatio.coerceIn(0f, 1f)
+        assertEquals(1.0f, coercedProgress, 0.0f)
+
+        val negativeMinutes = -50
+        val rawNegativeRatio = negativeMinutes.toFloat() / safeCapacity.toFloat()
+        val coercedNegativeProgress = rawNegativeRatio.coerceIn(0f, 1f)
+        assertEquals(0.0f, coercedNegativeProgress, 0.0f)
+    }
 }

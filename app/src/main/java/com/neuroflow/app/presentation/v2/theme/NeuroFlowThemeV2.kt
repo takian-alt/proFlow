@@ -149,11 +149,16 @@ val LightExtendedColors = NeuroFlowExtendedColors(
 val LocalNeuroFlowColors = staticCompositionLocalOf { DarkExtendedColors }
 
 fun phaseAccentColor(phase: EnergyPhase, colors: NeuroFlowExtendedColors): Color = when (phase) {
+    EnergyPhase.SURGE -> Color(0xFF06B6D4)
     EnergyPhase.PEAK -> colors.energyPeak
     EnergyPhase.REBOUND -> colors.energyPeak.copy(alpha = 0.85f)
     EnergyPhase.DIP -> colors.energyModerate
     EnergyPhase.WIND_DOWN -> colors.energyDepleted
+    EnergyPhase.TROUGH -> Color(0xFF1E293B)
+    EnergyPhase.RECOVERY -> Color(0xFF14B8A6)
     EnergyPhase.RECOVERY_NEEDED -> colors.energyRecovery
+    EnergyPhase.INERTIA -> Color(0xFFA78BFA)
+    EnergyPhase.CRASH -> Color(0xFFEA580C)
 }
 
 @Composable

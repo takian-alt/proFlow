@@ -16,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.util.Calendar
 
@@ -258,7 +259,8 @@ class Adr027RobustnessTest {
         val summary = buildCircadianEnergySummary(
             dailySummary = null,
             snapshot = snapshot,
-            sleepPressurePoints = 400
+            sleepPressurePoints = 400,
+            currentTime = LocalTime.of(9, 0)
         )
 
         assertEquals("Should wire homeostaticPressureS to sleepPressureNormalized", 0.62f, summary.sleepPressureNormalized, 0.01f)

@@ -30,7 +30,8 @@ object PlacementStability {
         POSTPONE_PATTERN(true),
         FAR_FUTURE_PULL_IN(true),
         PERIODIC_REFRESH(true),
-        PAST_EXPIRED_RESCUE(true)
+        PAST_EXPIRED_RESCUE(true),
+        REJECTION_RESCUE(true)
     }
 
     /**
@@ -50,6 +51,17 @@ object PlacementStability {
             ?: return ReplanVerdict.KEEP
         val hoursUntilScheduled = (scheduledMillis - nowMillis) / 3_600_000f
 
+        // ADR-031: Immediate replan if user marked this placement with thumbs down (-1)
+        val currentSlotHour = task.scheduledTime?.let {
+            val minuteOfDay = if (it in 0 until com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) (it / 60_000L).toInt() else {
+                java.time.Instant.ofEpochMilli(scheduledMillis).atZone(java.time.ZoneId.systemDefault()).hour * 60
+            }
+            minuteOfDay / 60
+        }
+        if (task.userSchedulingRating == -1 && (task.schedulingRejectedSlotHour == null || task.schedulingRejectedSlotHour == currentSlotHour)) {
+            return ReplanVerdict.REJECTION_RESCUE
+        }
+
         // Bug 2 & Feature 3 (ADR-026): Expired-Block Auto-Rescue
         // If a task's reserved block has ended and the 15-minute grace period has passed,
         // it is eligible for same-day rescue rescheduling rather than stranded permanently in the past.
@@ -66,7 +78,7 @@ object PlacementStability {
         // BUG-372 Fix: Anchor deadline epoch resolution to parameterized nowMillis instead of real-time system clock
         val deadlineMillis = task.resolveDeadlineEpochMillis(nowMillis)
 
-        val taskAge = maxOf(0L, nowMillis - (task.lastAutoScheduledAt ?: task.updatedAt))
+        val taskAge = maxOf(0L, nowMillis - (task.lastStabilizedAt ?: task.lastAutoScheduledAt ?: task.updatedAt))
         val isUrgentDeadline = deadlineMillis?.let { (it - nowMillis) < 6 * 60 * 60 * 1000L } ?: false
         val cooldownMillis = when {
             isUrgentDeadline -> 60 * 60 * 1000L

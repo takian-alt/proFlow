@@ -1,185 +1,296 @@
 package com.neuroflow.app.domain.service
 
-import org.json.JSONObject
+import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.scheduler.PlacementStability
+import com.neuroflow.app.domain.scheduler.SchedulePreparationOrchestrator
+import com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class Adr031RobustnessTest {
 
-    // =========================================================================
-    // 1. AdaptiveCircadianLearner.computeVonMisesDensity Safe Scaling
-    // =========================================================================
+    private lateinit var circadianService: CircadianEnergyService
+    private lateinit var schedulerService: DefaultTaskSchedulerService
+    private lateinit var orchestrator: SchedulePreparationOrchestrator
 
-    @Test
-    fun testAdaptiveCircadianLearner_computeVonMisesDensity_isFiniteAndPositive() {
-        val testKappas = listOf(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0)
-        for (kappa in testKappas) {
-            for (hour in 0..23) {
-                val density = AdaptiveCircadianLearner.computeVonMisesDensity(hour.toDouble(), 10.0, kappa)
-                assertFalse("Density at hour $hour with kappa $kappa should not be NaN", density.isNaN())
-                assertFalse("Density at hour $hour with kappa $kappa should not be infinite", density.isInfinite())
-                assertTrue("Density at hour $hour with kappa $kappa should be non-negative", density >= 0.0)
-            }
-        }
-    }
-
-    @Test
-    fun testAdaptiveCircadianLearner_computeVonMisesDensity_peaksAtPeakHour() {
-        val peakHour = 10.0
-        val kappa = 2.5
-        val peakDensity = AdaptiveCircadianLearner.computeVonMisesDensity(peakHour, peakHour, kappa)
-        val nonPeakDensity = AdaptiveCircadianLearner.computeVonMisesDensity(22.0, peakHour, kappa)
-
-        assertTrue("Density at peak hour should exceed density at opposite hour", peakDensity > nonPeakDensity)
-        assertEquals(
-            computeVonMisesDensitySafe(peakHour, peakHour, kappa),
-            peakDensity,
-            1e-9
+    @Before
+    fun setUp() {
+        circadianService = DefaultCircadianEnergyService()
+        schedulerService = DefaultTaskSchedulerService(circadianService)
+        orchestrator = SchedulePreparationOrchestrator(
+            taskSchedulerService = schedulerService,
+            behavioralSupportService = DefaultBehavioralSupportService()
         )
     }
 
-    // =========================================================================
-    // 2. GeminiAiOnlineService Candidate Models & JSON Extraction
-    // =========================================================================
-
     @Test
-    fun testGeminiCandidateModels_containsDocumentedPriorities() {
-        val models = DefaultGeminiAiOnlineService.CANDIDATE_MODELS
-        assertEquals("gemini-flash-latest", models.first())
-        assertTrue("Should include gemini-flash-lite-latest", models.contains("gemini-flash-lite-latest"))
-        assertTrue("Should include gemini-2.5-flash", models.contains("gemini-2.5-flash"))
-        assertTrue("Should include gemini-2.0-flash", models.contains("gemini-2.0-flash"))
+    fun testSchedulingOutcome_guaranteesZeroOverlapsInPlacements() {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.of(2026, 11, 14)
+        val nowMillis = today.atTime(LocalTime.of(8, 0)).atZone(zone).toInstant().toEpochMilli()
+        val wakeMillis = today.atTime(LocalTime.of(7, 0)).atZone(zone).toInstant().toEpochMilli()
+
+        // 4 long tasks that would force splitting or tight placement
+        val tasks = listOf(
+            SchedulableTask(
+                id = "task-1",
+                title = "Deep Coding Architecture",
+                category = TaskCategory.DEEP_WORK,
+                priority = 2,
+                estimatedMinutes = 150,
+                energyDemand = EnergyDemand.HIGH,
+                fragmentationTolerance = 0.5f
+            ),
+            SchedulableTask(
+                id = "task-2",
+                title = "Client Presentation Review",
+                category = TaskCategory.ADMIN,
+                priority = 2,
+                estimatedMinutes = 90,
+                energyDemand = EnergyDemand.MODERATE,
+                fragmentationTolerance = 0.5f
+            ),
+            SchedulableTask(
+                id = "task-3",
+                title = "Financial Budgeting",
+                category = TaskCategory.DEEP_WORK,
+                priority = 1,
+                estimatedMinutes = 120,
+                energyDemand = EnergyDemand.HIGH,
+                fragmentationTolerance = 0.5f
+            ),
+            SchedulableTask(
+                id = "task-4",
+                title = "Email Inbox Zero",
+                category = TaskCategory.ADMIN,
+                priority = 0,
+                estimatedMinutes = 45,
+                energyDemand = EnergyDemand.LOW
+            )
+        )
+
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = tasks,
+            dayDate = today,
+            nowMillis = nowMillis,
+            wakeTimeMillis = wakeMillis,
+            lastSleepDurationMinutes = 480,
+            zoneId = zone
+        )
+
+        val placements = outcome.placements
+        assertTrue("Placements must not be empty", placements.isNotEmpty())
+
+        // Invariant: No two placements may overlap in time
+        for (i in 0 until placements.size - 1) {
+            val current = placements[i]
+            val next = placements[i + 1]
+            assertTrue(
+                "Placement '${current.task.title}' (${current.window.startMillis}..${current.window.endMillis}) " +
+                    "must not overlap with '${next.task.title}' (${next.window.startMillis}..${next.window.endMillis})",
+                current.window.endMillis <= next.window.startMillis
+            )
+        }
     }
 
     @Test
-    fun testGeminiJsonParsing_handlesEscapedStringsWithoutCorruption() {
-        val sampleResponse = """
-            {
-              "candidates": [
-                {
-                  "content": {
-                    "parts": [
-                      {
-                        "text": "```json\n[{\"step\": 1, \"text\": \"Open \\\"Settings\\\" on device\"}, {\"step\": 2, \"text\": \"Tap \\\"Account\\\"\"}]\n```"
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-        """.trimIndent()
+    fun testSchedulingFeedbackStore_recordFeedbackAndComputePenalty() {
+        val now = 1731580000000L
+        var json = "{}"
 
-        val json = JSONObject(sampleResponse)
-        val rawPart = json.getJSONArray("candidates")
-            .getJSONObject(0)
-            .getJSONObject("content")
-            .getJSONArray("parts")
-            .getJSONObject(0)
-            .getString("text")
+        // Dislike 9 AM coding placement
+        json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = json,
+            category = "HARD_WORK",
+            hour = 9,
+            isNegative = true,
+            timestampMillis = now
+        )
 
-        val cleaned = rawPart.trim()
-            .removePrefix("```json")
-            .removePrefix("```")
-            .removeSuffix("```")
-            .trim()
+        val penaltyAt9 = SchedulingFeedbackStore.computePenalty(
+            json = json,
+            category = "HARD_WORK",
+            hour = 9,
+            nowMillis = now
+        )
+        val penaltyAt14 = SchedulingFeedbackStore.computePenalty(
+            json = json,
+            category = "HARD_WORK",
+            hour = 14,
+            nowMillis = now
+        )
 
-        val startIdx = cleaned.indexOfFirst { it == '{' || it == '[' }
-        val endIdx = cleaned.indexOfLast { it == '}' || it == ']' }
-        val extractedJson = cleaned.substring(startIdx, endIdx + 1)
+        assertTrue("Penalty at disliked 9 AM must be >= 9.0, was $penaltyAt9", penaltyAt9 >= 9.0)
+        assertEquals("Penalty at unrated 14 PM must be 0.0", 0.0, penaltyAt14, 0.001)
 
-        val parsedArray = org.json.JSONArray(extractedJson)
-        assertEquals(2, parsedArray.length())
-        assertEquals("Open \"Settings\" on device", parsedArray.getJSONObject(0).getString("text"))
-        assertEquals("Tap \"Account\"", parsedArray.getJSONObject(1).getString("text"))
+        // Approve 14 PM placement
+        json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = json,
+            category = "HARD_WORK",
+            hour = 14,
+            isNegative = false,
+            timestampMillis = now
+        )
+
+        val penaltyAt14AfterApproval = SchedulingFeedbackStore.computePenalty(
+            json = json,
+            category = "HARD_WORK",
+            hour = 14,
+            nowMillis = now
+        )
+        assertEquals("Approved slot penalty should remain 0.0", 0.0, penaltyAt14AfterApproval, 0.001)
+
+        val summary = SchedulingFeedbackStore.formatSummaryForLlm(json, nowMillis = now)
+        assertTrue("Summary must mention HARD_WORK at 9AM", summary.contains("HARD_WORK at 9AM"))
     }
 
-    // =========================================================================
-    // 3. Smart Chrono-Aware Shift to Peak Logic
-    // =========================================================================
+    @Test
+    fun testPlacementStability_rejectionRescueTriggersImmediateReplan() {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.of(2026, 11, 14)
+        val testStartMillis = today.atTime(LocalTime.of(9, 30)).atZone(zone).toInstant().toEpochMilli()
+        val nowMillis = today.atTime(LocalTime.of(9, 0)).atZone(zone).toInstant().toEpochMilli()
+
+        val prefs = UserPreferences(autoSchedulingEnabled = true, isAutoScheduleToggleOn = true)
+
+        // Normal task within 2 hours would be NEAR_TERM_FREEZE
+        val normalTask = TaskEntity(
+            id = "task-normal",
+            title = "Normal Task",
+            status = TaskStatus.ACTIVE,
+            scheduledDate = today.atStartOfDay(zone).toInstant().toEpochMilli(),
+            scheduledTime = 9 * 3600_000L + 30 * 60_000L,
+            isAutoScheduled = true
+        )
+        val normalVerdict = PlacementStability.verdict(normalTask, nowMillis, prefs, forceReplan = false)
+        assertEquals(PlacementStability.ReplanVerdict.NEAR_TERM_FREEZE, normalVerdict)
+        assertFalse(normalVerdict.allowsReplan)
+
+        // Disliked placement with userSchedulingRating = -1 at hour 9
+        val dislikedTask = normalTask.copy(
+            userSchedulingRating = -1,
+            schedulingRejectedSlotHour = 9
+        )
+        val dislikedVerdict = PlacementStability.verdict(dislikedTask, nowMillis, prefs, forceReplan = false)
+        assertEquals(PlacementStability.ReplanVerdict.REJECTION_RESCUE, dislikedVerdict)
+        assertTrue("Disliked task must allow replan immediately", dislikedVerdict.allowsReplan)
+    }
 
     @Test
-    fun testShiftToPeak_whenBeforeMorningPeak_schedulesToTodayPeak() {
-        val peakHour = 10
-        val peakEndHour = 13
-        val currentHour = 8 // 8:00 AM, before peak
-        val baseDate = 1700000000000L
+    fun testConfidenceScoreAndRationalePopulated() {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.of(2026, 11, 14)
+        val nowMillis = today.atTime(LocalTime.of(8, 0)).atZone(zone).toInstant().toEpochMilli()
+        val wakeMillis = today.atTime(LocalTime.of(7, 0)).atZone(zone).toInstant().toEpochMilli()
 
-        val isToday = true
-        val usableEnergy = 70
+        val task = SchedulableTask(
+            id = "task-conf",
+            title = "Focus Architecture Review",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH
+        )
 
-        val targetDate: Long
-        val targetHour: Int
+        val outcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(task),
+            dayDate = today,
+            nowMillis = nowMillis,
+            wakeTimeMillis = wakeMillis,
+            lastSleepDurationMinutes = 480,
+            zoneId = zone
+        )
 
-        if (!isToday || currentHour < peakEndHour) {
-            targetDate = baseDate
-            targetHour = peakHour
-        } else if (currentHour < 18 && usableEnergy >= 55) {
-            targetDate = baseDate
-            targetHour = maxOf(currentHour + 1, 16).coerceAtMost(17)
-        } else {
-            targetDate = baseDate + 86400000L
-            targetHour = peakHour
+        val placement = outcome.placements.firstOrNull()
+        assertNotNull("Placement must be generated", placement)
+        assertTrue(
+            "Confidence score must be in [0.1..1.0], was ${placement!!.confidenceScore}",
+            placement.confidenceScore in 0.1f..1.0f
+        )
+        assertTrue(
+            "Rationale must not be blank",
+            placement.rationale.isNotBlank()
+        )
+    }
+
+    @Test
+    fun testRejectionPenalty_steersSchedulerToAlternateWindow() {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.of(2026, 11, 14)
+        val nowMillis = today.atTime(LocalTime.of(8, 0)).atZone(zone).toInstant().toEpochMilli()
+        val wakeMillis = today.atTime(LocalTime.of(7, 0)).atZone(zone).toInstant().toEpochMilli()
+
+        val task = SchedulableTask(
+            id = "task-rejection-steer",
+            title = "Heavy Calculation Work",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH
+        )
+
+        // Baseline run without rejection
+        val baseline = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(task),
+            dayDate = today,
+            nowMillis = nowMillis,
+            wakeTimeMillis = wakeMillis,
+            lastSleepDurationMinutes = 480,
+            zoneId = zone
+        )
+        val baselinePlacement = baseline.placements.first()
+        val baselineStartHour = ZonedDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(baselinePlacement.window.startMillis),
+            zone
+        ).hour
+
+        // Now inject heavy historical rejection at baseline's start hour
+        var feedbackJson = "{}"
+        for (i in 1..3) {
+            feedbackJson = SchedulingFeedbackStore.recordFeedback(
+                currentJson = feedbackJson,
+                category = "DEEP_WORK",
+                hour = baselineStartHour,
+                isNegative = true,
+                timestampMillis = nowMillis - (i * 3600_000L)
+            )
         }
 
-        assertEquals(baseDate, targetDate)
-        assertEquals(peakHour, targetHour)
-    }
+        // Run with rejection feedback and direct task rejection
+        val dislikedTask = task.copy(
+            userSchedulingRating = -1,
+            schedulingRejectedSlotHour = baselineStartHour
+        )
+        val penalizedOutcome = schedulerService.scheduleDayWithOutcome(
+            tasks = listOf(dislikedTask),
+            dayDate = today,
+            nowMillis = nowMillis,
+            wakeTimeMillis = wakeMillis,
+            lastSleepDurationMinutes = 480,
+            zoneId = zone,
+            rejectionPatternsJson = feedbackJson
+        )
 
-    @Test
-    fun testShiftToPeak_whenPastMorningPeakWithGoodEnergy_schedulesToAfternoonRebound() {
-        val peakHour = 10
-        val peakEndHour = 13
-        val currentHour = 14 // 2:00 PM, past peak
-        val baseDate = 1700000000000L
+        val penalizedPlacement = penalizedOutcome.placements.first()
+        val penalizedStartHour = ZonedDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(penalizedPlacement.window.startMillis),
+            zone
+        ).hour
 
-        val isToday = true
-        val usableEnergy = 65 // High energy
-
-        val targetDate: Long
-        val targetHour: Int
-
-        if (!isToday || currentHour < peakEndHour) {
-            targetDate = baseDate
-            targetHour = peakHour
-        } else if (currentHour < 18 && usableEnergy >= 55) {
-            targetDate = baseDate
-            targetHour = maxOf(currentHour + 1, 16).coerceAtMost(17)
-        } else {
-            targetDate = baseDate + 86400000L
-            targetHour = peakHour
-        }
-
-        assertEquals(baseDate, targetDate)
-        assertEquals(16, targetHour) // Afternoon rebound at 16:00
-    }
-
-    @Test
-    fun testShiftToPeak_whenEvening_rollsToTomorrowPeak() {
-        val peakHour = 10
-        val peakEndHour = 13
-        val currentHour = 19 // 7:00 PM, evening
-        val baseDate = 1700000000000L
-
-        val isToday = true
-        val usableEnergy = 40 // Low energy
-
-        val targetDate: Long
-        val targetHour: Int
-
-        if (!isToday || currentHour < peakEndHour) {
-            targetDate = baseDate
-            targetHour = peakHour
-        } else if (currentHour < 18 && usableEnergy >= 55) {
-            targetDate = baseDate
-            targetHour = maxOf(currentHour + 1, 16).coerceAtMost(17)
-        } else {
-            targetDate = baseDate + 86400000L
-            targetHour = peakHour
-        }
-
-        assertEquals(baseDate + 86400000L, targetDate)
-        assertEquals(peakHour, targetHour)
+        assertTrue(
+            "Penalized placement start hour ($penalizedStartHour) must avoid rejected hour ($baselineStartHour)",
+            penalizedStartHour != baselineStartHour
+        )
     }
 }

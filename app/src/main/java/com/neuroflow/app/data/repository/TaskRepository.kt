@@ -188,7 +188,22 @@ class TaskRepository @Inject constructor(
     fun observeByGoalId(goalId: String): Flow<List<TaskEntity>> = taskDao.observeByGoalId(goalId)
     fun observeSubtasks(parentId: String): Flow<List<TaskEntity>> = taskDao.observeSubtasks(parentId)
 
-    suspend fun getById(id: String): TaskEntity? = taskDao.getById(id)
+    suspend fun getById(id: String): TaskEntity? {
+        val existing = taskDao.getById(id)
+        if (existing != null) return existing
+        if (id == TaskEntity.TASK_UNTRACKED_FOCUS) {
+            return ensureUntrackedFocusTask()
+        }
+        return null
+    }
+
+    suspend fun ensureUntrackedFocusTask(): TaskEntity {
+        val existing = taskDao.getById(TaskEntity.TASK_UNTRACKED_FOCUS)
+        if (existing != null) return existing
+        val synthetic = TaskEntity.createUntrackedFocusTask()
+        taskDao.insert(synthetic)
+        return synthetic
+    }
     suspend fun getActiveTasks(): List<TaskEntity> = taskDao.getActiveTasks()
     suspend fun getAllTasks(): List<TaskEntity> = taskDao.getAllTasks()
     suspend fun getCompletedTasks(): List<TaskEntity> = taskDao.getCompletedTasks()

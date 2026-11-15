@@ -20,6 +20,9 @@ import com.neuroflow.app.domain.model.ProtectedTimeSlot
 import com.neuroflow.app.domain.model.PtsCategory
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CircadianSnapshot
+import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
@@ -557,6 +560,7 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
             val workManager = mockk<WorkManager>(relaxed = true)
 
             val now = System.currentTimeMillis()
+            val morningNow = startOfLocalDay(now) + 9 * 3600_000L
             val initialPrefs = UserPreferences(
                 dailyDeepWorkTargetMinutes = 240
             )
@@ -569,7 +573,7 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
                 energyLevel = com.neuroflow.app.domain.model.EnergyLevel.HIGH,
                 estimatedDurationMinutes = 60,
                 status = TaskStatus.COMPLETED,
-                completedAt = now,
+                completedAt = morningNow,
                 actualDurationMinutes = 60f
             )
 
@@ -577,9 +581,33 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
             every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(listOf(completedDeepWorkTask))
             every { prefsDataStore.preferencesFlow } returns prefsFlow
 
+            val mockCircadian = mockk<CircadianEnergyService>(relaxed = true)
+            every {
+                mockCircadian.evaluateSnapshot(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            } returns CircadianSnapshot(
+                timestampMillis = morningNow,
+                usableEnergy = 100,
+                homeostaticPressureS = 0.2,
+                circadianAlertnessC = 0.85,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.PEAK
+            )
+            every {
+                mockCircadian.evaluateSnapshotWithStimulants(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            } returns CircadianSnapshot(
+                timestampMillis = morningNow,
+                usableEnergy = 100,
+                homeostaticPressureS = 0.2,
+                circadianAlertnessC = 0.85,
+                focusDepletionPenalty = 0.0,
+                phase = EnergyPhase.PEAK
+            )
+
             val flowViewModel = FlowViewModelV2(
                 taskRepository = taskRepo,
-                preferencesDataStore = prefsDataStore
+                preferencesDataStore = prefsDataStore,
+                circadianEnergyService = mockCircadian,
+                nowProvider = { morningNow }
             )
             val planViewModel = PlanViewModelV2(
                 taskRepository = taskRepo,
