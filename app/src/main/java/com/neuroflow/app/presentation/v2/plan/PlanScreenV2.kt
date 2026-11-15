@@ -774,6 +774,23 @@ fun PlanScreenV2(
         }
     }
 
+    state.feedbackTask?.let { feedbackTask ->
+        SchedulingFeedbackDialog(
+            task = feedbackTask,
+            remedyProposal = state.feedbackRemedyProposal,
+            isLoading = state.isFeedbackLoading,
+            onSelectReason = { reasonTag ->
+                viewModel.submitDetailedFeedback(feedbackTask, reasonTag)
+            },
+            onAcceptRemedy = { newSlotMillis, directivePatch ->
+                viewModel.acceptRemedySlot(feedbackTask, newSlotMillis, directivePatch)
+            },
+            onDismiss = {
+                viewModel.dismissFeedbackDialog()
+            }
+        )
+    }
+
     FrogConfettiOverlay(trigger = showFrogConfetti)
     LaunchedEffect(showFrogConfetti) {
         if (showFrogConfetti) {

@@ -1030,11 +1030,11 @@ class UserPreferencesDataStore @Inject constructor(
         }
     }
 
-    suspend fun updateAdaptiveSystemDirective(directive: String, auditJson: String) {
+    suspend fun updateAdaptiveSystemDirective(directive: String, auditJson: String? = null) {
         updatePreferences { prefs ->
             prefs.copy(
                 adaptiveSystemDirective = directive.trim(),
-                weeklyAiAuditJson = auditJson.trim()
+                weeklyAiAuditJson = auditJson?.trim() ?: prefs.weeklyAiAuditJson
             )
         }
     }

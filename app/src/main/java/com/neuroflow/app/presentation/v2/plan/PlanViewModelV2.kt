@@ -15,8 +15,10 @@ import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.service.DaytimeNapBout
 import com.neuroflow.app.domain.service.GeminiAiOnlineService
 import com.neuroflow.app.domain.service.QuickNoteSynthesis
+import com.neuroflow.app.domain.service.SlotRemedyResult
 import com.neuroflow.app.domain.service.StimulantDoseBout
 import com.neuroflow.app.domain.service.StimulantType
+import com.neuroflow.app.domain.service.TimeSlotWindow
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlin.math.roundToInt
 import com.neuroflow.app.data.local.entity.NoteEntity
@@ -124,7 +126,10 @@ data class PlanUiStateV2(
     val scheduledMinutesToday: Int = 0,
     val completedMinutesToday: Int = 0,
     val recommendedCapacityMinutes: Int = 240,
-    val sevenDayLoadDistribution: Map<LocalDate, Float> = emptyMap()
+    val sevenDayLoadDistribution: Map<LocalDate, Float> = emptyMap(),
+    val feedbackTask: TaskEntity? = null,
+    val feedbackRemedyProposal: SlotRemedyResult? = null,
+    val isFeedbackLoading: Boolean = false
 )
 
 internal fun startOfTodayMillis(zoneId: ZoneId = ZoneId.systemDefault()): Long {
@@ -170,6 +175,9 @@ class PlanViewModelV2 @Inject constructor(
     private val _decomposingTaskId = MutableStateFlow<String?>(null)
     private val _selectedQuadrant = MutableStateFlow<Quadrant?>(null)
     private val _deferrals = MutableStateFlow<List<DeferralRationale>>(emptyList())
+    private val _feedbackTask = MutableStateFlow<TaskEntity?>(null)
+    private val _feedbackRemedyProposal = MutableStateFlow<SlotRemedyResult?>(null)
+    private val _isFeedbackLoading = MutableStateFlow(false)
 
     private val _userActionMessage = MutableSharedFlow<String>()
     val userActionMessage: SharedFlow<String> = _userActionMessage.asSharedFlow()
@@ -226,7 +234,10 @@ class PlanViewModelV2 @Inject constructor(
         val isSearchVisible: Boolean,
         val decomposingTaskId: String?,
         val selectedQuadrant: Quadrant?,
-        val deferrals: List<DeferralRationale> = emptyList()
+        val deferrals: List<DeferralRationale> = emptyList(),
+        val feedbackTask: TaskEntity? = null,
+        val feedbackRemedyProposal: SlotRemedyResult? = null,
+        val isFeedbackLoading: Boolean = false
     )
 
     val uiState: StateFlow<PlanUiStateV2> = combine(
@@ -239,8 +250,11 @@ class PlanViewModelV2 @Inject constructor(
             },
             combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant, _deferrals) { searchVis, decompId, selectedQuad, defs ->
                 listOf<Any?>(searchVis, decompId, selectedQuad, defs)
+            },
+            combine(_feedbackTask, _feedbackRemedyProposal, _isFeedbackLoading) { fbTask, fbRemedy, fbLoading ->
+                listOf<Any?>(fbTask, fbRemedy, fbLoading)
             }
-        ) { first, second, third ->
+        ) { first, second, third, fourth ->
             @Suppress("UNCHECKED_CAST")
             PlanNavParams(
                 dateMillis = first[0] as Long,
@@ -253,7 +267,10 @@ class PlanViewModelV2 @Inject constructor(
                 isSearchVisible = third[0] as Boolean,
                 decomposingTaskId = third[1] as String?,
                 selectedQuadrant = third[2] as Quadrant?,
-                deferrals = third[3] as List<DeferralRationale>
+                deferrals = third[3] as List<DeferralRationale>,
+                feedbackTask = fourth[0] as TaskEntity?,
+                feedbackRemedyProposal = fourth[1] as SlotRemedyResult?,
+                isFeedbackLoading = fourth[2] as Boolean
             )
         },
         taskRepository.observeActiveTasks(),
@@ -517,7 +534,10 @@ class PlanViewModelV2 @Inject constructor(
             deferrals = params.deferrals,
             scheduledMinutesToday = scheduledMinutes,
             completedMinutesToday = completedMinutesToday,
-            recommendedCapacityMinutes = capacityMinutes
+            recommendedCapacityMinutes = capacityMinutes,
+            feedbackTask = params.feedbackTask,
+            feedbackRemedyProposal = params.feedbackRemedyProposal,
+            isFeedbackLoading = params.isFeedbackLoading
         )
     }.stateIn(
         viewModelScope,
@@ -1055,20 +1075,158 @@ class PlanViewModelV2 @Inject constructor(
                 updatedAt = nowMillis
             )
             taskRepository.update(updatedTask)
-            preferencesDataStore.recordSchedulingFeedback(
-                category = category,
-                hour = startHour,
-                isNegative = isNegative,
-                timestampMillis = nowMillis
-            )
 
             if (isNegative) {
-                _userActionMessage.emit("Disliked slot noted. Rescheduling '${task.title.take(20)}'...")
-                autoScheduleDay(uiState.value.selectedDateMillis, forceReplan = true)
+                _feedbackTask.value = updatedTask
+                _feedbackRemedyProposal.value = null
+                _isFeedbackLoading.value = false
+                _userActionMessage.emit("Disliked slot noted. Select a reason to tune your schedule.")
             } else {
+                preferencesDataStore.recordSchedulingFeedback(
+                    category = category,
+                    hour = startHour,
+                    isNegative = false,
+                    timestampMillis = nowMillis
+                )
                 _userActionMessage.emit("Placement approved! Learning your preferences.")
             }
         }
+    }
+
+    fun submitDetailedFeedback(task: TaskEntity, reasonTag: String) {
+        viewModelScope.launch {
+            _isFeedbackLoading.value = true
+            val nowMillis = System.currentTimeMillis()
+            val category = task.determineCategory().name
+            val startMinute = task.scheduledTime?.let {
+                if (it in 0 until com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) (it / 60_000L).toInt() else {
+                    val sMillis = task.resolveScheduledEpochMillis(uiState.value.selectedDateMillis) ?: 0L
+                    java.time.Instant.ofEpochMilli(sMillis).atZone(java.time.ZoneId.systemDefault()).hour * 60
+                }
+            } ?: 0
+            val startHour = task.schedulingRejectedSlotHour ?: (startMinute / 60)
+
+            preferencesDataStore.recordSchedulingFeedback(
+                category = category,
+                hour = startHour,
+                isNegative = true,
+                timestampMillis = nowMillis,
+                reasonTag = reasonTag
+            )
+
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val dayMillis = uiState.value.selectedDateMillis
+            val zoneId = java.time.ZoneId.systemDefault()
+            val dayDate = java.time.Instant.ofEpochMilli(dayMillis).atZone(zoneId).toLocalDate()
+            val dayStart = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val workDayStartMillis = dayStart + prefs.workDayStart * 3600_000L
+            val workDayEndMillis = dayStart + prefs.workDayEnd * 3600_000L
+
+            val otherTasks = uiState.value.tasksForDay.filter { it.id != task.id && it.scheduledTime != null }
+            val occupied = otherTasks.mapNotNull { t ->
+                val s = t.resolveScheduledEpochMillis(dayMillis) ?: return@mapNotNull null
+                val dur = (if (t.plannedBlockMinutes > 0) t.plannedBlockMinutes else t.estimatedDurationMinutes).coerceIn(5, 240)
+                TimeSlotWindow(s, s + dur * 60_000L)
+            }
+            val availableWindows = computeAvailableWindows(workDayStartMillis, workDayEndMillis, occupied)
+                .ifEmpty { listOf(TimeSlotWindow(workDayStartMillis, workDayEndMillis)) }
+
+            val onlineService = geminiAiOnlineService ?: GeminiAiOnlineService()
+            val remedy = onlineService.remedyRejectedSlot(
+                task = task,
+                rejectedStartHour = startHour,
+                reasonTag = reasonTag,
+                availableWindows = availableWindows,
+                apiKey = prefs.geminiApiKey,
+                userDirective = prefs.adaptiveSystemDirective
+            )
+
+            _feedbackRemedyProposal.value = remedy
+            _isFeedbackLoading.value = false
+        }
+    }
+
+    fun acceptRemedySlot(task: TaskEntity, newSlotMillis: Long, directivePatch: String?) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val updatedTask = task.copy(
+                scheduledTime = newSlotMillis,
+                isScheduleLocked = true,
+                updatedAt = now
+            )
+            taskRepository.update(updatedTask)
+            calendarSyncRepository?.handleTaskStateChanged(updatedTask)
+
+            if (!directivePatch.isNullOrBlank()) {
+                val prefs = preferencesDataStore.preferencesFlow.first()
+                val currentDirective = prefs.adaptiveSystemDirective
+                val merged = if (currentDirective.isBlank()) {
+                    directivePatch.trim()
+                } else if (!currentDirective.contains(directivePatch.trim())) {
+                    "${currentDirective.trim()}\n${directivePatch.trim()}"
+                } else {
+                    currentDirective
+                }
+                preferencesDataStore.updateAdaptiveSystemDirective(
+                    directive = merged,
+                    auditJson = prefs.weeklyAiAuditJson
+                )
+            }
+
+            dismissFeedbackDialog()
+            _userActionMessage.emit("Slot updated and locked for '${task.title.take(20)}'.")
+        }
+    }
+
+    fun dismissFeedbackDialog() {
+        _feedbackTask.value = null
+        _feedbackRemedyProposal.value = null
+        _isFeedbackLoading.value = false
+    }
+
+    private fun computeAvailableWindows(
+        startMillis: Long,
+        endMillis: Long,
+        occupied: List<TimeSlotWindow>
+    ): List<TimeSlotWindow> {
+        if (startMillis >= endMillis) return emptyList()
+        val clamped = occupied.mapNotNull { win ->
+            val s = maxOf(win.startMillis, startMillis)
+            val e = minOf(win.endMillis, endMillis)
+            if (e > s) TimeSlotWindow(s, e) else null
+        }.sortedBy { it.startMillis }
+
+        if (clamped.isEmpty()) {
+            return listOf(TimeSlotWindow(startMillis, endMillis))
+        }
+
+        val mergedBlocked = mutableListOf<TimeSlotWindow>()
+        var curStart = clamped[0].startMillis
+        var curEnd = clamped[0].endMillis
+        for (i in 1 until clamped.size) {
+            val next = clamped[i]
+            if (next.startMillis <= curEnd) {
+                curEnd = maxOf(curEnd, next.endMillis)
+            } else {
+                mergedBlocked.add(TimeSlotWindow(curStart, curEnd))
+                curStart = next.startMillis
+                curEnd = next.endMillis
+            }
+        }
+        mergedBlocked.add(TimeSlotWindow(curStart, curEnd))
+
+        val freeGaps = mutableListOf<TimeSlotWindow>()
+        var pointer = startMillis
+        for (block in mergedBlocked) {
+            if (block.startMillis > pointer) {
+                freeGaps.add(TimeSlotWindow(pointer, block.startMillis))
+            }
+            pointer = maxOf(pointer, block.endMillis)
+        }
+        if (pointer < endMillis) {
+            freeGaps.add(TimeSlotWindow(pointer, endMillis))
+        }
+        return freeGaps
     }
 
     fun updateTask(task: TaskEntity) {
