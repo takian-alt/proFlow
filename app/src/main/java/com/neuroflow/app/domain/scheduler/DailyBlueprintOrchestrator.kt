@@ -57,7 +57,7 @@ data class BlueprintApplyResult(
 )
 
 @Singleton
-class DailyBlueprintOrchestrator @Inject constructor(
+class DailyBlueprintOrchestrator(
     private val taskRepository: TaskRepository,
     private val schedulerService: TaskSchedulerService,
     private val circadianEnergyService: CircadianEnergyService,
@@ -67,6 +67,26 @@ class DailyBlueprintOrchestrator @Inject constructor(
     private val calendarSyncRepository: CalendarSyncRepository? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+
+    @Inject
+    constructor(
+        taskRepository: TaskRepository,
+        schedulerService: TaskSchedulerService,
+        circadianEnergyService: CircadianEnergyService,
+        geminiAiOnlineService: GeminiAiOnlineService,
+        sleepTelemetryRepository: SleepTelemetryRepository? = null,
+        preferencesDataStore: UserPreferencesDataStore,
+        calendarSyncRepository: CalendarSyncRepository? = null
+    ) : this(
+        taskRepository,
+        schedulerService,
+        circadianEnergyService,
+        geminiAiOnlineService,
+        sleepTelemetryRepository,
+        preferencesDataStore,
+        calendarSyncRepository,
+        Dispatchers.IO
+    )
 
     suspend fun generateBlueprint(targetDateMillis: Long): DailyBlueprint = withContext(ioDispatcher) {
         val zoneId = ZoneId.systemDefault()

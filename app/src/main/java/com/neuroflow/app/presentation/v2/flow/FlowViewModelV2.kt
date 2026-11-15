@@ -38,6 +38,9 @@ import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.scheduler.DailyBlueprint
+import com.neuroflow.app.domain.scheduler.DailyBlueprintOrchestrator
+import com.neuroflow.app.domain.scheduler.isPersonalTask
 import com.neuroflow.app.domain.model.buildBehavioralObservations
 import com.neuroflow.app.domain.model.buildDailyCognitiveBlocks
 import com.neuroflow.app.domain.model.computeEnergyUiState
@@ -114,7 +117,10 @@ data class FlowUiStateV2(
     val activePlasmaMg: Double = 0.0,
     val socialJetlagLagHours: Double = 0.0,
     val predictedSwsSuppressionPercent: Int = 0,
-    val latestSafeStimulantCutoffFormatted: String = "16:11"
+    val latestSafeStimulantCutoffFormatted: String = "16:11",
+    val dailyBlueprint: DailyBlueprint? = null,
+    val isBlueprintLoading: Boolean = false,
+    val blueprintIncludedTaskIds: Set<String> = emptySet()
 )
 
 @HiltViewModel
@@ -130,7 +136,8 @@ class FlowViewModelV2 @Inject constructor(
     @ApplicationContext private val context: Context? = null,
     private val geminiAiOnlineService: GeminiAiOnlineService? = null,
     private val energyMetricsRepository: EnergyMetricsRepository? = null,
-    private val calendarSyncRepository: CalendarSyncRepository? = null
+    private val calendarSyncRepository: CalendarSyncRepository? = null,
+    private val dailyBlueprintOrchestrator: DailyBlueprintOrchestrator? = null
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
@@ -140,6 +147,44 @@ class FlowViewModelV2 @Inject constructor(
     private val _lastSpawnedRecurringTaskId = MutableStateFlow<String?>(null)
     private val _lastDeferredTask = MutableStateFlow<Pair<TaskEntity, Long>?>(null)
     private val _lastActionMessage = MutableStateFlow<String?>(null)
+    private val _dailyBlueprint = MutableStateFlow<DailyBlueprint?>(null)
+    private val _isBlueprintLoading = MutableStateFlow(false)
+    private val _blueprintIncludedTaskIds = MutableStateFlow<Set<String>>(emptySet())
+
+    internal var nowProvider: () -> Long = { System.currentTimeMillis() }
+
+    internal constructor(
+        taskRepository: TaskRepository,
+        preferencesDataStore: UserPreferencesDataStore,
+        noteRepository: NoteRepository? = null,
+        sessionRepository: SessionRepository? = null,
+        circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
+        sleepTelemetryRepository: SleepTelemetryRepository? = null,
+        taskSchedulerService: TaskSchedulerService = DefaultTaskSchedulerService(circadianEnergyService),
+        behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
+        context: Context? = null,
+        geminiAiOnlineService: GeminiAiOnlineService? = null,
+        energyMetricsRepository: EnergyMetricsRepository? = null,
+        calendarSyncRepository: CalendarSyncRepository? = null,
+        dailyBlueprintOrchestrator: DailyBlueprintOrchestrator? = null,
+        nowProvider: () -> Long
+    ) : this(
+        taskRepository,
+        preferencesDataStore,
+        noteRepository,
+        sessionRepository,
+        circadianEnergyService,
+        sleepTelemetryRepository,
+        taskSchedulerService,
+        behavioralSupportService,
+        context,
+        geminiAiOnlineService,
+        energyMetricsRepository,
+        calendarSyncRepository,
+        dailyBlueprintOrchestrator
+    ) {
+        this.nowProvider = nowProvider
+    }
 
     val recentNotes: Flow<List<NoteEntity>> = noteRepository?.allNotes ?: flowOf(emptyList())
 
@@ -182,12 +227,23 @@ class FlowViewModelV2 @Inject constructor(
         },
         combine(
             _lastDeferredTask,
-            _lastActionMessage
-        ) { lastDeferred, actionMsg ->
-            Pair(lastDeferred, actionMsg)
+            _lastActionMessage,
+            _dailyBlueprint,
+            _isBlueprintLoading,
+            _blueprintIncludedTaskIds
+        ) { lastDeferred, actionMsg, bp, bpLoading, bpTaskIds ->
+            listOf<Any?>(lastDeferred, actionMsg, bp, bpLoading, bpTaskIds)
         }
-    ) { (activeTasks, completedTasks, prefs, sleepLogs), (dismissedGuilt, tag, shutdownDismissed, lastCompleted), (lastDeferred, actionMsg) ->
-        val now = System.currentTimeMillis()
+    ) { (rawActiveTasks, completedTasks, prefs, sleepLogs), (dismissedGuilt, tag, shutdownDismissed, lastCompleted), thirdList ->
+        @Suppress("UNCHECKED_CAST")
+        val lastDeferred = thirdList[0] as Pair<TaskEntity, Long>?
+        val actionMsg = thirdList[1] as String?
+        val dailyBlueprint = thirdList[2] as DailyBlueprint?
+        val isBlueprintLoading = thirdList[3] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val blueprintIncludedTaskIds = thirdList[4] as Set<String>
+        val activeTasks = rawActiveTasks.filterNot { it.id == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
+        val now = nowProvider()
         val currentHour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
         val systemZone = java.time.ZoneId.systemDefault()
         val zonedDateTime = java.time.Instant.ofEpochMilli(now).atZone(systemZone)
@@ -408,10 +464,28 @@ class FlowViewModelV2 @Inject constructor(
                 isNotFuture &&
                 dependenciesMet
         }
+        val isWindDown = snapshot.phase == com.neuroflow.app.domain.service.EnergyPhase.WIND_DOWN
         val matchingTasks = actionableActiveTasks.filter { it.energyLevel == currentEnergyZone }
-        val candidatePool = if (matchingTasks.isNotEmpty()) matchingTasks else actionableActiveTasks
+        val lowCognitiveTasks = actionableActiveTasks.filter { task ->
+            task.energyLevel == EnergyLevel.LOW || (
+                task.energyLevel != EnergyLevel.HIGH &&
+                !task.isFrog &&
+                task.taskType != TaskType.ANALYTICAL &&
+                !task.tags.contains("deepwork", ignoreCase = true) &&
+                !task.contextTag.equals("deepwork", ignoreCase = true)
+            )
+        }
+        val candidatePool: List<TaskEntity> = if (isWindDown) {
+            // Option 2C: When in WIND_DOWN, prioritize low-stress / low-energy tasks (EnergyLevel.LOW or non-deep tasks)
+            if (lowCognitiveTasks.isNotEmpty()) lowCognitiveTasks else actionableActiveTasks
+        } else if (matchingTasks.isNotEmpty()) {
+            matchingTasks
+        } else {
+            actionableActiveTasks
+        }
         val effectiveSnapshot = snapshot.copy(usableEnergy = battery)
-        val recommended = candidatePool.maxByOrNull { task ->
+        val recommended = candidatePool.maxByOrNull { task: TaskEntity ->
+            val isPersonal = task.isPersonalTask()
             val schedulable = SchedulableTask(
                 id = task.id,
                 title = task.title,
@@ -443,10 +517,24 @@ class FlowViewModelV2 @Inject constructor(
                 impactScore = task.impactScore,
                 estimatedEnjoyment = task.enjoymentScore / 10,
                 postponeCount = task.postponeCount,
-                distractionScore = task.distractionScore
+                distractionScore = task.distractionScore,
+                isPersonalTask = isPersonal
             )
-            val baseLeverage = (if (task.isFrog) 1000 else 0) + task.impactScore
-            baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
+            val personalBonus = if (isPersonal) 1000.0 else 0.0
+            if (isWindDown) {
+                // In WIND_DOWN, subdue high-intensity frogs & deep-work prompts; prioritize low-energy & brief wrap-up duration
+                val lowEnergyBonus = when (task.energyLevel) {
+                    EnergyLevel.LOW -> 200.0
+                    EnergyLevel.MEDIUM -> 50.0
+                    EnergyLevel.HIGH -> -100.0
+                }
+                val frogPenalty = if (task.isFrog) -500.0 else 0.0
+                val durationPenalty = task.estimatedDurationMinutes.coerceAtLeast(0).toDouble()
+                lowEnergyBonus + frogPenalty + task.impactScore.toDouble() + personalBonus - durationPenalty
+            } else {
+                val baseLeverage = (if (task.isFrog) 1000.0 else 0.0) + task.impactScore.toDouble() + personalBonus
+                baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
+            }
         }
 
         val todayActiveTasks = activeTasks.filter { task ->
@@ -548,13 +636,21 @@ class FlowViewModelV2 @Inject constructor(
                 ?: com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)).coerceAtLeast(1)
         }
 
+        val untrackedTodayMinutes = runCatching {
+            sessionRepository?.getAllSessions().orEmpty()
+                .filter { it.endedAt != null && it.startedAt in dayStart..dayEnd && it.taskId == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
+                .sumOf { (it.durationMinutes.takeIf { d -> d > 0f } ?: it.trackedMinutes(it.endedAt ?: now)).roundToInt() }
+        }.getOrDefault(0)
+        val totalCompletedDeepWorkMinutes = todayCompletedDeepWorkMinutes + untrackedTodayMinutes
+
         val circadianEnergySummary = buildCircadianEnergySummary(
             dailySummary = circadianSummary,
             snapshot = effectiveSnapshot,
             sleepPressurePoints = prefs.sleepPressurePoints,
             dailyDeepWorkTargetMinutes = prefs.dailyDeepWorkTargetMinutes,
             sleepHour = prefs.sleepHour,
-            completedDeepWorkMinutes = todayCompletedDeepWorkMinutes
+            completedDeepWorkMinutes = totalCompletedDeepWorkMinutes,
+            currentTime = zonedDateTime.toLocalTime()
         )
 
         FlowUiStateV2(
@@ -588,13 +684,59 @@ class FlowViewModelV2 @Inject constructor(
             activePlasmaMg = stimEffect.activeEquivalentMg,
             socialJetlagLagHours = socialJetlagReport.socialJetlagHours,
             predictedSwsSuppressionPercent = swsSuppressionPercent,
-            latestSafeStimulantCutoffFormatted = cutoffFormatted
+            latestSafeStimulantCutoffFormatted = cutoffFormatted,
+            dailyBlueprint = dailyBlueprint,
+            isBlueprintLoading = isBlueprintLoading,
+            blueprintIncludedTaskIds = blueprintIncludedTaskIds
         )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         FlowUiStateV2(isLoading = true)
     )
+
+    fun openDailyBlueprint(dateMillis: Long = nowProvider()) {
+        viewModelScope.launch {
+            _isBlueprintLoading.value = true
+            try {
+                val orchestrator = dailyBlueprintOrchestrator
+                if (orchestrator != null) {
+                    val blueprint = orchestrator.generateBlueprint(dateMillis)
+                    _dailyBlueprint.value = blueprint
+                    _blueprintIncludedTaskIds.value = blueprint.items.map { it.task.id }.toSet()
+                }
+            } catch (e: Exception) {
+                // Non-blocking fallback
+            } finally {
+                _isBlueprintLoading.value = false
+            }
+        }
+    }
+
+    fun toggleBlueprintTask(taskId: String, isIncluded: Boolean) {
+        val current = _blueprintIncludedTaskIds.value.toMutableSet()
+        if (isIncluded) {
+            current.add(taskId)
+        } else {
+            current.remove(taskId)
+        }
+        _blueprintIncludedTaskIds.value = current
+    }
+
+    fun applyDailyBlueprint() {
+        viewModelScope.launch {
+            val blueprint = _dailyBlueprint.value ?: return@launch
+            val orchestrator = dailyBlueprintOrchestrator ?: return@launch
+            val included = _blueprintIncludedTaskIds.value
+            val result = orchestrator.applyBlueprint(blueprint, included)
+            _lastActionMessage.value = "Scheduled ${result.committedCount} tasks"
+            _dailyBlueprint.value = null
+        }
+    }
+
+    fun dismissDailyBlueprint() {
+        _dailyBlueprint.value = null
+    }
 
     fun addTask(task: TaskEntity) {
         viewModelScope.launch {

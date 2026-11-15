@@ -45,6 +45,8 @@ import com.neuroflow.app.domain.model.StepByStepPlanCodec
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
+import com.neuroflow.app.domain.scheduler.DailyBlueprint
+import com.neuroflow.app.domain.scheduler.DailyBlueprintOrchestrator
 import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.DeferralRationale
@@ -53,7 +55,6 @@ import com.neuroflow.app.domain.scheduler.SchedulePreparationOrchestrator
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.v2.focus.FocusTimerModeV2
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
-import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
@@ -129,7 +130,10 @@ data class PlanUiStateV2(
     val sevenDayLoadDistribution: Map<LocalDate, Float> = emptyMap(),
     val feedbackTask: TaskEntity? = null,
     val feedbackRemedyProposal: SlotRemedyResult? = null,
-    val isFeedbackLoading: Boolean = false
+    val isFeedbackLoading: Boolean = false,
+    val dailyBlueprint: DailyBlueprint? = null,
+    val isBlueprintLoading: Boolean = false,
+    val blueprintIncludedTaskIds: Set<String> = emptySet()
 )
 
 internal fun startOfTodayMillis(zoneId: ZoneId = ZoneId.systemDefault()): Long {
@@ -155,7 +159,8 @@ class PlanViewModelV2 @Inject constructor(
     private val goalRepository: com.neuroflow.app.data.repository.GoalRepository? = null,
     @ApplicationContext private val context: Context? = null,
     private val geminiAiOnlineService: GeminiAiOnlineService? = null,
-    private val multiDayScheduleOrchestrator: MultiDayScheduleOrchestrator? = null
+    private val multiDayScheduleOrchestrator: MultiDayScheduleOrchestrator? = null,
+    private val dailyBlueprintOrchestrator: DailyBlueprintOrchestrator? = null
 ) : ViewModel() {
 
     private val scheduleOrchestrator = SchedulePreparationOrchestrator(
@@ -178,6 +183,9 @@ class PlanViewModelV2 @Inject constructor(
     private val _feedbackTask = MutableStateFlow<TaskEntity?>(null)
     private val _feedbackRemedyProposal = MutableStateFlow<SlotRemedyResult?>(null)
     private val _isFeedbackLoading = MutableStateFlow(false)
+    private val _dailyBlueprint = MutableStateFlow<DailyBlueprint?>(null)
+    private val _isBlueprintLoading = MutableStateFlow(false)
+    private val _blueprintIncludedTaskIds = MutableStateFlow<Set<String>>(emptySet())
 
     private val _userActionMessage = MutableSharedFlow<String>()
     val userActionMessage: SharedFlow<String> = _userActionMessage.asSharedFlow()
@@ -237,7 +245,10 @@ class PlanViewModelV2 @Inject constructor(
         val deferrals: List<DeferralRationale> = emptyList(),
         val feedbackTask: TaskEntity? = null,
         val feedbackRemedyProposal: SlotRemedyResult? = null,
-        val isFeedbackLoading: Boolean = false
+        val isFeedbackLoading: Boolean = false,
+        val dailyBlueprint: DailyBlueprint? = null,
+        val isBlueprintLoading: Boolean = false,
+        val blueprintIncludedTaskIds: Set<String> = emptySet()
     )
 
     val uiState: StateFlow<PlanUiStateV2> = combine(
@@ -251,10 +262,17 @@ class PlanViewModelV2 @Inject constructor(
             combine(_isSearchVisible, _decomposingTaskId, _selectedQuadrant, _deferrals) { searchVis, decompId, selectedQuad, defs ->
                 listOf<Any?>(searchVis, decompId, selectedQuad, defs)
             },
-            combine(_feedbackTask, _feedbackRemedyProposal, _isFeedbackLoading) { fbTask, fbRemedy, fbLoading ->
-                listOf<Any?>(fbTask, fbRemedy, fbLoading)
+            combine(
+                combine(_feedbackTask, _feedbackRemedyProposal, _isFeedbackLoading) { fbTask, fbRemedy, fbLoading ->
+                    listOf<Any?>(fbTask, fbRemedy, fbLoading)
+                },
+                combine(_dailyBlueprint, _isBlueprintLoading, _blueprintIncludedTaskIds) { bp, bpLoading, bpIds ->
+                    listOf<Any?>(bp, bpLoading, bpIds)
+                }
+            ) { fourth, fifth ->
+                fourth + fifth
             }
-        ) { first, second, third, fourth ->
+        ) { first, second, third, combinedFourthFifth ->
             @Suppress("UNCHECKED_CAST")
             PlanNavParams(
                 dateMillis = first[0] as Long,
@@ -268,9 +286,12 @@ class PlanViewModelV2 @Inject constructor(
                 decomposingTaskId = third[1] as String?,
                 selectedQuadrant = third[2] as Quadrant?,
                 deferrals = third[3] as List<DeferralRationale>,
-                feedbackTask = fourth[0] as TaskEntity?,
-                feedbackRemedyProposal = fourth[1] as SlotRemedyResult?,
-                isFeedbackLoading = fourth[2] as Boolean
+                feedbackTask = combinedFourthFifth[0] as TaskEntity?,
+                feedbackRemedyProposal = combinedFourthFifth[1] as SlotRemedyResult?,
+                isFeedbackLoading = combinedFourthFifth[2] as Boolean,
+                dailyBlueprint = combinedFourthFifth[3] as DailyBlueprint?,
+                isBlueprintLoading = combinedFourthFifth[4] as Boolean,
+                blueprintIncludedTaskIds = combinedFourthFifth[5] as Set<String>
             )
         },
         taskRepository.observeActiveTasks(),
@@ -537,7 +558,10 @@ class PlanViewModelV2 @Inject constructor(
             recommendedCapacityMinutes = capacityMinutes,
             feedbackTask = params.feedbackTask,
             feedbackRemedyProposal = params.feedbackRemedyProposal,
-            isFeedbackLoading = params.isFeedbackLoading
+            isFeedbackLoading = params.isFeedbackLoading,
+            dailyBlueprint = params.dailyBlueprint,
+            isBlueprintLoading = params.isBlueprintLoading,
+            blueprintIncludedTaskIds = params.blueprintIncludedTaskIds
         )
     }.stateIn(
         viewModelScope,
@@ -559,6 +583,49 @@ class PlanViewModelV2 @Inject constructor(
 
     fun selectTag(tag: String?) {
         _selectedTag.value = tag
+    }
+
+    fun openDailyBlueprint(dateMillis: Long = _selectedDate.value) {
+        viewModelScope.launch {
+            _isBlueprintLoading.value = true
+            try {
+                val orchestrator = dailyBlueprintOrchestrator
+                if (orchestrator != null) {
+                    val blueprint = orchestrator.generateBlueprint(dateMillis)
+                    _dailyBlueprint.value = blueprint
+                    _blueprintIncludedTaskIds.value = blueprint.items.map { it.task.id }.toSet()
+                }
+            } catch (e: Exception) {
+                // Non-blocking fallback
+            } finally {
+                _isBlueprintLoading.value = false
+            }
+        }
+    }
+
+    fun toggleBlueprintTask(taskId: String, isIncluded: Boolean) {
+        val current = _blueprintIncludedTaskIds.value.toMutableSet()
+        if (isIncluded) {
+            current.add(taskId)
+        } else {
+            current.remove(taskId)
+        }
+        _blueprintIncludedTaskIds.value = current
+    }
+
+    fun applyDailyBlueprint() {
+        viewModelScope.launch {
+            val blueprint = _dailyBlueprint.value ?: return@launch
+            val orchestrator = dailyBlueprintOrchestrator ?: return@launch
+            val included = _blueprintIncludedTaskIds.value
+            val result = orchestrator.applyBlueprint(blueprint, included)
+            _userActionMessage.emit("Scheduled ${result.committedCount} tasks")
+            _dailyBlueprint.value = null
+        }
+    }
+
+    fun dismissDailyBlueprint() {
+        _dailyBlueprint.value = null
     }
 
     fun toggleAutoSchedule() {

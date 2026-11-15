@@ -30,12 +30,14 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
+import com.neuroflow.app.presentation.v2.plan.DailyBlueprintBottomSheet
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 private val PART_NUM_ID_REGEX = Regex("""[#_]part(\d+)""")
@@ -275,7 +277,12 @@ fun FlowScreenV2(
             val activeIds = remember(state.activeTasks, locallyCompletedIds) {
                 state.activeTasks.map { it.id }.toSet() - locallyCompletedIds
             }
-            val topTask = remember(state.recommendedTask, state.filteredTasks, state.selectedTag, completedIds, activeIds) {
+            val currentPhase = state.circadianSummary?.currentSnapshot?.phase
+                ?: state.energyTimeline.minByOrNull {
+                    kotlin.math.abs(it.timestampMillis - nowMillis)
+                }?.phase ?: EnergyPhase.PEAK
+
+            val topTask = remember(state.recommendedTask, state.filteredTasks, state.selectedTag, completedIds, activeIds, currentPhase) {
                 fun isTaskActionable(task: TaskEntity): Boolean {
                     val isActionableStatus = task.id !in completedIds &&
                         task.id in activeIds &&
@@ -314,7 +321,21 @@ fun FlowScreenV2(
                 }
 
                 val actionableFiltered = state.filteredTasks.filter { isTaskActionable(it) }
-                if (state.selectedTag.isNullOrBlank() || state.selectedTag.equals("All", ignoreCase = true)) {
+                if (currentPhase == EnergyPhase.WIND_DOWN) {
+                    // Option 2C: When in WIND_DOWN, prioritize low-energy / non-deep tasks; subdue frogs
+                    val lowStress = actionableFiltered.filter { task ->
+                        task.energyLevel == EnergyLevel.LOW || (
+                            task.energyLevel != EnergyLevel.HIGH &&
+                            !task.isFrog &&
+                            task.taskType != TaskType.ANALYTICAL &&
+                            !task.tags.contains("deepwork", ignoreCase = true) &&
+                            !task.contextTag.equals("deepwork", ignoreCase = true)
+                        )
+                    }
+                    state.recommendedTask?.takeIf { isTaskActionable(it) }
+                        ?: lowStress.firstOrNull { it.energyLevel == EnergyLevel.LOW }
+                        ?: lowStress.firstOrNull()
+                } else if (state.selectedTag.isNullOrBlank() || state.selectedTag.equals("All", ignoreCase = true)) {
                     state.recommendedTask?.takeIf { isTaskActionable(it) } ?: actionableFiltered.firstOrNull { it.isFrog } ?: actionableFiltered.firstOrNull()
                 } else {
                     state.filteredTasks.firstOrNull { it.id == state.recommendedTask?.id && isTaskActionable(it) }
@@ -322,10 +343,7 @@ fun FlowScreenV2(
                         ?: actionableFiltered.firstOrNull()
                 }
             }
-            if (topTask != null || activeTakeoverSlot != null) {
-                val currentPhase = state.energyTimeline.minByOrNull {
-                    kotlin.math.abs(it.timestampMillis - nowMillis)
-                }?.phase ?: EnergyPhase.PEAK
+            if (topTask != null || activeTakeoverSlot != null || currentPhase == EnergyPhase.WIND_DOWN) {
                 val microSteps = remember(topTask?.ifThenPlan) {
                     topTask?.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it) } ?: emptyList()
                 }
@@ -340,7 +358,7 @@ fun FlowScreenV2(
                         topTaskFirstMicroStep = microSteps.firstOrNull()?.text,
                         topTaskMicroSteps = microSteps,
                         topTaskDurationMinutes = topTask?.let { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) } ?: 25,
-                        topTaskEnergyLevel = topTask?.energyLevel ?: EnergyLevel.MEDIUM,
+                        topTaskEnergyLevel = topTask?.energyLevel ?: EnergyLevel.LOW,
                         isTopTaskFrog = topTask?.isFrog ?: false,
                         currentPhase = currentPhase,
                         onStartFocusClick = { taskId -> onStartFocus(taskId) },
@@ -351,7 +369,17 @@ fun FlowScreenV2(
                                 if (taskToComplete.isFrog) showFrogConfetti = true
                                 viewModel.completeTask(taskToComplete)
                             }
-                        }
+                        },
+                        onQuickFocusClick = { onStartFocus(com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS) },
+                        onShutdownClick = { viewModel.completeEveningShutdown() }
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    FreeFlowHeroCard(
+                        onStartFocus = { onStartFocus(com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS) },
+                        onPlanMyDay = { viewModel.openDailyBlueprint() }
                     )
                 }
             }
@@ -528,6 +556,17 @@ fun FlowScreenV2(
             onCreateTaskSynthesis = { syn, content -> viewModel.addTaskFromNote(syn, content) },
             onCreateTask = { title, desc -> viewModel.addTaskFromNote(title, desc) },
             onSynthesizeNote = { viewModel.synthesizeQuickNote(it) }
+        )
+    }
+
+    if (state.dailyBlueprint != null || state.isBlueprintLoading) {
+        DailyBlueprintBottomSheet(
+            blueprint = state.dailyBlueprint,
+            isLoading = state.isBlueprintLoading,
+            includedTaskIds = state.blueprintIncludedTaskIds,
+            onToggleTask = { taskId, included -> viewModel.toggleBlueprintTask(taskId, included) },
+            onApply = { viewModel.applyDailyBlueprint() },
+            onDismiss = { viewModel.dismissDailyBlueprint() }
         )
     }
 

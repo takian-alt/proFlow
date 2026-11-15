@@ -10,13 +10,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.ShieldMoon
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,6 +39,7 @@ import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.scheduler.DueSlot
 import com.neuroflow.app.domain.scheduler.SlotPhase
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.LinearProgressIndicator
@@ -62,7 +66,9 @@ fun FlowSpotlightHeroCard(
     onCompleteQuickClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     approachingSlot: DueSlot? = null,
-    topTaskMicroSteps: List<StepByStepPlanStep> = emptyList()
+    topTaskMicroSteps: List<StepByStepPlanStep> = emptyList(),
+    onQuickFocusClick: (() -> Unit)? = null,
+    onShutdownClick: (() -> Unit)? = null
 ) {
     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
     val cardShape = RoundedCornerShape(24.dp)
@@ -140,7 +146,90 @@ fun FlowSpotlightHeroCard(
         return
     }
 
-    if (topTaskId == null || topTaskTitle.isNullOrBlank()) return
+    if (topTaskId == null || topTaskTitle.isNullOrBlank()) {
+        if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
+            Surface(
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                shape = cardShape,
+                tonalElevation = 4.dp,
+                modifier = modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.5.dp,
+                        brush = NeuroFlowPaletteV2.specularBorderBrush(phaseAccent, 1f),
+                        shape = cardShape
+                    )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(phaseAccent.copy(alpha = 0.12f), Color.Transparent)
+                            )
+                        )
+                        .padding(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🌙 WIND-DOWN ACTIVE",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = phaseAccent,
+                            letterSpacing = 1.sp,
+                            maxLines = 1
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Melatonin rising · Close open loops & transition to shutdown",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NeuroFlowPaletteV2.TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Evening Shutdown Mode",
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "No open high-stress tasks. Protect your sleep window and let neural recovery begin.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NeuroFlowPaletteV2.TextSecondary
+                    )
+                    if (onShutdownClick != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { onShutdownClick() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = phaseAccent,
+                                contentColor = Color(0xFF0A0B0E)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ShieldMoon,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Plan Tomorrow / Shutdown",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
 
     Surface(
         color = NeuroFlowPaletteV2.SurfaceCard,
@@ -194,7 +283,13 @@ fun FlowSpotlightHeroCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isTopTaskFrog) "🐸 DAILY FROG SPOTLIGHT" else "⚡ OPTIMAL NEXT ACTION",
+                    text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
+                        "🌙 WIND-DOWN ACTIVE"
+                    } else if (isTopTaskFrog) {
+                        "🐸 DAILY FROG SPOTLIGHT"
+                    } else {
+                        "⚡ OPTIMAL NEXT ACTION"
+                    },
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                     color = phaseAccent,
                     letterSpacing = 1.sp,
@@ -209,13 +304,26 @@ fun FlowSpotlightHeroCard(
                     border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
                 ) {
                     Text(
-                        text = "${topTaskDurationMinutes}m · ${topTaskEnergyLevel.name}",
+                        text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
+                            "${topTaskDurationMinutes}m · Wrap-Up"
+                        } else {
+                            "${topTaskDurationMinutes}m · ${topTaskEnergyLevel.name}"
+                        },
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = NeuroFlowPaletteV2.TextSecondary,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         maxLines = 1
                     )
                 }
+            }
+
+            if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Melatonin rising · Close open loops & transition to shutdown",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NeuroFlowPaletteV2.TextSecondary
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -340,9 +448,66 @@ fun FlowSpotlightHeroCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Launch Focus",
+                        text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) "Quick Wrap-Up" else "Launch Focus",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
                     )
+                }
+                if ((currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) && onShutdownClick != null) {
+                    Surface(
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, phaseAccent.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onShutdownClick() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ShieldMoon,
+                                contentDescription = "Shutdown",
+                                tint = phaseAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Shutdown",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = NeuroFlowPaletteV2.TextPrimary
+                            )
+                        }
+                    }
+                } else if (onQuickFocusClick != null) {
+                    Surface(
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onQuickFocusClick() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "Quick Focus",
+                                tint = phaseAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Free Flow",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = NeuroFlowPaletteV2.TextPrimary
+                            )
+                        }
+                    }
                 }
                 Surface(
                     color = NeuroFlowPaletteV2.SurfaceElevated,
@@ -370,6 +535,150 @@ fun FlowSpotlightHeroCard(
                             color = NeuroFlowPaletteV2.TextPrimary
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FreeFlowHeroCard(
+    onStartFocus: () -> Unit,
+    onPlanMyDay: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val cardShape = RoundedCornerShape(24.dp)
+    val accentColor = NeuroFlowPaletteV2.ReboundCyan
+    Surface(
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        shape = cardShape,
+        tonalElevation = 4.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.5.dp,
+                brush = NeuroFlowPaletteV2.specularBorderBrush(accentColor, 1f),
+                shape = cardShape
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .background(
+                    Brush.verticalGradient(
+                        listOf(accentColor.copy(alpha = 0.12f), Color.Transparent)
+                    )
+                )
+                .padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "✨ FLOW ZONE READY",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                    color = accentColor,
+                    letterSpacing = 1.sp
+                )
+                Surface(
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                ) {
+                    Text(
+                        text = "Untracked Session",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "Free Flow Focus",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = NeuroFlowPaletteV2.TextPrimary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Jump directly into deep work without picking or creating a specific task.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = NeuroFlowPaletteV2.TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (onPlanMyDay != null) {
+                Button(
+                    onClick = onPlanMyDay,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "✨ Plan My Day",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = onStartFocus,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Quick Focus / Free Flow",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                }
+            } else {
+                Button(
+                    onClick = onStartFocus,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accentColor,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Quick Focus / Free Flow",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                    )
                 }
             }
         }
@@ -490,7 +799,7 @@ fun TaskSlotEnergyFitBadge(
     val slotSnapshot = timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - taskScheduledMillis) } ?: return
     val isMismatch = taskEnergyDemand == EnergyLevel.HIGH && slotSnapshot.usableEnergy < 52
     val isOptimalFit = (taskEnergyDemand == EnergyLevel.HIGH && slotSnapshot.usableEnergy >= 70) ||
-        (taskEnergyDemand == EnergyLevel.LOW && slotSnapshot.phase == EnergyPhase.DIP)
+        (taskEnergyDemand == EnergyLevel.LOW && (slotSnapshot.phase == EnergyPhase.DIP || slotSnapshot.phase == EnergyPhase.INERTIA || slotSnapshot.phase == EnergyPhase.CRASH))
     val badgeColor = when {
         isMismatch -> NeuroFlowPaletteV2.RecoveryRose
         isOptimalFit -> NeuroFlowPaletteV2.OptimalEmerald

@@ -257,8 +257,8 @@ fun PlanScreenV2(
                     }
 
                     FilledTonalButton(
-                        onClick = { viewModel.triggerAutoScheduleNow() },
-                        enabled = !state.isAutoScheduling,
+                        onClick = { viewModel.openDailyBlueprint() },
+                        enabled = !state.isAutoScheduling && !state.isBlueprintLoading,
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                             contentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
@@ -267,7 +267,7 @@ fun PlanScreenV2(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.heightIn(min = 42.dp)
                     ) {
-                        if (state.isAutoScheduling) {
+                        if (state.isAutoScheduling || state.isBlueprintLoading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(15.dp),
                                 strokeWidth = 2.dp,
@@ -723,6 +723,17 @@ fun PlanScreenV2(
                 viewModel.updateTask(updated)
             },
             completedTasks = completedTasks
+        )
+    }
+
+    if (state.dailyBlueprint != null || state.isBlueprintLoading) {
+        DailyBlueprintBottomSheet(
+            blueprint = state.dailyBlueprint,
+            isLoading = state.isBlueprintLoading,
+            includedTaskIds = state.blueprintIncludedTaskIds,
+            onToggleTask = { taskId, included -> viewModel.toggleBlueprintTask(taskId, included) },
+            onApply = { viewModel.applyDailyBlueprint() },
+            onDismiss = { viewModel.dismissDailyBlueprint() }
         )
     }
 
