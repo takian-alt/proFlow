@@ -1655,6 +1655,26 @@ When the user returns with the Vice Head's recommendations:
   - `TimelineTaskCardVisualPolishTest`: Duration badge, split part pill, circadian glow, and haptic feedback composition.
 - **Status**: Ratified & Implemented.
 
+### ADR-060: Comprehensive V2 UI Visual & Interaction Refinement Pass
+- **Context & Drivers**:
+  1. Header Clutter: The Plan screen top bar contained 5 loose ungrouped action buttons and low-contrast segmented tabs.
+  2. Flow Header Imbalance: The Flow screen header lacked typographic hierarchy, tight letter-spacing, and subtle division before the circadian barometer.
+  3. Barometer Visual Polish: Circadian 3-metric strip used raw columns rather than elevated dashboard cards; alert banners (social jetlag, fallback sleep, crash guard) had heavy borders rather than elegant accent-bar callouts.
+  4. Hero Spotlight Refinements: Micro-step doorway badges lacked specular border gradients and subtle depth elevations; action buttons required tactile visual hierarchy.
+  5. Focus Screen Coherence: Timer digits needed bold typographic punch, hero task cards and soundscape containers lacked unified specular border brushing and doorway accent bars.
+- **Decision & Architecture**:
+  1. **Plan Screen Header & Segmented Tabs Polish**: Grouped secondary icon actions (Search, Weekly, Mindmap, Notes) into a unified `Surface` pill cluster with specular borders; promoted `✨ Auto-Plan` to an elevated primary button; wrapped mode segmented buttons in elevated surface with high-contrast active container colors.
+  2. **Flow Screen Header & Section Dividers**: Tightened `neuroFlow` title letter spacing to -0.5sp, elevated subtitle to `labelMedium`, standardized icon button sizes to 40dp, and introduced a 0.75dp subtle slate horizontal divider.
+  3. **Circadian Hero Barometer Modernization**: Upgraded 3-metric strip into three balanced `SurfaceElevated` cards (PEAK, BUDGET, CUTOFF) with 10sp bold tertiary micro-labels and crisp values; redesigned social jetlag, fallback sleep, and crash guard alerts into callouts with 3dp vertical accent bars; rounded 24h Curve toggle into a 20dp pill.
+  4. **Flow Hero Cards Elevation**: Standardized hero card corner radii to 24dp; upgraded micro-step doorway containers with specular border gradients and 16dp rounded corners; added subtle elevation shadows to primary CTA buttons.
+  5. **Timeline & Focus Screen Standardization**: Applied specular border brush to `TimelineTaskCard` and Plan timeline rows; refined Focus screen hero task card with left accent bar for next micro-steps, and polished `BinauralSoundscapeCard` with specular border highlights.
+- **Verification**:
+  - `PlanScreenV2AuditTest`: Pass.
+  - `FlowScreenV2AuditTest`: Pass.
+  - `TimelineTaskCardVisualPolishTest`: Pass.
+  - `FocusScreenV2AuditTest`: Pass.
+- **Status**: Ratified & Implemented.
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
