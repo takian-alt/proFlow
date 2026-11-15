@@ -318,28 +318,35 @@ fun PlanScreenV2(
             )
 
             // 2. Anchored Mode Selector Segmented Tabs (Never jumps vertically)
-            SingleChoiceSegmentedButtonRow(
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush()),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
-                PlanViewModeV2.entries.forEachIndexed { index, mode ->
-                    SegmentedButton(
-                        selected = state.viewMode == mode,
-                        onClick = { viewModel.setViewMode(mode) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = PlanViewModeV2.entries.size
-                        ),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            activeContentColor = NeuroFlowThemeV2Colors.TextPrimary,
-                            inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurface,
-                            inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
-                        ),
-                        modifier = Modifier.heightIn(min = 44.dp)
-                    ) {
-                        Text(mode.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    PlanViewModeV2.entries.forEachIndexed { index, mode ->
+                        SegmentedButton(
+                            selected = state.viewMode == mode,
+                            onClick = { viewModel.setViewMode(mode) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = PlanViewModeV2.entries.size
+                            ),
+                            colors = SegmentedButtonDefaults.colors(
+                                activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                activeContentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                inactiveContainerColor = Color.Transparent,
+                                inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
+                            ),
+                            modifier = Modifier.heightIn(min = 40.dp)
+                        ) {
+                            Text(mode.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
                     }
                 }
             }
