@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -59,6 +60,8 @@ import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.v2.focus.audio.SoundscapeType
 import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
+import androidx.compose.ui.platform.testTag
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -245,6 +248,13 @@ fun FocusScreenV2(
                 task = state.task,
                 nextStep = nextStepForHero
             )
+
+            // ⚠️ 90m Ultradian Limit Warning Banner (Option 1A)
+            if (state.isUltradianLimitExceeded && !state.isCompleted) {
+                UltradianWarningBanner(
+                    message = state.ultradianWarning ?: FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE
+                )
+            }
 
             // Bioluminescent Radial Timer Ring (focused strictly on digits & flow status)
             RadialTimerGauge(
@@ -1240,7 +1250,7 @@ fun BioluminescentSoundscapeWaveformCard(
     Surface(
         color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.5f)),
+        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigo, 0.85f)),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -1308,7 +1318,7 @@ fun HeroTaskCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         color = NeuroFlowThemeV2Colors.SlateSurface,
-        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -1359,16 +1369,23 @@ fun HeroTaskCard(
 
             if (nextStep != null) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f)),
+                    border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(20.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                        )
                         Text("🎯", fontSize = 12.sp)
                         Text(
                             text = "Next: ${nextStep.text}",
@@ -1586,6 +1603,37 @@ private fun DndPermissionNoticeCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UltradianWarningBanner(
+    message: String,
+    modifier: Modifier = Modifier
+) {
+    val amber = NeuroFlowPaletteV2.PeakAmber
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("ultradian_limit_warning_banner"),
+        shape = RoundedCornerShape(14.dp),
+        color = amber.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, amber.copy(alpha = 0.40f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 18.sp
+                ),
+                color = NeuroFlowPaletteV2.TextPrimary
+            )
         }
     }
 }
