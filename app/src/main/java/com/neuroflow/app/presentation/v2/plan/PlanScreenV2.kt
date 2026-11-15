@@ -49,6 +49,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -216,70 +217,86 @@ fun PlanScreenV2(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    IconButton(
-                        onClick = { viewModel.toggleSearchVisible() },
-                        modifier = Modifier.size(44.dp)
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush()),
+                        modifier = Modifier.height(40.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = if (state.isSearchVisible || state.searchQuery.isNotBlank()) {
-                                NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            } else {
-                                NeuroFlowThemeV2Colors.TextSecondary
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.toggleSearchVisible() },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = if (state.isSearchVisible || state.searchQuery.isNotBlank()) {
+                                        NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                    } else {
+                                        NeuroFlowThemeV2Colors.TextSecondary
+                                    }
+                                )
                             }
-                        )
+
+                            IconButton(
+                                onClick = onNavigateToWeeklySchedule,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = "Weekly Schedule",
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                )
+                            }
+
+                            IconButton(
+                                onClick = onNavigateToMindmap,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountTree,
+                                    contentDescription = "Mind Map Planner",
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { showNotesSheet = true },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Notes,
+                                    contentDescription = "Quick Notes",
+                                    tint = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                            }
+                        }
                     }
 
-                    IconButton(
-                        onClick = onNavigateToWeeklySchedule,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = "Weekly Schedule",
-                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onNavigateToMindmap,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountTree,
-                            contentDescription = "Mind Map Planner",
-                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showNotesSheet = true },
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Notes,
-                            contentDescription = "Quick Notes",
-                            tint = NeuroFlowThemeV2Colors.TextSecondary
-                        )
-                    }
-
-                    FilledTonalButton(
+                    Button(
                         onClick = { viewModel.openDailyBlueprint() },
                         enabled = !state.isAutoScheduling && !state.isBlueprintLoading,
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                            contentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                            contentColor = Color.White,
+                            disabledContainerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            disabledContentColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.heightIn(min = 42.dp)
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .shadow(elevation = 4.dp, shape = RoundedCornerShape(12.dp))
                     ) {
                         if (state.isAutoScheduling || state.isBlueprintLoading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(15.dp),
                                 strokeWidth = 2.dp,
-                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                color = Color.White
                             )
                         } else {
                             Icon(
@@ -289,10 +306,16 @@ fun PlanScreenV2(
                             )
                         }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Auto-Plan", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("✨ Auto-Plan", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
+
+            HorizontalDivider(
+                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.15f),
+                thickness = 0.75.dp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+            )
 
             // 2. Anchored Mode Selector Segmented Tabs (Never jumps vertically)
             SingleChoiceSegmentedButtonRow(
