@@ -910,6 +910,9 @@ class PlanViewModelV2 @Inject constructor(
                                         )
                                     )
                                 }
+                                ExternalDeltaType.EVENT_ADDED -> {
+                                    // External event deltas are handled via calendar reconciliation
+                                }
                             }
                         }
                     }

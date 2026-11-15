@@ -32,14 +32,18 @@ data class AvailableCalendar(
 )
 
 enum class ExternalDeltaType {
-    MOVED, DELETED
+    MOVED, DELETED, EVENT_ADDED
 }
 
 data class ExternalCalendarDelta(
-    val taskId: String,
+    val taskId: String = "",
     val type: ExternalDeltaType,
     val newStartMillis: Long? = null,
-    val newEndMillis: Long? = null
+    val newEndMillis: Long? = null,
+    val eventId: Long? = null,
+    val startMillis: Long? = null,
+    val endMillis: Long? = null,
+    val title: String? = null
 )
 
 interface CalendarSyncRepository {

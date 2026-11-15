@@ -204,6 +204,9 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                                         )
                                     )
                                 }
+                                com.neuroflow.app.data.calendar.ExternalDeltaType.EVENT_ADDED -> {
+                                    // Handled during calendar reconciliation
+                                }
                             }
                         }
                     }
