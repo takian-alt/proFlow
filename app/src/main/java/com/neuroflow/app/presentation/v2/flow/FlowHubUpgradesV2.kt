@@ -8,11 +8,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
@@ -26,6 +28,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -298,22 +303,54 @@ fun FlowSpotlightHeroCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    color = NeuroFlowPaletteV2.SurfaceElevated,
-                    shape = RoundedCornerShape(50),
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
-                            "${topTaskDurationMinutes}m · Wrap-Up"
-                        } else {
-                            "${topTaskDurationMinutes}m · ${topTaskEnergyLevel.name}"
-                        },
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = NeuroFlowPaletteV2.TextSecondary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        maxLines = 1
-                    )
+                    // Live circadian energy indicator badge
+                    Surface(
+                        color = phaseAccent.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, phaseAccent.copy(alpha = 0.45f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(phaseAccent, CircleShape)
+                            )
+                            Text(
+                                text = currentPhase.name.replace('_', ' '),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                color = phaseAccent,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    // Duration badge
+                    Surface(
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    ) {
+                        Text(
+                            text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
+                                "${formatDurationChip(topTaskDurationMinutes)} · Wrap-Up"
+                            } else {
+                                "${formatDurationChip(topTaskDurationMinutes)} · ${topTaskEnergyLevel.name}"
+                            },
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = NeuroFlowPaletteV2.TextSecondary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            fontSize = 11.sp,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
@@ -346,15 +383,16 @@ fun FlowSpotlightHeroCard(
                 } else {
                     "🪜 2m Doorway: Step ${completedCount + 1} of $totalCount"
                 }
+                var isStepChecked by remember(topTaskId, currentStep.text) { mutableStateOf(currentStep.completed) }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(NeuroFlowPaletteV2.SurfaceElevated)
-                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Row(
@@ -387,39 +425,72 @@ fun FlowSpotlightHeroCard(
                         color = NeuroFlowPaletteV2.ReboundCyan,
                         trackColor = NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.3f),
                     )
-                    Text(
-                        text = currentStep.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NeuroFlowPaletteV2.TextPrimary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isStepChecked = !isStepChecked },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isStepChecked) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                            contentDescription = "Complete micro-step",
+                            tint = if (isStepChecked) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.ReboundCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = currentStep.text,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDecoration = if (isStepChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                            ),
+                            color = if (isStepChecked) NeuroFlowPaletteV2.TextTertiary else NeuroFlowPaletteV2.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             } else if (!topTaskFirstMicroStep.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
+                var isStepChecked by remember(topTaskId, topTaskFirstMicroStep) { mutableStateOf(false) }
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(NeuroFlowPaletteV2.SurfaceElevated)
-                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "2m Doorway:",
+                        text = "🪜 2m Doorway: First Micro-Step",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                         color = NeuroFlowPaletteV2.ReboundCyan
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = topTaskFirstMicroStep,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NeuroFlowPaletteV2.TextPrimary,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isStepChecked = !isStepChecked },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isStepChecked) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                            contentDescription = "Complete micro-step",
+                            tint = if (isStepChecked) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.ReboundCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = topTaskFirstMicroStep,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDecoration = if (isStepChecked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                            ),
+                            color = if (isStepChecked) NeuroFlowPaletteV2.TextTertiary else NeuroFlowPaletteV2.TextPrimary,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
@@ -619,9 +690,10 @@ fun FreeFlowHeroCard(
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.6f)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
@@ -631,7 +703,8 @@ fun FreeFlowHeroCard(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "✨ Plan My Day",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        letterSpacing = 0.5.sp
                     )
                 }
 
@@ -653,8 +726,8 @@ fun FreeFlowHeroCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Quick Focus / Free Flow",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        text = "Start Untracked Session",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 }
             } else {
@@ -667,7 +740,7 @@ fun FreeFlowHeroCard(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Bolt,
@@ -676,7 +749,7 @@ fun FreeFlowHeroCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Quick Focus / Free Flow",
+                        text = "Start Untracked Session",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
                     )
                 }

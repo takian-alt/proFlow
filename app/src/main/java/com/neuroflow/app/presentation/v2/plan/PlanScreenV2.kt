@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.v2.plan
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -15,8 +16,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
+import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.v2.flow.TaskSlotEnergyFitBadge
 import com.neuroflow.app.presentation.v2.flow.UltradianRecoveryDivider
+import com.neuroflow.app.presentation.v2.flow.formatDurationChip
+import com.neuroflow.app.presentation.v2.flow.formatTimeRange
+import com.neuroflow.app.presentation.v2.flow.parseSplitProgress
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.AccountTree
@@ -44,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1113,15 +1121,18 @@ fun TimelineScheduleView(
                     } else false
 
                     val currentTask by rememberUpdatedState(task)
+                    val haptic = LocalHapticFeedback.current
                     val dismissState = rememberSwipeToDismissBoxState(
                         positionalThreshold = { it * 0.55f },
                         confirmValueChange = { value ->
                             when (value) {
                                 SwipeToDismissBoxValue.StartToEnd -> {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onCompleteTask(currentTask)
                                     false
                                 }
                                 SwipeToDismissBoxValue.EndToStart -> {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onDeleteTask(currentTask)
                                     false
                                 }
@@ -1129,6 +1140,27 @@ fun TimelineScheduleView(
                             }
                         }
                     )
+
+                    val scheduledMillis = if (task.scheduledTime != null) {
+                        task.resolveScheduledEpochMillis(state.selectedDateMillis) ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
+                    } else null
+
+                    val taskPhase = if (scheduledMillis != null && state.energyTimeline.isNotEmpty()) {
+                        val timelineStart = state.energyTimeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+                            ?: com.neuroflow.app.data.local.entity.startOfLocalDay(state.selectedDateMillis)
+                        val alignedMillis = timelineStart + task.timelineStartMinuteOfDay() * 60_000L
+                        state.energyTimeline.minByOrNull { kotlin.math.abs(it.timestampMillis - alignedMillis) }?.phase ?: EnergyPhase.PEAK
+                    } else if (isDuringPeak) {
+                        EnergyPhase.PEAK
+                    } else {
+                        when (task.energyLevel) {
+                            com.neuroflow.app.domain.model.EnergyLevel.HIGH -> EnergyPhase.PEAK
+                            com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> EnergyPhase.REBOUND
+                            com.neuroflow.app.domain.model.EnergyLevel.LOW -> EnergyPhase.RECOVERY
+                        }
+                    }
+                    val accentColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+                    val cardShape = RoundedCornerShape(14.dp)
 
                     SwipeToDismissBox(
                         state = dismissState,
@@ -1151,7 +1183,7 @@ fun TimelineScheduleView(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(color, RoundedCornerShape(14.dp))
+                                    .background(color, cardShape)
                                     .padding(horizontal = 20.dp),
                                 contentAlignment = alignment
                             ) {
@@ -1170,8 +1202,10 @@ fun TimelineScheduleView(
                         }
                     ) {
                         Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, accentColor.copy(alpha = 0.35f), cardShape),
+                            shape = cardShape,
                             color = if (isDuringPeak) NeuroFlowThemeV2Colors.SlateSurfaceAlt else NeuroFlowThemeV2Colors.SlateSurface,
                             border = BorderStroke(
                                 1.dp,
@@ -1210,7 +1244,10 @@ fun TimelineScheduleView(
 
                                 // Complete check
                                 IconButton(
-                                    onClick = { onCompleteTask(task) },
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onCompleteTask(task)
+                                    },
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
@@ -1249,34 +1286,73 @@ fun TimelineScheduleView(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
+                                        // Duration badge
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f),
+                                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
+                                        ) {
+                                            Text(
+                                                text = "⚡ ${formatDurationChip(com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+
+                                        // Start and end time chip (for scheduled tasks)
+                                        if (scheduledMillis != null) {
+                                            val timeRangeStr = formatTimeRange(scheduledMillis, com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                                            ) {
+                                                Text(
+                                                    text = "⏱️ $timeRangeStr",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
                                         Text(
-                                            text = "${com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)}m • ${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
+                                            text = "${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
 
-                                        val isUltradianPart = task.id.contains("#part") || task.id.contains("_part") || task.title.contains("(Part ")
-                                        if (isUltradianPart) {
-                                            val titleMatch = Regex("""\(Part (\d+/\d+)\)""").find(task.title)
-                                            val idPartMatch = Regex("""[#_]part(\d+)""").find(task.id)
-                                            val partLabel = when {
-                                                titleMatch != null -> "🔗 Part ${titleMatch.groupValues[1]}"
-                                                idPartMatch != null -> "🔗 Part ${idPartMatch.groupValues[1]}"
-                                                task.id.contains("#part2") || task.id.contains("_part2") || task.title.contains("(Part 2/2)") -> "🔗 Part 2/2"
-                                                else -> "🔗 Part 1/2"
-                                            }
+                                        val splitProgress = parseSplitProgress(task)
+                                        if (splitProgress != null) {
                                             Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f)
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
+                                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f))
                                             ) {
-                                                Text(
-                                                    text = partLabel,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Part ${splitProgress.partNumber}/${splitProgress.totalParts}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    LinearProgressIndicator(
+                                                        progress = { splitProgress.progress },
+                                                        modifier = Modifier
+                                                            .width(32.dp)
+                                                            .height(4.dp)
+                                                            .clip(RoundedCornerShape(2.dp)),
+                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                        trackColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f)
+                                                    )
+                                                }
                                             }
                                         }
 

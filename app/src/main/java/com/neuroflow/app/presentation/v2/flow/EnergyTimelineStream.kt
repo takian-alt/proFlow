@@ -1,6 +1,8 @@
 package com.neuroflow.app.presentation.v2.flow
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -20,8 +22,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -244,6 +249,7 @@ fun TimelineTaskCard(
     val hasMicroSteps = microSteps.isNotEmpty()
     var showDetailSheet by remember { mutableStateOf(false) }
 
+    val haptic = LocalHapticFeedback.current
     val currentOnComplete by rememberUpdatedState(onComplete)
     val currentOnDefer by rememberUpdatedState(onDefer)
     val dismissState = rememberSwipeToDismissBoxState(
@@ -251,10 +257,12 @@ fun TimelineTaskCard(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     currentOnComplete()
                     true
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     currentOnDefer()
                     true
                 }
@@ -262,6 +270,24 @@ fun TimelineTaskCard(
             }
         }
     )
+
+    val scheduledMillis = if (task.scheduledTime != null) {
+        task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
+    } else null
+    val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
+        val timelineStart = timeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+            ?: com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+        val alignedMillis = timelineStart + task.timelineStartMinuteOfDay() * 60_000L
+        timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - alignedMillis) }?.phase ?: EnergyPhase.PEAK
+    } else {
+        when (task.energyLevel) {
+            EnergyLevel.HIGH -> EnergyPhase.PEAK
+            EnergyLevel.MEDIUM -> EnergyPhase.REBOUND
+            EnergyLevel.LOW -> EnergyPhase.RECOVERY
+        }
+    }
+    val accentColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+    val cardShape = RoundedCornerShape(16.dp)
 
     SwipeToDismissBox(
         state = dismissState,
@@ -284,7 +310,7 @@ fun TimelineTaskCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(color, RoundedCornerShape(16.dp))
+                    .background(color, cardShape)
                     .padding(horizontal = 20.dp),
                 contentAlignment = alignment
             ) {
@@ -303,8 +329,9 @@ fun TimelineTaskCard(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
+                .border(1.dp, accentColor.copy(alpha = 0.35f), cardShape)
                 .clickable(onClick = { showDetailSheet = true }),
-            shape = RoundedCornerShape(16.dp),
+            shape = cardShape,
             color = NeuroFlowThemeV2Colors.SlateSurface,
             tonalElevation = 2.dp
         ) {
@@ -317,7 +344,10 @@ fun TimelineTaskCard(
             ) {
                 // Leading Complete Button (48dp touch target)
                 IconButton(
-                    onClick = onComplete,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onComplete()
+                    },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
@@ -357,11 +387,38 @@ fun TimelineTaskCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "${TaskBlockPlan.plannedMinutes(task)}m",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeuroFlowThemeV2Colors.TextSecondary
-                        )
+                        // Duration badge
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = "⚡ ${formatDurationChip(TaskBlockPlan.plannedMinutes(task))}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        // Start and end time chip (for scheduled tasks)
+                        if (scheduledMillis != null) {
+                            val timeRangeStr = formatTimeRange(scheduledMillis, TaskBlockPlan.plannedMinutes(task))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                            ) {
+                                Text(
+                                    text = "⏱️ $timeRangeStr",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
 
                         Box(
                             modifier = Modifier
@@ -374,6 +431,37 @@ fun TimelineTaskCard(
                                 color = energyBadgeColor,
                                 fontWeight = FontWeight.Medium
                             )
+                        }
+
+                        val splitProgress = parseSplitProgress(task)
+                        if (splitProgress != null) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Part ${splitProgress.partNumber}/${splitProgress.totalParts}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { splitProgress.progress },
+                                        modifier = Modifier
+                                            .width(32.dp)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                        trackColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f)
+                                    )
+                                }
+                            }
                         }
 
                         if (hasMicroSteps) {
@@ -401,30 +489,6 @@ fun TimelineTaskCard(
                             }
                         }
 
-                        val isUltradianPart = task.id.contains("#part") || task.id.contains("_part") || task.title.contains("(Part ")
-                        if (isUltradianPart) {
-                            val titleMatch = Regex("""\(Part (\d+/\d+)\)""").find(task.title)
-                            val idPartMatch = Regex("""[#_]part(\d+)""").find(task.id)
-                            val partLabel = when {
-                                titleMatch != null -> "🔗 Part ${titleMatch.groupValues[1]}"
-                                idPartMatch != null -> "🔗 Part ${idPartMatch.groupValues[1]}"
-                                task.id.contains("#part2") || task.id.contains("_part2") || task.title.contains("(Part 2/2)") -> "🔗 Part 2/2"
-                                else -> "🔗 Part 1/2"
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = partLabel,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
                         if (task.postponeCount >= 3) {
                             Box(
                                 modifier = Modifier
@@ -441,9 +505,6 @@ fun TimelineTaskCard(
                         }
                     }
 
-                    val scheduledMillis = if (task.scheduledTime != null) {
-                        task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
-                    } else null
                     if (scheduledMillis != null && timeline.isNotEmpty()) {
                         val timelineStart = timeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
                             ?: com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
