@@ -860,7 +860,8 @@ class UserPreferencesDataStore @Inject constructor(
         category: String,
         hour: Int,
         isNegative: Boolean,
-        timestampMillis: Long = System.currentTimeMillis()
+        timestampMillis: Long = System.currentTimeMillis(),
+        reasonTag: String? = null
     ) {
         updatePreferences { prefs ->
             val updatedJson = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.recordFeedback(
@@ -868,7 +869,8 @@ class UserPreferencesDataStore @Inject constructor(
                 category = category,
                 hour = hour,
                 isNegative = isNegative,
-                timestampMillis = timestampMillis
+                timestampMillis = timestampMillis,
+                reasonTag = reasonTag
             )
             prefs.copy(schedulingRejectionsJson = updatedJson)
         }

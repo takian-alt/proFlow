@@ -20,7 +20,8 @@ object SchedulingFeedbackStore {
         category: String,
         hour: Int,
         isNegative: Boolean,
-        timestampMillis: Long = System.currentTimeMillis()
+        timestampMillis: Long = System.currentTimeMillis(),
+        reasonTag: String? = null
     ): String {
         val root = try {
             JSONObject(if (currentJson.isBlank()) "{}" else currentJson)
@@ -44,6 +45,9 @@ object SchedulingFeedbackStore {
         val newEntry = JSONObject().apply {
             put("ts", timestampMillis)
             put("neg", isNegative)
+            if (!reasonTag.isNullOrBlank()) {
+                put("tag", reasonTag)
+            }
         }
         cleanArr.put(newEntry)
         catObj.put(hourKey, cleanArr)
@@ -98,16 +102,22 @@ object SchedulingFeedbackStore {
                 val hour = hKey.toIntOrNull() ?: continue
                 val arr = catObj.optJSONArray(hKey) ?: continue
                 var count = 0
+                val tags = mutableListOf<String>()
                 for (i in 0 until arr.length()) {
                     val item = arr.optJSONObject(i) ?: continue
                     if (item.optBoolean("neg", true)) {
                         val ts = item.optLong("ts", 0L)
-                        if ((nowMillis - ts) < FOURTEEN_DAYS_MILLIS) count++
+                        if ((nowMillis - ts) < FOURTEEN_DAYS_MILLIS) {
+                            count++
+                            val tag = item.optString("tag").takeIf { it.isNotBlank() }
+                            if (tag != null) tags.add(tag)
+                        }
                     }
                 }
                 if (count > 0) {
                     val ampm = if (hour < 12) "${if (hour == 0) 12 else hour}AM" else "${if (hour == 12) 12 else hour - 12}PM"
-                    summaries.add("$cat at $ampm (disliked $count times)")
+                    val tagSuffix = if (tags.isNotEmpty()) " (reasons: ${tags.distinct().joinToString()})" else ""
+                    summaries.add("$cat at $ampm (disliked $count times$tagSuffix)")
                 }
             }
         }

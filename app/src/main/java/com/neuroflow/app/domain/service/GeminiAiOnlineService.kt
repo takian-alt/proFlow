@@ -1,6 +1,8 @@
 package com.neuroflow.app.domain.service
 
 import android.util.Log
+import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.model.EnergyLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -54,6 +56,18 @@ data class WeeklyAvoidanceAuditResult(
     val newSystemDirective: String
 )
 
+data class DailyBlueprintCoachingResult(
+    val headline: String,
+    val strategyBody: String,
+    val peakRecommendation: String
+)
+
+data class SlotRemedyResult(
+    val recommendedStartMillis: Long,
+    val reasoning: String,
+    val directivePatch: String? = null
+)
+
 interface GeminiAiOnlineService {
     suspend fun enrichTaskWithAi(
         title: String,
@@ -101,6 +115,7 @@ interface GeminiAiOnlineService {
         weeklyTelemetryJson: String,
         recentlyDeletedTasksJson: String,
         chronicallyPostponedTasksJson: String,
+        recentRejectionsJson: String = "",
         apiKey: String? = null,
         useAi: Boolean = false
     ): WeeklyAvoidanceAuditResult
@@ -115,6 +130,29 @@ interface GeminiAiOnlineService {
     fun decomposeTaskLocally(title: String, durationMinutes: Int): List<MicroStepSuggestion>
 
     suspend fun testConnection(apiKey: String): Result<String>
+
+    suspend fun generateDailyBlueprintCoaching(
+        tasks: List<TaskEntity>,
+        plannedMinutes: Int,
+        capacityMinutes: Int,
+        peakStartHour: Int = 9,
+        peakEndHour: Int = 12,
+        apiKey: String? = null,
+        userDirective: String = ""
+    ): DailyBlueprintCoachingResult
+
+    suspend fun remedyRejectedSlot(
+        task: TaskEntity,
+        rejectedStartHour: Int,
+        reasonTag: String,
+        availableWindows: List<TimeSlotWindow>,
+        apiKey: String? = null,
+        userDirective: String = ""
+    ): SlotRemedyResult
+
+    companion object {
+        operator fun invoke(): GeminiAiOnlineService = DefaultGeminiAiOnlineService()
+    }
 }
 
 @Singleton
@@ -372,15 +410,16 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         weeklyTelemetryJson: String,
         recentlyDeletedTasksJson: String,
         chronicallyPostponedTasksJson: String,
+        recentRejectionsJson: String,
         apiKey: String?,
         useAi: Boolean
     ): WeeklyAvoidanceAuditResult {
         val trimmedKey = apiKey?.trim().orEmpty()
         if (!useAi || trimmedKey.isBlank() || isRateLimited()) {
-            return localWeeklyAudit(recentlyDeletedTasksJson)
+            return localWeeklyAudit(recentlyDeletedTasksJson, recentRejectionsJson)
         }
 
-        val cacheKey = "weekly_audit_${weeklyTelemetryJson.hashCode()}_${recentlyDeletedTasksJson.hashCode()}_${chronicallyPostponedTasksJson.hashCode()}"
+        val cacheKey = "weekly_audit_${weeklyTelemetryJson.hashCode()}_${recentlyDeletedTasksJson.hashCode()}_${chronicallyPostponedTasksJson.hashCode()}_${recentRejectionsJson.hashCode()}"
         val cached = checkCache(cacheKey)
         if (cached != null) {
             try {
@@ -417,6 +456,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             Weekly Metrics: $weeklyTelemetryJson
             Recently Deleted Tasks: $recentlyDeletedTasksJson
             Chronically Postponed Tasks: $chronicallyPostponedTasksJson
+            Scheduling Slot Rejections (User Feedback): ${if (recentRejectionsJson.isNotBlank()) recentRejectionsJson else "None recorded"}
 
             Return ONLY a valid JSON object conforming strictly to this schema:
             {
@@ -540,6 +580,134 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             }
         } catch (_: Exception) {
             QuickNoteSynthesis(firstLine, "GENERAL", 20, listOf("quick-note"), "Review scratchpad note")
+        }
+    }
+
+    override suspend fun generateDailyBlueprintCoaching(
+        tasks: List<TaskEntity>,
+        plannedMinutes: Int,
+        capacityMinutes: Int,
+        peakStartHour: Int,
+        peakEndHour: Int,
+        apiKey: String?,
+        userDirective: String
+    ): DailyBlueprintCoachingResult {
+        val trimmedKey = apiKey?.trim().orEmpty()
+        if (trimmedKey.isBlank() || isRateLimited()) {
+            return localBlueprintCoaching(tasks, plannedMinutes, capacityMinutes, peakStartHour, peakEndHour)
+        }
+
+        val cacheKey = "blueprint_${tasks.map { it.id }.sorted().hashCode()}_${plannedMinutes}_${capacityMinutes}_${peakStartHour}_${peakEndHour}_${userDirective.hashCode()}"
+        val cached = checkCache(cacheKey)
+        if (cached != null) {
+            parseDailyBlueprintCoachingResponse(cached)?.let { return it }
+        }
+
+        val directiveBlock = if (userDirective.isNotBlank()) "USER ADAPTIVE DIRECTIVE:\n$userDirective\n" else ""
+        val tasksSummary = tasks.take(15).joinToString("\n") {
+            val dur = if (it.plannedBlockMinutes > 0) it.plannedBlockMinutes else it.estimatedDurationMinutes
+            "- ${it.title} (${dur}m, demand=${it.energyLevel.name}, frog=${it.isFrog})"
+        }
+        val prompt = """
+            $directiveBlock
+            You are an elite ADHD Executive Function & Chronobiology Strategist.
+            Analyze the proposed Daily Blueprint for today and synthesize a high-impact, neuro-affirming coaching summary.
+
+            CONTEXT:
+            - Target Deep Work Capacity: $capacityMinutes mins
+            - Planned Workload: $plannedMinutes mins (${if (capacityMinutes > 0) (plannedMinutes * 100 / capacityMinutes) else 0}% capacity)
+            - Peak Circadian Alertness Window: $peakStartHour:00 - $peakEndHour:00
+            - Planned Tasks:
+            $tasksSummary
+
+            GUIDELINES:
+            1. STRICT BAN ON PLATITUDES: Never say "Just do it", "Stay focused", or "Eat the frog".
+            2. Ground recommendations in initiation thresholds, cognitive pacing, and circadian alertness.
+            3. Recommend how to sequence tasks through the peak window vs afternoon dips.
+
+            Return ONLY a valid JSON object:
+            {
+               "headline": string (punchy 5-10 word strategy headline),
+               "strategyBody": string (2-3 concise sentences on pacing, friction removal, and order of attack),
+               "peakRecommendation": string (clear instruction for the $peakStartHour:00-$peakEndHour:00 peak)
+            }
+        """.trimIndent()
+
+        return try {
+            val responseText = executeGeminiCall(prompt, trimmedKey, maxTokens = 400)
+            if (responseText != null) {
+                storeCache(cacheKey, responseText)
+                parseDailyBlueprintCoachingResponse(responseText) ?: localBlueprintCoaching(tasks, plannedMinutes, capacityMinutes, peakStartHour, peakEndHour)
+            } else {
+                localBlueprintCoaching(tasks, plannedMinutes, capacityMinutes, peakStartHour, peakEndHour)
+            }
+        } catch (_: Exception) {
+            localBlueprintCoaching(tasks, plannedMinutes, capacityMinutes, peakStartHour, peakEndHour)
+        }
+    }
+
+    override suspend fun remedyRejectedSlot(
+        task: TaskEntity,
+        rejectedStartHour: Int,
+        reasonTag: String,
+        availableWindows: List<TimeSlotWindow>,
+        apiKey: String?,
+        userDirective: String
+    ): SlotRemedyResult {
+        val trimmedKey = apiKey?.trim().orEmpty()
+        if (trimmedKey.isBlank() || isRateLimited()) {
+            return localSlotRemedy(task, rejectedStartHour, reasonTag, availableWindows)
+        }
+
+        val taskDur = if (task.plannedBlockMinutes > 0) task.plannedBlockMinutes else task.estimatedDurationMinutes
+        val cacheKey = "remedy_${task.id}_${taskDur}_${rejectedStartHour}_${reasonTag}_${availableWindows.map { "${it.startMillis}-${it.endMillis}" }.hashCode()}_${userDirective.hashCode()}"
+        val cached = checkCache(cacheKey)
+        if (cached != null) {
+            parseSlotRemedyResponse(cached, availableWindows)?.let { return it }
+        }
+
+        val directiveBlock = if (userDirective.isNotBlank()) "USER ADAPTIVE DIRECTIVE:\n$userDirective\n" else ""
+        val windowsSummary = availableWindows.joinToString("; ") { "start: ${it.startMillis}, end: ${it.endMillis}" }
+        val prompt = """
+            $directiveBlock
+            You are an expert ADHD Chronobiology & Executive Function Coach.
+            A user rejected a scheduled time slot for a task. Propose an optimal replacement slot from the available windows and explain why.
+
+            TASK DETAILS:
+            - Title: "${task.title}"
+            - Duration: $taskDur minutes
+            - Energy Level: ${task.energyLevel.name}
+            - Rejected Start Hour: $rejectedStartHour:00
+            - Rejection Reason Tag: $reasonTag
+            - Available Free Windows: $windowsSummary
+
+            REMEDY INSTRUCTIONS:
+            1. Select the single best replacement window matching the task's cognitive and energy profile.
+            2. If reason was TOO_LOW_ENERGY, pick a high-alertness peak window.
+            3. If reason was TOO_EARLY, shift to later in the day.
+            4. If reason was NEEDS_LONGER_BLOCK, select the longest contiguous gap.
+            5. If reason was ROUTINE_CONFLICT, steer clear of the conflict hour.
+            6. Provide a concise, science-grounded reasoning sentence.
+            7. Provide an optional 1-sentence adaptive directive patch to prevent future misplacement.
+
+            Return ONLY a valid JSON object:
+            {
+               "recommendedStartMillis": long (must be within one of the available windows),
+               "reasoning": string,
+               "directivePatch": string or null
+            }
+        """.trimIndent()
+
+        return try {
+            val responseText = executeGeminiCall(prompt, trimmedKey, maxTokens = 350)
+            if (responseText != null) {
+                storeCache(cacheKey, responseText)
+                parseSlotRemedyResponse(responseText, availableWindows) ?: localSlotRemedy(task, rejectedStartHour, reasonTag, availableWindows)
+            } else {
+                localSlotRemedy(task, rejectedStartHour, reasonTag, availableWindows)
+            }
+        } catch (_: Exception) {
+            localSlotRemedy(task, rejectedStartHour, reasonTag, availableWindows)
         }
     }
 
@@ -715,11 +883,25 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         continuousFocusMinutes: Int
     ): EnergyAdvisory {
         return when {
-            continuousFocusMinutes >= 90 -> EnergyAdvisory(
+            continuousFocusMinutes >= 90 || phase == EnergyPhase.RECOVERY_NEEDED -> EnergyAdvisory(
                 statusTitle = "Synaptic Saturation Warning",
-                actionAdvice = "You have completed 90+ minutes of continuous focus. Take a 15-minute restorative walk or eye-rest break.",
+                actionAdvice = "You have completed 90+ minutes of continuous focus or hit cognitive fatigue. Take a 15-minute restorative walk or eye-rest break.",
                 suggestedCategory = "RECOVERY",
                 suggestedEnergyDemand = EnergyDemand.LOW,
+                powerNapRecommended = false
+            )
+            phase == EnergyPhase.RECOVERY -> EnergyAdvisory(
+                statusTitle = "Active Restoration in Progress",
+                actionAdvice = "Reservoir is actively recharging. Disconnect from cognitive demands and breathe deeply.",
+                suggestedCategory = "MINDFULNESS",
+                suggestedEnergyDemand = EnergyDemand.LOW,
+                powerNapRecommended = false
+            )
+            phase == EnergyPhase.SURGE -> EnergyAdvisory(
+                statusTitle = "Hyperfocus Surge Active",
+                actionAdvice = "Peak stimulant or flow surge ($usableEnergyPercent%). Unrivaled cognitive alertness: crush high-leverage friction tasks.",
+                suggestedCategory = "DEEP_WORK",
+                suggestedEnergyDemand = EnergyDemand.HIGH,
                 powerNapRecommended = false
             )
             phase == EnergyPhase.PEAK -> EnergyAdvisory(
@@ -729,10 +911,45 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
                 suggestedEnergyDemand = EnergyDemand.HIGH,
                 powerNapRecommended = false
             )
+            phase == EnergyPhase.REBOUND -> EnergyAdvisory(
+                statusTitle = "Alertness Rebound Wave",
+                actionAdvice = "Second wind alertness ($usableEnergyPercent%). Great for creative ideation, problem solving, or collaboration.",
+                suggestedCategory = "CREATIVE",
+                suggestedEnergyDemand = EnergyDemand.MODERATE,
+                powerNapRecommended = false
+            )
             phase == EnergyPhase.DIP -> EnergyAdvisory(
                 statusTitle = "Circadian Post-Lunch Dip",
                 actionAdvice = "Usable energy dips ($usableEnergyPercent%). Switch to routine admin chores or take a 20-minute power nap.",
                 suggestedCategory = "ADMIN",
+                suggestedEnergyDemand = EnergyDemand.LOW,
+                powerNapRecommended = true
+            )
+            phase == EnergyPhase.INERTIA -> EnergyAdvisory(
+                statusTitle = "Sleep Inertia Clearance",
+                actionAdvice = "Waking grogginess active ($usableEnergyPercent%). Hydrate and get morning light before starting deep work.",
+                suggestedCategory = "ADMIN",
+                suggestedEnergyDemand = EnergyDemand.LOW,
+                powerNapRecommended = false
+            )
+            phase == EnergyPhase.CRASH -> EnergyAdvisory(
+                statusTitle = "Acute Energy Crash Detected",
+                actionAdvice = "Metabolic drop or stimulant clearance ($usableEnergyPercent%). Take a 20-minute power nap or protein fuel.",
+                suggestedCategory = "MINDFULNESS",
+                suggestedEnergyDemand = EnergyDemand.LOW,
+                powerNapRecommended = true
+            )
+            phase == EnergyPhase.WIND_DOWN -> EnergyAdvisory(
+                statusTitle = "Evening Wind-Down",
+                actionAdvice = "Approaching sleep cycle ($usableEnergyPercent%). Wrap up open loops, reflect, and prepare for restful sleep.",
+                suggestedCategory = "ADMIN",
+                suggestedEnergyDemand = EnergyDemand.LOW,
+                powerNapRecommended = false
+            )
+            phase == EnergyPhase.TROUGH -> EnergyAdvisory(
+                statusTitle = "Circadian Nadir / Sleep Window",
+                actionAdvice = "Biological core temperature and alertness nadir ($usableEnergyPercent%). Cease cognitive demands and sleep.",
+                suggestedCategory = "MINDFULNESS",
                 suggestedEnergyDemand = EnergyDemand.LOW,
                 powerNapRecommended = true
             )
@@ -746,7 +963,10 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         }
     }
 
-    private fun localWeeklyAudit(recentlyDeletedJson: String): WeeklyAvoidanceAuditResult {
+    private fun localWeeklyAudit(
+        recentlyDeletedJson: String,
+        recentRejectionsJson: String = ""
+    ): WeeklyAvoidanceAuditResult {
         val auditJson = JSONObject().apply {
             put("primaryAvoidancePattern", "Avoidance of unstructured tasks exceeding 60 minutes.")
             put("biologicalCircadianMismatch", "Tasks placed during afternoon energy dips experienced higher postponement frequency.")
@@ -760,12 +980,18 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             })
         }.toString()
 
+        val routingRule = if (recentRejectionsJson.isNotBlank() && recentRejectionsJson != "None") {
+            "High cognitive tasks locked to peak windows; avoid user-disliked slots ($recentRejectionsJson)."
+        } else {
+            "High cognitive tasks locked to morning peak (09:30-12:30)."
+        }
+
         val directive = """
             [Adaptive System Directive — Calibrated via Local Neuro-Profile]
             - Profile: High velocity on <45m structured tasks; friction on large blocks.
             - Estimation Bias Buffer: 1.25x
             - Friction Rule: Any task >45m must be preceded by a <=3-minute activation step.
-            - Circadian Routing: High cognitive tasks locked to morning peak (09:30-12:30).
+            - Circadian Routing: $routingRule
         """.trimIndent()
 
         return WeeklyAvoidanceAuditResult(auditJson, directive)
@@ -903,6 +1129,177 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
                 suggestedCategory = root.optString("suggestedCategory", "GENERAL"),
                 suggestedEnergyDemand = demand,
                 powerNapRecommended = root.optBoolean("powerNapRecommended", false)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun localBlueprintCoaching(
+        tasks: List<TaskEntity>,
+        plannedMinutes: Int,
+        capacityMinutes: Int,
+        peakStartHour: Int = 9,
+        peakEndHour: Int = 12
+    ): DailyBlueprintCoachingResult {
+        val utilRatio = if (capacityMinutes > 0) plannedMinutes.toDouble() / capacityMinutes else 0.0
+        val highEnergyCount = tasks.count { it.energyLevel == EnergyLevel.HIGH || it.isFrog }
+        val frogTask = tasks.firstOrNull { it.isFrog }
+
+        val headline = when {
+            utilRatio > 1.05 -> "High Cognitive Load Alert: Strategic Pacing Required"
+            utilRatio in 0.7..1.05 -> "Optimal Energy Synchronization: Prime Focus Protocol Active"
+            plannedMinutes > 0 -> "Light Cognitive Load: Ideal for Incremental Progress"
+            else -> "Clean Slate: Ready for Daily Alignment"
+        }
+
+        val strategyBody = buildString {
+            append("Planned deep focus: ${plannedMinutes}m across ${tasks.size} tasks against ${capacityMinutes}m target (${(utilRatio * 100).toInt()}% capacity). ")
+            append("Protect your biological peak window ($peakStartHour:00–$peakEndHour:00) for high-friction demands. ")
+            if (frogTask != null) {
+                append("Tackle '${frogTask.title.take(25)}' first during morning peak alertness to prevent working memory drain.")
+            } else if (highEnergyCount > 0) {
+                append("Cluster your $highEnergyCount demanding tasks into morning peak before afternoon cognitive dips.")
+            } else {
+                append("Maintain steady cognitive pacing with 10-minute restorative breaks between intervals.")
+            }
+        }.trim()
+
+        val peakRec = if (frogTask != null) {
+            "Anchor '${frogTask.title.take(30)}' into $peakStartHour:00–$peakEndHour:00 peak focus window"
+        } else {
+            "Reserve $peakStartHour:00–$peakEndHour:00 for highest-friction analytical and deep work"
+        }
+
+        return DailyBlueprintCoachingResult(
+            headline = headline,
+            strategyBody = strategyBody,
+            peakRecommendation = peakRec
+        )
+    }
+
+    fun localSlotRemedy(
+        task: TaskEntity,
+        rejectedStartHour: Int,
+        reasonTag: String,
+        availableWindows: List<TimeSlotWindow>
+    ): SlotRemedyResult {
+        if (availableWindows.isEmpty()) {
+            return SlotRemedyResult(
+                recommendedStartMillis = task.scheduledTime ?: System.currentTimeMillis(),
+                reasoning = "No alternate schedule gaps available; preserving baseline.",
+                directivePatch = null
+            )
+        }
+
+        val taskDuration = (if (task.plannedBlockMinutes > 0) task.plannedBlockMinutes else task.estimatedDurationMinutes).coerceIn(5, 240)
+        val taskDurationMs = taskDuration * 60_000L
+        val fitting = availableWindows.filter { (it.endMillis - it.startMillis) >= taskDurationMs }
+            .ifEmpty { availableWindows }
+
+        fun extractHour(ms: Long): Int {
+            return if (ms < 1_000_000_000_000L) {
+                ((ms / 3600_000L) % 24).toInt()
+            } else {
+                try {
+                    java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).hour
+                } catch (_: Exception) {
+                    ((ms / 3600_000L) % 24).toInt()
+                }
+            }
+        }
+
+        val selectedWindow: TimeSlotWindow
+        val reasoning: String
+        val directivePatch: String?
+
+        when (reasonTag.uppercase(Locale.ROOT)) {
+            "TOO_LOW_ENERGY" -> {
+                val peakWindow = fitting.firstOrNull { extractHour(it.startMillis) in 9..12 }
+                val fallbackWindow = fitting.firstOrNull { extractHour(it.startMillis) != rejectedStartHour }
+                    ?: fitting.first()
+                selectedWindow = peakWindow ?: fallbackWindow
+                val selHour = extractHour(selectedWindow.startMillis)
+                reasoning = "Re-routed to biological peak energy window ($selHour:00) with maximal dopaminergic focus and alertness."
+                directivePatch = "Prioritize peak circadian hours (09:00–12:00) for demanding tasks like '${task.title.take(30)}'."
+            }
+            "TOO_EARLY" -> {
+                val laterWindow = fitting.firstOrNull { extractHour(it.startMillis) > rejectedStartHour }
+                    ?: fitting.maxByOrNull { extractHour(it.startMillis) }
+                    ?: fitting.first()
+                selectedWindow = laterWindow
+                val selHour = extractHour(selectedWindow.startMillis)
+                reasoning = "Shifted later to $selHour:00 to clear morning sleep inertia and reduce initiation resistance."
+                directivePatch = "Avoid scheduling high-friction tasks before ${(rejectedStartHour + 1).coerceAtMost(12)}:00."
+            }
+            "NEEDS_LONGER_BLOCK" -> {
+                selectedWindow = fitting.maxByOrNull { it.endMillis - it.startMillis } ?: fitting.first()
+                val blockMinutes = ((selectedWindow.endMillis - selectedWindow.startMillis) / 60_000L).toInt()
+                reasoning = "Allocated expanded contiguous block (${blockMinutes}m) for deep uninterrupted flow."
+                directivePatch = "Allocate uninterrupted focus blocks >= 60m for '${task.title.take(30)}'."
+            }
+            "ROUTINE_CONFLICT" -> {
+                val altWindow = fitting.filter { extractHour(it.startMillis) != rejectedStartHour }
+                    .maxByOrNull { kotlin.math.abs(extractHour(it.startMillis) - rejectedStartHour) }
+                    ?: fitting.first()
+                selectedWindow = altWindow
+                val selHour = extractHour(selectedWindow.startMillis)
+                reasoning = "Moved to $selHour:00 to eliminate conflict with daily personal routine."
+                directivePatch = "Protect $rejectedStartHour:00 as a routine conflict buffer."
+            }
+            else -> {
+                selectedWindow = fitting.firstOrNull { extractHour(it.startMillis) != rejectedStartHour }
+                    ?: fitting.first()
+                val selHour = extractHour(selectedWindow.startMillis)
+                reasoning = "Re-scheduled to $selHour:00 to match task cognitive demands and availability."
+                directivePatch = null
+            }
+        }
+
+        return SlotRemedyResult(
+            recommendedStartMillis = selectedWindow.startMillis,
+            reasoning = reasoning,
+            directivePatch = directivePatch
+        )
+    }
+
+    private fun parseDailyBlueprintCoachingResponse(raw: String): DailyBlueprintCoachingResult? {
+        return try {
+            val clean = extractCleanJson(raw)
+            val root = JSONObject(clean)
+            val headline = root.optString("headline").trim()
+            val strategy = root.optString("strategyBody").trim()
+            val peak = root.optString("peakRecommendation").trim()
+            if (headline.isBlank() || strategy.isBlank()) null
+            else DailyBlueprintCoachingResult(
+                headline = headline,
+                strategyBody = strategy,
+                peakRecommendation = peak.ifBlank { "Protect peak alertness window for demanding tasks." }
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun parseSlotRemedyResponse(raw: String, availableWindows: List<TimeSlotWindow>): SlotRemedyResult? {
+        return try {
+            val clean = extractCleanJson(raw)
+            val root = JSONObject(clean)
+            val recommendedMillis = root.optLong("recommendedStartMillis", -1L)
+            val reasoning = root.optString("reasoning").trim()
+            val directivePatch = root.optString("directivePatch").takeIf { it.isNotBlank() && it != "null" }
+
+            val validStart = if (availableWindows.any { recommendedMillis in it.startMillis..it.endMillis }) {
+                recommendedMillis
+            } else {
+                availableWindows.firstOrNull()?.startMillis ?: return null
+            }
+
+            if (reasoning.isBlank()) null
+            else SlotRemedyResult(
+                recommendedStartMillis = validStart,
+                reasoning = reasoning,
+                directivePatch = directivePatch
             )
         } catch (_: Exception) {
             null
