@@ -1232,15 +1232,10 @@ fun TimelineScheduleView(
                         }
                     ) {
                         Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, accentColor.copy(alpha = 0.35f), cardShape),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = cardShape,
                             color = if (isDuringPeak) NeuroFlowThemeV2Colors.SlateSurfaceAlt else NeuroFlowThemeV2Colors.SlateSurface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isDuringPeak) NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.5f) else NeuroFlowThemeV2Colors.SlateBorder
-                            )
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(accentColor, 0.85f))
                         ) {
                             Row(
                                 modifier = Modifier
