@@ -57,8 +57,8 @@ class MultiDayScheduleOrchestrator @Inject constructor(
 
         val dailyCapacityMinutes = prefs.dailyDeepWorkTargetMinutes.coerceIn(30, 720)
 
-        val rawWakeHour = if (prefs.wakeTimeHour != 7) prefs.wakeTimeHour else prefs.wakeUpHour
-        val wakeHour = rawWakeHour.coerceIn(4, 12)
+        val rawWakeHour = prefs.wakeTimeHour.coerceIn(4, 12)
+        val wakeHour = rawWakeHour
         val wakeMinute = prefs.wakeTimeMinute.coerceIn(0, 59)
 
         val sleepDurationMinutes = recentSleep?.let {
@@ -135,6 +135,14 @@ class MultiDayScheduleOrchestrator @Inject constructor(
 
                 if (partNum != null) {
                     val nextPartNum = partNum + 1
+                    val hasNextPart = tasks.any { t ->
+                        (t.id.startsWith(baseId) || t.parentTaskId == baseId) && (
+                            t.id.endsWith("_part$nextPartNum") ||
+                            t.id.endsWith("#part$nextPartNum") ||
+                            t.id.contains(Regex("""[#_]part$nextPartNum(\D|$)""")) ||
+                            t.title.contains("(Part $nextPartNum/")
+                        )
+                    }
                     val nextPartPlaced = effectivePlacements.any {
                         it.task.id.startsWith(baseId) && (
                             it.task.id.endsWith("_part$nextPartNum") ||
@@ -143,7 +151,7 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                             it.task.title.contains("(Part $nextPartNum/")
                         )
                     }
-                    if (!nextPartPlaced && dayOffset + 1 < horizonDays) {
+                    if (hasNextPart && !nextPartPlaced && dayOffset + 1 < horizonDays) {
                         val part2Date = currentDate.plusDays(1)
                         val warmupMins = 15
                         crossDaySplits.add(

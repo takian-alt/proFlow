@@ -259,4 +259,92 @@ class MultiDayScheduleOrchestratorTest {
         assertEquals(today.plusDays(1), splitInfo.part2Date)
         assertEquals(15, splitInfo.part2WarmupMinutes)
     }
+
+    @Test
+    fun testMultiDayOrchestrator_finalPartDoesNotProducePhantomCrossDaySplit() = runBlocking {
+        val today = LocalDate.now()
+        val zoneId = ZoneId.systemDefault()
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        val part2 = SchedulableTask(id = "epic_task#part2", title = "Epic Task (Part 2/2)", estimatedMinutes = 60, category = TaskCategory.DEEP_WORK, priority = 2, energyDemand = EnergyDemand.HIGH)
+        val placementPart2 = ScheduledPlacement(part2, TimeSlotWindow(dayStart + 9 * 3600_000L, dayStart + 10 * 3600_000L), 90.0)
+
+        every {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = match { it.any { t -> t.id == "epic_task#part2" } },
+                dayDate = today,
+                nowMillis = any(),
+                wakeTimeMillis = any(),
+                lastSleepDurationMinutes = any(),
+                busyWindows = any(),
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = any(),
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        } returns SchedulingOutcome(listOf(placementPart2))
+
+        val outcome = orchestrator.orchestrateMultiDaySchedule(listOf(part2), startDate = today, horizonDays = 3)
+        assertTrue("Final part must not produce phantom cross-day split", outcome.crossDaySplits.isEmpty())
+    }
+
+    @Test
+    fun testMultiDayOrchestrator_wakeHour7AmRespected() = runBlocking {
+        coEvery { preferencesDataStore.preferencesFlow } returns flowOf(
+            UserPreferences(wakeTimeHour = 7, wakeTimeMinute = 0)
+        )
+        every { sleepRepository.observeAllSleepLogs() } returns flowOf(emptyList())
+
+        val tasks = listOf(
+            SchedulableTask(id = "task_morning", title = "Morning Work", estimatedMinutes = 60, category = TaskCategory.DEEP_WORK, priority = 2, energyDemand = EnergyDemand.HIGH)
+        )
+        val today = LocalDate.of(2026, 11, 20)
+        val zoneId = ZoneId.systemDefault()
+        val expectedWakeMillis = today.atStartOfDay(zoneId).toInstant().toEpochMilli() + 7 * 3600_000L
+
+        orchestrator.orchestrateMultiDaySchedule(tasks, startDate = today, horizonDays = 1, zoneId = zoneId)
+
+        io.mockk.verify {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = any(),
+                dayDate = today,
+                nowMillis = any(),
+                wakeTimeMillis = expectedWakeMillis,
+                lastSleepDurationMinutes = any(),
+                busyWindows = any(),
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = any(),
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        }
+    }
 }
