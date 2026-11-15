@@ -24,8 +24,8 @@ android {
         applicationId = "com.neuroflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "20.7"
+        versionCode = 42
+        versionName = "20.22"
 
         // Toggle strict kiosk behavior at build time:
         // -PkioskStrictMode=true  => full lock task + hard restrictions
@@ -42,7 +42,12 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("/home/takian/Downloads/backup/Project/keysigned/PROCUS/proFlow.jks")
+            val keystoreFile = if (file("/home/takian/Downloads/Project/keysigned/PROCUS/proFlow.jks").exists()) {
+                file("/home/takian/Downloads/Project/keysigned/PROCUS/proFlow.jks")
+            } else {
+                file("/home/takian/Downloads/backup/Project/keysigned/PROCUS/proFlow.jks")
+            }
+            storeFile = keystoreFile
             storePassword = "takianthegreat"
             keyAlias = "procus"
             keyPassword = "tahithegreat"
