@@ -329,7 +329,7 @@ fun TimelineTaskCard(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, accentColor.copy(alpha = 0.35f), cardShape)
+                .border(1.dp, NeuroFlowPaletteV2.specularBorderBrush(accentColor, 0.85f), cardShape)
                 .clickable(onClick = { showDetailSheet = true }),
             shape = cardShape,
             color = NeuroFlowThemeV2Colors.SlateSurface,

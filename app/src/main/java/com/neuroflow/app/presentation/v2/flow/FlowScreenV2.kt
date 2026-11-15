@@ -161,11 +161,11 @@ fun FlowScreenV2(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
                         color = NeuroFlowThemeV2Colors.TextPrimary,
-                        letterSpacing = 0.5.sp
+                        letterSpacing = (-0.5).sp
                     )
                     Text(
                         text = "Biological High Performance",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                     )
                 }
@@ -176,7 +176,7 @@ fun FlowScreenV2(
                 ) {
                     IconButton(
                         onClick = onNavigateToMindmap,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AccountTree,
@@ -187,7 +187,7 @@ fun FlowScreenV2(
 
                     IconButton(
                         onClick = { showNotesSheet = true },
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Notes,
@@ -198,7 +198,7 @@ fun FlowScreenV2(
 
                     IconButton(
                         onClick = onNavigateToSettings,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -208,6 +208,12 @@ fun FlowScreenV2(
                     }
                 }
             }
+
+            HorizontalDivider(
+                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.12f),
+                thickness = 0.75.dp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+            )
 
             // Hero Circadian Barometer (Borbély Two-Process Model)
             val energyScore = state.energyUi?.rawEnergy ?: 50f

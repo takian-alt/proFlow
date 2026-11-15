@@ -131,12 +131,12 @@ fun CircadianHeroBarometer(
                 if (dayTimeline.size >= 2) {
                     Surface(
                         onClick = { isGraphExpanded = !isGraphExpanded },
-                        shape = RoundedCornerShape(50),
+                        shape = RoundedCornerShape(20.dp),
                         color = NeuroFlowPaletteV2.SurfaceElevated,
-                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -167,27 +167,55 @@ fun CircadianHeroBarometer(
             } else {
                 // Compact 3-metric strip
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(NeuroFlowPaletteV2.SurfaceElevated.copy(alpha = 0.6f))
-                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val fmt = DateTimeFormatter.ofPattern("HH:mm")
-                    Column {
-                        Text("PEAK", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text("${summary.peakStart.format(fmt)}–${summary.peakEnd.format(fmt)}", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("PEAK", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("${summary.peakStart.format(fmt)}–${summary.peakEnd.format(fmt)}", style = MaterialTheme.typography.labelMedium, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text("${summary.cognitiveBudgetMinutesRemaining}m", style = MaterialTheme.typography.labelSmall, color = accent, fontWeight = FontWeight.ExtraBold)
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("${summary.cognitiveBudgetMinutesRemaining}m", style = MaterialTheme.typography.labelMedium, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                        }
                     }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("CUTOFF", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text(latestSafeStimulantCutoffFormatted.ifBlank { "--:--" }, style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("CUTOFF", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(latestSafeStimulantCutoffFormatted.ifBlank { "--:--" }, style = MaterialTheme.typography.labelMedium, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
                     }
                 }
             }
@@ -226,19 +254,25 @@ fun CircadianHeroBarometer(
                     onClick = onNavigateToMEQ,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f))
+                    color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.08f)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(24.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.7f))
+                        )
                         Text("🌅", fontSize = 13.sp)
                         Text(
                             text = "Weekend Drift: ${if (socialJetlagLagHours > 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", socialJetlagLagHours)}h phase shift. Tap for MEQ advice.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -250,15 +284,21 @@ fun CircadianHeroBarometer(
                 Surface(
                     onClick = onNavigateToSleepLogs,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    color = NeuroFlowPaletteV2.SurfaceElevated,
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    shape = RoundedCornerShape(12.dp),
+                    color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.08f)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(24.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.7f))
+                        )
                         Text("🌙", fontSize = 12.sp)
                         Text(
                             text = "Baseline sleep estimate used. Tap to log actual sleep.",
@@ -304,11 +344,13 @@ fun CircadianHeroBarometer(
     modifier: Modifier = Modifier
 ) {
     val phase = when {
-        batteryPercent >= 75 -> EnergyPhase.PEAK
-        batteryPercent >= 55 -> EnergyPhase.REBOUND
+        batteryPercent >= 85 -> EnergyPhase.SURGE
+        batteryPercent >= 70 -> EnergyPhase.PEAK
+        batteryPercent >= 50 -> EnergyPhase.REBOUND
         batteryPercent >= 35 -> EnergyPhase.DIP
         batteryPercent >= 20 -> EnergyPhase.WIND_DOWN
-        else -> EnergyPhase.RECOVERY_NEEDED
+        batteryPercent >= 10 -> EnergyPhase.RECOVERY_NEEDED
+        else -> EnergyPhase.TROUGH
     }
 
     val effectiveSummary = summary ?: remember(batteryPercent, phase, sleepPressurePoints) {
@@ -337,11 +379,13 @@ fun CircadianHeroBarometer(
                 val cWave = 0.5f - 0.35f * cos(frac * 2 * Math.PI).toFloat() + 0.15f * sin(frac * 4 * Math.PI).toFloat()
                 val score = (cWave * 100f).roundToInt().coerceIn(10, 95)
                 val itemPhase = when {
-                    score >= 75 -> EnergyPhase.PEAK
-                    score >= 55 -> EnergyPhase.REBOUND
+                    score >= 85 -> EnergyPhase.SURGE
+                    score >= 70 -> EnergyPhase.PEAK
+                    score >= 50 -> EnergyPhase.REBOUND
                     score >= 35 -> EnergyPhase.DIP
                     score >= 20 -> EnergyPhase.WIND_DOWN
-                    else -> EnergyPhase.RECOVERY_NEEDED
+                    score >= 10 -> EnergyPhase.RECOVERY_NEEDED
+                    else -> EnergyPhase.TROUGH
                 }
                 CircadianSnapshot(
                     timestampMillis = baseTime + (i * 3600_000L),
@@ -440,11 +484,16 @@ fun PhaseGuidanceRow(
         ) {
             Text(
                 text = when (phase) {
+                    EnergyPhase.SURGE -> "🚀"
                     EnergyPhase.PEAK -> "⚡"
                     EnergyPhase.REBOUND -> "📈"
                     EnergyPhase.DIP -> "☕"
                     EnergyPhase.WIND_DOWN -> "🌙"
+                    EnergyPhase.TROUGH -> "🌌"
+                    EnergyPhase.RECOVERY -> "🌿"
                     EnergyPhase.RECOVERY_NEEDED -> "🧘"
+                    EnergyPhase.INERTIA -> "🥱"
+                    EnergyPhase.CRASH -> "⚠️"
                 },
                 fontSize = 15.sp,
             )
@@ -472,11 +521,16 @@ fun PhaseGuidanceRow(
 }
 
 fun PhaseBadgeText(phase: EnergyPhase): String = when (phase) {
+    EnergyPhase.SURGE -> "HYPERFOCUS SURGE"
     EnergyPhase.PEAK -> "PEAK COGNITIVE"
     EnergyPhase.REBOUND -> "ENERGY REBOUND"
     EnergyPhase.DIP -> "CIRCADIAN DIP"
     EnergyPhase.WIND_DOWN -> "WIND-DOWN"
+    EnergyPhase.TROUGH -> "CIRCADIAN NADIR"
+    EnergyPhase.RECOVERY -> "ACTIVE RECOVERY"
     EnergyPhase.RECOVERY_NEEDED -> "RECOVERY NEEDED"
+    EnergyPhase.INERTIA -> "SLEEP INERTIA"
+    EnergyPhase.CRASH -> "ENERGY CRASH"
 }
 
 fun PhaseRecommendation(
@@ -488,11 +542,16 @@ fun PhaseRecommendation(
 ): String {
     val fmt = DateTimeFormatter.ofPattern("HH:mm")
     return when (phase) {
+        EnergyPhase.SURGE -> "Peak stimulant / flow state active. Ideal window for high-friction, critical goals."
         EnergyPhase.PEAK -> "Tackle highest-leverage deep work. Peak window active until ${peakEnd.format(fmt)}."
         EnergyPhase.REBOUND -> "Secondary alertness wave. Ideal for collaborative execution."
-        EnergyPhase.DIP -> "Biological trough (${dipStart.format(fmt)}–${dipEnd.format(fmt)}). Switch to light admin or rest."
+        EnergyPhase.DIP -> "Midday lull (${dipStart.format(fmt)}–${dipEnd.format(fmt)}). Switch to light admin or rest."
+        EnergyPhase.INERTIA -> "Waking grogginess active. Clear brain fog with hydration and natural light."
+        EnergyPhase.CRASH -> "Metabolic drop or stimulant crash. Recharge with hydration or a 15-min power nap."
+        EnergyPhase.RECOVERY -> "Active restoration in progress. Recharging cognitive energy."
         EnergyPhase.RECOVERY_NEEDED -> "Synaptic fatigue detected. Take a 15m NSDR or walk before resuming."
         EnergyPhase.WIND_DOWN -> "Melatonin rising. Close open loops and transition to shutdown mode."
+        EnergyPhase.TROUGH -> "Core biological nadir. Cognitive demand discouraged; prioritize sleep."
     }
 }
 
@@ -647,14 +706,20 @@ fun StimulantQuickLogRow(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f),
-                border = BorderStroke(1.dp, com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.45f))
+                color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.08f)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(24.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.7f))
+                    )
                     Text("⚡", fontSize = 13.sp)
                     Text(
                         text = "Crash Guard active: Stimulant wear-off in progress — protecting you from high-friction tasks.",

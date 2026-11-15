@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -389,9 +390,9 @@ fun FlowSpotlightHeroCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(NeuroFlowPaletteV2.SurfaceElevated)
-                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .border(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.7f), RoundedCornerShape(16.dp))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -456,9 +457,9 @@ fun FlowSpotlightHeroCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(NeuroFlowPaletteV2.SurfaceElevated)
-                        .border(1.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .border(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.ReboundCyan, 0.7f), RoundedCornerShape(16.dp))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -511,6 +512,7 @@ fun FlowSpotlightHeroCard(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
+                        .shadow(2.dp, RoundedCornerShape(14.dp))
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
@@ -694,6 +696,7 @@ fun FreeFlowHeroCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp)
+                        .shadow(3.dp, RoundedCornerShape(14.dp))
                 ) {
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
