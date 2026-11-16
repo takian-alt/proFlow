@@ -69,6 +69,8 @@ fun EnhancedCircadianEnergyGraph(
     learnedSampleCount: Double = 0.0,
     zoneId: ZoneId = ZoneId.systemDefault(),
     embeddedInHeroCard: Boolean = false,
+    simulatedTimeline: List<CircadianSnapshot>? = null,
+    showSleepPressure: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (timeline.size < 2) return
@@ -105,6 +107,7 @@ fun EnhancedCircadianEnergyGraph(
     fun resolvePhaseColor(phase: EnergyPhase): Color = when (phase) {
         EnergyPhase.SURGE -> SurgeCyan
         EnergyPhase.PEAK -> PeakEmerald
+        EnergyPhase.MORNING_RAMP -> Color(0xFF34D399)
         EnergyPhase.REBOUND -> ReboundIndigo
         EnergyPhase.DIP -> DipAmber
         EnergyPhase.INERTIA -> InertiaLavender
@@ -392,6 +395,42 @@ fun EnhancedCircadianEnergyGraph(
                     )
                 )
 
+                if (showSleepPressure) {
+                    val pressurePoints = timeline.mapIndexed { i, snap ->
+                        val x = (i.toFloat() / (timeline.size - 1)) * chartWidth
+                        val y = padTop + chartHeight * (1f - snap.homeostaticPressureS.toFloat().coerceIn(0f, 1f))
+                        Offset(x, y)
+                    }
+                    val pressurePath = buildMonotoneCubicPath(pressurePoints)
+                    drawPath(
+                        path = pressurePath,
+                        color = InertiaLavender.copy(alpha = if (isDark) 0.85f else 0.70f),
+                        style = Stroke(
+                            width = 2.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+                        )
+                    )
+                }
+
+                if (simulatedTimeline != null && simulatedTimeline.size >= 2) {
+                    val ghostPoints = simulatedTimeline.mapIndexed { i, snap ->
+                        val x = (i.toFloat() / (simulatedTimeline.size - 1)) * chartWidth
+                        val y = energyToY(snap.usableEnergy.toFloat())
+                        Offset(x, y)
+                    }
+                    val ghostPath = buildMonotoneCubicPath(ghostPoints)
+                    drawPath(
+                        path = ghostPath,
+                        color = SurgeCyan,
+                        style = Stroke(
+                            width = 3.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 6f))
+                        )
+                    )
+                }
+
                 val targetMillis = activeSnapshot.timestampMillis
                 val markerX = timeToX(targetMillis)
                 val markerY = energyToY(activeSnapshot.usableEnergy.toFloat())
@@ -440,8 +479,14 @@ fun EnhancedCircadianEnergyGraph(
             verticalAlignment = Alignment.CenterVertically
         ) {
             LegendItem(color = PeakEmerald, label = "Usable Energy", textColor = TextSecondary)
-            LegendItem(color = TextSecondary.copy(alpha = 0.5f), label = "Bio Potential", isDashed = true, textColor = TextSecondary)
-            LegendItem(color = DipAmber, label = "Frog / Deep Work", textColor = TextSecondary)
+            if (showSleepPressure) {
+                LegendItem(color = InertiaLavender, label = "Sleep Pressure (S)", isDashed = true, textColor = TextSecondary)
+            }
+            if (simulatedTimeline != null) {
+                LegendItem(color = SurgeCyan, label = "Simulated Delta", isDashed = true, textColor = TextSecondary)
+            } else {
+                LegendItem(color = TextSecondary.copy(alpha = 0.5f), label = "Bio Potential", isDashed = true, textColor = TextSecondary)
+            }
         }
     }
 }

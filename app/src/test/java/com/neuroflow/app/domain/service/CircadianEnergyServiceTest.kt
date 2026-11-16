@@ -465,4 +465,108 @@ class CircadianEnergyServiceTest {
         assertEquals(StimulantType.CAFFEINE, extracted[0].type)
         assertEquals(StimulantType.PRESCRIPTION_STIMULANT_XR, extracted[1].type)
     }
+
+    @Test
+    fun testMorningRampEnergyPhaseTransition() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val morningTime = today.atTime(LocalTime.of(8, 0)).atZone(zoneId).toInstant().toEpochMilli() // 1 hour awake
+
+        val snap = service.evaluateSnapshot(
+            timestampMillis = morningTime,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId
+        )
+        assertEquals("Post-wake ascending alertness prior to peak window must resolve to MORNING_RAMP", EnergyPhase.MORNING_RAMP, snap.phase)
+    }
+
+    @Test
+    fun testScnPacemakerPhaseShiftClamp() {
+        val today = LocalDate.of(2026, 10, 18)
+        val normalWake = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val lateWake = today.atTime(LocalTime.of(10, 0)).atZone(zoneId).toInstant().toEpochMilli() // 3h late sleep-in
+        val noon = today.atTime(LocalTime.of(12, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val normalSnap = service.evaluateSnapshotWithStimulants(
+            timestampMillis = noon,
+            wakeTimeMillis = normalWake,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId,
+            socialJetlagLagHours = 0.0
+        )
+        // With 3 hours social jetlag, habitual wake is 07:00, actual wake is 10:00 (drift = 3.0h)
+        // Pacemaker clamps drift to <= 1.0h, so Process C phase does not swing wildly
+        val lateSnap = service.evaluateSnapshotWithStimulants(
+            timestampMillis = noon,
+            wakeTimeMillis = lateWake,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId,
+            socialJetlagLagHours = 3.0
+        )
+        val alertnessDifference = kotlin.math.abs(normalSnap.circadianAlertnessC - lateSnap.circadianAlertnessC)
+        assertTrue("SCN pacemaker clamp must prevent wild Process C phase shifts from a single late wake (diff: $alertnessDifference)", alertnessDifference < 0.15)
+    }
+
+    @Test
+    fun testSaturatingExponentialStimulantMaskingCeiling() {
+        val now = 1770000000000L
+        val heavyDoses = listOf(
+            StimulantDoseBout(now - 3600_000L, 200.0, StimulantType.CAFFEINE),
+            StimulantDoseBout(now - 1800_000L, 200.0, StimulantType.CAFFEINE),
+            StimulantDoseBout(now - 600_000L, 200.0, StimulantType.CAFFEINE)
+        )
+        val effect = PharmacokineticStimulantCalculator.evaluateAt(now, heavyDoses)
+        assertTrue("Total adenosine masking must saturate smoothly and strictly respect biological ceiling <= 0.40", effect.processSMaskingReduction <= 0.40)
+        assertTrue("Substantial doses must provide robust masking > 0.25", effect.processSMaskingReduction > 0.25)
+    }
+
+    @Test
+    fun testExponentialSleepInertiaDecayDissipation() {
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val snapWake1m = service.evaluateSnapshot(
+            timestampMillis = wakeTime + 60_000L,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId
+        )
+        val snapWake15m = service.evaluateSnapshot(
+            timestampMillis = wakeTime + 15 * 60_000L,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId
+        )
+        val snapWake35m = service.evaluateSnapshot(
+            timestampMillis = wakeTime + 35 * 60_000L,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId
+        )
+
+        assertTrue("Inertia at 1m must be near peak (> 0.12)", snapWake1m.sleepInertiaPenalty > 0.12)
+        assertTrue("Inertia at 15m must have decayed significantly (~0.05)", snapWake15m.sleepInertiaPenalty in 0.03..0.08)
+        assertEquals("Inertia at 35m must be completely dissipated to 0", 0.0, snapWake35m.sleepInertiaPenalty, 0.0)
+    }
+
+    @Test
+    fun testTimelineSnapshotsIncludeMonotonicallyAccumulatingSleepPressure() {
+        val today = LocalDate.of(2026, 10, 18)
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val timeline = service.projectDayTimeline(dayStart, wakeTime, 480, 15, zoneId)
+        val wakeIndex = timeline.indexOfFirst { it.timestampMillis >= wakeTime }
+        val afternoonIndex = timeline.indexOfFirst { it.timestampMillis >= wakeTime + 8 * 3600_000L }
+
+        assertTrue("Wake snapshot must have S < afternoon snapshot",
+            timeline[wakeIndex].homeostaticPressureS < timeline[afternoonIndex].homeostaticPressureS)
+    }
 }
