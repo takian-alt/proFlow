@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -1025,6 +1026,8 @@ fun TimelineScheduleView(
         ?: (if (peakPrefs.effectivePeakStart in 0..23) peakPrefs.effectivePeakStart else peakPrefs.peakEnergyStart).coerceIn(0, 23)
     val peakEnd = if (manualPeak != null) ((manualPeak + 3) % 24) else (state.circadianSummary?.peakWindowEndHour
         ?: (if (peakPrefs.effectivePeakEnd in 0..23) peakPrefs.effectivePeakEnd else peakPrefs.peakEnergyEnd).coerceIn(0, 23))
+    val dipStart = state.circadianSummary?.dipWindowStartHour ?: 13
+    val dipEnd = state.circadianSummary?.dipWindowEndHour ?: 15
     val currentMinuteOfDay = Calendar.getInstance().let {
         it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
     }
@@ -1069,6 +1072,16 @@ fun TimelineScheduleView(
                     conflictCount = state.conflicts.size,
                     onAutoBalanceClick = onAutoBalanceClick
                 )
+
+                if (state.energyTimeline.isNotEmpty()) {
+                    CircadianHorizonMiniBar(
+                        timeline = state.energyTimeline,
+                        peakStart = peakStart,
+                        peakEnd = peakEnd,
+                        dipStart = dipStart,
+                        dipEnd = dipEnd
+                    )
+                }
             }
 
             // 2. Schedule Conflict Resolver Banner (Wired to move the conflicting task)
@@ -1240,10 +1253,22 @@ fun TimelineScheduleView(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    .height(IntrinsicSize.Min),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .fillMaxHeight()
+                                        .background(accentColor)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
                                 // Time Pill
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1403,12 +1428,23 @@ fun TimelineScheduleView(
                                     } else null
                                     if (scheduledMillis != null && state.energyTimeline.isNotEmpty()) {
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        TaskSlotEnergyFitBadge(
-                                            taskScheduledMillis = scheduledMillis,
-                                            taskEnergyDemand = task.energyLevel,
-                                            timeline = state.energyTimeline,
-                                            onShiftToPeakClick = { onShiftToPeak(task) }
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            TaskSlotEnergyFitBadge(
+                                                taskScheduledMillis = scheduledMillis,
+                                                taskEnergyDemand = task.energyLevel,
+                                                timeline = state.energyTimeline,
+                                                onShiftToPeakClick = { onShiftToPeak(task) }
+                                            )
+                                            TaskCircadianAlignmentBadge(
+                                                task = task,
+                                                scheduledMillis = scheduledMillis,
+                                                timeline = state.energyTimeline,
+                                                onShiftToPeak = { onShiftToPeak(task) }
+                                            )
+                                        }
                                     }
 
                                     if (task.isAutoScheduled) {
@@ -1586,6 +1622,7 @@ fun TimelineScheduleView(
                             }
                         }
                     }
+                }
 
                     if (shouldShowUltradianBufferAfter(state.tasksForDay, index)) {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -2065,3 +2102,113 @@ fun AutopilotConfigView(
         }
     }
 }
+
+@Composable
+fun CircadianHorizonMiniBar(
+    timeline: List<com.neuroflow.app.domain.service.CircadianSnapshot>,
+    peakStart: Int,
+    peakEnd: Int,
+    dipStart: Int,
+    dipEnd: Int,
+    modifier: Modifier = Modifier
+) {
+    if (timeline.isEmpty()) return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        colors = timeline.map { snap ->
+                            when (snap.phase) {
+                                com.neuroflow.app.domain.service.EnergyPhase.SURGE -> Color(0xFF06B6D4)
+                                com.neuroflow.app.domain.service.EnergyPhase.PEAK,
+                                com.neuroflow.app.domain.service.EnergyPhase.MORNING_RAMP -> NeuroFlowPaletteV2.OptimalEmerald
+                                com.neuroflow.app.domain.service.EnergyPhase.REBOUND -> Color(0xFF6366F1)
+                                com.neuroflow.app.domain.service.EnergyPhase.DIP -> Color(0xFFF59E0B)
+                                com.neuroflow.app.domain.service.EnergyPhase.WIND_DOWN -> Color(0xFFD97706)
+                                else -> Color(0xFF1E293B)
+                            }
+                        }
+                    )
+                )
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "⚡ Peak: ${String.format(Locale.ROOT, "%02d:00", peakStart)}–${String.format(Locale.ROOT, "%02d:00", peakEnd)}",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                color = NeuroFlowPaletteV2.OptimalEmerald,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "☕ Dip: ${String.format(Locale.ROOT, "%02d:00", dipStart)}–${String.format(Locale.ROOT, "%02d:00", dipEnd)}",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                color = NeuroFlowPaletteV2.PeakAmber,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+fun TaskCircadianAlignmentBadge(
+    task: TaskEntity,
+    scheduledMillis: Long,
+    timeline: List<com.neuroflow.app.domain.service.CircadianSnapshot>,
+    onShiftToPeak: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val alignment = remember(task, scheduledMillis, timeline) {
+        PlanViewModelV2.evaluateCircadianAlignmentForSlot(task, scheduledMillis, timeline)
+    }
+    if (alignment.status == CircadianAlignmentStatus.NEUTRAL) return
+
+    val badgeColor = when (alignment.status) {
+        CircadianAlignmentStatus.OPTIMAL_PEAK -> NeuroFlowPaletteV2.OptimalEmerald
+        CircadianAlignmentStatus.DIP_MISMATCH -> NeuroFlowPaletteV2.PeakAmber
+        CircadianAlignmentStatus.CANNIBALIZES_PEAK -> NeuroFlowPaletteV2.TextTertiary
+        CircadianAlignmentStatus.NEUTRAL -> NeuroFlowPaletteV2.TextSecondary
+    }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(badgeColor.copy(alpha = 0.12f))
+            .border(0.75.dp, badgeColor.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = alignment.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = badgeColor,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        if (alignment.status == CircadianAlignmentStatus.DIP_MISMATCH) {
+            Text(
+                text = "• Shift to Peak",
+                style = MaterialTheme.typography.labelSmall,
+                color = badgeColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onShiftToPeak() }
+            )
+        }
+    }
+}
+

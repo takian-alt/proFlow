@@ -57,6 +57,8 @@ import com.neuroflow.app.presentation.v2.focus.FocusTimerModeV2
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.ChronotypeProfile
+import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.DailyCircadianSummary
@@ -96,6 +98,19 @@ enum class PlanViewModeV2(val title: String) {
     MATRIX("Matrix"),
     AUTOPILOT("AI Autopilot")
 }
+
+enum class CircadianAlignmentStatus {
+    OPTIMAL_PEAK,
+    DIP_MISMATCH,
+    CANNIBALIZES_PEAK,
+    NEUTRAL
+}
+
+data class CircadianAlignment(
+    val status: CircadianAlignmentStatus,
+    val label: String,
+    val penaltyPercent: Int = 0
+)
 
 data class PlanUiStateV2(
     val selectedDateMillis: Long = startOfTodayMillis(),
@@ -1588,6 +1603,36 @@ class PlanViewModelV2 @Inject constructor(
         }
     }
 
+    fun shiftTaskToPeak(taskId: String) {
+        val inMemory = uiState.value.tasksForDay.firstOrNull { it.id == taskId }
+            ?: uiState.value.unscheduledTasks.firstOrNull { it.id == taskId }
+
+        if (inMemory != null) {
+            shiftTaskToPeak(inMemory)
+        } else {
+            viewModelScope.launch {
+                val fromDb = taskRepository.getById(taskId)
+                if (fromDb != null) {
+                    shiftTaskToPeak(fromDb)
+                }
+            }
+        }
+    }
+
+    fun evaluateTaskCircadianAlignment(task: TaskEntity): CircadianAlignment {
+        val timeline = uiState.value.energyTimeline
+        if (timeline.isEmpty()) return CircadianAlignment(CircadianAlignmentStatus.NEUTRAL, "Aligned")
+
+        val scheduledMillis = (if (task.scheduledTime != null) {
+            task.resolveScheduledEpochMillis(uiState.value.selectedDateMillis)
+                ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
+        } else {
+            null
+        }) ?: return CircadianAlignment(CircadianAlignmentStatus.NEUTRAL, "Unscheduled")
+
+        return evaluateCircadianAlignmentForSlot(task, scheduledMillis, timeline)
+    }
+
     fun shiftTaskToPeak(task: TaskEntity) {
         viewModelScope.launch {
             val peakPrefs = uiState.value.preferences
@@ -1936,5 +1981,44 @@ class PlanViewModelV2 @Inject constructor(
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
+    }
+
+    companion object {
+        fun evaluateCircadianAlignmentForSlot(
+            task: TaskEntity,
+            scheduledMillis: Long,
+            timeline: List<CircadianSnapshot>
+        ): CircadianAlignment {
+            if (timeline.isEmpty()) return CircadianAlignment(CircadianAlignmentStatus.NEUTRAL, "Aligned")
+            val snapshot = timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - scheduledMillis) }
+                ?: return CircadianAlignment(CircadianAlignmentStatus.NEUTRAL, "Aligned")
+
+            val isHighDemand = task.energyLevel == EnergyLevel.HIGH || task.estimatedDurationMinutes >= 60 || task.isFrog
+            val isLowDemand = task.energyLevel == EnergyLevel.LOW && task.estimatedDurationMinutes <= 25 && !task.isFrog
+
+            val phase = snapshot.phase
+            val isPeak = phase == EnergyPhase.PEAK || phase == EnergyPhase.SURGE || phase == EnergyPhase.MORNING_RAMP
+            val isDip = phase == EnergyPhase.DIP || phase == EnergyPhase.WIND_DOWN || phase == EnergyPhase.TROUGH || phase == EnergyPhase.CRASH
+
+            return when {
+                isHighDemand && isPeak -> CircadianAlignment(
+                    status = CircadianAlignmentStatus.OPTIMAL_PEAK,
+                    label = "⚡ Optimal Peak Alignment"
+                )
+                isHighDemand && isDip -> CircadianAlignment(
+                    status = CircadianAlignmentStatus.DIP_MISMATCH,
+                    label = "⚠️ Circadian Dip Mismatch (-20%)",
+                    penaltyPercent = 20
+                )
+                isLowDemand && isPeak -> CircadianAlignment(
+                    status = CircadianAlignmentStatus.CANNIBALIZES_PEAK,
+                    label = "ℹ️ Cannibalizes Peak Focus"
+                )
+                else -> CircadianAlignment(
+                    status = CircadianAlignmentStatus.NEUTRAL,
+                    label = "Aligned"
+                )
+            }
+        }
     }
 }
