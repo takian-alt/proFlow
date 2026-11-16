@@ -30,6 +30,7 @@ enum class TaskCategory {
 
 enum class EnergyPhase {
     PEAK,
+    MORNING_RAMP,
     REBOUND,
     DIP,
     WIND_DOWN,
@@ -501,9 +502,11 @@ object PharmacokineticStimulantCalculator {
             totalMasking += dose.type.maxAdenosineMaskingFactor * normalizedConc * min(1.8, doseRatio)
 
             // Post-elimination adenosine rebound ("crash") between t_half and t_half + 4h
+            // ADR-061 §6.60: Crash amplitude scaled by integrated masked sleep pressure
             val reboundWindow = if (elapsedHours in (dose.type.halfLifeHours)..(dose.type.halfLifeHours + 4.0)) {
                 val progress = (elapsedHours - dose.type.halfLifeHours) / 2.0
-                val rawRebound = -100.0 * dose.type.crashSeverityFactor * progress * exp(1.0 - progress) * min(1.5, doseRatio)
+                val crashMultiplier = 1.0 + 0.35 * min(1.5, doseRatio)
+                val rawRebound = -100.0 * dose.type.crashSeverityFactor * progress * exp(1.0 - progress) * min(1.5, doseRatio) * crashMultiplier
                 if (elapsedHours > dose.type.halfLifeHours + 3.0) {
                     val taper = 0.5 * (1.0 + cos(PI * (elapsedHours - (dose.type.halfLifeHours + 3.0))))
                     rawRebound * taper
@@ -517,8 +520,16 @@ object PharmacokineticStimulantCalculator {
             netPoints += (12.0 * normalizedConc * min(1.5, doseRatio)) + reboundWindow
         }
 
+        // ADR-061 §6.60: Saturating exponential diminishing-returns masking curve
+        // Eliminates linear unbounded stacking and guarantees smooth saturation ceiling <= 0.40
+        val saturatedMasking = if (totalMasking > 0.0) {
+            0.40 * (1.0 - exp(-totalMasking / 0.40))
+        } else {
+            0.0
+        }
+
         return StimulantEffect(
-            processSMaskingReduction = totalMasking.coerceIn(0.0, 0.40),
+            processSMaskingReduction = saturatedMasking.coerceIn(0.0, 0.40),
             acuteAlertnessBoostPoints = netPoints.coerceIn(-10.0, 15.0),
             activeEquivalentMg = activeMg
         )
@@ -851,7 +862,8 @@ data class CircadianSnapshot(
     val physiologicalImpulse: Double = 0.0,
     val predictionConfidence: Double = 0.85,
     val learnedAdjustmentPoints: Double = 0.0,
-    val baselineBiologicalEnergy: Int = usableEnergy
+    val baselineBiologicalEnergy: Int = usableEnergy,
+    val unmaskedHomeostaticPressureS: Double = homeostaticPressureS
 ) {
     val circadianAlertness: Double get() = circadianAlertnessC
     val homeostaticSleepPressure: Double get() = homeostaticPressureS
@@ -924,7 +936,7 @@ fun resolveEnergyPhase(
     }
 
     // 6. PEAK (Optimal circadian baseline)
-    if (usableEnergy >= 72) {
+    if (usableEnergy >= 72 && (hoursAwake in 1.5..5.5 || hoursAwake in 8.5..12.5)) {
         return EnergyPhase.PEAK
     }
 
@@ -933,11 +945,13 @@ fun resolveEnergyPhase(
         return EnergyPhase.DIP
     }
 
-    // 8. REBOUND (Alertness second wind or morning ramp-up post-inertia)
-    if (hoursAwake > 9.5 && usableEnergy >= 50) {
-        return EnergyPhase.REBOUND
+    // 8a. MORNING_RAMP (ADR-061 §6.58: Ascending morning alertness post-inertia before midday peak)
+    if (hoursAwake in 0.5..6.0 && usableEnergy >= 50) {
+        return EnergyPhase.MORNING_RAMP
     }
-    if (hoursAwake < 6.0 && usableEnergy >= 50) {
+
+    // 8b. REBOUND (Alertness second wind post-dip)
+    if (hoursAwake > 9.5 && usableEnergy >= 50) {
         return EnergyPhase.REBOUND
     }
     if (usableEnergy >= 55) {
@@ -960,6 +974,14 @@ data class DailyCircadianSummary(
     val dipWindowStartHour: Int,
     val dipWindowEndHour: Int,
     val recommendedDeepWorkMinutes: Int
+)
+
+data class SimulationOutcome(
+    val simulatedTimeline: List<CircadianSnapshot>,
+    val netEnergyDeltaPercent: Int,
+    val netFocusMinutesSaved: Int,
+    val sleepPressureDeltaPercent: Int,
+    val summaryInsight: String
 )
 
 interface CircadianEnergyService {
@@ -1234,6 +1256,25 @@ interface CircadianEnergyService {
         category: TaskCategory,
         snapshot: CircadianSnapshot
     ): Double
+
+    fun simulateDayInterventions(
+        baseTimeline: List<CircadianSnapshot>,
+        dayStartMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        stepMinutes: Int = 15,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        simulatedNaps: List<DaytimeNapBout> = emptyList(),
+        simulatedStimulants: List<StimulantDoseBout> = emptyList(),
+        simulatedImpulses: List<CognitiveBlockWindow> = emptyList(),
+        simulatedBedtimeDeltaMinutes: Int = 0,
+        activeBlocks: List<CognitiveBlockWindow> = emptyList(),
+        chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour: Int? = null,
+        learnedProfile: LearnedCircadianProfile? = null,
+        rollingAverageSleepMinutes: Double? = null,
+        socialJetlagLagHours: Double = 0.0
+    ): SimulationOutcome
 }
 
 @Singleton
@@ -1396,12 +1437,14 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         val stimEffect = PharmacokineticStimulantCalculator.evaluateAt(timestampMillis, stimulantDoses)
         val processS = (homeostatic.processS - stimEffect.processSMaskingReduction).coerceIn(S_MIN, 1.0)
 
-        // 2b. Morning Sleep Inertia (first 30m after morning wake) + Nap Inertia
+        // 2b. Morning Sleep Inertia (ADR-061 §6.59 exponential decay with debt dilation) + Nap Inertia
         val minsSinceMorningWake = ((timestampMillis - wakeTimeMillis) / 60_000.0)
+        val tauInertiaMinutes = 15.0 * (1.0 + alphaAllostatic)
+        val maxInertiaDuration = 30.0 * (1.0 + alphaAllostatic)
         val morningInertia = if (minsSinceMorningWake < 0.0) {
             0.14
-        } else if (minsSinceMorningWake <= 30.0) {
-            0.14 * (1.0 - (minsSinceMorningWake / 30.0))
+        } else if (minsSinceMorningWake <= maxInertiaDuration) {
+            0.14 * exp(-minsSinceMorningWake / tauInertiaMinutes)
         } else {
             0.0
         }
@@ -1413,9 +1456,15 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         val clockHour = zonedNow.hour + (zonedNow.minute / 60.0)
         val wakeClockHour = zonedWake.hour + (zonedWake.minute / 60.0)
 
+        // ADR-061 §6.56: SCN Habitual Pacemaker Phase-Locking
+        // Anchor Process C phase peak to habitual wake (derived from social jetlag baseline) with <= 1.0h drift clamp
+        val habitualWakeHour = (wakeClockHour - socialJetlagLagHours.coerceIn(-3.0, 3.0) + 24.0) % 24.0
+        val wakeDriftFromHabitual = circularHourDifference(wakeClockHour, habitualWakeHour)
+        val pacemakerWakeHour = (habitualWakeHour + wakeDriftFromHabitual.coerceIn(-1.0, 1.0) + 24.0) % 24.0
+
         // 3a. Pure Uncalibrated Biological Curve (for accurate baselineBiologicalEnergy comparison)
         val bioPeakPhi = computePhasePeakHour(
-            wakeClockHour = wakeClockHour,
+            wakeClockHour = pacemakerWakeHour,
             chronotype = chronotype,
             manualPeakStartHour = manualPeakStartHour,
             detectedPeakHour = null,
@@ -1425,16 +1474,16 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         val bioHarmonic2 = 0.12 * cos((4.0 * PI * (clockHour - bioPeakPhi)) / 24.0)
         val processCBio = (0.50 + bioHarmonic1 - bioHarmonic2).coerceIn(0.0, 1.0)
 
-        // 3b. Learned + Social-Jetlag Adjusted Curve with Von Mises Hourly Kernel Modulation
+        // 3b. Learned Curve with Von Mises Hourly Kernel Modulation
         val detectedPeak = learnedProfile?.peakHourMean
         val detectedConf = learnedProfile?.confidence ?: 0.0
-        val phasePeakPhi = (computePhasePeakHour(
-            wakeClockHour = wakeClockHour,
+        val phasePeakPhi = computePhasePeakHour(
+            wakeClockHour = pacemakerWakeHour,
             chronotype = chronotype,
             manualPeakStartHour = manualPeakStartHour,
             detectedPeakHour = detectedPeak,
             detectionConfidence = detectedConf
-        ) + socialJetlagLagHours.coerceIn(-3.0, 3.0) + 24.0) % 24.0
+        )
 
         val primaryHarmonic = 0.38 * cos((2.0 * PI * (clockHour - phasePeakPhi)) / 24.0)
         val secondaryHarmonic = 0.12 * cos((4.0 * PI * (clockHour - phasePeakPhi)) / 24.0)
@@ -1466,7 +1515,7 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         val predConf = learnedProfile?.confidence ?: 0.85
 
         val hoursAwake = max(0.0, (timestampMillis - wakeTimeMillis) / 3_600_000.0)
-        // ADR-028: Priority Precedence Resolver across all 10 EnergyPhase states
+        // ADR-028 / ADR-061: Priority Precedence Resolver across all 11 EnergyPhase states
         val phase = resolveEnergyPhase(
             continuousActiveFocusMinutes = continuousActiveFocusMinutes,
             usableEnergy = usableEnergy,
@@ -1492,7 +1541,8 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
             physiologicalImpulse = physioImpulse,
             predictionConfidence = predConf,
             learnedAdjustmentPoints = learnedAdj,
-            baselineBiologicalEnergy = baselineBio
+            baselineBiologicalEnergy = baselineBio,
+            unmaskedHomeostaticPressureS = homeostatic.processS
         )
     }
 
@@ -1798,6 +1848,7 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
                 when (snapshot.phase) {
                     EnergyPhase.SURGE -> min(100.0, e + 15.0)
                     EnergyPhase.PEAK -> e
+                    EnergyPhase.MORNING_RAMP -> min(100.0, e * 0.95)
                     EnergyPhase.REBOUND -> e * 0.85
                     EnergyPhase.DIP -> e * 0.60
                     EnergyPhase.INERTIA, EnergyPhase.CRASH -> e * 0.40
@@ -1808,6 +1859,7 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
             }
             TaskCategory.CREATIVE -> {
                 when (snapshot.phase) {
+                    EnergyPhase.MORNING_RAMP -> min(100.0, e * 0.90)
                     EnergyPhase.REBOUND -> min(100.0, e + 15.0)
                     EnergyPhase.SURGE, EnergyPhase.PEAK -> e * 0.95
                     EnergyPhase.DIP -> e * 0.75
@@ -1855,5 +1907,83 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
                 }
             }
         }.coerceIn(0.0, 100.0)
+    }
+
+    override fun simulateDayInterventions(
+        baseTimeline: List<CircadianSnapshot>,
+        dayStartMillis: Long,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        stepMinutes: Int,
+        zoneId: ZoneId,
+        simulatedNaps: List<DaytimeNapBout>,
+        simulatedStimulants: List<StimulantDoseBout>,
+        simulatedImpulses: List<CognitiveBlockWindow>,
+        simulatedBedtimeDeltaMinutes: Int,
+        activeBlocks: List<CognitiveBlockWindow>,
+        chronotype: ChronotypeProfile,
+        manualPeakStartHour: Int?,
+        learnedProfile: LearnedCircadianProfile?,
+        rollingAverageSleepMinutes: Double?,
+        socialJetlagLagHours: Double
+    ): SimulationOutcome {
+        val effectiveSleepMinutes = (lastSleepDurationMinutes + simulatedBedtimeDeltaMinutes).coerceIn(60, 960)
+        val combinedBlocks = activeBlocks + simulatedImpulses
+
+        val simulatedTimeline = projectDayTimeline(
+            dayStartMillis = dayStartMillis,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = effectiveSleepMinutes,
+            stepMinutes = stepMinutes,
+            zoneId = zoneId,
+            naps = simulatedNaps,
+            chronotype = chronotype,
+            manualPeakStartHour = manualPeakStartHour,
+            cognitiveBlocks = combinedBlocks,
+            learnedProfile = learnedProfile,
+            rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+            stimulantDoses = simulatedStimulants,
+            socialJetlagLagHours = socialJetlagLagHours
+        )
+
+        val pairs = baseTimeline.zip(simulatedTimeline)
+        val energyDeltas = pairs.map { (base, sim) -> sim.usableEnergy - base.usableEnergy }
+        val netEnergyDeltaPercent = if (energyDeltas.isNotEmpty()) {
+            val positiveDeltas = energyDeltas.filter { it > 0 }
+            if (positiveDeltas.isNotEmpty()) positiveDeltas.average().roundToInt() else energyDeltas.average().roundToInt()
+        } else 0
+
+        val maxSleepPressureDrop = pairs.maxOfOrNull { (base, sim) ->
+            base.homeostaticPressureS - sim.homeostaticPressureS
+        } ?: 0.0
+        val sleepPressureDeltaPercent = (maxSleepPressureDrop * 100.0).roundToInt().coerceAtLeast(0)
+
+        val totalNapMinutes = simulatedNaps.sumOf { it.durationMinutes }
+        val netFocusMinutesSaved = (sleepPressureDeltaPercent * 1.5 + totalNapMinutes * 1.25).roundToInt().coerceAtLeast(0)
+
+        val summaryInsight = when {
+            simulatedNaps.isNotEmpty() -> {
+                "Clears ${sleepPressureDeltaPercent}% sleep pressure, lifting afternoon alertness by +${netEnergyDeltaPercent.coerceAtLeast(1)}%."
+            }
+            simulatedStimulants.isNotEmpty() -> {
+                val totalMg = simulatedStimulants.sumOf { it.doseMg }
+                "Boosts alertness by +${netEnergyDeltaPercent.coerceAtLeast(1)}% via ${totalMg.roundToInt()}mg stimulant masking; monitor bedtime cutoff."
+            }
+            simulatedImpulses.isNotEmpty() -> {
+                "Provides transient +${netEnergyDeltaPercent.coerceAtLeast(1)}% alertness surge via physiological impulse."
+            }
+            simulatedBedtimeDeltaMinutes > 0 -> {
+                "Reduces tomorrow's baseline sleep debt by ${simulatedBedtimeDeltaMinutes}m, expanding morning focus headroom."
+            }
+            else -> "Simulated intervention preserves ${netFocusMinutesSaved}m of high-performance focus."
+        }
+
+        return SimulationOutcome(
+            simulatedTimeline = simulatedTimeline,
+            netEnergyDeltaPercent = netEnergyDeltaPercent,
+            netFocusMinutesSaved = netFocusMinutesSaved,
+            sleepPressureDeltaPercent = sleepPressureDeltaPercent,
+            summaryInsight = summaryInsight
+        )
     }
 }
