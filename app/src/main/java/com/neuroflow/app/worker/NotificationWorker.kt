@@ -335,38 +335,35 @@ class StreakCheckWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = try {
         var prefs = preferencesDataStore.preferencesFlow.first()
-        if (!prefs.streakNotificationsEnabled) Result.success()
-        else {
-            val today = startOfLocalDay(System.currentTimeMillis())
-            val yesterday = startOfPreviousLocalDay(today)
+        val today = startOfLocalDay(System.currentTimeMillis())
+        val yesterday = startOfPreviousLocalDay(today)
 
-            val completedTasks = taskRepository.getCompletedTasks()
-            val completedToday = completedTasks.any { task ->
-                task.completedAt != null && task.completedAt >= today
-            }
-
-            val completedYesterday = completedTasks.any { task ->
-                val comp = task.completedAt ?: return@any false
-                comp in yesterday until today
-            }
-
-            val activeRecently = prefs.lastActiveDate >= yesterday
-
-            if (!completedToday && !completedYesterday && !activeRecently && prefs.dailyStreak > 0) {
-                preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
-                prefs = prefs.copy(dailyStreak = 0)
-            }
-
-            if (!completedToday && prefs.dailyStreak > 0 && taskRepository.getActiveTasks().isNotEmpty()) {
-                showNotification(
-                    "Streak at risk! 🔥",
-                    "Your ${prefs.dailyStreak}-day streak ends tonight. Complete 1 task!",
-                    CHANNEL_FOCUS
-                )
-            }
-
-            Result.success()
+        val completedTasks = taskRepository.getCompletedTasks()
+        val completedToday = completedTasks.any { task ->
+            task.completedAt != null && task.completedAt >= today
         }
+
+        val completedYesterday = completedTasks.any { task ->
+            val comp = task.completedAt ?: return@any false
+            comp in yesterday until today
+        }
+
+        val activeRecently = prefs.lastActiveDate >= yesterday
+
+        if (!completedToday && !completedYesterday && !activeRecently && prefs.dailyStreak > 0) {
+            preferencesDataStore.updatePreferences { it.copy(dailyStreak = 0) }
+            prefs = prefs.copy(dailyStreak = 0)
+        }
+
+        if (prefs.streakNotificationsEnabled && !completedToday && prefs.dailyStreak > 0 && taskRepository.getActiveTasks().isNotEmpty()) {
+            showNotification(
+                "Streak at risk! 🔥",
+                "Your ${prefs.dailyStreak}-day streak ends tonight. Complete 1 task!",
+                CHANNEL_FOCUS
+            )
+        }
+
+        Result.success()
     } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
         android.util.Log.e("NotificationWorker", "StreakCheckWorker failed", e)

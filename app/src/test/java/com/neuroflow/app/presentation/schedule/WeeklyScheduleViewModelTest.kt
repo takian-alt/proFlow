@@ -58,8 +58,10 @@ class WeeklyScheduleViewModelTest : StringSpec({
             // Monday Oct 26, 2026 (Day 1 in Sunday-to-Saturday schedule view)
             val mondayMillis = LocalDate.of(2026, 10, 26).atStartOfDay(zone).toInstant().toEpochMilli() + 10 * 3600_000L
 
-            // 1. Initialize ViewModel on Sunday
-            val viewModelSunday = WeeklyScheduleViewModel(taskRepo, prefsDataStore)
+            // 1. Initialize ViewModel on Sunday with injected clock
+            val fixedInstant = LocalDate.of(2026, 10, 25).atStartOfDay(zone).toInstant()
+            val clock = java.time.Clock.fixed(fixedInstant, zone)
+            val viewModelSunday = WeeklyScheduleViewModel(taskRepo, prefsDataStore, clock)
             viewModelSunday.goToDate(sundayMillis)
             advanceUntilIdle()
 

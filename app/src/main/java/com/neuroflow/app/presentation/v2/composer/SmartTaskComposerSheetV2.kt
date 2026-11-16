@@ -517,22 +517,7 @@ fun SmartTaskComposerSheetV2(
                 value = rawInput,
                 onValueChange = {
                     rawInput = it
-                    if (it.isBlank()) {
-                        userDurationOverride = null
-                        userEnergyOverride = null
-                        userTaskTypeOverride = null
-                        userFrogOverride = null
-                        userPriorityOverride = null
-                        userQuadrantOverride = null
-                        userScheduledDateOverride = null
-                        userScheduledTimeOverride = null
-                        userDeadlineDateOverride = null
-                        userDeadlineTimeOverride = null
-                        scheduledDateCleared = false
-                        scheduledTimeCleared = false
-                        deadlineDateCleared = false
-                        deadlineTimeCleared = false
-                    } else {
+                    if (!it.isBlank()) {
                         val newInferred = TaskInferenceEngine.inferFromInput(it, completedTasks)
                         if (newInferred.isDurationExplicit) userDurationOverride = null
                         if (newInferred.isEnergyExplicit) userEnergyOverride = null

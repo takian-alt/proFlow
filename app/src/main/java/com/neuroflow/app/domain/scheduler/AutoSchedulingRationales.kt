@@ -137,10 +137,16 @@ object ConflictResolver {
         occupiedIntervals: List<Pair<Int, Int>>
     ): Int? {
         val sortedIntervals = occupiedIntervals.sortedBy { it.first }
-        // Bug 5 Fix (ADR-030): Clamp suggested conflict-free start to workDayStart
-        var candidate = maxOf(searchStartMinute, workDayStartHour.coerceIn(0, 23) * 60)
+        val startHour = workDayStartHour.coerceIn(0, 23)
+        var candidate = maxOf(searchStartMinute, startHour * 60)
         // BUG-AUDIT-005 Fix: Midnight end-of-day boundary clamped to 23:59 (1439m) to prevent next-day spillover
-        val maxMinute = if (workDayEndHour == 0 || workDayEndHour >= 24) (24 * 60 - 1) else workDayEndHour * 60
+        val maxMinute = if (workDayEndHour == 0 || workDayEndHour >= 24) {
+            (24 * 60 - 1)
+        } else if (workDayEndHour <= startHour) {
+            (24 + workDayEndHour) * 60 - 1
+        } else {
+            workDayEndHour * 60
+        }
         while (candidate + duration <= maxMinute) {
             val overlapping = sortedIntervals.firstOrNull { (start, end) ->
                 maxOf(candidate, start) < minOf(candidate + duration, end)
@@ -180,8 +186,14 @@ object ConflictResolver {
                 slot.isEnabled && ProtectedSlotClock.occursOnDay(slot, targetDayMillis)
             }
 
-            val allSlotIntervals = activeSlots.map { slot ->
-                slot.startMinuteOfDay to (slot.startMinuteOfDay + slot.durationMinutes + slot.recoveryBufferMinutes)
+            val allSlotIntervals = activeSlots.flatMap { slot ->
+                val sStart = slot.startMinuteOfDay
+                val sEnd = sStart + slot.durationMinutes + slot.recoveryBufferMinutes
+                if (sEnd > 1440) {
+                    listOf(sStart to 1440, 0 to (sEnd - 1440))
+                } else {
+                    listOf(sStart to sEnd)
+                }
             }
 
             for (i in sortedTasks.indices) {

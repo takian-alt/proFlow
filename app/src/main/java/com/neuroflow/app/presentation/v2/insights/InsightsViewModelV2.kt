@@ -144,8 +144,18 @@ class InsightsViewModelV2 @Inject constructor(
         val todaySessions = allSessions.filter { it.startedAt >= startOfToday || (it.endedAt != null && it.endedAt!! >= startOfToday) }
         val weekSessions = allSessions.filter { it.startedAt >= startOfWeek }
 
-        val todayFocusMinutes = todaySessions.sumOf { it.trackedMinutes(now).toInt() }
-        val weekFocusMinutes = weekSessions.sumOf { it.trackedMinutes(now).toInt() }
+        fun clampedMinutes(s: com.neuroflow.app.data.local.entity.TimeSessionEntity, windowStart: Long): Double {
+            val effStart = maxOf(s.startedAt, windowStart)
+            val effEnd = minOf(s.endedAt ?: now, now)
+            if (effEnd <= effStart) return 0.0
+            val fullDuration = s.trackedMinutes(now)
+            val span = maxOf(1L, (s.endedAt ?: now) - s.startedAt)
+            val overlap = effEnd - effStart
+            return (fullDuration * (overlap.toDouble() / span.toDouble())).coerceAtLeast(0.0)
+        }
+
+        val todayFocusMinutes = todaySessions.sumOf { clampedMinutes(it, startOfToday).toInt() }
+        val weekFocusMinutes = weekSessions.sumOf { clampedMinutes(it, startOfWeek).toInt() }
 
         val pauses = todaySessions.sumOf { it.pauseResumeCount }
         val appSwitches = todaySessions.sumOf { it.appSwitchCount }
@@ -157,8 +167,8 @@ class InsightsViewModelV2 @Inject constructor(
         val frogsToday = completedToday.count { it.isFrog }
 
         // Circadian alignment: % of high energy tasks executed or completed during peak window
-        val peakStart = prefs.peakEnergyStart.coerceIn(0, 23)
-        val peakEnd = prefs.peakEnergyEnd.coerceIn(0, 23)
+        val peakStart = (if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart else prefs.peakEnergyStart).coerceIn(0, 23)
+        val peakEnd = (if (prefs.effectivePeakEnd in 0..23) prefs.effectivePeakEnd else prefs.peakEnergyEnd).coerceIn(0, 23)
         val highEnergyTasks = allTasks.filter { it.energyLevel == EnergyLevel.HIGH }
         val evaluatedTasks = highEnergyTasks.filter {
             (it.scheduledTime != null && it.resolveScheduledEpochMillis() != null) || it.completedAt != null
@@ -179,10 +189,10 @@ class InsightsViewModelV2 @Inject constructor(
             }
         }
         val alignmentRate = if (evaluatedTasks.isNotEmpty()) {
-            ((alignedHighEnergy.toFloat() / evaluatedTasks.size) * 100).toInt().coerceIn(40, 100)
+            ((alignedHighEnergy.toFloat() / evaluatedTasks.size) * 100).toInt().coerceIn(0, 100)
         } else 85
 
-        val totalMinutes = todaySessions.sumOf { it.trackedMinutes(now).toDouble() }
+        val totalMinutes = todaySessions.sumOf { clampedMinutes(it, startOfToday) }
         val penaltyMinutes = (pauses * 0.5 + appSwitches * 0.75)
         val efficiency = if (totalMinutes > 0.0) {
             (((totalMinutes - penaltyMinutes).coerceAtLeast(0.0) / totalMinutes) * 100).toInt().coerceIn(30, 99)

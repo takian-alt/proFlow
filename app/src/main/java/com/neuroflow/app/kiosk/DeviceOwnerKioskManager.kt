@@ -61,8 +61,8 @@ object DeviceOwnerKioskManager {
     }
 
     /**
-     * One-time migration: force strict mode default for existing installs.
-     * Users can still disable it later from settings.
+     * One-time migration: initialize migration flag without force-enabling strict mode.
+     * Users can configure strict mode from settings.
      */
     fun migrateStrictModeDefault(context: Context) {
         withDiskWriteAllowance {
@@ -70,10 +70,11 @@ object DeviceOwnerKioskManager {
             val alreadyMigrated = prefs.getBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, false)
             if (alreadyMigrated) return
 
-            prefs.edit()
-                .putBoolean(KEY_STRICT_MODE, true)
-                .putBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, true)
-                .apply()
+            val editor = prefs.edit().putBoolean(KEY_STRICT_DEFAULT_MIGRATION_V1_APPLIED, true)
+            if (!prefs.contains(KEY_STRICT_MODE)) {
+                editor.putBoolean(KEY_STRICT_MODE, false)
+            }
+            editor.apply()
             Log.i(TAG, "Applied strict-mode default migration (v1)")
         }
     }
@@ -88,9 +89,9 @@ object DeviceOwnerKioskManager {
         applyDeviceOwnerPolicies(context)
     }
 
-    fun onBootCompleted(context: Context) {
+    fun onBootCompleted(context: Context, isSessionActive: Boolean = false) {
         enableHybridProtection(context)
-        if (isDeviceOwner(context) && isStrictModeEnabled(context)) {
+        if (isSessionActive && isDeviceOwner(context) && isStrictModeEnabled(context)) {
             launchKioskHome(context)
         }
     }

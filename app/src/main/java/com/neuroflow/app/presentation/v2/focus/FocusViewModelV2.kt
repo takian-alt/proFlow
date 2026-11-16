@@ -316,6 +316,7 @@ class FocusViewModelV2 @Inject constructor(
                     )
                 }
             }
+            checkAutoTracker(_uiState.value.preferences)
         }
     }
 
@@ -789,6 +790,7 @@ class FocusViewModelV2 @Inject constructor(
         viewModelScope.launch {
             val session = sessionRepository.getOpenSessionForTask(taskId)
             if (session != null) {
+                pauseCount = maxOf(pauseCount, session.pauseResumeCount)
                 sessionRepository.update(
                     session.copy(
                         pausedAt = newPausedAt,
@@ -920,6 +922,7 @@ class FocusViewModelV2 @Inject constructor(
             val totalPause = _uiState.value.accumulatedPauseMillis + currentPause
 
             if (session != null) {
+                pauseCount = maxOf(pauseCount, session.pauseResumeCount)
                 sessionRepository.update(
                     session.copy(
                         endedAt = now,
@@ -1274,6 +1277,7 @@ class FocusViewModelV2 @Inject constructor(
         viewModelScope.launch {
             val session = sessionRepository.getOpenSessionForTask(taskId)
             if (session != null) {
+                pauseCount = maxOf(pauseCount, session.pauseResumeCount)
                 sessionRepository.update(
                     session.copy(
                         endedAt = if (isOpen) null else now,

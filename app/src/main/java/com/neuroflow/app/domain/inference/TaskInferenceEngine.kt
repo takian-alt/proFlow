@@ -76,9 +76,10 @@ object TaskInferenceEngine {
     private val HIGH_IMPACT_REGEX = Regex("""(?i)(?:^|\s)(?:!impact\b|!star\b|#impact\b|\b(?:high\s+impact|critical|strategic)\b)""")
     private val TODAY_REGEX = Regex("""(?i)\b(today|tonight)\b""")
     private val TOMORROW_REGEX = Regex("""(?i)\b(tomorrow|tmrw)\b""")
+    private val BARE_WEEKDAY_REGEX = Regex("""(?i)\b(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
     private val DUE_DATE_REGEX = Regex("""(?i)\b(?:due|by|deadline)\s*:?\s*(?:next\s+|this\s+)?(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
     private val SCHEDULE_DATE_REGEX = Regex("""(?i)\b(?:scheduled?(?:\s+for)?|on|next|this)\s*:?\s*(?:next\s+|this\s+)?(today|tomorrow|tmrw|monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b""")
-    private val CLOCK_TIME_REGEX = Regex("""(?i)\b(?:at|by|due(?:\s+at|\s+by)?|deadline(?:\s+at|\s+by)?)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b""")
+    private val CLOCK_TIME_REGEX = Regex("""(?i)\b(?:(at|by|due(?:\s+at|\s+by)?|deadline(?:\s+at|\s+by)?)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(at|by)\s+(\d{1,2})(?::(\d{2}))?\b""")
     private val RELATIVE_OFFSET_REGEX = Regex("""(?i)\b(?:(due|deadline)\s+)?in\s+(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)\b""")
     private val TIME_OF_DAY_REGEX = Regex("""(?i)\b(?:(due|deadline|by)\s+)?(?:this\s+)?(morning|afternoon|evening|tonight)\b""")
     private val DANGLING_DUE_REGEX = Regex("""(?i)\b(?:due|deadline)\b""")
@@ -247,21 +248,42 @@ object TaskInferenceEngine {
             val isNext = scheduleMatch.value.contains("next", ignoreCase = true) || text.contains(Regex("""(?i)\bnext\s+""" + token))
             inferredScheduledDate = resolveDateTokenMillis(token, todayLocal, zoneId, isNext)
             isExplicitScheduledDate = true
-        } else if (inferredDeadlineDate == null) {
-            if (TODAY_REGEX.containsMatchIn(text)) {
+        } else {
+            val nonDueText = if (dueMatch != null) {
+                text.removeRange(dueMatch.range)
+            } else text
+            val bareWeekdayMatch = BARE_WEEKDAY_REGEX.find(nonDueText)
+            if (TODAY_REGEX.containsMatchIn(nonDueText)) {
                 inferredScheduledDate = todayStartMillis
                 isExplicitScheduledDate = true
-            } else if (TOMORROW_REGEX.containsMatchIn(text)) {
+            } else if (TOMORROW_REGEX.containsMatchIn(nonDueText)) {
                 inferredScheduledDate = tomorrowStartMillis
+                isExplicitScheduledDate = true
+            } else if (bareWeekdayMatch != null) {
+                val token = bareWeekdayMatch.groupValues[1].lowercase(Locale.ROOT)
+                val isNext = nonDueText.contains(Regex("""(?i)\bnext\s+""" + token))
+                inferredScheduledDate = resolveDateTokenMillis(token, todayLocal, zoneId, isNext)
                 isExplicitScheduledDate = true
             }
         }
 
         val clockMatch = CLOCK_TIME_REGEX.find(text)
         if (clockMatch != null) {
-            val rawHour = clockMatch.groupValues[1].toIntOrNull() ?: 9
-            val rawMin = clockMatch.groupValues[2].toIntOrNull()?.coerceIn(0, 59) ?: 0
-            val meridiem = clockMatch.groupValues[3].lowercase(Locale.ROOT)
+            val rawHour: Int
+            val rawMin: Int
+            val meridiem: String
+            val prefix: String
+            if (clockMatch.groups[2] != null) {
+                prefix = clockMatch.groups[1]?.value?.lowercase(Locale.ROOT).orEmpty()
+                rawHour = clockMatch.groups[2]?.value?.toIntOrNull() ?: 9
+                rawMin = clockMatch.groups[3]?.value?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+                meridiem = clockMatch.groups[4]?.value?.lowercase(Locale.ROOT).orEmpty()
+            } else {
+                prefix = clockMatch.groups[5]?.value?.lowercase(Locale.ROOT).orEmpty()
+                rawHour = clockMatch.groups[6]?.value?.toIntOrNull() ?: 9
+                rawMin = clockMatch.groups[7]?.value?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+                meridiem = ""
+            }
             val hour24 = when {
                 meridiem == "pm" && rawHour in 1..11 -> rawHour + 12
                 meridiem == "am" && rawHour == 12 -> 0
@@ -269,7 +291,6 @@ object TaskInferenceEngine {
                 else -> rawHour.coerceIn(0, 23)
             }
             val clockMillis = LocalTime.of(hour24, rawMin).toSecondOfDay() * 1000L
-            val prefix = clockMatch.value.lowercase(Locale.ROOT)
             val hasDuePrefix = prefix.startsWith("by") || prefix.startsWith("due") || prefix.startsWith("deadline")
             val isDueTime = hasDuePrefix ||
                 (dueMatch != null && scheduleMatch == null) ||

@@ -77,6 +77,14 @@ class HyperFocusMonitorService : Service() {
                 }
 
                 val now = System.currentTimeMillis()
+                if (prefs.sessionMode == com.neuroflow.app.domain.model.HyperFocusSessionMode.TIME_BASED) {
+                    val endsAt = prefs.sessionEndsAtMillis
+                    if (endsAt != null && endsAt <= now) {
+                        hyperFocusManager.deactivate()
+                        stopSelf()
+                        break
+                    }
+                }
                 val accessibilityEnabled = isAccessibilityServiceEnabled()
                 val lastHeartbeat = hyperFocusDataStore.getHeartbeat().takeIf { it > 0L } ?: prefs.lastServiceHeartbeat
                 val heartbeatStale = lastHeartbeat > 0L &&

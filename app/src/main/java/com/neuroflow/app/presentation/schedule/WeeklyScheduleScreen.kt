@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +36,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
 import com.neuroflow.app.data.local.entity.startOfNextLocalDay
 import com.neuroflow.app.domain.model.ProtectedTimeSlot
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.common.getQuadrantBgColor
 import com.neuroflow.app.presentation.common.getQuadrantTextColor
 import com.neuroflow.app.presentation.common.isProtectedSlotOnDay
@@ -48,6 +50,77 @@ import java.util.Locale
 private val HOUR_HEIGHT = 64.dp
 private val DAY_COLUMN_WIDTH = 110.dp
 private val TIME_GUTTER_WIDTH = 52.dp
+
+internal data class WeeklyTaskLayout(
+    val task: TaskEntity,
+    val startMinute: Int,
+    val durationMins: Int,
+    val laneIndex: Int,
+    val totalLanes: Int
+)
+
+internal fun computeWeeklyTaskLayouts(tasks: List<TaskEntity>): List<WeeklyTaskLayout> {
+    if (tasks.isEmpty()) return emptyList()
+    val sorted = tasks.map { task ->
+        val start = task.timelineStartMinuteOfDay()
+        val duration = TaskBlockPlan.plannedMinutes(task).coerceIn(15, 360)
+        task to (start to start + duration)
+    }.sortedWith(compareBy({ it.second.first }, { it.second.second }))
+
+    val clusters = mutableListOf<MutableList<Pair<TaskEntity, Pair<Int, Int>>>>()
+    var currentCluster = mutableListOf<Pair<TaskEntity, Pair<Int, Int>>>()
+    var clusterEnd = -1
+
+    for (item in sorted) {
+        val (start, end) = item.second
+        if (currentCluster.isEmpty() || start < clusterEnd) {
+            currentCluster.add(item)
+            clusterEnd = maxOf(clusterEnd, end)
+        } else {
+            clusters.add(currentCluster)
+            currentCluster = mutableListOf(item)
+            clusterEnd = end
+        }
+    }
+    if (currentCluster.isNotEmpty()) {
+        clusters.add(currentCluster)
+    }
+
+    val result = mutableListOf<WeeklyTaskLayout>()
+    for (cluster in clusters) {
+        val lanes = mutableListOf<Int>()
+        val taskLanes = mutableListOf<Pair<Pair<TaskEntity, Pair<Int, Int>>, Int>>()
+        for (item in cluster) {
+            val (start, end) = item.second
+            var assigned = -1
+            for (i in lanes.indices) {
+                if (lanes[i] <= start) {
+                    assigned = i
+                    lanes[i] = end
+                    break
+                }
+            }
+            if (assigned == -1) {
+                assigned = lanes.size
+                lanes.add(end)
+            }
+            taskLanes.add(item to assigned)
+        }
+        val totalLanes = maxOf(1, lanes.size)
+        for ((item, lane) in taskLanes) {
+            result.add(
+                WeeklyTaskLayout(
+                    task = item.first,
+                    startMinute = item.second.first,
+                    durationMins = item.second.second - item.second.first,
+                    laneIndex = lane,
+                    totalLanes = totalLanes
+                )
+            )
+        }
+    }
+    return result
+}
 
 private fun formatHourLabel(hour: Int): String {
     return when {
@@ -76,10 +149,19 @@ fun WeeklyScheduleScreen(
     val verticalScrollState = rememberScrollState()
     val horizontalScrollState = rememberScrollState()
 
-    val currentCal = Calendar.getInstance()
-    val currentHour = currentCal.get(Calendar.HOUR_OF_DAY)
-    val currentMinute = currentCal.get(Calendar.MINUTE)
-    val currentMinuteOfDay = currentHour * 60 + currentMinute
+    var currentMinuteOfDay by remember {
+        val cal = Calendar.getInstance()
+        mutableIntStateOf(cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE))
+    }
+    val currentHour = currentMinuteOfDay / 60
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val cal = Calendar.getInstance()
+            currentMinuteOfDay = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+            kotlinx.coroutines.delay(30_000L)
+        }
+    }
     val todayMillis = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
 
     val density = LocalDensity.current
@@ -510,6 +592,8 @@ fun WeeklyScheduleScreen(
                                         .height(slotHeight.dp)
                                         .clickable { showProtectedSlotsSheet = true }
                                 ) {
+                                    val slotTextColor = if (categoryColor.luminance() > 0.5f) Color.Black else Color.White
+                                    val slotSubtextColor = slotTextColor.copy(alpha = 0.8f)
                                     Column(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -528,7 +612,7 @@ fun WeeklyScheduleScreen(
                                                 text = slot.label,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color.Black,
+                                                color = slotTextColor,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                                 fontSize = 10.sp,
@@ -543,7 +627,7 @@ fun WeeklyScheduleScreen(
                                             Text(
                                                 text = String.format(Locale.getDefault(), "%02d:%02d-%02d:%02d", startH, startM, endH, endM),
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = Color.Black.copy(alpha = 0.75f),
+                                                color = slotSubtextColor,
                                                 fontSize = 8.5.sp,
                                                 maxLines = 1
                                             )
@@ -554,9 +638,11 @@ fun WeeklyScheduleScreen(
 
                             // Render Scheduled Tasks (only timed tasks are placed on the hour grid)
                             val timedTasks = dayTasks.filter { it.scheduledTime != null }
-                            timedTasks.forEach { task ->
-                                val startMinute = task.timelineStartMinuteOfDay()
-                                val durationMins = (if (task.estimatedDurationMinutes > 0) task.estimatedDurationMinutes else 45).coerceIn(15, 360)
+                            val taskLayouts = remember(timedTasks) { computeWeeklyTaskLayouts(timedTasks) }
+                            taskLayouts.forEach { layout ->
+                                val task = layout.task
+                                val startMinute = layout.startMinute
+                                val durationMins = layout.durationMins
                                 val taskOffsetY = (startMinute / 60f) * HOUR_HEIGHT.value
                                 val maxAvailableHeight = ((1440 - startMinute) / 60f * HOUR_HEIGHT.value).coerceAtLeast(24f)
                                 val taskHeight = ((durationMins / 60f) * HOUR_HEIGHT.value).coerceIn(24f, maxAvailableHeight)
@@ -564,14 +650,17 @@ fun WeeklyScheduleScreen(
                                 val bgColor = getQuadrantBgColor(task.quadrant)
                                 val textColor = getQuadrantTextColor(task.quadrant)
 
+                                val laneWidth = DAY_COLUMN_WIDTH / layout.totalLanes
+                                val laneOffsetX = laneWidth * layout.laneIndex
+
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = bgColor,
                                     border = BorderStroke(0.8.dp, textColor.copy(alpha = 0.5f)),
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 2.dp)
-                                        .offset(y = taskOffsetY.dp)
+                                        .width(laneWidth)
+                                        .padding(horizontal = 1.dp)
+                                        .offset(x = laneOffsetX, y = taskOffsetY.dp)
                                         .height(taskHeight.dp)
                                         .clickable { onNavigateToFocus(task.id) }
                                 ) {

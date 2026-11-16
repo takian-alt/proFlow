@@ -343,13 +343,23 @@ fun SettingsScreen(
                     viewModel.updatePreferences { p ->
                         val newStart = it
                         val newEnd = if (p.peakEnergyEnd != 0 && p.peakEnergyEnd <= newStart) minOf(23, newStart + 1) else p.peakEnergyEnd
-                        p.copy(peakEnergyStart = newStart, peakEnergyEnd = newEnd)
+                        val syncEffective = !p.quizPeakEnabled
+                        p.copy(
+                            peakEnergyStart = newStart,
+                            peakEnergyEnd = newEnd,
+                            effectivePeakStart = if (syncEffective) newStart else p.effectivePeakStart,
+                            effectivePeakEnd = if (syncEffective) newEnd else p.effectivePeakEnd
+                        )
                     }
                 }
                 SettingsNumberRow("Peak Energy End", prefs.peakEnergyEnd, 0, 23, formatHour = true) {
                     viewModel.updatePreferences { p ->
                         val newEnd = if (it == 0) 0 else if (p.peakEnergyStart < 23) maxOf(it, p.peakEnergyStart + 1) else it
-                        p.copy(peakEnergyEnd = newEnd)
+                        val syncEffective = !p.quizPeakEnabled
+                        p.copy(
+                            peakEnergyEnd = newEnd,
+                            effectivePeakEnd = if (syncEffective) newEnd else p.effectivePeakEnd
+                        )
                     }
                 }
                 if (prefs.peakEnergyEnd != 0 && prefs.peakEnergyEnd <= prefs.peakEnergyStart) {

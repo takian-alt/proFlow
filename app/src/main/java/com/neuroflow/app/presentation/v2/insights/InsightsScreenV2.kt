@@ -151,10 +151,12 @@ fun InsightsScreenV2(
                         CircadianSynchronyAndEfficiencyRow(state = state)
 
                         // C. 24-Hr Empirical Focus Density Heatmap
+                        val effPeakStart = if (state.preferences.effectivePeakStart in 0..23) state.preferences.effectivePeakStart else state.preferences.peakEnergyStart.coerceIn(0, 23)
+                        val effPeakEnd = if (state.preferences.effectivePeakEnd in 0..23) state.preferences.effectivePeakEnd else state.preferences.peakEnergyEnd.coerceIn(0, 23)
                         CircadianDensityHeatmapCard(
                             density = metrics.hourlyDensity,
-                            peakStart = state.preferences.peakEnergyStart.coerceIn(0, 23),
-                            peakEnd = state.preferences.peakEnergyEnd.coerceIn(0, 23)
+                            peakStart = effPeakStart,
+                            peakEnd = effPeakEnd
                         )
 
                         // D. Actionable Neuroscience Interventions
@@ -176,7 +178,8 @@ fun InsightsScreenV2(
                             weightedSmape = metrics.weightedSmape,
                             smapeGrade = metrics.smapeGrade,
                             planningCalibrationFactor = state.planningCalibrationFactor,
-                            underestimatedPct = state.analyticsSummary?.underestimatedPct ?: 0f
+                            underestimatedPct = state.analyticsSummary?.underestimatedPct ?: 0f,
+                            overestimatedPct = state.analyticsSummary?.overestimatedPct ?: 0f
                         )
 
                         // C. Cognitive Friction & Interruption Radar
@@ -631,8 +634,10 @@ fun BorbelyTwoProcessDeepDiveCard(
                 }
             }
 
+            val displayPeakStart = if (state.preferences.effectivePeakStart in 0..23) state.preferences.effectivePeakStart else state.preferences.peakEnergyStart.coerceIn(0, 23)
+            val displayPeakEnd = if (state.preferences.effectivePeakEnd in 0..23) state.preferences.effectivePeakEnd else state.preferences.peakEnergyEnd.coerceIn(0, 23)
             Text(
-                text = "Chronotype: ${(state.preferences.quizChronotype ?: state.preferences.manualChronotype)?.replace('_', ' ') ?: "Intermediate"} • Peak hours: ${String.format("%02d:00", state.preferences.peakEnergyStart)} - ${String.format("%02d:00", state.preferences.peakEnergyEnd)}",
+                text = "Chronotype: ${(state.preferences.quizChronotype ?: state.preferences.manualChronotype)?.replace('_', ' ') ?: "Intermediate"} • Peak hours: ${String.format("%02d:00", displayPeakStart)} - ${String.format("%02d:00", displayPeakEnd)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = NeuroFlowThemeV2Colors.TextSecondary
             )
@@ -685,7 +690,8 @@ fun VelocityAndAccuracyCard(
     weightedSmape: Float,
     smapeGrade: String,
     planningCalibrationFactor: Float = 1.0f,
-    underestimatedPct: Float = 0f
+    underestimatedPct: Float = 0f,
+    overestimatedPct: Float = 0f
 ) {
     Surface(
         modifier = Modifier
@@ -755,7 +761,7 @@ fun VelocityAndAccuracyCard(
                 )
                 MetricTile(
                     label = "Overestimated",
-                    value = if (underestimatedPct > 0f) "${(100f - underestimatedPct).coerceAtLeast(0f).roundToInt()}%" else "0%",
+                    value = "${overestimatedPct.roundToInt()}%",
                     subtitle = "Early finishes"
                 )
             }

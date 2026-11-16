@@ -42,7 +42,17 @@ interface TimeSessionDao {
     @Query("SELECT * FROM time_sessions WHERE startedAt >= :fromMillis ORDER BY startedAt DESC")
     suspend fun getSessionsSince(fromMillis: Long): List<TimeSessionEntity>
 
-    @Query("SELECT SUM(durationMinutes) FROM time_sessions WHERE startedAt >= :startOfDay AND startedAt < :endOfDay")
+    @Query("""
+        SELECT SUM(
+            CASE 
+                WHEN durationMinutes > 0 AND startedAt >= :startOfDay AND (endedAt IS NULL OR endedAt <= :endOfDay) 
+                THEN durationMinutes
+                ELSE (MIN(COALESCE(endedAt, :endOfDay), :endOfDay) - MAX(startedAt, :startOfDay)) / 60000.0
+            END
+        )
+        FROM time_sessions
+        WHERE startedAt < :endOfDay AND (endedAt IS NULL OR endedAt > :startOfDay)
+    """)
     fun observeTotalMinutesForDay(startOfDay: Long, endOfDay: Long): Flow<Float?>
 
     @Query("DELETE FROM time_sessions WHERE taskId = :taskId")

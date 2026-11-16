@@ -303,11 +303,11 @@ class DefaultTaskSchedulerService @Inject constructor(
             task.priority == 1 -> 40.0
             else -> 15.0
         }
-        val basePriority = (rawBasePriority * weights.priorityLevelWeight.coerceIn(0.2, 3.0)).coerceIn(0.0, 100.0)
+        val basePriority = (rawBasePriority * weights.priorityLevelWeight.coerceIn(0.0, 3.0)).coerceIn(0.0, 100.0)
         val impactAdj = if (task.impactScore != 50) {
             (task.impactScore - 50) * 0.30
         } else 0.0
-        val frogBonus = if (task.isFrog) (25.0 * weights.frogBonusMultiplier.coerceIn(0.5, 2.0)) else 0.0
+        val frogBonus = if (task.isFrog) (25.0 * weights.frogBonusMultiplier.coerceIn(0.0, 2.0)) else 0.0
         val dependencyBonus = 10.0 * min(3, dependentCount)
         val personalBonus = if (task.isPersonalTask) 30.0 else 0.0
         val impact = (basePriority + impactAdj + frogBonus + dependencyBonus + personalBonus).coerceIn(0.0, 100.0)
@@ -316,7 +316,7 @@ class DefaultTaskSchedulerService @Inject constructor(
         val energyDiff = snapshot.usableEnergy.toDouble() - task.energyDemand.targetScore
         val demandGaussian = 100.0 * exp(-(energyDiff * energyDiff) / (2.0 * 28.0 * 28.0))
         val rawCategoryAffinity = circadianService.computeCategoryAffinity(task.category, snapshot)
-        val categoryAffinity = (rawCategoryAffinity * weights.focusModeWeight.coerceIn(0.2, 3.0)).coerceIn(0.0, 100.0)
+        val categoryAffinity = (rawCategoryAffinity * weights.focusModeWeight.coerceIn(0.0, 3.0)).coerceIn(0.0, 100.0)
         val dreadAlignmentAdj = if (task.isAnxietyTask || task.postponeCount >= 3) {
             when (snapshot.phase) {
                 EnergyPhase.SURGE -> 12.0
@@ -345,11 +345,11 @@ class DefaultTaskSchedulerService @Inject constructor(
         val activeBonus = if (task.isCurrentlyActive) 35.0 else 0.0
         val microStepBonus = if (task.totalMicroSteps > 0) 20.0 else 0.0
         val woopBonus = if (task.hasImplementationIntention) {
-            12.0 * weights.planBoostWeight.coerceIn(0.1, 3.0)
+            12.0 * weights.planBoostWeight.coerceIn(0.0, 3.0)
         } else 0.0
-        val lowFrictionBonus = (15.0 * exp(-max(5, task.estimatedMinutes) / 45.0)) * weights.durationWeight.coerceIn(0.2, 3.0)
+        val lowFrictionBonus = (15.0 * exp(-max(5, task.estimatedMinutes) / 45.0)) * weights.durationWeight.coerceIn(0.0, 3.0)
         val enjoymentBonus = if (task.estimatedEnjoyment != 5) {
-            (task.estimatedEnjoyment - 5) * 2.0 * weights.enjoymentWeight.coerceIn(0.2, 3.0)
+            (task.estimatedEnjoyment - 5) * 2.0 * weights.enjoymentWeight.coerceIn(0.0, 3.0)
         } else 0.0
         val momentum = (zeigarnikPull + activeBonus + microStepBonus + woopBonus + lowFrictionBonus + enjoymentBonus)
             .coerceIn(0.0, 100.0)
@@ -365,10 +365,10 @@ class DefaultTaskSchedulerService @Inject constructor(
             else -> 1.0 - 0.15 * quadrantSpread // ELIMINATE
         }.coerceIn(0.5, 2.0)
 
-        val rawWu = W_URGENCY * weights.urgencyWeight.coerceIn(0.1, 3.0)
-        val rawWi = W_IMPACT * weights.impactWeight.coerceIn(0.1, 3.0)
-        val rawWe = W_ENERGY * weights.circadianMatchWeight.coerceIn(0.1, 3.0)
-        val rawWm = W_MOMENTUM * weights.momentumWeight.coerceIn(0.1, 3.0)
+        val rawWu = W_URGENCY * weights.urgencyWeight.coerceIn(0.0, 3.0)
+        val rawWi = W_IMPACT * weights.impactWeight.coerceIn(0.0, 3.0)
+        val rawWe = W_ENERGY * weights.circadianMatchWeight.coerceIn(0.0, 3.0)
+        val rawWm = W_MOMENTUM * weights.momentumWeight.coerceIn(0.0, 3.0)
         val weightSum = (rawWu + rawWi + rawWe + rawWm).coerceAtLeast(0.001)
 
         val totalScore = (
@@ -491,8 +491,11 @@ class DefaultTaskSchedulerService @Inject constructor(
         }
         val latestDayEnd = if (workDayEndHour != null) {
             val endHour = workDayEndHour.coerceIn(0, 23)
+            val startHour = (workDayStartHour ?: 6).coerceIn(0, 23)
             if (endHour == 0) {
                 dayDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+            } else if (endHour <= startHour) {
+                dayDate.plusDays(1).atTime(LocalTime.of(endHour, 0)).atZone(zoneId).toInstant().toEpochMilli()
             } else {
                 dayDate.atTime(LocalTime.of(endHour, 0)).atZone(zoneId).toInstant().toEpochMilli()
             }
@@ -527,7 +530,8 @@ class DefaultTaskSchedulerService @Inject constructor(
         }
 
         // 2. Build Exact Minute-Resolution Free Intervals
-        var freeIntervals = mutableListOf(TimeSlotWindow(dayStartMillis, dayEndMillis))
+        val horizonStart = if (isPast) dayEndMillis else if (isToday) max(nowMillis - 15 * 60_000L, effectiveWakeStart) else effectiveWakeStart
+        var freeIntervals = mutableListOf(TimeSlotWindow(horizonStart, dayEndMillis))
         val napWindows = naps.map { TimeSlotWindow(it.startMillis, it.endMillis) }
         val physioWindows = physiologicalBlocks.map { it.toTimeSlotWindow(dayDate, zoneId) }
         val allBlocked = busyWindows + protectedSlots.map { it.resolveForDate(dayDate, zoneId) } + napWindows + physioWindows
@@ -547,6 +551,86 @@ class DefaultTaskSchedulerService @Inject constructor(
         }
 
         val sanitizedTaskMap = sanitizedTasks.associateBy { it.id }
+
+        // Feature 2 (ADR-024): Pre-Hysteresis Reverse-DAG Hard Ceiling Propagation
+        // Compute ceilings from hard constraints (deadlines and pinned/locked tasks) before anchoring unlocked hysteresis tasks.
+        val latestAllowedEndMap = mutableMapOf<String, Long>()
+        val structuralCeilingMap = mutableMapOf<String, Long>()
+        for (task in sanitizedTasks) {
+            val deadlineCeiling = task.deadlineMillis?.let { min(it, dayEndMillis) } ?: dayEndMillis
+            val taskBufferedMins = computeBufferedDuration(task, calibrationRatio)
+            val taskDurationMillis = taskBufferedMins * 60_000L
+            val directCeiling = when {
+                task.isLocked && task.scheduledStartMillis != null -> task.scheduledStartMillis!! + taskDurationMillis
+                else -> deadlineCeiling
+            }
+            latestAllowedEndMap[task.id] = min(deadlineCeiling, directCeiling)
+
+            val directStructural = when {
+                task.isLocked && task.scheduledStartMillis != null -> task.scheduledStartMillis!!
+                else -> Long.MAX_VALUE
+            }
+            structuralCeilingMap[task.id] = directStructural
+        }
+
+        var preDagCeilingChanged = true
+        var preDagIterations = 0
+        while (preDagCeilingChanged && preDagIterations < sanitizedTasks.size + 1) {
+            preDagCeilingChanged = false
+            preDagIterations++
+            for (task in sanitizedTasks) {
+                val childCeiling = latestAllowedEndMap[task.id] ?: Long.MAX_VALUE
+                val childStructural = structuralCeilingMap[task.id] ?: Long.MAX_VALUE
+
+                val childBufferedMins = computeBufferedDuration(task, calibrationRatio)
+                val childDurationMillis = childBufferedMins * 60_000L
+                val isLockedWithStart = task.isLocked && task.scheduledStartMillis != null
+                val childLockedStart = if (isLockedWithStart) task.scheduledStartMillis!! else null
+
+                val childLatestStart = when {
+                    childLockedStart != null -> childLockedStart
+                    childCeiling != Long.MAX_VALUE -> childCeiling - childDurationMillis
+                    else -> Long.MAX_VALUE
+                }
+
+                val childStructuralStart = when {
+                    childLockedStart != null -> childLockedStart
+                    childStructural != Long.MAX_VALUE -> childStructural - childDurationMillis
+                    else -> Long.MAX_VALUE
+                }
+
+                val isUltradianDep = task.id.endsWith("#part2") || task.id.endsWith("_part2") ||
+                    task.id.contains(Regex("""[#_]part[2-9]""")) ||
+                    task.title.contains(Regex("""\((Part|part) [2-9]/\d+\)""")) ||
+                    task.parentTaskId != null ||
+                    task.prerequisiteIds.any { prereq ->
+                        prereq.endsWith("#part1") || prereq.endsWith("_part1") ||
+                        sanitizedTaskMap[prereq]?.title?.contains("(Part 1/") == true
+                    }
+                val bufferBeforeChild = if (isUltradianDep) ULTRADIAN_RECOVERY_BUFFER_MINUTES else TRANSITION_BUFFER_MINUTES
+                val bufferMillis = bufferBeforeChild * 60_000L
+
+                for (prereqId in task.prerequisiteIds) {
+                    if (childLatestStart != Long.MAX_VALUE) {
+                        val parentMaxEnd = childLatestStart - bufferMillis
+                        val currentParentCeiling = latestAllowedEndMap[prereqId] ?: Long.MAX_VALUE
+                        if (parentMaxEnd < currentParentCeiling) {
+                            latestAllowedEndMap[prereqId] = parentMaxEnd
+                            preDagCeilingChanged = true
+                        }
+                    }
+                    if (childStructuralStart != Long.MAX_VALUE) {
+                        val parentStructuralEnd = childStructuralStart - bufferMillis
+                        val currentParentStructural = structuralCeilingMap[prereqId] ?: Long.MAX_VALUE
+                        if (parentStructuralEnd < currentParentStructural) {
+                            structuralCeilingMap[prereqId] = parentStructuralEnd
+                            preDagCeilingChanged = true
+                        }
+                    }
+                }
+            }
+        }
+
         val remainingTasks = mutableListOf<SchedulableTask>()
 
         // Bug 5 Fix: Sort candidate anchor tasks by scheduledStartMillis ascending
@@ -564,7 +648,10 @@ class DefaultTaskSchedulerService @Inject constructor(
                 TimeSlotWindow(existingStart, existingStart + durationMins * 60_000L)
             } else null
 
-            val isHysteresisCandidate = existingWindow != null &&
+            val ceilingForTask = latestAllowedEndMap[task.id] ?: Long.MAX_VALUE
+            val satisfiesCeiling = task.isLocked || (existingWindow != null && existingWindow.endMillis <= ceilingForTask)
+
+            val isHysteresisCandidate = existingWindow != null && satisfiesCeiling &&
                 (task.isLocked || (!forceReplan && existingWindow.startMillis >= nowMillis - 15 * 60_000L)) &&
                 fitsInFreeIntervals(freeIntervals, existingWindow)
 
@@ -661,9 +748,15 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
-        // Feature 2 (ADR-024): Reverse-DAG Deadline & Locked-Dependent Ceiling Propagation
-        val latestAllowedEndMap = mutableMapOf<String, Long>()
-        val structuralCeilingMap = mutableMapOf<String, Long>()
+        // Clip any unanchored free intervals before dayStartMillis so new tasks are only scheduled in the future
+        if (isToday) {
+            freeIntervals = freeIntervals.mapNotNull { interval ->
+                if (interval.endMillis <= dayStartMillis) null
+                else TimeSlotWindow(max(interval.startMillis, dayStartMillis), interval.endMillis)
+            }.toMutableList()
+        }
+
+        // Feature 2 (ADR-024): Update Reverse-DAG Deadline & Locked-Dependent Ceilings with Placed Tasks
         for (task in sanitizedTasks) {
             val deadlineCeiling = task.deadlineMillis?.let { min(it, dayEndMillis) } ?: dayEndMillis
             val taskBufferedMins = computeBufferedDuration(task, calibrationRatio)
@@ -713,10 +806,14 @@ class DefaultTaskSchedulerService @Inject constructor(
                     else -> Long.MAX_VALUE
                 }
 
-                // BUG-329 Fix: Support both _part2 and #part2 (and parentTaskId) for ultradian dependencies
                 val isUltradianDep = task.id.endsWith("#part2") || task.id.endsWith("_part2") ||
+                    task.id.contains(Regex("""[#_]part[2-9]""")) ||
+                    task.title.contains(Regex("""\((Part|part) [2-9]/\d+\)""")) ||
                     task.parentTaskId != null ||
-                    task.prerequisiteIds.any { it.endsWith("#part1") || it.endsWith("_part1") }
+                    task.prerequisiteIds.any { prereq ->
+                        prereq.endsWith("#part1") || prereq.endsWith("_part1") ||
+                        sanitizedTaskMap[prereq]?.title?.contains("(Part 1/") == true
+                    }
                 val bufferBeforeChild = if (isUltradianDep) ULTRADIAN_RECOVERY_BUFFER_MINUTES else TRANSITION_BUFFER_MINUTES
                 val bufferMillis = bufferBeforeChild * 60_000L
 
@@ -1613,9 +1710,13 @@ class DefaultTaskSchedulerService @Inject constructor(
         var bestUtility = Double.NEGATIVE_INFINITY
         val stepMillis = 15 * 60_000L
 
+        val fiveMinMillis = 5 * 60_000L
+
         for (interval in freeIntervals) {
             val candidateStarts = mutableListOf<Long>()
-            var cur = max(interval.startMillis, earliestStartMillis)
+            val rawCur = max(interval.startMillis, earliestStartMillis)
+            val rem5 = rawCur % fiveMinMillis
+            var cur = if (rem5 == 0L) rawCur else rawCur + (fiveMinMillis - rem5)
             val effectiveIntervalEnd = min(interval.endMillis, latestAllowedEndMillis)
             while (cur + durationMillis <= effectiveIntervalEnd) {
                 candidateStarts.add(cur)

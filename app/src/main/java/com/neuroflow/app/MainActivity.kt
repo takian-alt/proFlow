@@ -304,8 +304,10 @@ class MainActivity : ComponentActivity() {
                 initialNewTaskOpen ||
                 isResolvingFocusTask
             var directIntentSessionHandled by rememberSaveable { mutableStateOf(pendingDirectIntent) }
-            if (pendingDirectIntent && !directIntentSessionHandled) {
-                directIntentSessionHandled = true
+            LaunchedEffect(pendingDirectIntent) {
+                if (pendingDirectIntent && !directIntentSessionHandled) {
+                    directIntentSessionHandled = true
+                }
             }
             val hasDirectIntent = pendingDirectIntent || directIntentSessionHandled
 

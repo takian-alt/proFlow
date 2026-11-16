@@ -214,7 +214,8 @@ class TaskRepository @Inject constructor(
             TaskReminderWorker.scheduleReminder(workManager, task)
             AutonomyNudgeEngine.scheduleNudge(workManager, task)
         }
-        if (!AutoSchedulingContracts.hasManualScheduleData(task) && task.status != TaskStatus.COMPLETED) {
+        calendarSyncRepository?.handleTaskStateChanged(task)
+        if (!AutoSchedulingContracts.hasManualScheduleData(task) && task.status != TaskStatus.COMPLETED && !task.isAutoScheduled) {
             enqueueAutoSchedulingRecheck()
         }
     }
@@ -233,7 +234,22 @@ class TaskRepository @Inject constructor(
         } else {
             TaskReminderWorker.cancelReminder(workManager, toWrite.id)
             AutonomyNudgeEngine.cancelNudge(workManager, toWrite.id)
+            if (toWrite.status == TaskStatus.COMPLETED || toWrite.status == TaskStatus.ARCHIVED) {
+                // Clean up orphaned continuation blocks when parent task is completed or archived
+                val part2Underscore = taskDao.getById("${toWrite.id}_part2")
+                if (part2Underscore != null && part2Underscore.status != TaskStatus.COMPLETED) {
+                    taskDao.delete(part2Underscore)
+                    calendarSyncRepository?.deleteTaskEvent(part2Underscore.id)
+                }
+                val part2Hash = taskDao.getById("${toWrite.id}#part2")
+                if (part2Hash != null && part2Hash.status != TaskStatus.COMPLETED) {
+                    taskDao.delete(part2Hash)
+                    calendarSyncRepository?.deleteTaskEvent(part2Hash.id)
+                }
+            }
         }
+
+        calendarSyncRepository?.handleTaskStateChanged(toWrite)
 
         // Trigger rescheduling if relevant fields changed
         if (old != null && shouldTriggerReschedule(old, toWrite)) {
@@ -250,6 +266,13 @@ class TaskRepository @Inject constructor(
                old.tags != new.tags ||
                old.taskType != new.taskType ||
                old.energyLevel != new.energyLevel ||
+               old.quadrant != new.quadrant ||
+               old.isScheduleLocked != new.isScheduleLocked ||
+               old.isFrog != new.isFrog ||
+               old.dependsOnTaskIds != new.dependsOnTaskIds ||
+               old.waitingFor != new.waitingFor ||
+               old.scheduledDate != new.scheduledDate ||
+               old.scheduledTime != new.scheduledTime ||
                // Task was unscheduled (manual or incomplete)
                (old.scheduledDate != null && new.scheduledDate == null)
     }
@@ -447,7 +470,10 @@ class TaskRepository @Inject constructor(
                 updatedAt = now + i
             )
             createdSessions.add(sessionTask)
-            insert(sessionTask)
+            taskDao.insert(sessionTask)
+            TaskReminderWorker.scheduleReminder(workManager, sessionTask)
+            AutonomyNudgeEngine.scheduleNudge(workManager, sessionTask)
+            calendarSyncRepository?.handleTaskStateChanged(sessionTask)
             previousSessionId = sessionTask.id
         }
 
@@ -585,7 +611,6 @@ class TaskRepository @Inject constructor(
             updatedAt = now
         )
         update(completedTask)
-        calendarSyncRepository?.handleTaskStateChanged(completedTask)
         hyperFocusManager.get().onTaskCompleted()
         enqueueAutoSchedulingRecheck()
 
@@ -688,7 +713,6 @@ class TaskRepository @Inject constructor(
             updatedAt = now
         )
         insert(spawnedTask)
-        calendarSyncRepository?.handleTaskStateChanged(spawnedTask)
         taskMicroStepDao?.let { dao ->
             val existingSteps = dao.getByTaskId(task.id)
             if (existingSteps.isNotEmpty()) {

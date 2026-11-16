@@ -54,6 +54,7 @@ class BootReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         val supportedAction = action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
+            action == Intent.ACTION_USER_UNLOCKED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == ACTION_QUICKBOOT_POWERON ||
             action == ACTION_QUICKBOOT_POWERON_HTC
@@ -63,9 +64,6 @@ class BootReceiver : BroadcastReceiver() {
 
         DeviceOwnerKioskManager.migrateStrictModeDefault(context)
         DeviceOwnerKioskManager.enableHybridProtection(context)
-        if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
-            DeviceOwnerKioskManager.onBootCompleted(context)
-        }
 
         wm.enqueueUniquePeriodicWork(
             "focus_widget_update",
@@ -83,9 +81,18 @@ class BootReceiver : BroadcastReceiver() {
                 scheduleNotificationWorkers(context, prefs)
                 scheduleSleepPressureRefreshWorker(context, prefs)
                 val hfPrefs = hyperFocusDataStore.current()
-                DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, hfPrefs.isActive)
-                hyperFocusManager.resyncSuspension(hfPrefs.isActive)
-                if (hfPrefs.isActive) {
+                val now = System.currentTimeMillis()
+                val isTimeExpired = hfPrefs.sessionMode == com.neuroflow.app.domain.model.HyperFocusSessionMode.TIME_BASED &&
+                    hfPrefs.sessionEndsAtMillis != null && hfPrefs.sessionEndsAtMillis <= now
+                val isSessionActive = hfPrefs.isActive && !isTimeExpired
+
+                if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_LOCKED_BOOT_COMPLETED || action == Intent.ACTION_USER_UNLOCKED) {
+                    DeviceOwnerKioskManager.onBootCompleted(context, isSessionActive)
+                }
+
+                DeviceOwnerKioskManager.setHyperFocusSelfProtection(context, isSessionActive)
+                hyperFocusManager.resyncSuspension(isSessionActive)
+                if (isSessionActive) {
                     val serviceEnabled = isAccessibilityServiceEnabled(context)
                     val heartbeatStale = (System.currentTimeMillis() - hfPrefs.lastServiceHeartbeat) > 60_000L
                     if (!serviceEnabled || heartbeatStale) {

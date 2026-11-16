@@ -399,7 +399,7 @@ class HyperFocusManagerImpl @Inject constructor(
         var didExpire = false
         hyperFocusDataStore.update { prefs ->
             val deadline = prefs.activePassExpiresAt
-            if (prefs.activePassPackage == null || deadline == null || deadline > nowMillis) {
+            if (deadline == null || deadline > nowMillis) {
                 prefs
             } else {
                 didExpire = true

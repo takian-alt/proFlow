@@ -59,6 +59,10 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideClock(): java.time.Clock = java.time.Clock.systemDefaultZone()
+
+    @Provides
+    @Singleton
     fun provideDatabase(@ApplicationContext context: Context): NeuroFlowDatabase {
         return Room.databaseBuilder(
             context,

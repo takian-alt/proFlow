@@ -45,6 +45,7 @@ class NeuralSoundscapePlayer(
 
     private var audioTrack: AudioTrack? = null
     private var playbackThread: Thread? = null
+    private val threadGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
     @Volatile
     var currentType: SoundscapeType = SoundscapeType.NONE
@@ -299,8 +300,8 @@ class NeuralSoundscapePlayer(
 
     private fun startPlaybackThread() {
         stopPlaybackThread()
+        val myGeneration = threadGeneration.incrementAndGet()
         playbackThread = thread(name = "NeuralSoundscapeAudio", isDaemon = true) {
-            val thisThread = Thread.currentThread()
             val buffer = ShortArray(CHUNK_FRAMES * 2)
             val crossfadeBuffer = ShortArray(CHUNK_FRAMES * 2)
             var activeType = currentType
@@ -309,7 +310,7 @@ class NeuralSoundscapePlayer(
             var fadeInStartTime = System.currentTimeMillis()
 
             try {
-                while (isPlaying.get() && !Thread.currentThread().isInterrupted) {
+                while (isPlaying.get() && !Thread.currentThread().isInterrupted && threadGeneration.get() == myGeneration) {
                     val track = audioTrack
                     if (track == null || track.state != AudioTrack.STATE_INITIALIZED) {
                         break
@@ -372,9 +373,9 @@ class NeuralSoundscapePlayer(
                         vol = (baseVol * cosineFadeIn).coerceIn(0f, 1f)
 
                         if (activeType != targetType && activeType != SoundscapeType.NONE && targetType != SoundscapeType.NONE) {
-                            // Seamless single-chunk crossfade between soundscapes to eliminate waveform step discontinuity
-                            generator.generateFrames(activeType, buffer, CHUNK_FRAMES, 0.0f)
-                            generator.generateFrames(targetType, crossfadeBuffer, CHUNK_FRAMES, vol)
+                            // Seamless crossfade between soundscapes to eliminate waveform step discontinuity
+                            generator.generateFrames(activeType, buffer, CHUNK_FRAMES, vol * 0.5f)
+                            generator.generateFrames(targetType, crossfadeBuffer, CHUNK_FRAMES, vol * 0.5f)
                             for (j in 0 until CHUNK_FRAMES * 2) {
                                 buffer[j] = (buffer[j] + crossfadeBuffer[j]).coerceIn(-32768, 32767).toShort()
                             }
@@ -392,7 +393,7 @@ class NeuralSoundscapePlayer(
                     }
                 }
             } finally {
-                if (playbackThread == thisThread || playbackThread == null) {
+                if (threadGeneration.get() == myGeneration) {
                     isPlaying.set(false)
                     isFadingOut.set(false)
                     if (!wasPlayingBeforeFocusLoss) {
@@ -417,6 +418,7 @@ class NeuralSoundscapePlayer(
     }
 
     private fun stopPlaybackThread() {
+        threadGeneration.incrementAndGet()
         val thread = playbackThread
         playbackThread = null
         if (thread != null && thread.isAlive) {

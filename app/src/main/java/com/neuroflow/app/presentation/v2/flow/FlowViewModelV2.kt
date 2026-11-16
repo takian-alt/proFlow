@@ -173,6 +173,7 @@ class FlowViewModelV2 @Inject constructor(
     private val _isBlueprintLoading = MutableStateFlow(false)
     private val _blueprintIncludedTaskIds = MutableStateFlow<Set<String>>(emptySet())
     private val _simulationState = MutableStateFlow(SimulationState())
+    private var lastPredictionRecordedAt: Long = 0L
 
     internal var nowProvider: () -> Long = { System.currentTimeMillis() }
 
@@ -234,7 +235,11 @@ class FlowViewModelV2 @Inject constructor(
                     old.meqScore == new.meqScore &&
                     old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
                     old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay &&
-                    old.dailyDeepWorkTargetMinutes == new.dailyDeepWorkTargetMinutes
+                    old.dailyDeepWorkTargetMinutes == new.dailyDeepWorkTargetMinutes &&
+                    old.energyTelemetryEnabled == new.energyTelemetryEnabled &&
+                    old.affirmations == new.affirmations &&
+                    old.quizPeakEnabled == new.quizPeakEnabled &&
+                    old.adaptiveSystemDirective == new.adaptiveSystemDirective
             },
             sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
         ) { active, completed, prefs, sleepLogs ->
@@ -388,7 +393,8 @@ class FlowViewModelV2 @Inject constructor(
             stimulantDoses = allStimulants
         )
 
-        if (prefs.energyTelemetryEnabled && energyMetricsRepository != null) {
+        if (prefs.energyTelemetryEnabled && energyMetricsRepository != null && (now - lastPredictionRecordedAt >= 15 * 60_000L)) {
+            lastPredictionRecordedAt = now
             viewModelScope.launch {
                 runCatching {
                     energyMetricsRepository.recordEnergyPrediction(
@@ -568,7 +574,8 @@ class FlowViewModelV2 @Inject constructor(
             val dDate = task.resolveDeadlineEpochMillis()
             val isBlocked = isContinuationBlocked(task, activeTaskIds)
             task.quadrant != Quadrant.ELIMINATE &&
-                ((sDate != null && sDate <= dayEnd) || (sDate == null && dDate != null && dDate <= dayEnd) || (sDate == null && dDate == null && !isBlocked))
+                !isBlocked &&
+                ((sDate != null && sDate <= dayEnd) || (sDate == null && dDate != null && dDate <= dayEnd) || (sDate == null && dDate == null))
         }.sortedWith(
             // Timed tasks sort chronologically first; date-only untimed tasks (scheduledTime == null) sort after (BUG-235)
             compareBy<TaskEntity> { it.scheduledTime == null }

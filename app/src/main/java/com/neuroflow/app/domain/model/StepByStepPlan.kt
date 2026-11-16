@@ -10,6 +10,9 @@ data class StepByStepPlanStep(
 object StepByStepPlanCodec {
 
     fun parse(raw: String): List<StepByStepPlanStep> {
+        if (!raw.contains("[ ]") && !raw.contains("[x]") && !raw.contains("[X]")) {
+            return emptyList()
+        }
         return raw
             .replace("\\r\\n", "\n")
             .replace("\\n", "\n")

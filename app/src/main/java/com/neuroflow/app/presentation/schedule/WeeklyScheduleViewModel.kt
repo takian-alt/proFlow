@@ -48,14 +48,16 @@ fun getSundayWeekDays(referenceMillis: Long = System.currentTimeMillis()): List<
 @HiltViewModel
 class WeeklyScheduleViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
-    private val preferencesDataStore: UserPreferencesDataStore
+    private val preferencesDataStore: UserPreferencesDataStore,
+    private val clock: java.time.Clock = java.time.Clock.systemDefaultZone()
 ) : ViewModel() {
 
-    private val currentReferenceMillis = MutableStateFlow(System.currentTimeMillis())
+    private val currentReferenceMillis = MutableStateFlow(clock.millis())
 
     private val _uiState = MutableStateFlow(
         WeeklyScheduleUiState(
-            weekDays = getSundayWeekDays()
+            weekDays = getSundayWeekDays(clock.millis()),
+            currentReferenceMillis = clock.millis()
         )
     )
     val uiState: StateFlow<WeeklyScheduleUiState> = _uiState.asStateFlow()
@@ -125,7 +127,7 @@ class WeeklyScheduleViewModel @Inject constructor(
     }
 
     fun goToCurrentWeek() {
-        currentReferenceMillis.value = System.currentTimeMillis()
+        currentReferenceMillis.value = clock.millis()
     }
 
     fun goToDate(referenceMillis: Long) {
@@ -134,7 +136,7 @@ class WeeklyScheduleViewModel @Inject constructor(
 
     fun saveWeeklyIntent(intent: String) {
         viewModelScope.launch {
-            val weekDays = _uiState.value.weekDays
+            val weekDays = getSundayWeekDays(currentReferenceMillis.value)
             // In ISO-8601, Thursday (weekDays[4]) canonically defines the week number for Sunday-Saturday schedules (BUG-132)
             val anchorMillis = weekDays.getOrNull(4) ?: weekDays.getOrNull(3) ?: currentReferenceMillis.value
             val isoWeek = com.neuroflow.app.domain.engine.FreshStartEngine.isoWeekNumber(anchorMillis)

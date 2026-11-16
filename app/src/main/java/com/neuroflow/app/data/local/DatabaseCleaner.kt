@@ -40,14 +40,6 @@ class DatabaseCleaner @Inject constructor(
             database.clearAllTables()
             preferencesDataStore.clearAll()
 
-            // Purge all DataStore files (e.g. pinned_apps_prefs, hyperfocus_prefs)
-            runCatching {
-                val dataStoreDir = File(context.filesDir, "datastore")
-                if (dataStoreDir.exists()) {
-                    dataStoreDir.listFiles()?.forEach { it.delete() }
-                }
-            }
-
             // Clear SharedPreferences
             runCatching {
                 val sharedPrefsDir = File(context.applicationInfo.dataDir, "shared_prefs")

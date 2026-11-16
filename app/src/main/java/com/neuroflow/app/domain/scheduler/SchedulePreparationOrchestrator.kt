@@ -151,9 +151,20 @@ class SchedulePreparationOrchestrator @Inject constructor(
             } else {
                 task.title
             }
-            // BUG-328 & BUG-376 Fix: Wipe plannedBlockMinutes on Part 1 tasks to re-evaluate the full estimate.
-            // Part 2+ continuation tasks retain their allocated continuation duration and Part 2+ title.
-            val taskToEstimate = if (!isPart2Continuation && !task.isScheduleLocked && isPart1) {
+            // BUG-328 & BUG-376 Fix: Wipe plannedBlockMinutes on Part 1 tasks ONLY when no continuation parts are present,
+            // to allow full re-evaluation of solitary tasks. When continuation parts are present, Part 1 retains its planned duration.
+            val hasContinuationInCandidates = candidateTasks.any { other ->
+                other.id != task.id && (
+                    other.parentTaskId == task.id ||
+                    other.parentTaskId == cleanSplitTaskId(task.id) ||
+                    other.id == "${task.id}_part2" ||
+                    other.id == "${task.id}#part2" ||
+                    other.id == "${cleanSplitTaskId(task.id)}_part2" ||
+                    other.id == "${cleanSplitTaskId(task.id)}#part2" ||
+                    (cleanSplitTaskId(other.id) == cleanSplitTaskId(task.id) && other.id != cleanSplitTaskId(task.id))
+                )
+            }
+            val taskToEstimate = if (!isPart2Continuation && !task.isScheduleLocked && isPart1 && !hasContinuationInCandidates) {
                 task.copy(title = cleanTitle, plannedBlockMinutes = 0)
             } else {
                 task
@@ -592,4 +603,7 @@ class SchedulePreparationOrchestrator @Inject constructor(
 
         return gaps
     }
+
+    private fun cleanSplitTaskId(id: String): String =
+        id.replace(Regex("""[#_]part\d+.*$"""), "")
 }

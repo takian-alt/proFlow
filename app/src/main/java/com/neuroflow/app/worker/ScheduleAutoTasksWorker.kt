@@ -300,11 +300,14 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val missedTaskIds = missedTasks.map { it.id }.toSet()
             val replanCandidates = allTasks.filter { task ->
                 val scheduledMillis = task.resolveScheduledEpochMillis()
+                val isTodayOrFutureAutoScheduled = scheduledMillis != null && (
+                    scheduledMillis in dayStart..dayEnd ||
+                    (task.isAutoScheduled && !task.isScheduleLocked && scheduledMillis > dayEnd)
+                )
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
-                    scheduledMillis != null &&
-                    scheduledMillis in dayStart..dayEnd &&
+                    isTodayOrFutureAutoScheduled &&
                     PlacementStability.verdict(task, nowMillis, prefs, forceReplan).allowsReplan
             }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) || it.id in missedTaskIds }
 
@@ -371,23 +374,35 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 FocusWidgetUpdateWorker.enqueueImmediateUpdate(context)
             }
 
-            // ADR-031: Deferral handling & cleanup in background worker to prevent orphaned or stale blocks
-            for (def in outcome.deferrals) {
-                val taskToDefer = allTasks.firstOrNull { it.id == def.taskId } ?: continue
-                if (taskToDefer.isScheduleLocked || !AutoSchedulingContracts.isMutableByAutoScheduler(taskToDefer, nowMillis)) continue
-                if (taskToDefer.isAutoScheduled && (taskToDefer.scheduledDate != null || taskToDefer.scheduledTime != null)) {
+            // ADR-031: Deferral handling & reconciliation cleanup in background worker to prevent orphaned or stale blocks
+            val placedBaseIds = placements.map {
+                if (it.task.id.contains("#part")) it.task.id.substringBefore("#part") else it.task.id
+            }.toSet()
+            val deferredTaskIds = outcome.deferrals.map { it.taskId }.toSet()
+            val tasksToReconcile = targetTasks.filter { task ->
+                val baseId = if (task.id.contains("#part")) task.id.substringBefore("#part") else task.id
+                baseId !in placedBaseIds || task.id in deferredTaskIds
+            }
+
+            for (taskToDefer in tasksToReconcile) {
+                val fresh = taskRepository.getById(taskToDefer.id) ?: taskToDefer
+                if (fresh.isScheduleLocked || !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)) continue
+                val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
+                if (fresh.isAutoScheduled && (fresh.scheduledDate != null || fresh.scheduledTime != null || fresh.title != cleanTitle)) {
                     taskRepository.update(
-                        taskToDefer.copy(
+                        fresh.copy(
+                            title = cleanTitle,
                             scheduledDate = null,
                             scheduledTime = null,
                             isAutoScheduled = false,
+                            plannedBlockMinutes = 0,
                             updatedAt = nowMillis
                         )
                     )
-                    calendarSyncRepository?.deleteTaskEvent(taskToDefer.id)
+                    calendarSyncRepository?.deleteTaskEvent(fresh.id)
                 }
-                val part2Id = "${def.taskId}#part2"
-                val existingPart2 = taskRepository.getById(part2Id) ?: taskRepository.getById("${def.taskId}_part2")
+                val part2Id = "${fresh.id}#part2"
+                val existingPart2 = taskRepository.getById(part2Id) ?: taskRepository.getById("${fresh.id}_part2")
                 if (existingPart2 != null && existingPart2.status != TaskStatus.COMPLETED && existingPart2.id !in focusedTaskIds) {
                     taskRepository.delete(existingPart2)
                     calendarSyncRepository?.deleteTaskEvent(existingPart2.id)

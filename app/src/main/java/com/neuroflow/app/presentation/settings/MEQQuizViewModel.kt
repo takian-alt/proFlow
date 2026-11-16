@@ -235,11 +235,11 @@ class MEQQuizViewModel @Inject constructor(
         val prefs = _preferences.value
         val wakeUpHour = prefs?.wakeUpHour ?: 7
         val offsetHours = when (chronotype) {
-            MEQChronotypeDetector.Chronotype.DEFINITE_MORNING -> 0f
+            MEQChronotypeDetector.Chronotype.DEFINITE_MORNING -> 1.0f
             MEQChronotypeDetector.Chronotype.MODERATE_MORNING -> 2.5f
-            MEQChronotypeDetector.Chronotype.INTERMEDIATE -> 2.5f
-            MEQChronotypeDetector.Chronotype.MODERATE_EVENING -> 5.5f
-            MEQChronotypeDetector.Chronotype.DEFINITE_EVENING -> 5.5f
+            MEQChronotypeDetector.Chronotype.INTERMEDIATE -> 4.0f
+            MEQChronotypeDetector.Chronotype.MODERATE_EVENING -> 6.0f
+            MEQChronotypeDetector.Chronotype.DEFINITE_EVENING -> 7.5f
         }
         val peakMinuteOfDay = (((wakeUpHour * 60) + (offsetHours * 60f).toInt()) % (24 * 60))
         val peakHourOfDay = peakMinuteOfDay / 60
@@ -255,17 +255,18 @@ class MEQQuizViewModel @Inject constructor(
         // Save quiz result to preferences
         viewModelScope.launch {
             preferencesDataStore.updatePreferences { prefs ->
+                val shouldApplyQuizPeaks = prefs.quizPeakEnabled
                 prefs.copy(
                     quizChronotype = chronotype.name,
-                    peakEnergyStart = peakHourOfDay,
-                    peakEnergyEnd = peakWindowEndHourOfDay,
                     detectedPeakStart = peakHourOfDay,
                     detectedPeakEnd = peakWindowEndHourOfDay,
                     detectedPeakMinuteOfDay = peakMinuteOfDay,
                     peakDetectionConfidence = confidence,
-                    effectivePeakStart = peakHourOfDay,
-                    effectivePeakEnd = peakWindowEndHourOfDay,
-                    effectivePeakMinuteOfDay = peakMinuteOfDay,
+                    peakEnergyStart = if (shouldApplyQuizPeaks) peakHourOfDay else prefs.peakEnergyStart,
+                    peakEnergyEnd = if (shouldApplyQuizPeaks) peakWindowEndHourOfDay else prefs.peakEnergyEnd,
+                    effectivePeakStart = if (shouldApplyQuizPeaks) peakHourOfDay else prefs.effectivePeakStart,
+                    effectivePeakEnd = if (shouldApplyQuizPeaks) peakWindowEndHourOfDay else prefs.effectivePeakEnd,
+                    effectivePeakMinuteOfDay = if (shouldApplyQuizPeaks) peakMinuteOfDay else prefs.effectivePeakMinuteOfDay,
                     meqScore = meqScore,
                     quizProgress = "{}"  // Clear progress on completion
                 )

@@ -913,17 +913,20 @@ class PlanViewModelV2 @Inject constructor(
 
                 // Deferral cleanup & cognitive budget protection: clear scheduledTime/scheduledDate for deferred candidate tasks
                 var deferredCount = 0
+                val deferredBaseIds = outcome.deferrals.map { it.taskId.replace(Regex("""[#_]part\d+.*$"""), "") }.toSet()
                 val candidateBaseIds = candidateTasks.map { it.id.replace(Regex("""[#_]part\d+.*$"""), "") }.toSet()
-                for (def in outcome.deferrals) {
-                    val baseTaskId = def.taskId.replace(Regex("""[#_]part\d+.*$"""), "")
-                    if (baseTaskId !in candidateBaseIds) continue
+                val unplacedCandidateBaseIds = candidateBaseIds.filter { it !in placementsByBaseId.keys || it in deferredBaseIds }.toSet()
+
+                for (baseTaskId in unplacedCandidateBaseIds) {
                     val fresh = taskRepository.getById(baseTaskId) ?: continue
                     if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
                         fresh.id in focusedTaskIds ||
                         fresh.isScheduleLocked
                     ) continue
 
+                    val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
                     val updatedDeferred = fresh.copy(
+                        title = cleanTitle,
                         scheduledDate = null,
                         scheduledTime = null,
                         isAutoScheduled = false,
@@ -1331,7 +1334,7 @@ class PlanViewModelV2 @Inject constructor(
         viewModelScope.launch {
             val updated = task.copy(
                 quadrant = newQuadrant,
-                isFrog = if (newQuadrant == Quadrant.DO_FIRST) true else (if (newQuadrant == Quadrant.ELIMINATE) false else (if (task.quadrant == Quadrant.DO_FIRST) false else task.isFrog)),
+                isFrog = if (newQuadrant == Quadrant.ELIMINATE) false else task.isFrog,
                 updatedAt = System.currentTimeMillis()
             )
             taskRepository.update(updated)
@@ -1940,13 +1943,15 @@ class PlanViewModelV2 @Inject constructor(
         _pendingDeletedTask.value = null
         viewModelScope.launch {
             context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
-            preferencesDataStore.recordDeletedTask(
-                title = task.title,
-                durationMinutes = task.estimatedDurationMinutes,
-                category = task.determineCategory().name,
-                postponeCount = task.postponeCount
-            )
             taskRepository.delete(task)
+            if (taskRepository.getById(task.id) == null) {
+                preferencesDataStore.recordDeletedTask(
+                    title = task.title,
+                    durationMinutes = task.estimatedDurationMinutes,
+                    category = task.determineCategory().name,
+                    postponeCount = task.postponeCount
+                )
+            }
         }
     }
 
@@ -1956,15 +1961,17 @@ class PlanViewModelV2 @Inject constructor(
         if (task != null) {
             _pendingDeletedTask.value = null
             pendingDeleteJob?.cancel()
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            viewModelScope.launch {
                 context?.let { AutonomyNudgeEngine.cancelNudge(it, task.id) }
-                preferencesDataStore.recordDeletedTask(
-                    title = task.title,
-                    durationMinutes = task.estimatedDurationMinutes,
-                    category = task.determineCategory().name,
-                    postponeCount = task.postponeCount
-                )
                 taskRepository.delete(task)
+                if (taskRepository.getById(task.id) == null) {
+                    preferencesDataStore.recordDeletedTask(
+                        title = task.title,
+                        durationMinutes = task.estimatedDurationMinutes,
+                        category = task.determineCategory().name,
+                        postponeCount = task.postponeCount
+                    )
+                }
             }
         }
     }

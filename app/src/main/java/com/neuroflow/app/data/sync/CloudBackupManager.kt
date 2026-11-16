@@ -54,7 +54,8 @@ class CloudBackupManager @Inject constructor(
     private val taskMicroStepDao: TaskMicroStepDao? = null,
     private val quickNoteDao: QuickNoteDao? = null,
     private val focusSessionDao: FocusSessionDao? = null,
-    private val mindmapDao: MindmapDao? = null
+    private val mindmapDao: MindmapDao? = null,
+    private val database: com.neuroflow.app.data.local.NeuroFlowDatabase? = null
 ) {
 
     // -------------------------------------------------------------------------
@@ -198,6 +199,19 @@ class CloudBackupManager @Inject constructor(
 
 
     private suspend fun applyPayload(payload: BackupPayload): RestoreStatus {
+        val db = database
+        if (db != null) {
+            db.clearAllTables()
+        } else {
+            taskDao.deleteAll()
+            goalDao.deleteAll()
+            timeSessionDao.deleteAll()
+            sleepLogDao.deleteAll()
+            energyPredictionDao.deleteAll()
+            focusSessionDao?.deleteAll()
+            taskMicroStepDao?.deleteAll()
+        }
+
         var itemCount = 0
 
         payload.tasks.forEach { taskDao.insert(it); itemCount++ }
