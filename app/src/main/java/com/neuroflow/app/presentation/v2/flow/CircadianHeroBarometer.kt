@@ -1,5 +1,6 @@
 package com.neuroflow.app.presentation.v2.flow
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,12 +16,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.CircadianEnergySummary
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -80,6 +84,7 @@ fun CircadianHeroBarometer(
     val accent = phaseAccentColor(activePhase, colors)
     val cardShape = RoundedCornerShape(24.dp)
     var isGraphExpanded by remember { mutableStateOf(false) }
+    var isBioInspectorExpanded by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier
@@ -125,7 +130,7 @@ fun CircadianHeroBarometer(
                     ) {
                         Text(
                             text = "${summary.currentEnergyScore}% Battery",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             fontWeight = FontWeight.Bold,
                             color = accent,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -148,7 +153,8 @@ fun CircadianHeroBarometer(
                         border = BorderStroke(
                             0.75.dp,
                             if (simulationState.isActive) accent else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f)
-                        )
+                        ),
+                        modifier = Modifier.minimumInteractiveComponentSize()
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -169,7 +175,8 @@ fun CircadianHeroBarometer(
                             onClick = { isGraphExpanded = !isGraphExpanded },
                             shape = RoundedCornerShape(20.dp),
                             color = NeuroFlowPaletteV2.SurfaceElevated,
-                            border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
+                            border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f)),
+                            modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
@@ -233,7 +240,7 @@ fun CircadianHeroBarometer(
                         ) {
                             Text("PEAK", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("${summary.peakStart.format(fmt)}–${summary.peakEnd.format(fmt)}", style = MaterialTheme.typography.labelMedium, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("${summary.peakStart.format(fmt)}–${summary.peakEnd.format(fmt)}", style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                     Surface(
@@ -248,7 +255,7 @@ fun CircadianHeroBarometer(
                         ) {
                             Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("${summary.cognitiveBudgetMinutesRemaining}m", style = MaterialTheme.typography.labelMedium, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                            Text("${summary.cognitiveBudgetMinutesRemaining}m", style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                         }
                     }
                     Surface(
@@ -263,7 +270,7 @@ fun CircadianHeroBarometer(
                         ) {
                             Text("CUTOFF", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text(latestSafeStimulantCutoffFormatted.ifBlank { "--:--" }, style = MaterialTheme.typography.labelMedium, color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(latestSafeStimulantCutoffFormatted.ifBlank { "--:--" }, style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = NeuroFlowPaletteV2.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -281,21 +288,101 @@ fun CircadianHeroBarometer(
                 colors = colors,
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            if (isCrashWindow) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.08f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(24.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.7f))
+                        )
+                        Text("⚡", fontSize = 13.sp)
+                        Text(
+                            text = "Crash Guard active: Stimulant wear-off in progress — protecting you from high-friction tasks.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
 
-            StimulantQuickLogRow(
-                stimulantDoses = stimulantDoses,
-                isCrashWindow = isCrashWindow,
-                activePlasmaMg = activePlasmaMg,
-                predictedSwsSuppressionPercent = predictedSwsSuppressionPercent,
-                latestSafeStimulantCutoffFormatted = latestSafeStimulantCutoffFormatted,
-                onClearStimulants = onClearStimulants,
-                onRemoveStimulantDose = onRemoveStimulantDose,
-                onLogStimulant = onLogStimulant,
-                onLogPhysiologicalEvent = onLogPhysiologicalEvent,
-                onClearPhysiologicalEvents = onClearPhysiologicalEvents,
-                colors = colors
-            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Surface(
+                onClick = { isBioInspectorExpanded = !isBioInspectorExpanded },
+                shape = RoundedCornerShape(12.dp),
+                color = NeuroFlowPaletteV2.SurfaceElevated,
+                border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.55f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .testTag("bio_inspector_toggle")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val inspectorSummary = buildString {
+                        append("Bio Inspector")
+                        if (activePlasmaMg >= 1.0) {
+                            append(" · ~${activePlasmaMg.roundToInt()}mg active")
+                        } else if (stimulantDoses.isNotEmpty()) {
+                            append(" · ${stimulantDoses.size} dose(s)")
+                        } else {
+                            append(" · Caffeine, Meals & Naps")
+                        }
+                    }
+                    Text(
+                        text = inspectorSummary,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = if (isBioInspectorExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isBioInspectorExpanded) "Collapse Bio Inspector" else "Expand Bio Inspector",
+                        tint = NeuroFlowPaletteV2.TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = isBioInspectorExpanded) {
+                Column(modifier = Modifier.padding(top = 10.dp)) {
+                    StimulantQuickLogRow(
+                        stimulantDoses = stimulantDoses,
+                        isCrashWindow = isCrashWindow,
+                        activePlasmaMg = activePlasmaMg,
+                        predictedSwsSuppressionPercent = predictedSwsSuppressionPercent,
+                        latestSafeStimulantCutoffFormatted = latestSafeStimulantCutoffFormatted,
+                        onClearStimulants = onClearStimulants,
+                        onRemoveStimulantDose = onRemoveStimulantDose,
+                        onLogStimulant = onLogStimulant,
+                        onLogPhysiologicalEvent = onLogPhysiologicalEvent,
+                        onClearPhysiologicalEvents = onClearPhysiologicalEvents,
+                        colors = colors,
+                        showCrashBanner = false
+                    )
+                }
+            }
 
             if (kotlin.math.abs(socialJetlagLagHours) >= 1.0) {
                 Spacer(modifier = Modifier.height(10.dp))
@@ -398,12 +485,10 @@ fun CircadianHeroBarometer(
     modifier: Modifier = Modifier
 ) {
     val phase = when {
-        batteryPercent >= 85 -> EnergyPhase.SURGE
         batteryPercent >= 70 -> EnergyPhase.PEAK
-        batteryPercent >= 50 -> EnergyPhase.REBOUND
-        batteryPercent >= 35 -> EnergyPhase.DIP
-        batteryPercent >= 20 -> EnergyPhase.WIND_DOWN
-        batteryPercent >= 10 -> EnergyPhase.RECOVERY_NEEDED
+        batteryPercent >= 45 -> EnergyPhase.REBOUND
+        batteryPercent >= 30 -> EnergyPhase.DIP
+        batteryPercent >= 15 -> EnergyPhase.WIND_DOWN
         else -> EnergyPhase.TROUGH
     }
 
@@ -433,12 +518,10 @@ fun CircadianHeroBarometer(
                 val cWave = 0.5f - 0.35f * cos(frac * 2 * Math.PI).toFloat() + 0.15f * sin(frac * 4 * Math.PI).toFloat()
                 val score = (cWave * 100f).roundToInt().coerceIn(10, 95)
                 val itemPhase = when {
-                    score >= 85 -> EnergyPhase.SURGE
                     score >= 70 -> EnergyPhase.PEAK
-                    score >= 50 -> EnergyPhase.REBOUND
-                    score >= 35 -> EnergyPhase.DIP
-                    score >= 20 -> EnergyPhase.WIND_DOWN
-                    score >= 10 -> EnergyPhase.RECOVERY_NEEDED
+                    score >= 45 -> EnergyPhase.REBOUND
+                    score >= 30 -> EnergyPhase.DIP
+                    score >= 15 -> EnergyPhase.WIND_DOWN
                     else -> EnergyPhase.TROUGH
                 }
                 CircadianSnapshot(
@@ -751,7 +834,8 @@ fun StimulantQuickLogRow(
     onLogPhysiologicalEvent: ((PhysiologicalEventType) -> Unit)? = null,
     onClearPhysiologicalEvents: (() -> Unit)? = null,
     colors: NeuroFlowExtendedColors,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showCrashBanner: Boolean = true
 ) {
     var showDoseHistoryDialog by remember { mutableStateOf(false) }
 
@@ -769,7 +853,7 @@ fun StimulantQuickLogRow(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (isCrashWindow) {
+        if (isCrashWindow && showCrashBanner) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),

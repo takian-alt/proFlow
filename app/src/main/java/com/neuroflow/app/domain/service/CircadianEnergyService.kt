@@ -906,12 +906,8 @@ fun resolveEnergyPhase(
     }
 
     // Check if within nocturnal sleep nadir (past bedtime or deep night before wake)
-    val targetWindDownHour = ((sleepHour - 2) % 24 + 24) % 24
-    val isPastBedtime = if (sleepHour >= targetWindDownHour) {
-        clockHour >= sleepHour || clockHour < 6.0
-    } else {
-        clockHour >= sleepHour && clockHour < 6.0
-    }
+    val hoursPastBedtime = ((clockHour - sleepHour) % 24.0 + 24.0) % 24.0
+    val isPastBedtime = hoursPastBedtime < 6.5 && hoursAwake >= 6.0
 
     // Core biological nadir / nocturnal sleep window takes precedence over daytime crash
     if (isPastBedtime && processC < 0.28) {
@@ -1790,6 +1786,7 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
 
         // 2. Dip Window: 2-hour sliding window minimizing sum of usableEnergy within wake+4h..wake+11h
         val dipSteps = (2 * 60) / stepMinutes // 4 steps
+        val dayEndExclusiveMillis = dayStartMillis + 24 * 3600_000L
         val dipStartSearchMillis = targetDateWakeMillis + 4 * 3600_000L
         val dipEndSearchMillis = targetDateWakeMillis + 11 * 3600_000L
 
@@ -1799,7 +1796,14 @@ class DefaultCircadianEnergyService @Inject constructor() : CircadianEnergyServi
         if (timeline.size >= dipSteps) {
             for (i in 0..(timeline.size - dipSteps)) {
                 val stepTime = timeline[i].timestampMillis
-                if (stepTime in dipStartSearchMillis..dipEndSearchMillis) {
+                val inDipWindow = if (dipEndSearchMillis < dayEndExclusiveMillis) {
+                    stepTime in dipStartSearchMillis..dipEndSearchMillis
+                } else {
+                    // Wrap dip window into 24h day timeline for late-evening/night shift wake schedules
+                    val relOffset = ((stepTime - targetDateWakeMillis) % 86_400_000L + 86_400_000L) % 86_400_000L
+                    relOffset in (4 * 3600_000L)..(11 * 3600_000L)
+                }
+                if (inDipWindow) {
                     val windowSum = (0 until dipSteps).sumOf { timeline[i + it].usableEnergy.toDouble() }
                     if (windowSum < bestDipSum) {
                         bestDipSum = windowSum

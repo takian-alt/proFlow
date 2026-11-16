@@ -5,6 +5,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.WriteBatch
 import com.neuroflow.app.data.local.entity.EnergyPredictionEntity
+import com.neuroflow.app.data.local.entity.FocusSessionEntity
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.MindmapEdgeEntity
 import com.neuroflow.app.data.local.entity.MindmapNodePositionEntity
@@ -49,7 +50,8 @@ data class BackupPayload(
     val taskMicroSteps: List<TaskMicroStepEntity> = emptyList(),
     val quickNotes: List<QuickNoteEntity> = emptyList(),
     val mindmapPositions: List<MindmapNodePositionEntity> = emptyList(),
-    val mindmapEdges: List<MindmapEdgeEntity> = emptyList()
+    val mindmapEdges: List<MindmapEdgeEntity> = emptyList(),
+    val focusSessions: List<FocusSessionEntity> = emptyList()
 )
 
 // ---------------------------------------------------------------------------
@@ -108,7 +110,8 @@ class FirestoreBackupRepository @Inject constructor(
                 "taskMicroStepCount" to payload.taskMicroSteps.size,
                 "quickNoteCount" to payload.quickNotes.size,
                 "mindmapPositionCount" to payload.mindmapPositions.size,
-                "mindmapEdgeCount" to payload.mindmapEdges.size
+                "mindmapEdgeCount" to payload.mindmapEdges.size,
+                "focusSessionCount" to payload.focusSessions.size
             )
 
             // 1. Write document directly at users/{uid}/backups/{backupId} so it is never a virtual document
@@ -149,6 +152,7 @@ class FirestoreBackupRepository @Inject constructor(
             uploadCollection(backupRef.collection("quickNotes"), payload.quickNotes.map { it.toMap() })
             uploadCollection(backupRef.collection("mindmapPositions"), payload.mindmapPositions.map { it.toMap() })
             uploadCollection(backupRef.collection("mindmapEdges"), payload.mindmapEdges.map { it.toMap() })
+            uploadCollection(backupRef.collection("focusSessions"), payload.focusSessions.map { it.toMap() })
 
             // --- preferences (single document) ---------------------------
             if (payload.preferences.isNotEmpty()) {
@@ -268,7 +272,8 @@ class FirestoreBackupRepository @Inject constructor(
             val subCollections = listOf(
                 "meta", "tasks", "goals", "timeSessions", "woopData",
                 "ulyssesContracts", "sleepLogs", "hyperFocusSessions",
-                "energyPredictions", "notes", "protectedSlots", "taskMicroSteps", "quickNotes", "preferences"
+                "energyPredictions", "notes", "protectedSlots", "taskMicroSteps", "quickNotes",
+                "mindmapPositions", "mindmapEdges", "focusSessions", "preferences"
             )
             for (colName in subCollections) {
                 deleteCollection(backupRef.collection(colName))
@@ -406,6 +411,9 @@ class FirestoreBackupRepository @Inject constructor(
         val mindmapEdges = backupRef.collection("mindmapEdges").get().await()
             .documents.mapNotNull { it.data?.toMindmapEdgeEntity() }
 
+        val focusSessions = backupRef.collection("focusSessions").get().await()
+            .documents.mapNotNull { it.data?.toFocusSessionEntity() }
+
         @Suppress("UNCHECKED_CAST")
         val preferences = backupRef.collection("preferences").document("data")
             .get().await().data?.mapValues { it.value?.toString() ?: "" }
@@ -426,7 +434,8 @@ class FirestoreBackupRepository @Inject constructor(
             taskMicroSteps = taskMicroSteps,
             quickNotes = quickNotes,
             mindmapPositions = mindmapPositions,
-            mindmapEdges = mindmapEdges
+            mindmapEdges = mindmapEdges,
+            focusSessions = focusSessions
         )
     }
 }
@@ -928,6 +937,30 @@ private fun Map<String, Any?>.toMindmapEdgeEntity(): MindmapEdgeEntity? = runCat
         targetId = str("targetId") ?: "",
         edgeType = str("edgeType") ?: "VISUAL",
         createdAt = long("createdAt") ?: System.currentTimeMillis()
+    )
+}.getOrNull()
+
+private fun FocusSessionEntity.toMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "taskId" to taskId,
+    "startedAt" to startedAt,
+    "endedAt" to endedAt,
+    "durationSeconds" to durationSeconds,
+    "interruptionCount" to interruptionCount,
+    "energyAtStart" to energyAtStart,
+    "wasCompleted" to wasCompleted
+)
+
+private fun Map<String, Any?>.toFocusSessionEntity(): FocusSessionEntity? = runCatching {
+    FocusSessionEntity(
+        id = str("id") ?: return null,
+        taskId = str("taskId") ?: return null,
+        startedAt = long("startedAt") ?: return null,
+        endedAt = long("endedAt"),
+        durationSeconds = int("durationSeconds") ?: 0,
+        interruptionCount = int("interruptionCount") ?: 0,
+        energyAtStart = int("energyAtStart") ?: 50,
+        wasCompleted = bool("wasCompleted") ?: false
     )
 }.getOrNull()
 

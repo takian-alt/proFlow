@@ -12,9 +12,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Notes
-import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,9 +29,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.ProtectedSlotClock
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.common.FrogConfettiOverlay
 import com.neuroflow.app.presentation.v2.composer.SheetMode
@@ -54,6 +56,8 @@ fun FlowScreenV2(
     onNavigateToMEQ: () -> Unit = {},
     onNavigateToSleepLogs: () -> Unit = {},
     onNavigateToNotes: () -> Unit = {},
+    onOpenToolsSheet: () -> Unit = {},
+    onStartDoorwayFocus: ((String) -> Unit)? = null,
     initialOpenComposer: Boolean = false,
     onInitialComposerConsumed: () -> Unit = {},
     viewModel: FlowViewModelV2 = hiltViewModel()
@@ -66,6 +70,7 @@ fun FlowScreenV2(
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var showNotesSheet by remember { mutableStateOf(false) }
     var showFrogConfetti by remember { mutableStateOf(false) }
+    var showEasyWinSheet by remember { mutableStateOf(false) }
     var locallyCompletedIds by remember { mutableStateOf(emptySet<String>()) }
 
     LaunchedEffect(initialOpenComposer) {
@@ -175,30 +180,21 @@ fun FlowScreenV2(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
-                        onClick = onNavigateToMindmap,
-                        modifier = Modifier.size(40.dp)
+                        onClick = onOpenToolsSheet,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("tools_sheet_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AccountTree,
-                            contentDescription = "Mind Map Planning Canvas",
+                            imageVector = Icons.Default.GridView,
+                            contentDescription = "Tools and Subsystems",
                             tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                         )
                     }
 
                     IconButton(
-                        onClick = { showNotesSheet = true },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Notes,
-                            contentDescription = "Quick Scratchpad Notes",
-                            tint = NeuroFlowThemeV2Colors.TextSecondary
-                        )
-                    }
-
-                    IconButton(
                         onClick = onNavigateToSettings,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -354,6 +350,23 @@ fun FlowScreenV2(
                         ?: actionableFiltered.firstOrNull()
                 }
             }
+            val easyWinTasks = remember(state.activeTasks, topTask?.id, completedIds) {
+                state.activeTasks
+                    .filter { task ->
+                        task.status == TaskStatus.ACTIVE &&
+                            task.quadrant != Quadrant.ELIMINATE &&
+                            task.id != topTask?.id &&
+                            task.id !in completedIds &&
+                            task.waitingFor.isBlank() &&
+                            (task.energyLevel == EnergyLevel.LOW || TaskBlockPlan.plannedMinutes(task) <= 15)
+                    }
+                    .sortedWith(
+                        compareBy<TaskEntity> { TaskBlockPlan.plannedMinutes(it) }
+                            .thenBy { it.energyLevel != EnergyLevel.LOW }
+                            .thenBy { it.createdAt }
+                    )
+            }
+
             if (topTask != null || activeTakeoverSlot != null || currentPhase == EnergyPhase.WIND_DOWN) {
                 val microSteps = remember(topTask?.ifThenPlan) {
                     topTask?.ifThenPlan?.let { com.neuroflow.app.domain.model.StepByStepPlanCodec.parse(it) } ?: emptyList()
@@ -382,7 +395,15 @@ fun FlowScreenV2(
                             }
                         },
                         onQuickFocusClick = { onStartFocus(com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS) },
-                        onShutdownClick = { viewModel.completeEveningShutdown() }
+                        onShutdownClick = { viewModel.completeEveningShutdown() },
+                        onToggleMicroStep = { stepIndex ->
+                            topTask?.let { viewModel.toggleMicroStep(it.id, stepIndex) }
+                        },
+                        onDoorway2mStart = { taskId -> (onStartDoorwayFocus ?: onStartFocus)(taskId) },
+                        onEasyWinClick = if (easyWinTasks.isNotEmpty() || battery < 45) {
+                            { showEasyWinSheet = true }
+                        } else null,
+                        isLowBatterySuggested = battery < 45
                     )
                 }
             } else {
@@ -456,8 +477,14 @@ fun FlowScreenV2(
                             val comp = it.completedAt ?: it.updatedAt
                             comp >= todayStart
                         }
+                        val endHour = state.preferences.workDayEnd.coerceIn(12, 23)
+                        val endHourLabel = when {
+                            endHour == 12 -> "12:00 PM"
+                            endHour > 12 -> "${endHour - 12}:00 PM"
+                            else -> "$endHour:00 AM"
+                        }
                         Text(
-                            text = "It's past 7:00 PM. Protect your circadian melatonin surge by closing cognitive loops. You conquered $todayCompletedCount task${if (todayCompletedCount == 1) "" else "s"} today. Time to wind down.",
+                            text = "It's past $endHourLabel. Protect your circadian melatonin surge by closing cognitive loops. You conquered $todayCompletedCount task${if (todayCompletedCount == 1) "" else "s"} today. Time to wind down.",
                             style = MaterialTheme.typography.bodySmall,
                             color = NeuroFlowThemeV2Colors.TextSecondary
                         )
@@ -578,6 +605,29 @@ fun FlowScreenV2(
             onToggleTask = { taskId, included -> viewModel.toggleBlueprintTask(taskId, included) },
             onApply = { viewModel.applyDailyBlueprint() },
             onDismiss = { viewModel.dismissDailyBlueprint() }
+        )
+    }
+
+    if (showEasyWinSheet) {
+        EasyWinPickerSheet(
+            easyWinTasks = run {
+                val completedSet = state.completedTasks.map { it.id }.toSet() + locallyCompletedIds
+                state.activeTasks
+                    .filter { task ->
+                        task.status == TaskStatus.ACTIVE &&
+                            task.quadrant != Quadrant.ELIMINATE &&
+                            task.id !in completedSet &&
+                            task.waitingFor.isBlank() &&
+                            (task.energyLevel == EnergyLevel.LOW || TaskBlockPlan.plannedMinutes(task) <= 15)
+                    }
+                    .sortedWith(
+                        compareBy<TaskEntity> { TaskBlockPlan.plannedMinutes(it) }
+                            .thenBy { it.energyLevel != EnergyLevel.LOW }
+                    )
+            },
+            onStartTask = onStartFocus,
+            onDoorwayStartTask = { id -> (onStartDoorwayFocus ?: onStartFocus)(id) },
+            onDismiss = { showEasyWinSheet = false }
         )
     }
 

@@ -39,6 +39,7 @@ class FocusService : Service() {
     @Inject lateinit var taskRepository: TaskRepository
     @Inject lateinit var sessionRepository: SessionRepository
     @Inject lateinit var preferencesDataStore: com.neuroflow.app.data.local.UserPreferencesDataStore
+    @Inject lateinit var focusSessionFinalizer: FocusSessionFinalizer
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private var tickerJob: Job? = null
@@ -278,6 +279,30 @@ class FocusService : Service() {
                         totalSeconds = durationSeconds,
                         isPaused = false
                     )
+                    if (::focusSessionFinalizer.isInitialized && taskId.isNotBlank()) {
+                        val capturedTaskId = taskId
+                        val capturedStartedAt = startedAtMillis
+                        val capturedAccPause = accumulatedPauseMillis
+                        val capturedPausedAt = pausedAtMillis
+                        val capturedDurationSec = durationSeconds
+                        val appCtx = applicationContext
+                        CoroutineScope(NonCancellable + Dispatchers.IO).launch {
+                            runCatching {
+                                focusSessionFinalizer.finalize(
+                                    taskId = capturedTaskId,
+                                    markComplete = false,
+                                    now = now,
+                                    fallbackStartedAt = capturedStartedAt,
+                                    fallbackAccumulatedPauseMs = capturedAccPause,
+                                    fallbackPausedAtMs = capturedPausedAt,
+                                    fallbackIsPaused = false,
+                                    fallbackDurationSeconds = capturedDurationSec,
+                                    fallbackPauseCount = 0,
+                                    context = appCtx
+                                )
+                            }
+                        }
+                    }
                     FocusDndHelper.disableDnd(applicationContext)
                     showSprintCompletedNotification()
                     com.neuroflow.app.worker.FocusWidgetUpdateWorker.enqueueImmediateUpdate(applicationContext)
@@ -487,7 +512,20 @@ class FocusService : Service() {
         serviceScope.launch {
             withContext(NonCancellable + Dispatchers.IO) {
                 try {
-                    if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && targetTaskId.isNotBlank()) {
+                    if (::focusSessionFinalizer.isInitialized && targetTaskId.isNotBlank()) {
+                        focusSessionFinalizer.finalize(
+                            taskId = targetTaskId,
+                            markComplete = true,
+                            now = System.currentTimeMillis(),
+                            fallbackStartedAt = startedAtMillis,
+                            fallbackAccumulatedPauseMs = accumulatedPauseMillis,
+                            fallbackPausedAtMs = pausedAtMillis,
+                            fallbackIsPaused = isPaused,
+                            fallbackDurationSeconds = durationSeconds,
+                            fallbackPauseCount = 0,
+                            context = applicationContext
+                        )
+                    } else if (::taskRepository.isInitialized && ::sessionRepository.isInitialized && targetTaskId.isNotBlank()) {
                         val now = System.currentTimeMillis()
                         val openSession = sessionRepository.getOpenSessionForTask(targetTaskId)
                         val baseStartedAt = openSession?.startedAt?.takeIf { it > 0L }
@@ -707,6 +745,21 @@ class FocusService : Service() {
         }
 
         fun resumeService(context: Context?) = resume(context)
+
+        fun complete(context: Context?, taskId: String = "") {
+            if (context == null) return
+            try {
+                val intent = Intent(context, FocusService::class.java).apply {
+                    action = ACTION_COMPLETE
+                    if (taskId.isNotBlank()) {
+                        putExtra(EXTRA_TASK_ID, taskId)
+                    }
+                }
+                context.startService(intent)
+            } catch (_: Throwable) {}
+        }
+
+        fun completeService(context: Context?, taskId: String = "") = complete(context, taskId)
 
         fun stop(context: Context?) {
             if (context == null) return

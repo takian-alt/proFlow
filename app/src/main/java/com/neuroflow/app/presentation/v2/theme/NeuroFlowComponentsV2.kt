@@ -35,13 +35,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
@@ -260,20 +265,21 @@ fun CognitiveBudgetMeterCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (completedMinutesToday > 0) {
-                        Text(
-                            text = "${completedMinutesToday}m done · ${scheduledMinutesToday}m active",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeuroFlowPaletteV2.TextTertiary,
-                            fontSize = 11.sp
-                        )
-                    }
+                    Text(
+                        text = "${completedMinutesToday}m done · ${scheduledMinutesToday}m active (deep work)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowPaletteV2.TextTertiary,
+                        fontSize = 11.sp
+                    )
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "${totalCommittedMinutes}m / ${safeCapacity}m",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFeatureSettings = "tnum"
+                ),
                 color = barColor
             )
         }
@@ -342,7 +348,9 @@ fun CognitiveBudgetMeterCard(
                     color = actionColor.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(50),
                     border = BorderStroke(1.dp, actionColor.copy(alpha = 0.4f)),
-                    modifier = Modifier.clickable { onAutoBalanceClick() }
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable { onAutoBalanceClick() }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -451,7 +459,10 @@ fun MiniFocusSessionBar(
     totalSeconds: Long,
     taskTitle: String,
     onTap: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPaused: Boolean = false,
+    onPauseResumeClick: (() -> Unit)? = null,
+    onCompleteClick: (() -> Unit)? = null
 ) {
     val mins = (remainingSeconds / 60).coerceAtLeast(0)
     val secs = (remainingSeconds % 60).coerceAtLeast(0)
@@ -466,7 +477,10 @@ fun MiniFocusSessionBar(
         currentMicroStepTitle = null,
         progress = progress,
         onReturnToFocusClick = onTap,
-        modifier = modifier
+        modifier = modifier,
+        isPaused = isPaused,
+        onPauseResumeClick = onPauseResumeClick,
+        onCompleteClick = onCompleteClick
     )
 }
 
@@ -477,19 +491,24 @@ fun MiniFocusSessionBar(
     currentMicroStepTitle: String?,
     onReturnToFocusClick: () -> Unit,
     modifier: Modifier = Modifier,
-    progress: Float = 0f
+    progress: Float = 0f,
+    isPaused: Boolean = false,
+    onPauseResumeClick: (() -> Unit)? = null,
+    onCompleteClick: (() -> Unit)? = null
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "focus_pulse")
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.2f,
+        initialValue = if (isPaused) 1f else 0.85f,
+        targetValue = if (isPaused) 1.05f else 1.2f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1100, easing = FastOutSlowInEasing),
+            animation = tween(if (isPaused) 1800 else 1100, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse_dot"
     )
 
+    val statusColor = if (isPaused) NeuroFlowPaletteV2.PeakAmber else NeuroFlowPaletteV2.OptimalEmerald
+    val pillAccent = if (isPaused) NeuroFlowPaletteV2.PeakAmber else NeuroFlowPaletteV2.ReboundCyan
     val shape = RoundedCornerShape(18.dp)
 
     Surface(
@@ -497,20 +516,21 @@ fun MiniFocusSessionBar(
         shape = shape,
         border = BorderStroke(
             1.dp,
-            NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowPaletteV2.OptimalEmerald, 0.9f)
+            NeuroFlowPaletteV2.specularBorderBrush(statusColor, 0.9f)
         ),
         shadowElevation = 10.dp,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
             .clip(shape)
+            .testTag("mini_focus_bar")
             .clickable { onReturnToFocusClick() }
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -524,24 +544,45 @@ fun MiniFocusSessionBar(
                                 .size(14.dp)
                                 .scale(pulseScale)
                                 .clip(CircleShape)
-                                .background(NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.28f))
+                                .background(statusColor.copy(alpha = 0.28f))
                         )
                         Box(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(NeuroFlowPaletteV2.OptimalEmerald)
+                                .background(statusColor)
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text(
-                            text = activeTaskTitle,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = NeuroFlowPaletteV2.TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = activeTaskTitle,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = NeuroFlowPaletteV2.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isPaused) {
+                                Surface(
+                                    color = NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.16f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.45f))
+                                ) {
+                                    Text(
+                                        text = "PAUSED",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                        color = NeuroFlowPaletteV2.PeakAmber,
+                                        fontSize = 9.sp,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         if (!currentMicroStepTitle.isNullOrBlank()) {
                             Text(
                                 text = "Step: $currentMicroStepTitle",
@@ -554,34 +595,74 @@ fun MiniFocusSessionBar(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.14f))
-                        .padding(horizontal = 11.dp, vertical = 6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = null,
-                        tint = NeuroFlowPaletteV2.ReboundCyan,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = remainingTimeFormatted,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
-                        color = NeuroFlowPaletteV2.ReboundCyan
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Return to Focus",
-                        tint = NeuroFlowPaletteV2.ReboundCyan,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(pillAccent.copy(alpha = 0.14f))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = pillAccent,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = remainingTimeFormatted,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = pillAccent
+                        )
+                    }
+
+                    if (onPauseResumeClick != null) {
+                        IconButton(
+                            onClick = onPauseResumeClick,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("mini_focus_pause_resume_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                contentDescription = if (isPaused) "Resume Focus" else "Pause Focus",
+                                tint = pillAccent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    if (onCompleteClick != null) {
+                        IconButton(
+                            onClick = onCompleteClick,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("mini_focus_complete_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Complete Task",
+                                tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    } else if (onPauseResumeClick == null) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Return to Focus",
+                            tint = pillAccent,
+                            modifier = Modifier.padding(start = 4.dp).size(14.dp)
+                        )
+                    }
                 }
             }
 
@@ -599,8 +680,8 @@ fun MiniFocusSessionBar(
                             .background(
                                 Brush.horizontalGradient(
                                     listOf(
-                                        NeuroFlowPaletteV2.ReboundCyan,
-                                        NeuroFlowPaletteV2.OptimalEmerald
+                                        pillAccent,
+                                        statusColor
                                     )
                                 )
                             )

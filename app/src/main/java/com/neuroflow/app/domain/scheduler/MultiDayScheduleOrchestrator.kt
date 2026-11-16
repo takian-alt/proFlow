@@ -91,6 +91,32 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 continue
             }
 
+            val protectedSlots = prefs.protectedTimeSlots
+                .filter { it.isEnabled && ProtectedSlotClock.occursOnDay(it, dayStartEpoch) }
+                .map {
+                    com.neuroflow.app.domain.service.ProtectedLocalSlot(
+                        startHour = (it.startMinuteOfDay / 60).coerceIn(0, 23),
+                        startMinute = (it.startMinuteOfDay % 60).coerceIn(0, 59),
+                        durationMinutes = (it.durationMinutes + it.recoveryBufferMinutes).coerceIn(15, 480)
+                    )
+                }
+            val chronotype = com.neuroflow.app.domain.service.ChronotypeProfile.fromString(prefs.quizChronotype ?: prefs.manualChronotype)
+            val manualPeakStartHour = if (prefs.manualPeakProfileEnabled) {
+                (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
+            } else null
+            val stimulantDoses = (
+                com.neuroflow.app.data.local.parseStimulantLogs(prefs.stimulantLogsJson) +
+                com.neuroflow.app.domain.model.extractStimulantDosesFromSlots(prefs.protectedTimeSlots, currentDate, zoneId)
+            ).distinctBy { it.timestampMillis to it.type }
+            val physiologicalBlocks = com.neuroflow.app.domain.model.buildDailyCognitiveBlocks(
+                slots = prefs.protectedTimeSlots,
+                date = currentDate,
+                zoneId = zoneId
+            ).filter {
+                it.category == com.neuroflow.app.domain.service.CognitiveBlockCategory.MEAL ||
+                    it.category == com.neuroflow.app.domain.service.CognitiveBlockCategory.EXERCISE
+            }
+
             val outcome = schedulerService.scheduleDayWithOutcome(
                 tasks = todayCandidates,
                 dayDate = currentDate,
@@ -99,6 +125,13 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 lastSleepDurationMinutes = sleepDurationMinutes,
                 zoneId = zoneId,
                 busyWindows = busyWindows,
+                protectedSlots = protectedSlots,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakStartHour,
+                physiologicalBlocks = physiologicalBlocks,
+                stimulantDoses = stimulantDoses,
+                workDayStartHour = prefs.workDayStart,
+                workDayEndHour = prefs.workDayEnd,
                 dailyCognitiveCapacityMinutes = dailyCapacityMinutes,
                 rejectionPatternsJson = rejectionPatternsJson
             )
@@ -106,16 +139,26 @@ class MultiDayScheduleOrchestrator @Inject constructor(
             // Enforce cognitive capacity boundary on placed tasks to guarantee overflow
             var accumulatedMinutes = 0
             val effectivePlacements = mutableListOf<ScheduledPlacement>()
+            val overflowDeferrals = mutableListOf<DeferralRationale>()
             for (p in outcome.placements) {
                 val dur = p.window.durationMinutes
                 if (!p.task.isLocked && accumulatedMinutes + dur > dailyCapacityMinutes) {
+                    overflowDeferrals.add(
+                        DeferralRationale(
+                            taskId = p.task.id,
+                            reasonCode = DeferralReasonCode.COGNITIVE_BUDGET_EXCEEDED,
+                            explanation = "Exceeded daily ${dailyCapacityMinutes}m capacity; carried to next day.",
+                            actionableSuggestion = "Scheduled on subsequent horizon day."
+                        )
+                    )
                     continue
                 }
                 effectivePlacements.add(p)
                 accumulatedMinutes += dur
             }
 
-            dayOutcomes[currentDate] = SchedulingOutcome(effectivePlacements, outcome.deferrals)
+            val combinedDeferrals = (outcome.deferrals + overflowDeferrals).distinctBy { it.taskId }
+            dayOutcomes[currentDate] = SchedulingOutcome(effectivePlacements, combinedDeferrals)
 
             // Placed tasks are removed from the carried-over pool
             val placedIds = effectivePlacements.map { it.task.id }.toSet()

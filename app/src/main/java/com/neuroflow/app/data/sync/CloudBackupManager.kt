@@ -1,6 +1,7 @@
 package com.neuroflow.app.data.sync
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
@@ -19,8 +20,10 @@ import com.neuroflow.app.data.local.dao.WoopDao
 import com.neuroflow.app.data.local.entity.FocusSessionEntity
 import com.neuroflow.app.feature.hyperfocus.data.HyperFocusSessionDao
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -87,6 +90,7 @@ class CloudBackupManager @Inject constructor(
                 val quickNotes = quickNoteDao?.getAll() ?: emptyList()
                 val mindmapPositions = mindmapDao?.getAllPositions() ?: emptyList()
                 val mindmapEdges = mindmapDao?.getAllEdges() ?: emptyList()
+                val focusSessions = focusSessionDao?.getAll() ?: emptyList()
 
                 val prefs = preferencesDataStore.preferencesFlow.first()
                 val prefsMap = prefs.toBackupMap()
@@ -106,7 +110,8 @@ class CloudBackupManager @Inject constructor(
                     taskMicroSteps = taskMicroSteps,
                     quickNotes = quickNotes,
                     mindmapPositions = mindmapPositions,
-                    mindmapEdges = mindmapEdges
+                    mindmapEdges = mindmapEdges,
+                    focusSessions = focusSessions
                 )
 
                 firestoreRepo.uploadBackup(uid, payload).fold(
@@ -133,15 +138,16 @@ class CloudBackupManager @Inject constructor(
             ?: return RestoreStatus.Error("User is not signed in — restore aborted.")
 
         return try {
-            withTimeout(25_000L) {
-                firestoreRepo.downloadLatestBackup(uid).fold(
-                    onSuccess = { payload ->
-                        if (payload == null) RestoreStatus.Error("No backup found for this account.")
-                        else applyPayload(payload)
-                    },
-                    onFailure = { e -> RestoreStatus.Error(e.message ?: "Download failed") }
-                )
+            val downloadResult = withTimeout(25_000L) {
+                firestoreRepo.downloadLatestBackup(uid)
             }
+            downloadResult.fold(
+                onSuccess = { payload ->
+                    if (payload == null) RestoreStatus.Error("No backup found for this account.")
+                    else applyPayload(payload)
+                },
+                onFailure = { e -> RestoreStatus.Error(e.message ?: "Download failed") }
+            )
         } catch (e: TimeoutCancellationException) {
             RestoreStatus.Error("Restore timed out. Please verify that Cloud Firestore is created and enabled in Firebase Console.")
         } catch (e: Exception) {
@@ -167,15 +173,16 @@ class CloudBackupManager @Inject constructor(
             ?: return RestoreStatus.Error("User is not signed in — restore aborted.")
 
         return try {
-            withTimeout(25_000L) {
-                firestoreRepo.downloadBackup(uid, backupId).fold(
-                    onSuccess = { payload ->
-                        if (payload == null) RestoreStatus.Error("Backup '$backupId' not found.")
-                        else applyPayload(payload)
-                    },
-                    onFailure = { e -> RestoreStatus.Error(e.message ?: "Download failed") }
-                )
+            val downloadResult = withTimeout(25_000L) {
+                firestoreRepo.downloadBackup(uid, backupId)
             }
+            downloadResult.fold(
+                onSuccess = { payload ->
+                    if (payload == null) RestoreStatus.Error("Backup '$backupId' not found.")
+                    else applyPayload(payload)
+                },
+                onFailure = { e -> RestoreStatus.Error(e.message ?: "Download failed") }
+            )
         } catch (e: TimeoutCancellationException) {
             RestoreStatus.Error("Restore timed out. Please verify that Cloud Firestore is created and enabled in Firebase Console.")
         } catch (e: Exception) {
@@ -198,70 +205,85 @@ class CloudBackupManager @Inject constructor(
     // -------------------------------------------------------------------------
 
 
-    private suspend fun applyPayload(payload: BackupPayload): RestoreStatus {
+    private suspend fun applyPayload(payload: BackupPayload): RestoreStatus = withContext(NonCancellable) {
         val db = database
-        if (db != null) {
-            db.clearAllTables()
-        } else {
-            taskDao.deleteAll()
-            goalDao.deleteAll()
-            timeSessionDao.deleteAll()
-            sleepLogDao.deleteAll()
-            energyPredictionDao.deleteAll()
-            focusSessionDao?.deleteAll()
-            taskMicroStepDao?.deleteAll()
-        }
-
-        var itemCount = 0
-
-        payload.tasks.forEach { taskDao.insert(it); itemCount++ }
-        payload.goals.forEach { goalDao.insert(it); itemCount++ }
-        payload.timeSessions.forEach { session ->
-            timeSessionDao.insert(session)
-            val durationSec = (session.durationMinutes * 60).toInt()
-            val interruptions = session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
-            runCatching {
-                focusSessionDao?.insert(
-                    FocusSessionEntity(
-                        id = session.id,
-                        taskId = session.taskId,
-                        startedAt = session.startedAt,
-                        endedAt = session.endedAt,
-                        durationSeconds = durationSec,
-                        interruptionCount = interruptions,
-                        energyAtStart = 50,
-                        wasCompleted = session.endedAt != null
-                    )
-                )
+        suspend fun writeAll(): Int {
+            if (db != null) {
+                db.clearAllTables()
+            } else {
+                taskDao.deleteAll()
+                goalDao.deleteAll()
+                timeSessionDao.deleteAll()
+                sleepLogDao.deleteAll()
+                energyPredictionDao.deleteAll()
+                focusSessionDao?.deleteAll()
+                taskMicroStepDao?.deleteAll()
             }
-            itemCount++
+
+            var itemCount = 0
+
+            payload.tasks.forEach { taskDao.insert(it); itemCount++ }
+            payload.goals.forEach { goalDao.insert(it); itemCount++ }
+            payload.timeSessions.forEach { session ->
+                timeSessionDao.insert(session)
+                if (payload.focusSessions.isEmpty()) {
+                    val durationSec = (session.durationMinutes * 60).toInt()
+                    val interruptions = session.pauseResumeCount + session.appSwitchCount + session.interruptionBurstCount
+                    runCatching {
+                        focusSessionDao?.insert(
+                            FocusSessionEntity(
+                                id = session.id,
+                                taskId = session.taskId,
+                                startedAt = session.startedAt,
+                                endedAt = session.endedAt,
+                                durationSeconds = durationSec,
+                                interruptionCount = interruptions,
+                                energyAtStart = 50,
+                                wasCompleted = session.endedAt != null
+                            )
+                        )
+                    }
+                }
+                itemCount++
+            }
+            payload.focusSessions.forEach { fs ->
+                runCatching { focusSessionDao?.insert(fs); itemCount++ }
+            }
+            payload.woopData.forEach { woopDao.upsert(it); itemCount++ }
+            payload.ulyssesContracts.forEach { ulyssesContractDao.insert(it); itemCount++ }
+            payload.sleepLogs.forEach { sleepLogDao.upsert(it); itemCount++ }
+            payload.energyPredictions.forEach { pred ->
+                runCatching { energyPredictionDao.insert(pred); itemCount++ }
+            }
+            payload.hyperFocusSessions.forEach { session ->
+                runCatching { hyperFocusSessionDao.insert(session); itemCount++ }
+            }
+            payload.notes.forEach { note ->
+                runCatching { noteDao.insert(note); itemCount++ }
+            }
+            payload.protectedSlots.forEach { slot ->
+                runCatching { protectedSlotDao?.insert(slot); itemCount++ }
+            }
+            payload.taskMicroSteps.forEach { step ->
+                runCatching { taskMicroStepDao?.insert(step); itemCount++ }
+            }
+            payload.quickNotes.forEach { qNote ->
+                runCatching { quickNoteDao?.insert(qNote); itemCount++ }
+            }
+            payload.mindmapPositions.forEach { pos ->
+                runCatching { mindmapDao?.upsertPosition(pos); itemCount++ }
+            }
+            payload.mindmapEdges.forEach { edge ->
+                runCatching { mindmapDao?.insertEdge(edge); itemCount++ }
+            }
+
+            return itemCount
         }
-        payload.woopData.forEach { woopDao.upsert(it); itemCount++ }
-        payload.ulyssesContracts.forEach { ulyssesContractDao.insert(it); itemCount++ }
-        payload.sleepLogs.forEach { sleepLogDao.upsert(it); itemCount++ }
-        payload.energyPredictions.forEach { pred ->
-            runCatching { energyPredictionDao.insert(pred); itemCount++ }
-        }
-        payload.hyperFocusSessions.forEach { session ->
-            runCatching { hyperFocusSessionDao.insert(session); itemCount++ }
-        }
-        payload.notes.forEach { note ->
-            runCatching { noteDao.insert(note); itemCount++ }
-        }
-        payload.protectedSlots.forEach { slot ->
-            runCatching { protectedSlotDao?.insert(slot); itemCount++ }
-        }
-        payload.taskMicroSteps.forEach { step ->
-            runCatching { taskMicroStepDao?.insert(step); itemCount++ }
-        }
-        payload.quickNotes.forEach { qNote ->
-            runCatching { quickNoteDao?.insert(qNote); itemCount++ }
-        }
-        payload.mindmapPositions.forEach { pos ->
-            runCatching { mindmapDao?.upsertPosition(pos); itemCount++ }
-        }
-        payload.mindmapEdges.forEach { edge ->
-            runCatching { mindmapDao?.insertEdge(edge); itemCount++ }
+
+        val itemCount = if (db != null) {
+            db.withTransaction { writeAll() }
+        } else {
+            writeAll()
         }
 
         if (payload.preferences.isNotEmpty()) {
@@ -270,7 +292,7 @@ class CloudBackupManager @Inject constructor(
             }
         }
 
-        return RestoreStatus.Success(itemCount = itemCount)
+        RestoreStatus.Success(itemCount = itemCount)
     }
 }
 
@@ -288,6 +310,7 @@ class CloudBackupManager @Inject constructor(
  */
 internal fun UserPreferences.toBackupMap(): Map<String, String> = buildMap {
     put("wakeUpHour", wakeUpHour.toString())
+    put("wakeTimeMinute", wakeTimeMinute.toString())
     put("sleepHour", sleepHour.toString())
     put("peakEnergyStart", peakEnergyStart.toString())
     put("peakEnergyEnd", peakEnergyEnd.toString())
@@ -369,8 +392,12 @@ internal fun UserPreferences.fromBackupMap(map: Map<String, String>): UserPrefer
     fun stringSet(key: String, fallback: Set<String>): Set<String> =
         map[key]?.split(',')?.map { it.trim() }?.filter { it.isNotBlank() }?.toSet() ?: fallback
 
+    val restoredWakeHour = int("wakeUpHour", wakeUpHour)
+    val restoredWakeMinute = int("wakeTimeMinute", wakeTimeMinute).coerceIn(0, 59)
     return copy(
-        wakeUpHour              = int("wakeUpHour", wakeUpHour),
+        wakeUpHour              = restoredWakeHour,
+        wakeTimeHour            = restoredWakeHour,
+        wakeTimeMinute          = restoredWakeMinute,
         sleepHour               = int("sleepHour", sleepHour),
         peakEnergyStart         = int("peakEnergyStart", peakEnergyStart),
         peakEnergyEnd           = int("peakEnergyEnd", peakEnergyEnd),

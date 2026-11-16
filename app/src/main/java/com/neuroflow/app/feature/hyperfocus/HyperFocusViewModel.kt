@@ -396,9 +396,13 @@ class HyperFocusViewModel @Inject constructor(
             )
             if (!canClaimTier) return@launch
 
-            // If there's already a pending code for this same tier, just show it again
-            if (prefs.pendingCodeId != null && claimedCodeTier.value == tier) {
+            // If there's already an unused pending code for this same tier, just show it again
+            val pendingEntity = prefs.pendingCodeId?.let { unlockCodeRepository.getCodeEntityById(it) }
+            if (prefs.pendingCodeId != null &&
+                (claimedCodeTier.value == tier || (pendingEntity != null && !pendingEntity.isUsed && pendingEntity.tier == tier))
+            ) {
                 val existing = unlockCodeRepository.getCodeById(prefs.pendingCodeId)
+                claimedCodeTier.value = tier
                 claimedCodeToShow.value = existing
                 return@launch
             }

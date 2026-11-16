@@ -30,6 +30,9 @@ interface FocusSessionDao {
     @Query("SELECT * FROM focus_sessions ORDER BY startedAt DESC")
     fun observeAll(): Flow<List<FocusSessionEntity>>
 
+    @Query("SELECT * FROM focus_sessions ORDER BY startedAt DESC")
+    suspend fun getAll(): List<FocusSessionEntity>
+
     @Query("SELECT * FROM focus_sessions WHERE endedAt IS NULL")
     suspend fun getOpenSessions(): List<FocusSessionEntity>
 

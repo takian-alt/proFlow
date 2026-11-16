@@ -85,6 +85,7 @@ data class FocusUiStateV2(
     val isSprintCompleted: Boolean = false,
     val completionAffirmation: String? = null,
     val showDndNotice: Boolean = false,
+    val bodyDoublingEnabled: Boolean = false,
     val isUltradianLimitExceeded: Boolean = elapsedSeconds >= ULTRADIAN_LIMIT_SECONDS,
     val ultradianWarning: String? = if (isUltradianLimitExceeded) ULTRADIAN_WARNING_MESSAGE else null
 ) {
@@ -106,10 +107,12 @@ class FocusViewModelV2 @Inject constructor(
     private val preferencesDataStore: UserPreferencesDataStore,
     @ApplicationContext private val context: Context? = null,
     private val behavioralSupportService: BehavioralSupportService = DefaultBehavioralSupportService(),
-    private val focusCompletionNotifier: FocusCompletionNotifier? = null
+    private val focusCompletionNotifier: FocusCompletionNotifier? = null,
+    private val focusSessionFinalizer: com.neuroflow.app.presentation.v2.focus.service.FocusSessionFinalizer? = null
 ) : ViewModel() {
 
     val taskId: String = checkNotNull(savedStateHandle["taskId"])
+    private val initialModeName: String? = savedStateHandle["mode"]
 
     private val _uiState = MutableStateFlow(FocusUiStateV2(selectedSoundscape = activeSoundscape))
     val uiState: StateFlow<FocusUiStateV2> = _uiState.asStateFlow()
@@ -117,6 +120,7 @@ class FocusViewModelV2 @Inject constructor(
     private var timerJob: Job? = null
     private var pauseCount: Int = 0
     private var hasNotifiedCompletion = false
+    private var twoMinuteWarningPlayed = false
     private var autoTrackerJob: Job? = null
     private var autoTrackerTriggered = false
 
@@ -201,53 +205,72 @@ class FocusViewModelV2 @Inject constructor(
                         )
                     }
 
-                    viewModelScope.launch {
-                        sessionRepository.update(
-                            openSession.copy(
-                                endedAt = calculatedEndAt,
-                                pausedAt = null,
-                                totalPausedMs = accPause,
-                                durationMinutes = durationSec / 60f,
-                                pauseResumeCount = pauseCount
-                            )
-                        )
-                    }
                     disableDnd()
                     soundscapePlayer.pauseWithFadeOut()
                     FocusService.stopService(context)
 
-                    viewModelScope.launch {
-                        val currentTask = _uiState.value.task
-                        if (currentTask != null) {
-                            val updatedTask = currentTask.copy(
-                                totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
-                                actualDurationMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
-                                sessionCount = currentTask.sessionCount + 1,
-                                lastSessionDurationMinutes = actualMinutes.toFloat()
+                    if (focusSessionFinalizer != null) {
+                        viewModelScope.launch {
+                            val result = focusSessionFinalizer.finalize(
+                                taskId = taskId,
+                                markComplete = false,
+                                now = now,
+                                fallbackStartedAt = startedAt,
+                                fallbackAccumulatedPauseMs = accPause,
+                                fallbackPausedAtMs = null,
+                                fallbackIsPaused = false,
+                                fallbackDurationSeconds = durationSec,
+                                fallbackPauseCount = pauseCount,
+                                fallbackSessionId = openSession.id,
+                                context = context
                             )
-                            taskRepository.update(updatedTask)
-                            _uiState.update { it.copy(task = updatedTask) }
-                        }
-
-                        val nowTs = System.currentTimeMillis()
-                        preferencesDataStore.updatePreferences { prefs ->
-                            val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
-                            val lastActive = prefs.lastActiveDate
-                            val todayStart = startOfLocalDay(nowTs)
-                            val isNewDay = lastActive < todayStart
-                            val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
-                            val newStreak = when {
-                                isConsecutive -> prefs.dailyStreak + 1
-                                isNewDay -> 1
-                                else -> prefs.dailyStreak
+                            result.task?.let { updatedTask ->
+                                _uiState.update { it.copy(task = updatedTask) }
                             }
-                            val longest = maxOf(prefs.longestStreak, newStreak)
-                            prefs.copy(
-                                totalFocusMinutes = newFocusMinutes,
-                                dailyStreak = newStreak,
-                                longestStreak = longest,
-                                lastActiveDate = nowTs
+                        }
+                    } else {
+                        viewModelScope.launch {
+                            sessionRepository.update(
+                                openSession.copy(
+                                    endedAt = calculatedEndAt,
+                                    pausedAt = null,
+                                    totalPausedMs = accPause,
+                                    durationMinutes = durationSec / 60f,
+                                    pauseResumeCount = pauseCount
+                                )
                             )
+                            val currentTask = _uiState.value.task
+                            if (currentTask != null) {
+                                val updatedTask = currentTask.copy(
+                                    totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                                    actualDurationMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                                    sessionCount = currentTask.sessionCount + 1,
+                                    lastSessionDurationMinutes = actualMinutes.toFloat()
+                                )
+                                taskRepository.update(updatedTask)
+                                _uiState.update { it.copy(task = updatedTask) }
+                            }
+
+                            val nowTs = System.currentTimeMillis()
+                            preferencesDataStore.updatePreferences { prefs ->
+                                val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
+                                val lastActive = prefs.lastActiveDate
+                                val todayStart = startOfLocalDay(nowTs)
+                                val isNewDay = lastActive < todayStart
+                                val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+                                val newStreak = when {
+                                    isConsecutive -> prefs.dailyStreak + 1
+                                    isNewDay -> 1
+                                    else -> prefs.dailyStreak
+                                }
+                                val longest = maxOf(prefs.longestStreak, newStreak)
+                                prefs.copy(
+                                    totalFocusMinutes = newFocusMinutes,
+                                    dailyStreak = newStreak,
+                                    longestStreak = longest,
+                                    lastActiveDate = nowTs
+                                )
+                            }
                         }
                     }
                 } else {
@@ -304,9 +327,15 @@ class FocusViewModelV2 @Inject constructor(
                 }
             } else {
                 val isCompleted = if (isUntracked) false else task?.status == TaskStatus.COMPLETED
+                val requestedMode = initialModeName
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { name -> FocusTimerModeV2.entries.firstOrNull { it.name == name } }
                 _uiState.update {
+                    val effectiveMode = requestedMode ?: it.timerMode
                     it.copy(
                         task = task,
+                        timerMode = effectiveMode,
+                        remainingSeconds = effectiveMode.durationSeconds,
                         woopData = woop,
                         microSteps = steps,
                         nextTaskId = next?.id,
@@ -412,8 +441,26 @@ class FocusViewModelV2 @Inject constructor(
                         timerJob = null
                         disableDnd()
                         soundscapePlayer.pauseWithFadeOut()
+                        val snapshotState = _uiState.value
+                        val refreshedTask = if (focusSessionFinalizer != null) {
+                            focusSessionFinalizer.finalize(
+                                taskId = taskId,
+                                markComplete = false,
+                                fallbackStartedAt = snapshotState.startedAtMillis,
+                                fallbackAccumulatedPauseMs = snapshotState.accumulatedPauseMillis,
+                                fallbackPausedAtMs = snapshotState.pausedAtMillis,
+                                fallbackIsPaused = snapshotState.isPaused,
+                                fallbackDurationSeconds = snapshotState.timerMode.durationSeconds,
+                                fallbackPauseCount = pauseCount,
+                                fallbackSessionId = snapshotState.activeSessionId,
+                                context = context
+                            ).task
+                        } else {
+                            runCatching { taskRepository.getById(taskId) }.getOrNull()
+                        }
                         _uiState.update {
                             it.copy(
+                                task = refreshedTask ?: it.task,
                                 isRunning = false,
                                 isPaused = false,
                                 elapsedSeconds = it.timerMode.durationSeconds,
@@ -421,6 +468,10 @@ class FocusViewModelV2 @Inject constructor(
                                 isSprintCompleted = true,
                                 showSprintCompletionSheet = true
                             )
+                        }
+                        if (!hasNotifiedCompletion) {
+                            hasNotifiedCompletion = true
+                            focusCompletionNotifier?.playCompletionChimeAndHaptics(viewModelScope)
                         }
                     } else if (serviceSession.isPaused && _uiState.value.isRunning && !_uiState.value.isPaused) {
                         val now = System.currentTimeMillis()
@@ -501,6 +552,7 @@ class FocusViewModelV2 @Inject constructor(
         autoTrackerJob?.cancel()
         autoTrackerJob = null
         hasNotifiedCompletion = false
+        twoMinuteWarningPlayed = false
         _uiState.update {
             it.copy(
                 timerMode = mode,
@@ -515,6 +567,10 @@ class FocusViewModelV2 @Inject constructor(
                 ultradianWarning = null
             )
         }
+    }
+
+    fun toggleBodyDoubling() {
+        _uiState.update { it.copy(bodyDoublingEnabled = !it.bodyDoublingEnabled) }
     }
 
     fun selectSoundscape(type: SoundscapeType) {
@@ -595,6 +651,7 @@ class FocusViewModelV2 @Inject constructor(
         val now = System.currentTimeMillis()
         val sessionId = UUID.randomUUID().toString()
         hasNotifiedCompletion = false
+        twoMinuteWarningPlayed = false
         pauseCount = 0
 
         _uiState.update {
@@ -625,6 +682,8 @@ class FocusViewModelV2 @Inject constructor(
                         sessionType = _uiState.value.timerMode.name
                     )
                 )
+            } else {
+                _uiState.update { it.copy(activeSessionId = existingSession.id) }
             }
         }
 
@@ -696,6 +755,14 @@ class FocusViewModelV2 @Inject constructor(
                 )
             }
         }
+        if (!countdownHitZero) {
+            val current = _uiState.value
+            val isStopwatch = current.timerMode == FocusTimerModeV2.FLOW_STOPWATCH
+            if (!twoMinuteWarningPlayed && !isStopwatch && current.timerMode.durationSeconds > 120L && current.remainingSeconds in 1L..120L) {
+                twoMinuteWarningPlayed = true
+                focusCompletionNotifier?.playTwoMinuteWarningCue(viewModelScope)
+            }
+        }
         if (countdownHitZero) {
             timerJob?.cancel()
             timerJob = null
@@ -706,40 +773,62 @@ class FocusViewModelV2 @Inject constructor(
             val durationSec = _uiState.value.elapsedSeconds
             val actualMinutes = max(1, (durationSec / 60).toInt())
 
-            updateSessionRecord(isOpen = false)
-
-            viewModelScope.launch {
-                val currentTask = _uiState.value.task
-                if (currentTask != null) {
-                    val updatedTask = currentTask.copy(
-                        totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
-                        actualDurationMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
-                        sessionCount = currentTask.sessionCount + 1,
-                        lastSessionDurationMinutes = actualMinutes.toFloat()
+            if (focusSessionFinalizer != null) {
+                val snapshotState = _uiState.value
+                viewModelScope.launch {
+                    val result = focusSessionFinalizer.finalize(
+                        taskId = taskId,
+                        markComplete = false,
+                        now = now,
+                        fallbackStartedAt = snapshotState.startedAtMillis,
+                        fallbackAccumulatedPauseMs = snapshotState.accumulatedPauseMillis,
+                        fallbackPausedAtMs = snapshotState.pausedAtMillis,
+                        fallbackIsPaused = snapshotState.isPaused,
+                        fallbackDurationSeconds = durationSec,
+                        fallbackPauseCount = pauseCount,
+                        fallbackSessionId = snapshotState.activeSessionId,
+                        context = context
                     )
-                    taskRepository.update(updatedTask)
-                    _uiState.update { it.copy(task = updatedTask) }
-                }
-
-                val now = System.currentTimeMillis()
-                preferencesDataStore.updatePreferences { prefs ->
-                    val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
-                    val lastActive = prefs.lastActiveDate
-                    val todayStart = startOfLocalDay(now)
-                    val isNewDay = lastActive < todayStart
-                    val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
-                    val newStreak = when {
-                        isConsecutive -> prefs.dailyStreak + 1
-                        isNewDay -> 1
-                        else -> prefs.dailyStreak
+                    result.task?.let { updatedTask ->
+                        _uiState.update { it.copy(task = updatedTask) }
                     }
-                    val longest = maxOf(prefs.longestStreak, newStreak)
-                    prefs.copy(
-                        totalFocusMinutes = newFocusMinutes,
-                        dailyStreak = newStreak,
-                        longestStreak = longest,
-                        lastActiveDate = now
-                    )
+                }
+            } else {
+                updateSessionRecord(isOpen = false)
+
+                viewModelScope.launch {
+                    val currentTask = _uiState.value.task
+                    if (currentTask != null) {
+                        val updatedTask = currentTask.copy(
+                            totalTimeTrackedMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                            actualDurationMinutes = currentTask.totalTimeTrackedMinutes + actualMinutes,
+                            sessionCount = currentTask.sessionCount + 1,
+                            lastSessionDurationMinutes = actualMinutes.toFloat()
+                        )
+                        taskRepository.update(updatedTask)
+                        _uiState.update { it.copy(task = updatedTask) }
+                    }
+
+                    val nowTs = System.currentTimeMillis()
+                    preferencesDataStore.updatePreferences { prefs ->
+                        val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
+                        val lastActive = prefs.lastActiveDate
+                        val todayStart = startOfLocalDay(nowTs)
+                        val isNewDay = lastActive < todayStart
+                        val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+                        val newStreak = when {
+                            isConsecutive -> prefs.dailyStreak + 1
+                            isNewDay -> 1
+                            else -> prefs.dailyStreak
+                        }
+                        val longest = maxOf(prefs.longestStreak, newStreak)
+                        prefs.copy(
+                            totalFocusMinutes = newFocusMinutes,
+                            dailyStreak = newStreak,
+                            longestStreak = longest,
+                            lastActiveDate = nowTs
+                        )
+                    }
                 }
             }
 
@@ -915,72 +1004,118 @@ class FocusViewModelV2 @Inject constructor(
         val actualMinutes = if (hasRunTimer) max(1, (durationSec / 60).toInt()) else 0
 
         viewModelScope.launch {
-            val session = sessionRepository.getOpenSessionForTask(taskId)
-            val currentPause = if (_uiState.value.isPaused && _uiState.value.pausedAtMillis != null) {
-                maxOf(0L, now - _uiState.value.pausedAtMillis!!)
-            } else 0L
-            val totalPause = _uiState.value.accumulatedPauseMillis + currentPause
-
-            if (session != null) {
-                pauseCount = maxOf(pauseCount, session.pauseResumeCount)
-                sessionRepository.update(
-                    session.copy(
-                        endedAt = now,
-                        pausedAt = null,
-                        totalPausedMs = totalPause,
-                        durationMinutes = durationSec / 60f,
-                        pauseResumeCount = pauseCount
-                    )
-                )
-            }
-
-            val currentTask = _uiState.value.task ?: return@launch
-            val finalTracked = if (wasSprintCompleted) {
-                currentTask.totalTimeTrackedMinutes
-            } else {
-                currentTask.totalTimeTrackedMinutes + actualMinutes
-            }
-            val est = TaskBlockPlan.plannedMinutes(currentTask).toFloat()
-            val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
-            val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
-
-            val points = 50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2)
-
-            val hasUnfinishedSession = hasRunTimer && !wasSprintCompleted
-            val finalSessionCount = if (hasUnfinishedSession) currentTask.sessionCount + 1 else currentTask.sessionCount
-            val finalLastSessionDuration = if (hasUnfinishedSession) actualMinutes.toFloat() else currentTask.lastSessionDurationMinutes
-
-            val taskToComplete = currentTask.copy(
-                totalTimeTrackedMinutes = finalTracked,
-                actualDurationMinutes = finalTracked,
-                sessionCount = finalSessionCount,
-                lastSessionDurationMinutes = finalLastSessionDuration,
-                estimationErrorMape = mape,
-                estimationErrorSmape = smape,
-                focusModePoints = points
-            )
             val isUntracked = taskId == TaskEntity.TASK_UNTRACKED_FOCUS
-            val updatedTask = if (isUntracked) {
-                val updated = taskToComplete.copy(
-                    status = TaskStatus.ACTIVE,
-                    completedAt = null,
-                    updatedAt = now
-                )
-                taskRepository.update(updated)
-                updated
-            } else {
-                taskRepository.completeAndRecur(taskToComplete, now)
-                taskToComplete.copy(
-                    status = TaskStatus.COMPLETED,
-                    completedAt = now,
-                    updatedAt = now
-                )
-            }
+            val updatedTask: TaskEntity?
+            val points: Int
 
-            if (isUntracked) {
-                if (hasRunTimer && !wasSprintCompleted) {
+            if (focusSessionFinalizer != null) {
+                val snapshotState = _uiState.value
+                val finalResult = focusSessionFinalizer.finalize(
+                    taskId = taskId,
+                    markComplete = true,
+                    now = now,
+                    fallbackStartedAt = snapshotState.startedAtMillis,
+                    fallbackAccumulatedPauseMs = snapshotState.accumulatedPauseMillis,
+                    fallbackPausedAtMs = snapshotState.pausedAtMillis,
+                    fallbackIsPaused = snapshotState.isPaused,
+                    fallbackDurationSeconds = snapshotState.timerMode.durationSeconds,
+                    fallbackPauseCount = pauseCount,
+                    fallbackSessionId = snapshotState.activeSessionId,
+                    wasSprintAlreadyCompleted = wasSprintCompleted,
+                    context = context
+                )
+                updatedTask = finalResult.task ?: snapshotState.task
+                val currentTask = updatedTask ?: return@launch
+                points = if (isUntracked) 0 else finalResult.pointsEarned.takeIf { it > 0 }
+                    ?: (50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2))
+            } else {
+                val session = sessionRepository.getOpenSessionForTask(taskId)
+                val currentPause = if (_uiState.value.isPaused && _uiState.value.pausedAtMillis != null) {
+                    maxOf(0L, now - _uiState.value.pausedAtMillis!!)
+                } else 0L
+                val totalPause = _uiState.value.accumulatedPauseMillis + currentPause
+
+                if (session != null) {
+                    pauseCount = maxOf(pauseCount, session.pauseResumeCount)
+                    sessionRepository.update(
+                        session.copy(
+                            endedAt = now,
+                            pausedAt = null,
+                            totalPausedMs = totalPause,
+                            durationMinutes = durationSec / 60f,
+                            pauseResumeCount = pauseCount
+                        )
+                    )
+                }
+
+                val currentTask = _uiState.value.task ?: return@launch
+                val finalTracked = if (wasSprintCompleted) {
+                    currentTask.totalTimeTrackedMinutes
+                } else {
+                    currentTask.totalTimeTrackedMinutes + actualMinutes
+                }
+                val est = TaskBlockPlan.plannedMinutes(currentTask).toFloat()
+                val mape = if (est > 0f) Math.abs(finalTracked - est) / est else null
+                val smape = if (est > 0f || finalTracked > 0f) (2f * Math.abs(finalTracked - est)) / (est + finalTracked) else null
+
+                points = 50 + (if (currentTask.isFrog) 50 else 0) + (currentTask.impactScore / 2)
+
+                val hasUnfinishedSession = hasRunTimer && !wasSprintCompleted
+                val finalSessionCount = if (hasUnfinishedSession) currentTask.sessionCount + 1 else currentTask.sessionCount
+                val finalLastSessionDuration = if (hasUnfinishedSession) actualMinutes.toFloat() else currentTask.lastSessionDurationMinutes
+
+                val taskToComplete = currentTask.copy(
+                    totalTimeTrackedMinutes = finalTracked,
+                    actualDurationMinutes = finalTracked,
+                    sessionCount = finalSessionCount,
+                    lastSessionDurationMinutes = finalLastSessionDuration,
+                    estimationErrorMape = mape,
+                    estimationErrorSmape = smape,
+                    focusModePoints = points
+                )
+                updatedTask = if (isUntracked) {
+                    val updated = taskToComplete.copy(
+                        status = TaskStatus.ACTIVE,
+                        completedAt = null,
+                        updatedAt = now
+                    )
+                    taskRepository.update(updated)
+                    updated
+                } else {
+                    taskRepository.completeAndRecur(taskToComplete, now)
+                    taskToComplete.copy(
+                        status = TaskStatus.COMPLETED,
+                        completedAt = now,
+                        updatedAt = now
+                    )
+                }
+
+                if (isUntracked) {
+                    if (hasRunTimer && !wasSprintCompleted) {
+                        preferencesDataStore.updatePreferences { prefs ->
+                            val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
+                            val lastActive = prefs.lastActiveDate
+                            val todayStart = startOfLocalDay(now)
+                            val isNewDay = lastActive < todayStart
+                            val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+                            val newStreak = when {
+                                isConsecutive -> prefs.dailyStreak + 1
+                                isNewDay -> 1
+                                else -> prefs.dailyStreak
+                            }
+                            val longest = maxOf(prefs.longestStreak, newStreak)
+                            prefs.copy(
+                                totalFocusMinutes = newFocusMinutes,
+                                dailyStreak = newStreak,
+                                longestStreak = longest,
+                                lastActiveDate = now
+                            )
+                        }
+                    }
+                } else if (hasRunTimer && !wasSprintCompleted) {
                     preferencesDataStore.updatePreferences { prefs ->
                         val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
+                        val newCompleted = prefs.totalTasksCompleted + 1
                         val lastActive = prefs.lastActiveDate
                         val todayStart = startOfLocalDay(now)
                         val isNewDay = lastActive < todayStart
@@ -993,38 +1128,17 @@ class FocusViewModelV2 @Inject constructor(
                         val longest = maxOf(prefs.longestStreak, newStreak)
                         prefs.copy(
                             totalFocusMinutes = newFocusMinutes,
+                            totalTasksCompleted = newCompleted,
                             dailyStreak = newStreak,
                             longestStreak = longest,
                             lastActiveDate = now
                         )
                     }
-                }
-            } else if (hasRunTimer && !wasSprintCompleted) {
-                preferencesDataStore.updatePreferences { prefs ->
-                    val newFocusMinutes = prefs.totalFocusMinutes + actualMinutes
-                    val newCompleted = prefs.totalTasksCompleted + 1
-                    val lastActive = prefs.lastActiveDate
-                    val todayStart = startOfLocalDay(now)
-                    val isNewDay = lastActive < todayStart
-                    val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
-                    val newStreak = when {
-                        isConsecutive -> prefs.dailyStreak + 1
-                        isNewDay -> 1
-                        else -> prefs.dailyStreak
+                } else {
+                    preferencesDataStore.updatePreferences { prefs ->
+                        val newCompleted = prefs.totalTasksCompleted + 1
+                        prefs.copy(totalTasksCompleted = newCompleted)
                     }
-                    val longest = maxOf(prefs.longestStreak, newStreak)
-                    prefs.copy(
-                        totalFocusMinutes = newFocusMinutes,
-                        totalTasksCompleted = newCompleted,
-                        dailyStreak = newStreak,
-                        longestStreak = longest,
-                        lastActiveDate = now
-                    )
-                }
-            } else {
-                preferencesDataStore.updatePreferences { prefs ->
-                    val newCompleted = prefs.totalTasksCompleted + 1
-                    prefs.copy(totalTasksCompleted = newCompleted)
                 }
             }
 
@@ -1080,6 +1194,7 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     fun keepGoing(nextMode: FocusTimerModeV2 = FocusTimerModeV2.POMODORO_25) {
+        twoMinuteWarningPlayed = false
         _uiState.update {
             it.copy(
                 timerMode = nextMode,
@@ -1092,6 +1207,7 @@ class FocusViewModelV2 @Inject constructor(
     }
 
     fun takeDecompressionRest() {
+        twoMinuteWarningPlayed = false
         soundscapePlayer.pauseWithFadeOut()
         _uiState.update {
             it.copy(

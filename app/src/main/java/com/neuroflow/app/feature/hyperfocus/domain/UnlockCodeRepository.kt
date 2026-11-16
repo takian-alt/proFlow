@@ -11,6 +11,7 @@ interface UnlockCodeRepository {
     suspend fun generateCodePool(sessionId: String)
     suspend fun getClaimableCode(sessionId: String, tier: RewardTier): Pair<String, String>?
     suspend fun getCodeById(codeId: String): String?
+    suspend fun getCodeEntityById(codeId: String): UnlockCodeEntity? = null
     suspend fun countUnusedByTier(sessionId: String, tier: RewardTier): Int
     suspend fun validateAndClaim(sessionId: String, enteredCode: String): UnlockCodeEntity?
     suspend fun markUsed(codeId: String, unlockedUntil: Long?)
@@ -61,6 +62,8 @@ class UnlockCodeRepositoryImpl @Inject constructor(
         val entity = dao.getById(codeId) ?: return null
         return runCatching { AESUtil.decrypt(entity.encryptedCode) }.getOrNull()
     }
+
+    override suspend fun getCodeEntityById(codeId: String): UnlockCodeEntity? = dao.getById(codeId)
 
     override suspend fun validateAndClaim(sessionId: String, enteredCode: String): UnlockCodeEntity? {
         val normalized = enteredCode.trim().uppercase()

@@ -20,9 +20,12 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.neuroflow.app.feature.hyperfocus.service.UnlockTimerService
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.neuroflow.app.worker.AccessibilityWatchdogWorker
+import com.neuroflow.app.worker.TimeBasedHyperFocusExpiryWorker
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -85,7 +88,9 @@ class HyperFocusManagerImpl @Inject constructor(
             )
         }
         runCatching {
-            WorkManager.getInstance(context).cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
+            val wm = WorkManager.getInstance(context)
+            wm.cancelUniqueWork(AccessibilityWatchdogWorker.WORK_NAME)
+            wm.cancelUniqueWork(TimeBasedHyperFocusExpiryWorker.WORK_NAME)
         }
     }
 
@@ -241,6 +246,20 @@ class HyperFocusManagerImpl @Inject constructor(
                 androidx.work.ExistingPeriodicWorkPolicy.KEEP,
                 PeriodicWorkRequestBuilder<AccessibilityWatchdogWorker>(15, TimeUnit.MINUTES).build()
             )
+        }
+
+        // Schedule reliable background expiry for time-based HyperFocus sessions
+        if (sessionMode == HyperFocusSessionMode.TIME_BASED && sessionDurationMinutes != null) {
+            runCatching {
+                val expiryRequest = OneTimeWorkRequestBuilder<TimeBasedHyperFocusExpiryWorker>()
+                    .setInitialDelay(sessionDurationMinutes.toLong(), TimeUnit.MINUTES)
+                    .build()
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    TimeBasedHyperFocusExpiryWorker.WORK_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    expiryRequest
+                )
+            }
         }
 
         // Ensure strict kiosk protections are applied however activation was reached, including from

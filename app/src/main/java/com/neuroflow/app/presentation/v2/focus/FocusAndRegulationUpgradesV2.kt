@@ -88,14 +88,17 @@ fun ZenMicroStepSpotlightCard(
                 ) {
                     Text(
                         text = "STEP ${minOf(currentStepIndex + 1, totalSteps.coerceAtLeast(1))} OF ${totalSteps.coerceAtLeast(1)}",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFeatureSettings = "tnum"
+                        ),
                         color = NeuroFlowPaletteV2.ReboundCyan,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
                 Text(
                     text = "~${currentStepEstimatedMinutes}m target",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                     color = NeuroFlowPaletteV2.TextSecondary
                 )
             }
@@ -126,7 +129,7 @@ fun ZenMicroStepSpotlightCard(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
+                        .height(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
@@ -144,7 +147,7 @@ fun ZenMicroStepSpotlightCard(
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
                     modifier = Modifier
-                        .height(44.dp)
+                        .size(width = 52.dp, height = 48.dp)
                         .clickable { onSkipStep() }
                 ) {
                     Box(
@@ -415,7 +418,7 @@ fun UpgradedWoopPromptSheet(
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,

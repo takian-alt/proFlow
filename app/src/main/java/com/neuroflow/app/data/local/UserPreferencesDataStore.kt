@@ -209,6 +209,7 @@ class UserPreferencesDataStore @Inject constructor(
         val CALENDAR_SYNC_TARGET_ID = longPreferencesKey("calendar_sync_target_id")
         val LAST_CALENDAR_INBOUND_SYNC_AT = longPreferencesKey("last_calendar_inbound_sync_at")
         val WAKE_UP_HOUR = intPreferencesKey("wake_up_hour")
+        val WAKE_TIME_MINUTE = intPreferencesKey("wake_time_minute")
         val SLEEP_HOUR = intPreferencesKey("sleep_hour")
         val PEAK_ENERGY_START = intPreferencesKey("peak_energy_start")
         val PEAK_ENERGY_END = intPreferencesKey("peak_energy_end")
@@ -333,8 +334,11 @@ class UserPreferencesDataStore @Inject constructor(
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
+        val resolvedWakeHour = (prefs[Keys.WAKE_UP_HOUR] ?: 7).coerceIn(0, 23)
         UserPreferences(
-            wakeUpHour = prefs[Keys.WAKE_UP_HOUR] ?: 7,
+            wakeUpHour = resolvedWakeHour,
+            wakeTimeHour = resolvedWakeHour,
+            wakeTimeMinute = (prefs[Keys.WAKE_TIME_MINUTE] ?: 0).coerceIn(0, 59),
             sleepHour = prefs[Keys.SLEEP_HOUR] ?: 23,
             peakEnergyStart = prefs[Keys.PEAK_ENERGY_START] ?: 9,
             peakEnergyEnd = prefs[Keys.PEAK_ENERGY_END] ?: 12,
@@ -551,8 +555,11 @@ class UserPreferencesDataStore @Inject constructor(
 
     suspend fun updatePreferences(update: (UserPreferences) -> UserPreferences) {
         context.dataStore.edit { prefs ->
+            val currentWakeHour = (prefs[Keys.WAKE_UP_HOUR] ?: 7).coerceIn(0, 23)
             val current = UserPreferences(
-                wakeUpHour = prefs[Keys.WAKE_UP_HOUR] ?: 7,
+                wakeUpHour = currentWakeHour,
+                wakeTimeHour = currentWakeHour,
+                wakeTimeMinute = (prefs[Keys.WAKE_TIME_MINUTE] ?: 0).coerceIn(0, 59),
                 sleepHour = prefs[Keys.SLEEP_HOUR] ?: 23,
                 peakEnergyStart = prefs[Keys.PEAK_ENERGY_START] ?: 9,
                 peakEnergyEnd = prefs[Keys.PEAK_ENERGY_END] ?: 12,
@@ -693,7 +700,13 @@ class UserPreferencesDataStore @Inject constructor(
                 lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L
             )
             val updated = update(current)
-            prefs[Keys.WAKE_UP_HOUR] = updated.wakeUpHour
+            val nextWakeHour = if (updated.wakeTimeHour != current.wakeTimeHour && updated.wakeUpHour == current.wakeUpHour) {
+                updated.wakeTimeHour
+            } else {
+                updated.wakeUpHour
+            }.coerceIn(0, 23)
+            prefs[Keys.WAKE_UP_HOUR] = nextWakeHour
+            prefs[Keys.WAKE_TIME_MINUTE] = updated.wakeTimeMinute.coerceIn(0, 59)
             prefs[Keys.SLEEP_HOUR] = (if (updated.sleepHour >= 24) updated.sleepHour % 24 else updated.sleepHour).coerceIn(0, 23)
             prefs[Keys.PEAK_ENERGY_START] = updated.peakEnergyStart
             prefs[Keys.PEAK_ENERGY_END] = updated.peakEnergyEnd

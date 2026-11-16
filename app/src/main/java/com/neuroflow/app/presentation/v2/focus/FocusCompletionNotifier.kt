@@ -35,7 +35,34 @@ class FocusCompletionNotifier @Inject constructor(
     fun playCompletionChimeAndHaptics(scope: CoroutineScope) {
         triggerHapticPulse()
         scope.launch(Dispatchers.Default) {
-            playSynthesizedBell()
+            playSynthesizedBell(durationSeconds = DURATION_SECONDS, volumeScale = 0.45)
+        }
+    }
+
+    fun playTwoMinuteWarningCue(scope: CoroutineScope) {
+        triggerSubtleCuePulse()
+        scope.launch(Dispatchers.Default) {
+            playSynthesizedBell(durationSeconds = 0.75, volumeScale = 0.24)
+        }
+    }
+
+    private fun triggerSubtleCuePulse() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            } ?: return
+
+            if (!vibrator.hasVibrator()) return
+            val effect = if (vibrator.hasAmplitudeControl()) {
+                VibrationEffect.createOneShot(90L, 110)
+            } else {
+                VibrationEffect.createOneShot(90L, VibrationEffect.DEFAULT_AMPLITUDE)
+            }
+            vibrator.vibrate(effect)
         }
     }
 
@@ -61,7 +88,10 @@ class FocusCompletionNotifier @Inject constructor(
         }
     }
 
-    private suspend fun playSynthesizedBell() {
+    private suspend fun playSynthesizedBell(
+        durationSeconds: Double = DURATION_SECONDS,
+        volumeScale: Double = 0.45
+    ) {
         val audioManager = runCatching { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }.getOrNull()
         var focusRequest: AudioFocusRequest? = null
         var track: AudioTrack? = null
@@ -78,7 +108,7 @@ class FocusCompletionNotifier @Inject constructor(
             focusRequest = req
             audioManager?.requestAudioFocus(req)
 
-            val numSamples = (SAMPLE_RATE * DURATION_SECONDS).toInt()
+            val numSamples = (SAMPLE_RATE * durationSeconds).toInt()
             val pcm = ShortArray(numSamples)
             for (i in 0 until numSamples) {
                 val t = i.toDouble() / SAMPLE_RATE
@@ -89,7 +119,7 @@ class FocusCompletionNotifier @Inject constructor(
 
                 val wave = 0.70 * sin(2.0 * PI * FREQ_FUNDAMENTAL * t) +
                            0.30 * sin(2.0 * PI * FREQ_FIFTH * t)
-                pcm[i] = (wave * envelope * Short.MAX_VALUE * 0.45).toInt()
+                pcm[i] = (wave * envelope * Short.MAX_VALUE * volumeScale).toInt()
                     .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             }
 
@@ -108,7 +138,7 @@ class FocusCompletionNotifier @Inject constructor(
 
             track.write(pcm, 0, pcm.size)
             track.play()
-            delay((DURATION_SECONDS * 1000).toLong() + 100L)
+            delay((durationSeconds * 1000).toLong() + 100L)
         } catch (_: Throwable) {
             // Guard against audio hardware unavailability on headless CI or restricted audio HALs
         } finally {

@@ -19,14 +19,19 @@ import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.ShieldMoon
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,14 +42,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.engine.FreshStartEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.scheduler.DueSlot
 import com.neuroflow.app.domain.scheduler.SlotPhase
+import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -74,7 +82,11 @@ fun FlowSpotlightHeroCard(
     approachingSlot: DueSlot? = null,
     topTaskMicroSteps: List<StepByStepPlanStep> = emptyList(),
     onQuickFocusClick: (() -> Unit)? = null,
-    onShutdownClick: (() -> Unit)? = null
+    onShutdownClick: (() -> Unit)? = null,
+    onToggleMicroStep: ((Int) -> Unit)? = null,
+    onDoorway2mStart: ((String) -> Unit)? = null,
+    onEasyWinClick: (() -> Unit)? = null,
+    isLowBatterySuggested: Boolean = false
 ) {
     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
     val cardShape = RoundedCornerShape(24.dp)
@@ -377,14 +389,16 @@ fun FlowSpotlightHeroCard(
             if (topTaskMicroSteps.isNotEmpty()) {
                 val completedCount = topTaskMicroSteps.count { it.completed }
                 val totalCount = topTaskMicroSteps.size
-                val currentStep = topTaskMicroSteps.firstOrNull { !it.completed } ?: topTaskMicroSteps.last()
+                val currentStepIndex = topTaskMicroSteps.indexOfFirst { !it.completed }.let { if (it >= 0) it else topTaskMicroSteps.lastIndex }
+                val currentStep = topTaskMicroSteps[currentStepIndex]
                 val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
                 val stepLabel = if (completedCount >= totalCount) {
                     "🪜 2m Doorway: All $totalCount steps completed"
                 } else {
                     "🪜 2m Doorway: Step ${completedCount + 1} of $totalCount"
                 }
-                var isStepChecked by remember(topTaskId, currentStep.text) { mutableStateOf(currentStep.completed) }
+                var localFallbackChecked by remember(topTaskId, currentStepIndex) { mutableStateOf(currentStep.completed) }
+                val isStepChecked = if (onToggleMicroStep != null) currentStep.completed else localFallbackChecked
 
                 Spacer(modifier = Modifier.height(12.dp))
                 Column(
@@ -412,7 +426,7 @@ fun FlowSpotlightHeroCard(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "${(progress * 100).toInt()}% completed",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             color = NeuroFlowPaletteV2.TextTertiary,
                             fontSize = 10.sp
                         )
@@ -429,7 +443,14 @@ fun FlowSpotlightHeroCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { isStepChecked = !isStepChecked },
+                            .minimumInteractiveComponentSize()
+                            .clickable {
+                                if (onToggleMicroStep != null) {
+                                    onToggleMicroStep(currentStepIndex)
+                                } else {
+                                    localFallbackChecked = !localFallbackChecked
+                                }
+                            },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -471,7 +492,11 @@ fun FlowSpotlightHeroCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { isStepChecked = !isStepChecked },
+                            .minimumInteractiveComponentSize()
+                            .clickable {
+                                isStepChecked = !isStepChecked
+                                onToggleMicroStep?.invoke(0)
+                            },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -553,6 +578,35 @@ fun FlowSpotlightHeroCard(
                             )
                         }
                     }
+                } else if (onDoorway2mStart != null) {
+                    Surface(
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.55f)),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .testTag("doorway_2m_start_button")
+                            .clickable { onDoorway2mStart(topTaskId) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = "2-minute doorway focus start",
+                                tint = NeuroFlowPaletteV2.ReboundCyan,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "2m Start",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = NeuroFlowPaletteV2.ReboundCyan
+                            )
+                        }
+                    }
                 } else if (onQuickFocusClick != null) {
                     Surface(
                         color = NeuroFlowPaletteV2.SurfaceElevated,
@@ -607,6 +661,163 @@ fun FlowSpotlightHeroCard(
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                             color = NeuroFlowPaletteV2.TextPrimary
                         )
+                    }
+                }
+            }
+
+            if (onEasyWinClick != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    onClick = onEasyWinClick,
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isLowBatterySuggested) NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.14f) else NeuroFlowPaletteV2.SurfaceElevated.copy(alpha = 0.7f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isLowBatterySuggested) NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.45f) else NeuroFlowPaletteV2.BorderSubtle
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                        .testTag("easier_win_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = null,
+                            tint = if (isLowBatterySuggested) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isLowBatterySuggested) "Low battery · Need an Easier Win?" else "Too heavy right now? Pick an Easier Win",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isLowBatterySuggested) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.TextSecondary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EasyWinPickerSheet(
+    easyWinTasks: List<TaskEntity>,
+    onStartTask: (String) -> Unit,
+    onDoorwayStartTask: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = NeuroFlowPaletteV2.SurfaceCard,
+        contentColor = NeuroFlowPaletteV2.TextPrimary,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+                .testTag("easy_win_picker_sheet"),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Low-Friction Wins",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                color = NeuroFlowPaletteV2.TextPrimary
+            )
+            Text(
+                text = "Start small when executive friction is high. Any forward motion restores dopamine.",
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowPaletteV2.TextSecondary
+            )
+
+            if (easyWinTasks.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "No short low-energy tasks queued right now.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        Text(
+                            text = "Try a 2-minute doorway sprint on Free Flow or park a 5-minute quick win.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary
+                        )
+                    }
+                }
+            } else {
+                easyWinTasks.take(5).forEach { task ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = task.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = NeuroFlowPaletteV2.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${formatDurationChip(TaskBlockPlan.plannedMinutes(task))} · ${task.energyLevel.name}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowPaletteV2.OptimalEmerald
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    onDismiss()
+                                    onDoorwayStartTask(task.id)
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Text("2m", fontWeight = FontWeight.Bold, color = NeuroFlowPaletteV2.ReboundCyan)
+                            }
+                            Button(
+                                onClick = {
+                                    onDismiss()
+                                    onStartTask(task.id)
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NeuroFlowPaletteV2.OptimalEmerald,
+                                    contentColor = Color(0xFF0A0B0E)
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Text("Start", fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
                     }
                 }
             }

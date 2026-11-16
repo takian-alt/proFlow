@@ -236,13 +236,17 @@ fun FocusScreenV2(
                 )
             }
 
-            // Hero Task Card: Full prominence for Task Title, Frog status, and Next Micro-Step
-            val nextStepForHero = if (state.isCompleted || (state.isRunning && !state.isPaused)) null else {
-                val activeSteps = state.microSteps
-                val nextIdx = activeSteps.indices.firstOrNull { idx ->
-                    !activeSteps[idx].completed && idx !in state.skippedMicroStepIndices
-                } ?: activeSteps.indexOfFirst { !it.completed }.takeIf { it != -1 }
-                if (nextIdx != null) activeSteps.getOrNull(nextIdx) else null
+            // Hero Task Card: Full prominence for Task Title, Frog status, and Next Micro-Step (deduplicated when spotlight card is active)
+            val activeMicroSteps = state.microSteps
+            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
+                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
+            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 }
+            val currentMicroStep = if (firstIncompleteIndex != null) activeMicroSteps.getOrNull(firstIncompleteIndex) else null
+
+            val nextStepForHero = if (state.isCompleted || (state.isSessionActive && currentMicroStep != null)) {
+                null
+            } else {
+                currentMicroStep
             }
             HeroTaskCard(
                 task = state.task,
@@ -263,7 +267,8 @@ fun FocusScreenV2(
                 elapsedSeconds = state.elapsedSeconds,
                 isRunning = state.isRunning,
                 isPaused = state.isPaused,
-                isCompleted = state.isCompleted
+                isCompleted = state.isCompleted,
+                bodyDoublingEnabled = state.bodyDoublingEnabled
             )
 
             // Primary Control Actions
@@ -361,20 +366,42 @@ fun FocusScreenV2(
                 }
             }
 
+            if (!state.isCompleted) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    FilterChip(
+                        selected = state.bodyDoublingEnabled,
+                        onClick = { viewModel.toggleBodyDoubling() },
+                        label = {
+                            Text(
+                                text = if (state.bodyDoublingEnabled) "🫧 Body-Doubling Pulse On" else "🫧 Body-Doubling Pulse",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.2f),
+                            selectedLabelColor = NeuroFlowPaletteV2.ReboundCyan,
+                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                        ),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("body_doubling_toggle")
+                    )
+                }
+            }
+
             // Bioluminescent Waveform Visualizer (Active during sprint with soundscape enabled)
             val isAudioActive = state.selectedSoundscape != SoundscapeType.NONE && state.isRunning && !state.isPaused
             if (isAudioActive) {
                 BioluminescentSoundscapeWaveformCard(soundscape = state.selectedSoundscape)
             }
 
-            // Pinned Active Doorway Step Spotlight Card
-            val activeMicroSteps = state.microSteps
-            val firstIncompleteIndex = activeMicroSteps.indices.firstOrNull { idx ->
-                !activeMicroSteps[idx].completed && idx !in state.skippedMicroStepIndices
-            } ?: activeMicroSteps.indexOfFirst { !it.completed }.takeIf { it != -1 }
-            val currentMicroStep = if (firstIncompleteIndex != null) activeMicroSteps.getOrNull(firstIncompleteIndex) else null
-
-            if (state.isRunning && !state.isPaused && currentMicroStep != null) {
+            // Pinned Active Doorway Step Spotlight Card (shown across active & paused states)
+            if (state.isSessionActive && !state.isCompleted && currentMicroStep != null) {
                 val stepIdx = firstIncompleteIndex ?: 0
                 ZenMicroStepSpotlightCard(
                     currentStepIndex = stepIdx,
@@ -790,7 +817,7 @@ fun FocusScreenV2(
 
                 Text(
                     text = timeDisplay,
-                    style = MaterialTheme.typography.displayMedium,
+                    style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
                     fontWeight = FontWeight.Bold,
                     color = if (state.decompressionRemainingSeconds > 0) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SageGreen
                 )
@@ -1034,7 +1061,8 @@ fun RadialTimerGauge(
     elapsedSeconds: Long,
     isRunning: Boolean,
     isPaused: Boolean,
-    isCompleted: Boolean = false
+    isCompleted: Boolean = false,
+    bodyDoublingEnabled: Boolean = false
 ) {
     val totalSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 3600L else timerMode.durationSeconds
     val currentSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) elapsedSeconds else remainingSeconds
@@ -1056,6 +1084,15 @@ fun RadialTimerGauge(
         ),
         label = "pulse_alpha"
     )
+    val bodyDoublingHaloRadius by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = if (bodyDoublingEnabled && isRunning && !isPaused) 1.14f else 0.96f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "body_doubling_halo"
+    )
 
     val minutes = currentSeconds / 60
     val seconds = currentSeconds % 60
@@ -1073,6 +1110,7 @@ fun RadialTimerGauge(
         else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
     }
 
+    val haloColor = NeuroFlowPaletteV2.ReboundCyan
     Box(
         modifier = Modifier
             .size(248.dp)
@@ -1087,6 +1125,16 @@ fun RadialTimerGauge(
             val arcSize = Size(diameter, diameter)
             val center = Offset(size.width / 2f, size.height / 2f)
             val radius = diameter / 2f
+
+            // Optional soft body-doubling rhythmic breathing halo
+            if (bodyDoublingEnabled && !isCompleted) {
+                drawCircle(
+                    color = haloColor.copy(alpha = if (isRunning && !isPaused) 0.14f else 0.08f),
+                    radius = radius * bodyDoublingHaloRadius,
+                    center = center,
+                    style = Stroke(width = 3.dp.toPx())
+                )
+            }
 
             // 1. Breathing radial core aura
             drawCircle(
@@ -1163,7 +1211,8 @@ fun RadialTimerGauge(
                 style = MaterialTheme.typography.displayMedium.copy(
                     fontWeight = FontWeight.Black,
                     fontSize = 46.sp,
-                    letterSpacing = (-1).sp
+                    letterSpacing = (-1).sp,
+                    fontFeatureSettings = "tnum"
                 ),
                 color = NeuroFlowThemeV2Colors.TextPrimary
             )

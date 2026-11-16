@@ -339,7 +339,7 @@ class DailyBlueprintOrchestratorTest {
             taskRepository.update(match {
                 it.id == "t1" &&
                 it.scheduledDate == todayStart &&
-                it.scheduledTime == todayStart + 9 * 3600_000L
+                it.scheduledTime == 9 * 3600_000L
             })
         }
         coVerify(exactly = 1) {

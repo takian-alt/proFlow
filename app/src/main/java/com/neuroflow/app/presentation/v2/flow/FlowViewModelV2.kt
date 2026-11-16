@@ -142,7 +142,8 @@ data class FlowUiStateV2(
     val dailyBlueprint: DailyBlueprint? = null,
     val isBlueprintLoading: Boolean = false,
     val blueprintIncludedTaskIds: Set<String> = emptySet(),
-    val simulationState: SimulationState = SimulationState()
+    val simulationState: SimulationState = SimulationState(),
+    val normalizedSleepDurationMinutes: Int = 480
 )
 
 @HiltViewModel
@@ -159,7 +160,8 @@ class FlowViewModelV2 @Inject constructor(
     private val geminiAiOnlineService: GeminiAiOnlineService? = null,
     private val energyMetricsRepository: EnergyMetricsRepository? = null,
     private val calendarSyncRepository: CalendarSyncRepository? = null,
-    private val dailyBlueprintOrchestrator: DailyBlueprintOrchestrator? = null
+    private val dailyBlueprintOrchestrator: DailyBlueprintOrchestrator? = null,
+    private val clockTicker: com.neuroflow.app.domain.time.ClockTicker? = null
 ) : ViewModel() {
 
     private val _dismissedZeroGuilt = MutableStateFlow(false)
@@ -167,6 +169,9 @@ class FlowViewModelV2 @Inject constructor(
     private val _eveningShutdownDismissed = MutableStateFlow(false)
     private val _lastCompletedTask = MutableStateFlow<TaskEntity?>(null)
     private val _lastSpawnedRecurringTaskId = MutableStateFlow<String?>(null)
+    private var _lastPreCompleteHabitStreak: Int? = null
+    private var _lastPreCompleteHabitDate: Long? = null
+    private var _hasLastPreCompleteHabitDate: Boolean = false
     private val _lastDeferredTask = MutableStateFlow<Pair<TaskEntity, Long>?>(null)
     private val _lastActionMessage = MutableStateFlow<String?>(null)
     private val _dailyBlueprint = MutableStateFlow<DailyBlueprint?>(null)
@@ -205,7 +210,8 @@ class FlowViewModelV2 @Inject constructor(
         geminiAiOnlineService,
         energyMetricsRepository,
         calendarSyncRepository,
-        dailyBlueprintOrchestrator
+        dailyBlueprintOrchestrator,
+        clockTicker = null
     ) {
         this.nowProvider = nowProvider
     }
@@ -218,6 +224,9 @@ class FlowViewModelV2 @Inject constructor(
             taskRepository.observeCompletedTasks(),
             preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
                 old.wakeUpHour == new.wakeUpHour &&
+                    old.wakeTimeMinute == new.wakeTimeMinute &&
+                    old.workDayStart == new.workDayStart &&
+                    old.workDayEnd == new.workDayEnd &&
                     old.sleepHour == new.sleepHour &&
                     old.peakEnergyStart == new.peakEnergyStart &&
                     old.peakEnergyEnd == new.peakEnergyEnd &&
@@ -253,13 +262,15 @@ class FlowViewModelV2 @Inject constructor(
         ) { dismissedGuilt, tag, shutdownDismissed, lastCompleted ->
             Quad(dismissedGuilt, tag, shutdownDismissed, lastCompleted)
         },
-        combine(
+        combine<Any?, List<Any?>>(
             _lastDeferredTask,
             _lastActionMessage,
             _dailyBlueprint,
             _isBlueprintLoading,
             _blueprintIncludedTaskIds,
-            _simulationState
+            _simulationState,
+            sessionRepository?.observeAll() ?: flowOf(emptyList<TimeSessionEntity>()),
+            clockTicker?.currentMinuteTick ?: flowOf(0L)
         ) { args ->
             args.toList()
         }
@@ -272,12 +283,14 @@ class FlowViewModelV2 @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val blueprintIncludedTaskIds = thirdList[4] as Set<String>
         val simState = thirdList[5] as SimulationState
+        @Suppress("UNCHECKED_CAST")
+        val allSessions = thirdList[6] as List<TimeSessionEntity>
         val activeTasks = rawActiveTasks.filterNot { it.id == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
         val now = nowProvider()
         val currentHour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
         val systemZone = java.time.ZoneId.systemDefault()
         val zonedDateTime = java.time.Instant.ofEpochMilli(now).atZone(systemZone)
-        var anchor = zonedDateTime.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), 0).atZone(systemZone)
+        var anchor = zonedDateTime.toLocalDate().atTime(prefs.wakeUpHour.coerceIn(0, 23), prefs.wakeTimeMinute.coerceIn(0, 59)).atZone(systemZone)
         if (anchor.toInstant().toEpochMilli() > now) {
             anchor = anchor.minusDays(1)
         }
@@ -598,7 +611,7 @@ class FlowViewModelV2 @Inject constructor(
             }
         }
 
-        val isEvening = currentHour >= 19
+        val isEvening = currentHour >= prefs.workDayEnd.coerceIn(12, 23)
 
         val manualPeakHour = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
         val chronotype = if (!prefs.quizChronotype.isNullOrBlank()) {
@@ -668,11 +681,9 @@ class FlowViewModelV2 @Inject constructor(
                 ?: com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)).coerceAtLeast(1)
         }
 
-        val untrackedTodayMinutes = runCatching {
-            sessionRepository?.getAllSessions().orEmpty()
-                .filter { it.endedAt != null && it.startedAt in dayStart..dayEnd && it.taskId == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
-                .sumOf { (it.durationMinutes.takeIf { d -> d > 0f } ?: it.trackedMinutes(it.endedAt ?: now)).roundToInt() }
-        }.getOrDefault(0)
+        val untrackedTodayMinutes = allSessions
+            .filter { it.endedAt != null && it.startedAt in dayStart..dayEnd && it.taskId == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
+            .sumOf { (it.durationMinutes.takeIf { d -> d > 0f } ?: it.trackedMinutes(it.endedAt ?: now)).roundToInt() }
         val totalCompletedDeepWorkMinutes = todayCompletedDeepWorkMinutes + untrackedTodayMinutes
 
         val circadianEnergySummary = buildCircadianEnergySummary(
@@ -720,7 +731,8 @@ class FlowViewModelV2 @Inject constructor(
             dailyBlueprint = dailyBlueprint,
             isBlueprintLoading = isBlueprintLoading,
             blueprintIncludedTaskIds = blueprintIncludedTaskIds,
-            simulationState = simState
+            simulationState = simState,
+            normalizedSleepDurationMinutes = sleepDurationMinutes
         )
     }.stateIn(
         viewModelScope,
@@ -839,7 +851,7 @@ class FlowViewModelV2 @Inject constructor(
         }
         val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val wakeTime = baseTimeline.firstOrNull()?.timestampMillis ?: (dayStart + 7 * 3600_000L)
-        val sleepDuration = 480
+        val sleepDuration = uiState.value.normalizedSleepDurationMinutes.takeIf { it in 60..960 } ?: 480
 
         val outcome = if (newNaps.isNotEmpty() || newStimulants.isNotEmpty() || newImpulses.isNotEmpty() || newBedtimeDelta > 0) {
             circadianEnergyService.simulateDayInterventions(
@@ -1236,10 +1248,51 @@ class FlowViewModelV2 @Inject constructor(
         }
     }
 
+    fun toggleMicroStep(taskId: String, stepIndex: Int) {
+        viewModelScope.launch {
+            val task = taskRepository.getById(taskId) ?: return@launch
+            val roomSteps = taskRepository.getMicroSteps(task.id)
+            if (stepIndex in roomSteps.indices) {
+                taskRepository.toggleMicroStepCompleted(roomSteps[stepIndex])
+            }
+            val parsedPlan = StepByStepPlanCodec.parse(task.ifThenPlan).toMutableList()
+            val updatedPlan = when {
+                stepIndex in parsedPlan.indices -> {
+                    val step = parsedPlan[stepIndex]
+                    parsedPlan[stepIndex] = step.copy(completed = !step.completed)
+                    parsedPlan
+                }
+                parsedPlan.isEmpty() && stepIndex in roomSteps.indices -> {
+                    roomSteps.mapIndexed { idx, entity ->
+                        StepByStepPlanStep(
+                            text = entity.title,
+                            completed = if (idx == stepIndex) !entity.isCompleted else entity.isCompleted
+                        )
+                    }
+                }
+                else -> parsedPlan
+            }
+            if (updatedPlan.isNotEmpty()) {
+                val serialized = StepByStepPlanCodec.serialize(updatedPlan)
+                if (serialized != task.ifThenPlan) {
+                    taskRepository.update(
+                        task.copy(
+                            ifThenPlan = serialized,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     fun completeTask(task: TaskEntity) {
         viewModelScope.launch {
             _lastDeferredTask.value = null
             _lastCompletedTask.value = task
+            _lastPreCompleteHabitStreak = task.habitStreak
+            _lastPreCompleteHabitDate = task.habitDate
+            _hasLastPreCompleteHabitDate = true
             val now = System.currentTimeMillis()
             val prefs = preferencesDataStore.preferencesFlow.first()
             val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {
@@ -1283,9 +1336,16 @@ class FlowViewModelV2 @Inject constructor(
                 taskRepository.getById(spawnedId)?.let { taskRepository.delete(it) }
                 _lastSpawnedRecurringTaskId.value = null
             }
+            val restoredStreak = _lastPreCompleteHabitStreak ?: task.habitStreak
+            val restoredHabitDate = if (_hasLastPreCompleteHabitDate) _lastPreCompleteHabitDate else task.habitDate
+            _lastPreCompleteHabitStreak = null
+            _lastPreCompleteHabitDate = null
+            _hasLastPreCompleteHabitDate = false
             val updated = task.copy(
                 status = TaskStatus.ACTIVE,
                 completedAt = null,
+                habitStreak = restoredStreak,
+                habitDate = restoredHabitDate,
                 updatedAt = System.currentTimeMillis()
             )
             taskRepository.update(updated)

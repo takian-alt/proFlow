@@ -41,6 +41,12 @@ android {
     }
 
     signingConfigs {
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         create("release") {
             val keystoreFile = if (file("/home/takian/Downloads/Project/keysigned/PROCUS/proFlow.jks").exists()) {
                 file("/home/takian/Downloads/Project/keysigned/PROCUS/proFlow.jks")
@@ -55,6 +61,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debugConfig")
+        }
         release {
             isMinifyEnabled = true
             signingConfig = signingConfigs.getByName("release")

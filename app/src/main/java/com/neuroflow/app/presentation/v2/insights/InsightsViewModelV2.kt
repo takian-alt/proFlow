@@ -65,7 +65,8 @@ class InsightsViewModelV2 @Inject constructor(
     val workManager: WorkManager? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
-    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService = com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService()
+    private val geminiAiOnlineService: com.neuroflow.app.domain.service.GeminiAiOnlineService = com.neuroflow.app.domain.service.DefaultGeminiAiOnlineService(),
+    private val clockTicker: com.neuroflow.app.domain.time.ClockTicker? = null
 ) : ViewModel() {
 
     private val _isCalibratingCoach = MutableStateFlow(false)
@@ -129,7 +130,10 @@ class InsightsViewModelV2 @Inject constructor(
         sessionRepository.observeAll(),
         preferencesDataStore.preferencesFlow,
         contractRepository.observeActive(),
-        sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+        combine(
+            sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList()),
+            clockTicker?.currentMinuteTick ?: flowOf(0L)
+        ) { sleepLogs, _ -> sleepLogs }
     ) { allTasks, allSessions, prefs, activeContracts, sleepLogs ->
         val now = System.currentTimeMillis()
         val cal = Calendar.getInstance().apply {

@@ -67,4 +67,10 @@ abstract class DomainServiceModule {
     abstract fun bindSleepTelemetryRepository(
         impl: com.neuroflow.app.data.sleep.DefaultSleepTelemetryRepository
     ): com.neuroflow.app.data.sleep.SleepTelemetryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindClockTicker(
+        impl: com.neuroflow.app.domain.time.DefaultClockTicker
+    ): com.neuroflow.app.domain.time.ClockTicker
 }

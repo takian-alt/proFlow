@@ -234,19 +234,6 @@ class TaskRepository @Inject constructor(
         } else {
             TaskReminderWorker.cancelReminder(workManager, toWrite.id)
             AutonomyNudgeEngine.cancelNudge(workManager, toWrite.id)
-            if (toWrite.status == TaskStatus.COMPLETED || toWrite.status == TaskStatus.ARCHIVED) {
-                // Clean up orphaned continuation blocks when parent task is completed or archived
-                val part2Underscore = taskDao.getById("${toWrite.id}_part2")
-                if (part2Underscore != null && part2Underscore.status != TaskStatus.COMPLETED) {
-                    taskDao.delete(part2Underscore)
-                    calendarSyncRepository?.deleteTaskEvent(part2Underscore.id)
-                }
-                val part2Hash = taskDao.getById("${toWrite.id}#part2")
-                if (part2Hash != null && part2Hash.status != TaskStatus.COMPLETED) {
-                    taskDao.delete(part2Hash)
-                    calendarSyncRepository?.deleteTaskEvent(part2Hash.id)
-                }
-            }
         }
 
         calendarSyncRepository?.handleTaskStateChanged(toWrite)
@@ -603,23 +590,60 @@ class TaskRepository @Inject constructor(
             }
         }
 
+        val isContinuationPart = task.id.contains(Regex("""[#_]part[2-9]\d*""")) ||
+            task.title.contains(Regex("""\((Part|part) [2-9]\d*/\d+\)""")) ||
+            task.parentTaskId != null
+
+        val hasActivePart2Continuation = !isContinuationPart && listOf("${task.id}#part2", "${task.id}_part2").any { p2Id ->
+            val p2 = taskDao.getById(p2Id)
+            p2 != null && p2.id == p2Id && p2.status == TaskStatus.ACTIVE
+        }
+        val shouldDeferRecurrenceToContinuation = hasActivePart2Continuation && task.recurrence != Recurrence.NONE
+
         val completedTask = task.copy(
             status = TaskStatus.COMPLETED,
             completedAt = task.completedAt ?: now,
             isHabitual = task.recurrence != Recurrence.NONE,
-            habitStreak = if (task.recurrence != Recurrence.NONE) task.habitStreak + 1 else task.habitStreak,
+            habitStreak = if (task.recurrence != Recurrence.NONE && !shouldDeferRecurrenceToContinuation) task.habitStreak + 1 else task.habitStreak,
             updatedAt = now
         )
         update(completedTask)
         hyperFocusManager.get().onTaskCompleted()
         enqueueAutoSchedulingRecheck()
 
-        // Continuation parts and sub-tasks must NEVER advance recurrence (BUG-020, BUG-395, BUG-427)
-        if (task.id.contains(Regex("""[#_]part[2-9]\d*""")) ||
-            task.title.contains(Regex("""\((Part|part) [2-9]\d*/\d+\)""")) ||
-            task.parentTaskId != null
-        ) return null
+        // If Part 1 finished while an active Part 2 continuation still exists, wait for Part 2 before spawning tomorrow's recurrence.
+        if (shouldDeferRecurrenceToContinuation) return null
+
+        // If this is an auto-split continuation part (#part2 / _part2) whose recurring parent waited on it, finalize the parent's recurrence now.
+        if (isContinuationPart && task.recurrence == Recurrence.NONE && task.parentTaskId != null) {
+            val parentId = task.parentTaskId
+            val isAutoSplitPart = task.id == "${parentId}#part2" || task.id == "${parentId}_part2"
+            if (isAutoSplitPart) {
+                val parent = taskDao.getById(parentId)?.takeIf { it.id == parentId }
+                if (parent != null && parent.status == TaskStatus.COMPLETED && parent.recurrence != Recurrence.NONE) {
+                    val hasOtherActiveParts = taskDao.getActiveTasks().any { other ->
+                        other.id != task.id &&
+                            (other.parentTaskId == parentId || other.id == "${parentId}#part2" || other.id == "${parentId}_part2")
+                    }
+                    if (!hasOtherActiveParts) {
+                        val nextStreak = parent.habitStreak + 1
+                        val updatedParent = parent.copy(habitStreak = nextStreak, updatedAt = now)
+                        update(updatedParent)
+                        return spawnNextRecurringOccurrence(updatedParent, now)
+                    }
+                }
+            }
+            return null
+        }
+
+        // Continuation parts and sub-tasks must NEVER directly advance their own recurrence (BUG-020, BUG-395, BUG-427)
+        if (isContinuationPart) return null
         if (task.recurrence == Recurrence.NONE) return null
+
+        return spawnNextRecurringOccurrence(task, now)
+    }
+
+    private suspend fun spawnNextRecurringOccurrence(task: TaskEntity, now: Long): String {
 
         // Anchor for recurrence progression: prefer habitDate, then scheduled/deadline with time, then now.
         val currentAnchor =

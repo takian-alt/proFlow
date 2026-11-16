@@ -543,6 +543,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                     recurrence = Recurrence.NONE,
                     recurrenceIntervalDays = 0,
                     isHabitual = false,
+                    habitDate = null,
                     sessionCount = existingPart2?.sessionCount ?: 0,
                     totalTimeTrackedMinutes = existingPart2?.totalTimeTrackedMinutes ?: 0f,
                     actualDurationMinutes = existingPart2?.actualDurationMinutes ?: 0f,

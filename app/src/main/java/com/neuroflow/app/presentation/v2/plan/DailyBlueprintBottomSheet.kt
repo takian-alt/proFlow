@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -51,6 +52,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -246,7 +248,7 @@ fun DailyBlueprintBottomSheet(
 
                             IconButton(
                                 onClick = onDismiss,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Close,
@@ -285,7 +287,7 @@ fun DailyBlueprintBottomSheet(
                                 )
                                 Text(
                                     text = "${dynamicPlannedMinutes}m / ${capacityTarget}m planned • ${utilizationPercent}%",
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (utilizationPercent > 100) NeuroFlowPaletteV2.RecoveryRose else NeuroFlowPaletteV2.OptimalEmerald
                                 )
@@ -548,6 +550,7 @@ fun DailyBlueprintBottomSheet(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
+                        .testTag("apply_blueprint_all_button")
                 ) {
                     Icon(
                         Icons.Default.AutoAwesome,

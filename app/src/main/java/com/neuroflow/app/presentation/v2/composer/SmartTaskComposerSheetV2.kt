@@ -42,6 +42,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -62,6 +63,7 @@ import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.presentation.v2.theme.LiveNlpInferenceStrip
 import com.neuroflow.app.presentation.v2.theme.LocalNeuroFlowColors
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import kotlinx.coroutines.delay
@@ -583,13 +585,23 @@ fun SmartTaskComposerSheetV2(
                 )
             )
 
-            // Interactive Inferred & Override Chips
+            // Live NLP Inference Token Strip
+            LiveNlpInferenceStrip(
+                inferred = inferred,
+                rawInputNotEmpty = rawInput.isNotBlank(),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            // Primary 3 Controls: Duration, Energy, Placement (Today vs Inbox)
+            val todayStart = remember { startOfLocalDay(System.currentTimeMillis()) }
+            val isTodaySelected = effectiveScheduledDate != null
+            val isInboxSelected = effectiveScheduledDate == null
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp)
+                    .padding(top = 8.dp)
             ) {
                 // Duration Chip with Calibration Transparency
                 val durationLabel = if (inferred.isDurationExplicit) {
@@ -629,250 +641,43 @@ fun SmartTaskComposerSheetV2(
                     modifier = Modifier.heightIn(min = 48.dp)
                 )
 
-                // Priority Chip (Interactive cycle)
+                // Placement Toggle: Today vs Inbox
+                val todayChipLabel = if (effectiveScheduledDate != null && effectiveScheduledDate != todayStart) {
+                    "📅 ${SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(effectiveScheduledDate))}"
+                } else {
+                    "📅 Today"
+                }
                 FilterChip(
-                    selected = true,
+                    selected = isTodaySelected,
                     onClick = {
-                        userPriorityOverride = when (effectivePriority) {
-                            Priority.HIGH -> Priority.MEDIUM
-                            Priority.MEDIUM -> Priority.LOW
-                            Priority.LOW -> Priority.HIGH
-                        }
+                        scheduledDateCleared = false
+                        userScheduledDateOverride = initialDate ?: todayStart
                     },
-                    label = {
-                        val pLabel = when (effectivePriority) {
-                            Priority.HIGH -> "🔴 High Priority"
-                            Priority.MEDIUM -> "🟡 Med Priority"
-                            Priority.LOW -> "🟢 Low Priority"
-                        }
-                        Text(pLabel)
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
-
-                // Eisenhower Quadrant Chip (Interactive cycle)
-                val qChipLabel = when (effectiveQuadrant) {
-                    Quadrant.DO_FIRST -> "🎯 Do First (Q1)"
-                    Quadrant.SCHEDULE -> "🔵 Schedule (Q2)"
-                    Quadrant.DELEGATE -> "🟢 Delegate (Q3)"
-                    Quadrant.ELIMINATE -> "⚪ Eliminate (Q4)"
-                }
-                FilterChip(
-                    selected = true,
-                    onClick = {
-                        userQuadrantOverride = when (effectiveQuadrant) {
-                            Quadrant.DO_FIRST -> Quadrant.SCHEDULE
-                            Quadrant.SCHEDULE -> Quadrant.DELEGATE
-                            Quadrant.DELEGATE -> Quadrant.ELIMINATE
-                            Quadrant.ELIMINATE -> Quadrant.DO_FIRST
-                        }
-                    },
-                    label = { Text(qChipLabel) },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
-
-                // Frog Chip
-                FilterChip(
-                    selected = effectiveFrog,
-                    onClick = { userFrogOverride = !effectiveFrog },
-                    label = { Text(if (effectiveFrog) "🐸 Frog (Crucial)" else "🐸 Normal") },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
-
-                // Context Tags Chips
-                allActiveTags.forEach { tag ->
-                    SuggestionChip(
-                        onClick = { removeTag(tag) },
-                        label = { Text("#${tag.removePrefix("#").removePrefix("@")} ✕") },
-                        modifier = Modifier.heightIn(min = 48.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Available Tags & Boosts Section (User Guidance & 1-Tap Toggle)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        "🏷️ Available Tags & Boosts",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        "(Tap to add)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeuroFlowThemeV2Colors.TextTertiary,
-                        maxLines = 1
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-
-                TextButton(
-                    onClick = { showTagCatalogGuide = !showTagCatalogGuide },
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Text(
-                        text = if (showTagCatalogGuide) "Hide Details" else "View Boost Guide",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Horizontally Scrollable Tag Presets with Boost Pills
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SMART_TAG_PRESETS.forEach { preset ->
-                    val isSelected = allActiveTags.any { it.equals(preset.tag, ignoreCase = true) }
-
-                    Surface(
-                        onClick = { toggleTag(preset.tag) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                        border = BorderStroke(
-                            1.dp,
-                            if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(preset.emoji, fontSize = 12.sp)
-                            Text(
-                                text = "#${preset.tag}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextPrimary
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f) else NeuroFlowThemeV2Colors.SlateSurface
-                            ) {
-                                Text(
-                                    text = preset.shortBoost,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextSecondary,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Detailed Tag Catalog Guide Table (Expandable)
-            AnimatedVisibility(visible = showTagCatalogGuide) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                    label = { Text(todayChipLabel) },
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            "⚡ Biophysical Scheduling Boost Matrix",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = NeuroFlowThemeV2Colors.TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        SMART_TAG_PRESETS.forEach { p ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text("${p.emoji} #${p.tag}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.width(90.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "${p.biologicalWindow} • ${p.energyDemand} Energy",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = NeuroFlowThemeV2Colors.TextPrimary
-                                    )
-                                    Text(
-                                        text = "${p.boostDescription} (${p.fragmentationTolerance})",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = NeuroFlowThemeV2Colors.TextTertiary,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-                            if (p != SMART_TAG_PRESETS.last()) {
-                                HorizontalDivider(color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 2.dp))
-                            }
+                        .heightIn(min = 48.dp)
+                        .testTag("composer_placement_today")
+                )
+                FilterChip(
+                    selected = isInboxSelected,
+                    onClick = {
+                        userScheduledDateOverride = null
+                        scheduledDateCleared = true
+                        if (recurrence == Recurrence.NONE) {
+                            userScheduledTimeOverride = null
+                            scheduledTimeCleared = true
                         }
-                    }
-                }
-            }
-
-            // Inferred Scheduling Strategy Preview Banner
-            val matchedPresets = SMART_TAG_PRESETS.filter { p ->
-                allActiveTags.any { it.equals(p.tag, ignoreCase = true) }
-            }
-            if (matchedPresets.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(15.dp))
-                            Text(
-                                "Active Scheduling Strategy:",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        matchedPresets.forEach { p ->
-                            Text(
-                                text = "• #${p.tag}: ${p.boostDescription} • ${p.biologicalWindow}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = NeuroFlowThemeV2Colors.TextPrimary,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
+                    },
+                    label = { Text("📥 Inbox") },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("composer_placement_inbox")
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // AI Slot Placement Preview Banner
+            // Compact Best Window Preview
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -884,47 +689,48 @@ fun SmartTaskComposerSheetV2(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("🤖", fontSize = 16.sp)
-                    Column {
-                        val peakHour = circadianSummary?.peakWindowStartHour ?: 9
-                        val dipHour = circadianSummary?.dipWindowStartHour ?: 14
-                        val plateauHour = ((peakHour + 5) % 24).coerceIn(13, 17)
+                    Text("🤖", fontSize = 15.sp)
+                    val peakHour = circadianSummary?.peakWindowStartHour ?: 9
+                    val dipHour = circadianSummary?.dipWindowStartHour ?: 14
+                    val plateauHour = ((peakHour + 5) % 24).coerceIn(13, 17)
 
-                        fun formatHour(hour: Int): String {
-                            val h = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
-                            val amPm = if (hour < 12) "AM" else "PM"
-                            return String.format("%02d:00 %s", h, amPm)
-                        }
-
-                        val slotRecommendation = when (effectiveEnergy) {
-                            EnergyLevel.HIGH -> "Recommended Slot: ${formatHour(peakHour)} (Peak Biological Alertness)"
-                            EnergyLevel.MEDIUM -> "Recommended Slot: ${formatHour(plateauHour)} (Focus Plateau)"
-                            EnergyLevel.LOW -> "Recommended Slot: ${formatHour(dipHour)} (Recovery & Admin)"
-                        }
-                        Text(
-                            text = slotRecommendation,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                        )
+                    fun formatHour(hour: Int): String {
+                        val h = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+                        val amPm = if (hour < 12) "AM" else "PM"
+                        return String.format("%02d:00 %s", h, amPm)
                     }
+
+                    val slotRecommendation = when {
+                        isInboxSelected -> "Saved to Inbox · Auto-plan whenever ready (${effectiveDuration}m)"
+                        effectiveEnergy == EnergyLevel.HIGH -> "Fits ${formatHour(peakHour)} Peak Window · ${effectiveDuration}m"
+                        effectiveEnergy == EnergyLevel.MEDIUM -> "Fits ${formatHour(plateauHour)} Plateau Window · ${effectiveDuration}m"
+                        else -> "Fits ${formatHour(dipHour)} Recovery Window · ${effectiveDuration}m"
+                    }
+                    Text(
+                        text = slotRecommendation,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Progressive Disclosure: Detailed Sliders & Calendar
+            // Progressive Disclosure: More Options (Priority, Tags, Dates, Sliders)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .clickable { isExpanded = !isExpanded }
                     .padding(vertical = 8.dp)
-                    .semantics { role = Role.Button },
+                    .semantics { role = Role.Button }
+                    .testTag("composer_more_options_toggle"),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isExpanded) "Hide Detailed Criteria" else "Detailed Criteria (Eisenhower, Calendar, Impact, Effort)",
+                    text = if (isExpanded) "Hide More Options" else "More Options (Priority, Tags, Dates)",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
@@ -946,6 +752,229 @@ fun SmartTaskComposerSheetV2(
                         .fillMaxWidth()
                         .padding(top = 8.dp)
                 ) {
+                    // Priority, Frog & Active Context Tags
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        FilterChip(
+                            selected = true,
+                            onClick = {
+                                userPriorityOverride = when (effectivePriority) {
+                                    Priority.HIGH -> Priority.MEDIUM
+                                    Priority.MEDIUM -> Priority.LOW
+                                    Priority.LOW -> Priority.HIGH
+                                }
+                            },
+                            label = {
+                                val pLabel = when (effectivePriority) {
+                                    Priority.HIGH -> "🔴 High Priority"
+                                    Priority.MEDIUM -> "🟡 Med Priority"
+                                    Priority.LOW -> "🟢 Low Priority"
+                                }
+                                Text(pLabel)
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        )
+
+                        FilterChip(
+                            selected = effectiveFrog,
+                            onClick = { userFrogOverride = !effectiveFrog },
+                            label = { Text(if (effectiveFrog) "🐸 Frog (Crucial)" else "🐸 Normal") },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        )
+
+                        allActiveTags.forEach { tag ->
+                            SuggestionChip(
+                                onClick = { removeTag(tag) },
+                                label = { Text("#${tag.removePrefix("#").removePrefix("@")} ✕") },
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Available Tags & Boosts Section (User Guidance & 1-Tap Toggle)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                "🏷️ Available Tags & Boosts",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "(Tap to add)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.TextTertiary,
+                                maxLines = 1
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        TextButton(
+                            onClick = { showTagCatalogGuide = !showTagCatalogGuide },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(
+                                text = if (showTagCatalogGuide) "Hide Details" else "View Boost Guide",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SMART_TAG_PRESETS.forEach { preset ->
+                            val isSelected = allActiveTags.any { it.equals(preset.tag, ignoreCase = true) }
+
+                            Surface(
+                                onClick = { toggleTag(preset.tag) },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder
+                                ),
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(preset.emoji, fontSize = 12.sp)
+                                    Text(
+                                        text = "#${preset.tag}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextPrimary
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f) else NeuroFlowThemeV2Colors.SlateSurface
+                                    ) {
+                                        Text(
+                                            text = preset.shortBoost,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 10.sp,
+                                            color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextSecondary,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = showTagCatalogGuide) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    "⚡ Biophysical Scheduling Boost Matrix",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                SMART_TAG_PRESETS.forEach { p ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.Top,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text("${p.emoji} #${p.tag}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.width(90.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "${p.biologicalWindow} • ${p.energyDemand} Energy",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = NeuroFlowThemeV2Colors.TextPrimary
+                                            )
+                                            Text(
+                                                text = "${p.boostDescription} (${p.fragmentationTolerance})",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NeuroFlowThemeV2Colors.TextTertiary,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                    if (p != SMART_TAG_PRESETS.last()) {
+                                        HorizontalDivider(color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 2.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val matchedPresets = SMART_TAG_PRESETS.filter { p ->
+                        allActiveTags.any { it.equals(p.tag, ignoreCase = true) }
+                    }
+                    if (matchedPresets.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow, modifier = Modifier.size(15.dp))
+                                    Text(
+                                        "Active Scheduling Strategy:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                matchedPresets.forEach { p ->
+                                    Text(
+                                        text = "• #${p.tag}: ${p.boostDescription} • ${p.biologicalWindow}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     // Eisenhower Matrix Quadrant Section
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1499,14 +1528,20 @@ fun SmartTaskComposerSheetV2(
                 enabled = rawInput.isNotBlank() && !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .height(52.dp)
+                    .testTag("composer_save_button"),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
             ) {
                 Icon(if (mode is SheetMode.Edit) Icons.Default.Check else Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
+                val saveLabel = when {
+                    mode is SheetMode.Edit -> "Save Changes"
+                    effectiveScheduledDate != null -> "Add to Day"
+                    else -> "Save to Inbox"
+                }
                 Text(
-                    text = if (mode is SheetMode.Edit) "Save Changes" else "Schedule Into Energy Stream",
+                    text = saveLabel,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
