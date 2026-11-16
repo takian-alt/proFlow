@@ -1675,6 +1675,57 @@ When the user returns with the Vice Head's recommendations:
   - `FocusScreenV2AuditTest`: Pass.
 - **Status**: Ratified & Implemented.
 
+### ADR-061: Advanced Chronobiological Energy Calibration & Multi-Point 2-Opt Auto-Scheduler Optimization
+- **Status**: RECEIVED FROM VICE LEADER & RATIFIED FOR EXECUTION (November 16, 2026)
+- **Problem Statement & Forensic Audit**:
+  A technical breakdown of the Borbély circadian energy engine (`CircadianEnergyService`) and auto-schedule logic (`TaskSchedulerService`) identified 10 fundamental biological, mathematical, and algorithmic optimization opportunities:
+  1. *Process C SCN Pacemaker Double-Shift Bug*:
+     `computePhasePeakHour` coupled biological circadian peak directly to today's `wakeClockHour` and layered `socialJetlagLagHours` on top. In human chronobiology, the suprachiasmatic nucleus (SCN) circadian pacemaker is phase-locked to habitual light/sleep midpoint across days and cannot instantaneously jump 3 hours on a weekend sleep-in.
+  2. *Disconnected Ultradian Focus Load in Daily Timeline Projections*:
+     `projectDayTimeline` hardcoded `continuousActiveFocusMinutes = 0` for every slot, predicting unrealistic morning-level peak capacity for late-afternoon tasks following back-to-back deep work sessions.
+  3. *Step-Function Phase Affinity Clashes*:
+     A 1-point energy drop ($72 \to 71$) flipped `PEAK` to `REBOUND`, causing a -12 pt plunge in Deep Work affinity ($72 \to 60.35$) and a +17.6 pt jump in Creative affinity ($68.4 \to 86$). Morning post-inertia hours (`hoursAwake < 6.0 && usableEnergy >= 50`) were mislabeled `REBOUND` rather than `MORNING_RAMP`.
+  4. *Linear Morning Sleep Inertia & Sleep Quality Disconnect*:
+     Morning sleep inertia decayed linearly over 30m, ignoring physiological exponential dissipation and allostatic debt elongation. In addition, `SleepLog.quality` (1–5) had zero mathematical impact on restorative sleep duration or recovery rates.
+  5. *Linear Stimulant Masking & Unscaled Crash Rebound*:
+     Stimulant doses summed linearly up to 0.40 Process S masking, directly deflating `processS` before phase resolution and concealing acute adenosine fatigue warnings. Crash rebound was confined to a rigid window and unscaled by cumulative masked pressure.
+  6. *Absence of Mandated Ultradian Recovery Windows*:
+     Back-to-back deep-work tasks were separated by only 5m transition buffers. Three 50m tasks could form a continuous 160m cognitive wall without a 15–20m restorative reset.
+  7. *Greedy Grid Placement Fragmentation & Deadline Starvation*:
+     15-minute stepping left orphan slivers before locked intervals or lunch. High-utility tasks with distant deadlines could greedily seize morning peak windows, starving tasks with tight deadlines.
+  8. *Dependency DAG Topological Invariant Enforcement*:
+     Ensure strict DAG topological ordering and prerequisite completion end clamping across all split continuations and multi-day horizons.
+  9. *Single-Midpoint Circadian Sampling Flaw*:
+     Long tasks (60–120m) were evaluated only at $t_{\text{midpoint}} = t_{\text{start}} + \frac{d}{2}$, misrepresenting blocks that straddle steep postprandial drops or wind-down transitions.
+  10. *Horizon Deadline Urgency Pull-Forward*:
+     Single-day scheduler lacked forward deadline urgency sensing to pull tomorrow morning's tight-deadline tasks into today's late peak before low-urgency Q2 tasks consume capacity.
+- **Key Decisions & Architectural Resolutions**:
+  1. **Habitual SCN Pacemaker Decoupling**: Anchor Process C phase peak $\phi$ to a 7-day rolling circular mean of sleep midpoint (or habitual wake hour) with a rate-of-shift clamp ($\le 1.0\text{h/day}$), while driving Process S wake accumulation and sleep inertia exclusively from today's actual wake time.
+  2. **Cumulative Focus Load Propagation & Exponential Recovery Decay**: Wire continuous focus load through timeline projection with an exponential recovery decay ($\tau_{\text{recovery}} = 20\text{m}$) across breaks $\ge 15\text{m}$ or protected recovery slots.
+  3. **Continuous Sigmoidal Phase Affinities & `MORNING_RAMP` State**: Replace step-function category affinities with $C^1$-continuous transitions over $(E, S, dE/dt)$, distinguishing ascending morning ramp from afternoon rebound.
+  4. **Exponential Sleep Inertia & Quality-Scaled Borbély Recovery**: Deploy $I_{\text{morning}}(t) = 0.14 \cdot \exp\left(-\frac{t_{\text{wake}}}{\tau_{\text{inertia}}}\right)$ with $\tau_{\text{inertia}} = 15.0 \cdot (1 + \alpha_{\text{debt}})$, and scale effective sleep hours by $Q_{\text{sleep}} = 0.85 + 0.0375 \cdot \text{quality} \in [0.8875, 1.0375]$.
+  5. **Saturating Hill Masking & Pressure-Integrated Rebound**: Saturate adenosine receptor masking via Hill function $\Delta S_{\text{mask}} = S_{\text{mask\_max}} \cdot \frac{C_{\text{norm}}^2}{K_m^2 + C_{\text{norm}}^2}$, retain unmasked $S_{\text{bio}}$ for fatigue warnings, and scale crash amplitude by integrated masked pressure.
+  6. **Mandatory 15–20m Ultradian Break Insertion**: Prohibit candidate placements following $\ge 90\text{m}$ cumulative deep work without a preceding $\ge 15\text{m}$ recovery gap.
+  7. **Boundary-Aligned Placement & 2-Opt Utility Swapper**: Align candidate block starts/ends to interval boundaries and execute a local pairwise 2-opt swap pass to maximize aggregate daily schedule utility.
+  8. **Multi-Point Simpson / Gauss Quadrature Energy Sampling**: Sample energy at 20%, 50%, and 80% of candidate blocks: $E_{\text{eff}} = 0.25 E_{20} + 0.50 E_{50} + 0.25 E_{80}$, applying heavy penalties if high-demand tasks cross into dip or crash windows.
+  9. **Forward-Horizon Urgency Pull-Forward**: Evaluate tomorrow's early deadlines ($t_{\text{deadline}} < D_{1} + 12\text{h}$) in today's candidate pool, pulling critical tasks forward.
+
+### ADR-062: Interactive Bio-Simulator Sandbox, Dual-Process Borbély Sleep Pressure Visualization, and Circadian Plan Ribbon
+- **Status**: RATIFIED & IMPLEMENTED (November 16, 2026)
+- **Problem Statement & Forensic Audit**:
+  Users lacked a sandbox to explore "what-if" circadian interventions (e.g. power naps, caffeine doses, brisk walks, bedtime shifts) and observe simulated downstream effects on afternoon alertness, Process S adenosine debt, and deep-work capacity before committing changes. Furthermore, the 24h circadian graph only displayed usable energy, obscuring Process S (Borbély homeostatic sleep pressure) and giving an incomplete picture of biological fatigue. On the Plan screen, tasks lacked visual circadian phase alignment anchors, making it difficult to spot tasks that cannibalize peak windows or suffer from dip mismatch.
+- **Key Decisions & Architectural Resolutions**:
+  1. **Deterministic Offline Bio-Simulator (`simulateDayInterventions`)**:
+     Evaluates simulated interventions (naps, caffeine PK, exercise impulses, bedtime shifts) locally without external LLM dependencies (Pure BYOK compliant). Computes net energy delta ($\Delta E$), sleep pressure reduction ($\Delta S$), focus minutes capacity saved, and deterministic template-based coaching insights.
+  2. **Dual-Process Borbély Sleep Pressure & Ghost Simulation Curve (`EnhancedCircadianEnergyGraph`)**:
+     Renders Process S as a dashed lavender trace ($y_S = \text{padTop} + \text{chartHeight} \cdot (1 - S)$), visually illustrating rising fatigue pressure pressing down on circadian energy headroom, with naps producing sharp upward steps. Renders the simulated ghost energy curve as a dashed cyan trace with translucent fill.
+  3. **Simulation State Machine & 1-Tap Levers (`CircadianHeroBarometer`, `FlowViewModelV2`)**:
+     Provides 1-tap quick action chips (`+20m Nap`, `+100mg Caffeine`, `+30m Walk`, `Bedtime -45m`) with real-time reactive canvas updates, outcome summaries, and `[Reset]`/`[Apply to Plan]` controls.
+  4. **"Apply to Plan" Calendar Commitment (Option A)**:
+     Commits simulated interventions to the calendar as `ProtectedTimeSlot` entries (category `BREAK`), updates target bedtime hour in `UserPreferencesDataStore`, and triggers 2-opt auto-schedule rebalancing.
+  5. **Plan Screen Circadian Horizon Mini-Bar & Phase Accent Strips (`PlanScreenV2`)**:
+     Integrates a compact 6dp horizontal `CircadianHorizonMiniBar` below the Cognitive Budget Meter. Each task card in `TimelineScheduleView` features a 4dp vertical accent strip colored by start-hour `EnergyPhase` and a `TaskCircadianAlignmentBadge` (`⚡ Optimal Peak Alignment`, `⚠️ Circadian Dip Mismatch (-20%) • Shift to Peak`, `ℹ️ Cannibalizes Peak Focus`).
+
 ---
 
 ## 6. Ratified Mathematical & Domain Formulas
@@ -2200,6 +2251,75 @@ $$\text{Affinity}(\text{MINDFULNESS}, \text{phase}) = \begin{cases}
    \text{BioMint} & \text{if } 0.0 < \text{LoadFraction}(D_d) \le 0.8 \quad (\text{Balanced}) \\
    \text{SlateBorder} & \text{if } \text{LoadFraction}(D_d) = 0.0 \quad (\text{Free / Unscheduled})
    \end{cases}$$
+
+### 6.56 SCN Habitual Pacemaker Phase-Locking & Entrainment (`CircadianEnergyService`)
+1. **SCN Habitual Sleep Midpoint Anchor**:
+   $$\phi_{\text{habitual}} = \text{blendClockHoursCircular}\left(\{ (MSW_i, w_i) \}_{i=1}^7\right)$$
+   where $MSW_i$ is the sleep midpoint for night $i$.
+2. **Bounded Daily Phase Shift Adaptation**:
+   $$\Delta\phi_{\text{drift}} = \text{circularHourDifference}(\phi_{\text{target}}, \phi_{\text{prev}})$$
+   $$\phi_{\text{SCN}}(D) = (\phi_{\text{SCN}}(D-1) + \text{clamp}_{[-1.0, +1.0]}(\Delta\phi_{\text{drift}}) + 24.0) \bmod 24.0$$
+   *(Prevents a single sleep-in morning from artificially advancing Process C by 3 hours, preserving biological SCN pacemaker inertia).*
+
+### 6.57 Continuous Focus Load Accumulation & Exponential Recovery Decay (`CircadianEnergyService`, `TaskSchedulerService`)
+1. **Temporal Focus Load Accumulation**:
+   $$L(t_{k+1}) = \begin{cases}
+   L(t_k) + d_k & \text{if } \Delta t_{\text{gap}} < 15\text{m} \\
+   L(t_k) \cdot \exp\left(-\frac{\Delta t_{\text{gap}}}{\tau_{\text{recovery}}}\right) + d_k & \text{if } \Delta t_{\text{gap}} \ge 15\text{m}, \quad \tau_{\text{recovery}} = 20.0\text{m}
+   \end{cases}$$
+2. **Cognitive Depletion Function**:
+   $$D_{\text{focus}}(L) = 0.15 \cdot \left(1.0 - \exp\left(-\frac{\max(0.0, L - 45.0)}{60.0}\right)\right)$$
+
+### 6.58 Continuous Sigmoidal Category Affinities & Morning Ramp State (`CircadianEnergyService`)
+1. **$C^1$-Continuous Phase Transitions**:
+   $$\sigma(x, x_0, k) = \frac{1.0}{1.0 + \exp(-k \cdot (x - x_0))}$$
+   $$\text{Affinity}(\text{DEEP\_WORK}, E, t_{\text{wake}}) = E \cdot \sigma(E, 65.0, 0.25) \cdot \left(1.0 - 0.40 \cdot \sigma(t_{\text{wake}}, 14.0, 0.5)\right)$$
+2. **Ascending Morning Alertness Ramp**:
+   $$\text{Phase}(t) = \text{MORNING\_RAMP} \quad \text{if } t_{\text{wake}} \in [0.5, 3.5]\text{h} \land \frac{dE}{dt} > 0 \land E \ge 50$$
+
+### 6.59 Exponential Sleep Inertia & Quality-Scaled Borbély Recovery (`CircadianEnergyService`)
+1. **Exponential Sleep Inertia Dissipation**:
+   $$I_{\text{morning}}(t) = 0.14 \cdot \exp\left(-\frac{\max(0.0, t - t_{\text{wake}})}{\tau_{\text{inertia}}}\right), \quad \tau_{\text{inertia}} = 15.0 \cdot (1.0 + \alpha_{\text{debt}})\text{ minutes}$$
+2. **Quality-Scaled Restorative Sleep Hours**:
+   $$Q_{\text{sleep}}(\text{quality}) = 0.85 + 0.0375 \cdot \text{clamp}_{[1, 5]}(\text{quality}) \in [0.8875, 1.0375]$$
+   $$d_{\text{eff}} = d_{\text{sleep}} \cdot Q_{\text{sleep}} \cdot (1.0 - \text{SWS}_{\text{penalty}})$$
+   $$S_0 = 0.10 + 0.75 \cdot \exp\left(-\frac{d_{\text{eff}}}{3.6}\right)$$
+
+### 6.60 Saturating Hill Receptor Masking & Sleep Pressure Integration (`PharmacokineticStimulantCalculator`)
+1. **Hill Receptor Binding Saturation ($n=2, K_m=100\text{mg}$)**:
+   $$\Delta S_{\text{mask}}(C) = S_{\text{mask\_max}} \cdot \frac{C^2}{K_m^2 + C^2}, \quad S_{\text{mask\_max}} = 0.40$$
+2. **Separation of True & Perceived Pressure**:
+   $$S_{\text{perceived}}(t) = \text{clamp}_{[0.10, 1.0]}(S_{\text{bio}}(t) - \Delta S_{\text{mask}}(t))$$
+   *(Recovery warnings surface against $S_{\text{bio}}(t)$, preventing caffeine from blinding fatigue protection).*
+3. **Cumulative Masked Pressure Crash Scaling**:
+   $$A_{\text{crash}} = \text{BaseCrash} \cdot \left(1.0 + 0.50 \cdot \int_{t_{\text{dose}}}^t \Delta S_{\text{mask}}(t') \, dt'\right)$$
+
+### 6.61 Multi-Point Simpson Gaussian Quadrature Energy Sampling (`TaskSchedulerService`)
+For candidate block $[t_{\text{start}}, t_{\text{end}}]$ with duration $d$:
+$$E_{\text{eff}} = 0.25 \cdot E_{\text{usable}}(t_{\text{start}} + 0.2d) + 0.50 \cdot E_{\text{usable}}(t_{\text{start}} + 0.5d) + 0.25 \cdot E_{\text{usable}}(t_{\text{start}} + 0.8d)$$
+$$\text{Penalty}_{\text{dip}}(\tau) = \begin{cases}
+-25.0 & \text{if } \tau.\text{demand} = \text{HIGH} \land \min(E_{20}, E_{50}, E_{80}) < 45.0 \\
+0.0 & \text{otherwise}
+\end{cases}$$
+
+### 6.62 Boundary-Aligned Slot Packing & Pairwise 2-Opt Utility Optimization (`TaskSchedulerService`)
+1. **Boundary Snapping**:
+   $$t_{\text{cand}} \in \{ I_{\text{start}}, \; I_{\text{end}} - d, \; t_{\text{locked\_end}}, \; t_{\text{locked\_start}} - d \}$$
+   Eliminates orphan 15-minute unusable slivers before lunch and protected windows.
+2. **Pairwise 2-Opt Schedule Improvement**:
+   For adjacent placements $(P_i, P_{i+1})$, evaluate swap permutation:
+   $$\Delta U = U(P_i \to t_{i+1}) + U(P_{i+1} \to t_i) - \left( U(P_i \to t_i) + U(P_{i+1} \to t_{i+1}) \right)$$
+   Accept swap if $\Delta U > 0$ and both tasks satisfy causal deadlines and dependencies.
+
+### 6.63 Bio-Simulator Mathematical Formulations & Dual-Process Visualization (`CircadianEnergyService`, `EnhancedCircadianEnergyGraph`)
+1. **Net Usable Energy Lift ($\Delta E_{\text{net}}$)**:
+   $$\Delta E_{\text{net}} = \frac{1}{|T_{\text{rem}}|} \sum_{t \in T_{\text{rem}}} \left( E_{\text{sim}}(t) - E_{\text{base}}(t) \right)$$
+   where $T_{\text{rem}} = \{ t_i \in \text{Timeline} \mid t_i \ge t_{\text{now}} \land t_i \le t_{\text{sleep\_target}} \}$.
+2. **Net Cognitive Focus Capacity Saved**:
+   $$\text{FocusSaved} = \text{round}\left( \sum_{\text{blocks}} \Delta D_{\text{focus}} \times 60 + \text{napMinutes} \times 1.25 \right)$$
+3. **Borbély Process S Vertical Projection on Canvas**:
+   $$y_S(t) = y_{\text{top}} + H_{\text{chart}} \cdot \left( 1.0 - \text{clamp}_{[0.0, 1.0]}(S(t)) \right)$$
+   *(Rising homeostatic pressure pushes downward on circadian drive headroom; sleep bouts produce sharp upward resets).*
 
 
 
