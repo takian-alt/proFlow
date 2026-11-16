@@ -669,4 +669,183 @@ class TaskSchedulerServiceTest {
         assertEquals(today, startZdt.toLocalDate())
         assertTrue("Placement start should be >= 8:00 AM", startZdt.hour >= 8)
     }
+
+    @Test
+    fun testUltradianRecoveryGapEnforcedAfter90MinutesContiguousDeepWork() {
+        val today = LocalDate.of(2026, 10, 18)
+        val baseTime = today.atTime(LocalTime.of(9, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val p1 = ScheduledPlacement(
+            task = SchedulableTask(id = "1", title = "Block 1", category = TaskCategory.DEEP_WORK, priority = 2, estimatedMinutes = 45, energyDemand = EnergyDemand.HIGH),
+            window = TimeSlotWindow(baseTime, baseTime + 45 * 60_000L),
+            scoreBreakdown = TaskScoreBreakdown("1", 80.0, 80.0, 80.0, 80.0, 80.0, 45)
+        )
+        val p2 = ScheduledPlacement(
+            task = SchedulableTask(id = "2", title = "Block 2", category = TaskCategory.DEEP_WORK, priority = 2, estimatedMinutes = 45, energyDemand = EnergyDemand.HIGH),
+            window = TimeSlotWindow(baseTime + 50 * 60_000L, baseTime + 95 * 60_000L), // 5m gap
+            scoreBreakdown = TaskScoreBreakdown("2", 80.0, 80.0, 80.0, 80.0, 80.0, 45)
+        )
+        val defaultService = schedulerService as DefaultTaskSchedulerService
+        val focusLoad = defaultService.computeSimulatedFocusLoadAt(baseTime + 100 * 60_000L, listOf(p1, p2))
+        assertEquals("Contiguous deep work load must reach 90 minutes", 90, focusLoad)
+
+        val nextTask = SchedulableTask(id = "3", title = "Block 3", category = TaskCategory.DEEP_WORK, priority = 2, estimatedMinutes = 30, energyDemand = EnergyDemand.HIGH)
+        val freeIntervals = listOf(TimeSlotWindow(baseTime + 100 * 60_000L, baseTime + 240 * 60_000L))
+
+        val outcome = defaultService.findBestCircadianWindow(
+            task = nextTask,
+            durationMillis = 30 * 60_000L,
+            earliestStartMillis = baseTime + 100 * 60_000L,
+            freeIntervals = freeIntervals,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            dependentCount = 0,
+            calibrationRatio = 1.0,
+            zoneId = zoneId,
+            placements = listOf(p1, p2)
+        )
+        assertNotNull("Next task should be placed", outcome)
+        val gapFromBlock2 = (outcome!!.first.startMillis - p2.window.endMillis) / 60_000L
+        assertTrue("Mandatory recovery gap >= 15m must be enforced after 90m deep work (was ${gapFromBlock2}m)", gapFromBlock2 >= 15L)
+    }
+
+    @Test
+    fun testSimpsonQuadratureSamplingPenalizesDipBoundaryBreach() {
+        val defaultService = schedulerService as DefaultTaskSchedulerService
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val highEnergyTask = SchedulableTask(
+            id = "deep_task",
+            title = "High Energy Sprint",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 90,
+            energyDemand = EnergyDemand.HIGH
+        )
+        // Midday slot spanning across post-prandial drop / circadian lull (12:30 to 14:00)
+        val intervalMidday = TimeSlotWindow(
+            today.atTime(LocalTime.of(12, 30)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+        // Morning peak slot (09:00 to 10:30)
+        val intervalMorning = TimeSlotWindow(
+            today.atTime(LocalTime.of(9, 0)).atZone(zoneId).toInstant().toEpochMilli(),
+            today.atTime(LocalTime.of(10, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        )
+
+        val windowMorning = defaultService.findBestCircadianWindow(
+            task = highEnergyTask,
+            durationMillis = 90 * 60_000L,
+            earliestStartMillis = intervalMorning.startMillis,
+            freeIntervals = listOf(intervalMorning),
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            dependentCount = 0,
+            calibrationRatio = 1.0,
+            zoneId = zoneId
+        )
+        val windowMidday = defaultService.findBestCircadianWindow(
+            task = highEnergyTask,
+            durationMillis = 90 * 60_000L,
+            earliestStartMillis = intervalMidday.startMillis,
+            freeIntervals = listOf(intervalMidday),
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            dependentCount = 0,
+            calibrationRatio = 1.0,
+            zoneId = zoneId
+        )
+        assertNotNull(windowMorning)
+        assertNotNull(windowMidday)
+        assertTrue(
+            "Morning peak window total utility (${windowMorning!!.second.totalScore}) must exceed midday dip window (${windowMidday!!.second.totalScore})",
+            windowMorning.second.totalScore > windowMidday.second.totalScore
+        )
+    }
+
+    @Test
+    fun testBoundaryAlignedSlotPackingFlushSnug() {
+        val defaultService = schedulerService as DefaultTaskSchedulerService
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val intervalStart = today.atTime(LocalTime.of(10, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val meetingStart = today.atTime(LocalTime.of(11, 20)).atZone(zoneId).toInstant().toEpochMilli() // 80m free window
+        val endOfDay = today.atTime(LocalTime.of(22, 0)).atZone(zoneId).toInstant().toEpochMilli()
+
+        // 45m task inside an 80m window before a meeting
+        val task = SchedulableTask(
+            id = "task_flush",
+            title = "Snug Focus Task",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 45,
+            energyDemand = EnergyDemand.HIGH
+        )
+        val freeIntervals = listOf(
+            TimeSlotWindow(intervalStart, meetingStart), // 10:00..11:20
+            TimeSlotWindow(meetingStart + 30 * 60_000L, endOfDay)
+        )
+
+        val result = defaultService.findBestCircadianWindow(
+            task = task,
+            durationMillis = 45 * 60_000L,
+            earliestStartMillis = intervalStart,
+            freeIntervals = freeIntervals,
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            dependentCount = 0,
+            calibrationRatio = 1.0,
+            zoneId = zoneId
+        )
+        assertNotNull(result)
+        // Snug anchor aligns right against meetingStart (10:35..11:20) or flush left at 10:00
+        val isAligned = result!!.first.startMillis == intervalStart || result.first.endMillis == meetingStart
+        assertTrue("Candidate placement must align flush with interval boundaries without orphan slivers", isAligned)
+    }
+
+    @Test
+    fun testPairwise2OptOptimizesScheduleUtility() {
+        val defaultService = schedulerService as DefaultTaskSchedulerService
+        val today = LocalDate.of(2026, 10, 18)
+        val wakeTime = today.atTime(LocalTime.of(7, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val t10am = today.atTime(LocalTime.of(10, 0)).atZone(zoneId).toInstant().toEpochMilli()
+        val t1030am = today.atTime(LocalTime.of(10, 30)).atZone(zoneId).toInstant().toEpochMilli()
+        val t1045am = today.atTime(LocalTime.of(10, 45)).atZone(zoneId).toInstant().toEpochMilli()
+        val t1145am = today.atTime(LocalTime.of(11, 45)).atZone(zoneId).toInstant().toEpochMilli()
+
+        val adminTask = SchedulableTask(
+            id = "admin",
+            title = "Morning Invoices",
+            category = TaskCategory.ADMIN,
+            priority = 1,
+            estimatedMinutes = 30,
+            energyDemand = EnergyDemand.LOW
+        )
+        val deepTask = SchedulableTask(
+            id = "deep",
+            title = "Core Algorithm Engineering",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 60,
+            energyDemand = EnergyDemand.HIGH
+        )
+
+        // Suboptimal initial placement: Admin takes 10:00 peak slot, Deep Work spans into 10:45-11:45
+        val p1 = ScheduledPlacement(adminTask, TimeSlotWindow(t10am, t1030am), TaskScoreBreakdown("admin", 50.0, 50.0, 50.0, 50.0, 50.0, 30))
+        val p2 = ScheduledPlacement(deepTask, TimeSlotWindow(t1045am, t1145am), TaskScoreBreakdown("deep", 80.0, 80.0, 80.0, 80.0, 80.0, 60))
+
+        val optimized = defaultService.optimizePlacementsWith2Opt(
+            placements = listOf(p1, p2),
+            wakeTimeMillis = wakeTime,
+            lastSleepDurationMinutes = 480,
+            zoneId = zoneId
+        )
+
+        assertEquals(2, optimized.size)
+        // 2-Opt should swap Deep Work into 10:00 peak slot to maximize total schedule utility
+        assertEquals("Deep work must take the 10:00 peak focus window", "deep", optimized[0].task.id)
+        assertEquals("Admin task must be moved to the subsequent 11:15 slot", "admin", optimized[1].task.id)
+        assertEquals(t10am, optimized[0].window.startMillis)
+    }
 }

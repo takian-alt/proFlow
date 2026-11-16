@@ -101,6 +101,7 @@ object NeuroFlowPaletteV2 {
     fun staticAccentForPhase(phase: EnergyPhase): Color = when (phase) {
         EnergyPhase.SURGE -> Color(0xFF06B6D4)
         EnergyPhase.PEAK -> Color(0xFF10B981)
+        EnergyPhase.MORNING_RAMP -> Color(0xFF10B981)
         EnergyPhase.REBOUND -> Color(0xFF6366F1)
         EnergyPhase.DIP -> Color(0xFFF59E0B)
         EnergyPhase.WIND_DOWN -> WindDownAmber
@@ -116,6 +117,7 @@ object NeuroFlowPaletteV2 {
     fun accentForPhase(phase: EnergyPhase): Color = when (phase) {
         EnergyPhase.SURGE -> Color(0xFF06B6D4)
         EnergyPhase.PEAK -> OptimalEmerald
+        EnergyPhase.MORNING_RAMP -> OptimalEmerald
         EnergyPhase.REBOUND -> ReboundCyan
         EnergyPhase.DIP -> PeakAmber
         EnergyPhase.WIND_DOWN -> WindDownAmber

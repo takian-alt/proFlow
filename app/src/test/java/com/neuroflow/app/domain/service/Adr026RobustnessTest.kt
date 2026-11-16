@@ -193,11 +193,11 @@ class Adr026RobustnessTest {
             zoneId = zoneId
         )
 
-        // At 8:00 AM (usableEnergy ~ 60-70), must be REBOUND or PEAK, NEVER WIND_DOWN
+        // At 8:00 AM (usableEnergy ~ 60-70), must be MORNING_RAMP, REBOUND, or PEAK, NEVER WIND_DOWN
         assertNotEquals("8:00 AM morning slot must not be WIND_DOWN", EnergyPhase.WIND_DOWN, snapshot.phase)
         assertTrue(
-            "Morning ramp-up phase must be REBOUND or PEAK (was ${snapshot.phase})",
-            snapshot.phase == EnergyPhase.REBOUND || snapshot.phase == EnergyPhase.PEAK
+            "Morning ramp-up phase must be MORNING_RAMP, REBOUND, or PEAK (was ${snapshot.phase})",
+            snapshot.phase == EnergyPhase.MORNING_RAMP || snapshot.phase == EnergyPhase.REBOUND || snapshot.phase == EnergyPhase.PEAK
         )
     }
 

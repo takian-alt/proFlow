@@ -212,7 +212,7 @@ class DailyBlueprintOrchestrator(
                 } else {
                     h >= dailySummary.peakWindowStartHour || h < dailySummary.peakWindowEndHour
                 }
-                val isDuringPeak = snapshot.phase == EnergyPhase.PEAK || snapshot.phase == EnergyPhase.SURGE || inPeakHour
+                val isDuringPeak = snapshot.phase == EnergyPhase.PEAK || snapshot.phase == EnergyPhase.SURGE || snapshot.phase == EnergyPhase.MORNING_RAMP || inPeakHour
 
                 val hasConflict = busyWindows.any { bw ->
                     placement.window.startMillis < bw.endMillis && placement.window.endMillis > bw.startMillis

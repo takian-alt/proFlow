@@ -298,9 +298,9 @@ class DefaultTaskSchedulerService @Inject constructor(
         }
 
         // 2. Impact Vector I in [0..100]
-        val rawBasePriority = when (task.priority) {
-            2 -> 65.0
-            1 -> 40.0
+        val rawBasePriority = when {
+            task.priority >= 2 -> 65.0
+            task.priority == 1 -> 40.0
             else -> 15.0
         }
         val basePriority = (rawBasePriority * weights.priorityLevelWeight.coerceIn(0.2, 3.0)).coerceIn(0.0, 100.0)
@@ -320,7 +320,7 @@ class DefaultTaskSchedulerService @Inject constructor(
         val dreadAlignmentAdj = if (task.isAnxietyTask || task.postponeCount >= 3) {
             when (snapshot.phase) {
                 EnergyPhase.SURGE -> 12.0
-                EnergyPhase.PEAK, EnergyPhase.REBOUND -> 8.0
+                EnergyPhase.PEAK, EnergyPhase.REBOUND, EnergyPhase.MORNING_RAMP -> 8.0
                 EnergyPhase.DIP, EnergyPhase.WIND_DOWN -> -10.0
                 EnergyPhase.INERTIA, EnergyPhase.CRASH -> -15.0
                 EnergyPhase.TROUGH, EnergyPhase.RECOVERY_NEEDED, EnergyPhase.RECOVERY -> -20.0
@@ -665,7 +665,7 @@ class DefaultTaskSchedulerService @Inject constructor(
         val latestAllowedEndMap = mutableMapOf<String, Long>()
         val structuralCeilingMap = mutableMapOf<String, Long>()
         for (task in sanitizedTasks) {
-            val deadlineCeiling = task.deadlineMillis ?: Long.MAX_VALUE
+            val deadlineCeiling = task.deadlineMillis?.let { min(it, dayEndMillis) } ?: dayEndMillis
             val taskBufferedMins = computeBufferedDuration(task, calibrationRatio)
             val taskDurationMillis = taskBufferedMins * 60_000L
             val placedWindow = placements.firstOrNull { it.task.id == task.id }?.window
@@ -814,7 +814,17 @@ class DefaultTaskSchedulerService @Inject constructor(
                         EnergyDemand.MODERATE -> 4.0
                         EnergyDemand.LOW -> 0.0
                     }
-                    baseScore + scarcityBonus
+                    val slackPullForwardBonus = if (task.deadlineMillis != null) {
+                        val hoursRemaining = (task.deadlineMillis - nowMillis) / 3_600_000.0
+                        val durHours = max(5, task.estimatedMinutes) / 60.0
+                        val slack = hoursRemaining - durHours
+                        when {
+                            slack <= 2.0 -> 40.0
+                            slack <= 4.0 -> 20.0
+                            else -> 0.0
+                        }
+                    } else 0.0
+                    baseScore + scarcityBonus + slackPullForwardBonus
                 }.thenBy { it.id }
         )
         schedulableTodayTasks.filter { (inDegree[it.id] ?: 0) == 0 }.forEach { readyQueue.add(it) }
@@ -1365,12 +1375,32 @@ class DefaultTaskSchedulerService @Inject constructor(
             }
         }
 
+        // ADR-061: Pairwise 2-Opt Schedule Utility Optimization
+        val optimizedPlacements = optimizePlacementsWith2Opt(
+            placements = sanitizedPlacements,
+            wakeTimeMillis = effectiveWakeTimeMillis,
+            lastSleepDurationMinutes = lastSleepDurationMinutes,
+            zoneId = zoneId,
+            priorityWeights = priorityWeights,
+            referenceNowMillis = nowMillis,
+            calibrationRatio = calibrationRatio,
+            naps = naps,
+            chronotype = chronotype,
+            manualPeakStartHour = manualPeakStartHour,
+            learnedProfile = learnedProfile,
+            rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+            physiologicalBlocks = physiologicalBlocks,
+            stimulantDoses = stimulantDoses,
+            socialJetlagLagHours = socialJetlagLagHours,
+            rejectionPatternsJson = rejectionPatternsJson
+        )
+
         // Clean deferral task IDs so none carry #part or _part suffixes (BUG-375: regex-safe)
         val sanitizedDeferrals = deferrals.map { d ->
             if (d.taskId.contains(Regex("""[#_]part\d+"""))) d.copy(taskId = cleanSplitTaskId(d.taskId)) else d
         }.distinctBy { it.taskId }
 
-        return SchedulingOutcome(sanitizedPlacements.sortedBy { it.window.startMillis }, sanitizedDeferrals)
+        return SchedulingOutcome(optimizedPlacements.sortedBy { it.window.startMillis }, sanitizedDeferrals)
     }
 
     internal fun cleanSplitTaskId(id: String): String =
@@ -1467,30 +1497,38 @@ class DefaultTaskSchedulerService @Inject constructor(
         timestampMillis: Long,
         placements: List<ScheduledPlacement>
     ): Int {
-        if (placements.isEmpty()) return 0
-        var currentCheck = timestampMillis
-        var accumulatedMins = 0
-        val sortedPlacements = placements
+        val relevant = placements
             .filter { it.window.endMillis <= timestampMillis }
-            .sortedByDescending { it.window.endMillis }
+            .sortedBy { it.window.startMillis }
+        if (relevant.isEmpty()) return 0
 
-        for (p in sortedPlacements) {
-            val gapMinutes = (currentCheck - p.window.endMillis) / 60_000L
-            if (gapMinutes <= 15L) {
-                val isCognitive = p.task.energyDemand == EnergyDemand.HIGH ||
-                    p.task.category == TaskCategory.DEEP_WORK ||
-                    p.task.category == TaskCategory.CREATIVE
-                if (isCognitive) {
-                    accumulatedMins += p.window.durationMinutes
-                    currentCheck = p.window.startMillis
-                } else {
-                    break
-                }
-            } else {
-                break
+        var currentLoad = 0.0
+        var lastEnd = relevant.first().window.startMillis
+
+        for (p in relevant) {
+            val gapMinutes = (p.window.startMillis - lastEnd) / 60_000.0
+            if (gapMinutes >= 15.0) {
+                currentLoad *= exp(-gapMinutes / 20.0)
+                if (gapMinutes >= 60.0 || currentLoad < 4.0) currentLoad = 0.0
             }
+            val isCognitive = p.task.energyDemand == EnergyDemand.HIGH ||
+                p.task.category == TaskCategory.DEEP_WORK ||
+                p.task.category == TaskCategory.CREATIVE
+            if (isCognitive) {
+                currentLoad += p.window.durationMinutes
+            } else if (p.window.durationMinutes >= 15) {
+                currentLoad *= exp(-p.window.durationMinutes / 20.0)
+                if (currentLoad < 4.0) currentLoad = 0.0
+            }
+            lastEnd = p.window.endMillis
         }
-        return accumulatedMins
+
+        val finalGapMinutes = (timestampMillis - lastEnd) / 60_000.0
+        if (finalGapMinutes >= 15.0) {
+            currentLoad *= exp(-finalGapMinutes / 20.0)
+            if (finalGapMinutes >= 60.0 || currentLoad < 4.0) currentLoad = 0.0
+        }
+        return currentLoad.roundToInt().coerceAtLeast(0)
     }
 
     private fun computeRejectionPenalty(
@@ -1539,13 +1577,13 @@ class DefaultTaskSchedulerService @Inject constructor(
             task.isLocked -> "Pinned to this time window by user."
             rejectionPenalty > 15.0 -> "Lower confidence: scheduled here despite historical rejection due to tight schedule constraints."
             breakdown.urgencyScore >= 80.0 -> "Prioritized here due to impending deadline ($fitPct% energy match)."
-            snap.phase == EnergyPhase.PEAK || snap.phase == EnergyPhase.SURGE -> "Aligned to your $phaseName window ($fitPct% energy match)."
+            snap.phase == EnergyPhase.PEAK || snap.phase == EnergyPhase.SURGE || snap.phase == EnergyPhase.MORNING_RAMP -> "Aligned to your $phaseName window ($fitPct% energy match)."
             else -> "Matched to $phaseName energy phase ($fitPct% match)."
         }
         return confidence to rationale
     }
 
-    private fun findBestCircadianWindow(
+    internal fun findBestCircadianWindow(
         task: SchedulableTask,
         durationMillis: Long,
         earliestStartMillis: Long,
@@ -1576,19 +1614,59 @@ class DefaultTaskSchedulerService @Inject constructor(
         val stepMillis = 15 * 60_000L
 
         for (interval in freeIntervals) {
-            var candidateStart = max(interval.startMillis, earliestStartMillis)
+            val candidateStarts = mutableListOf<Long>()
+            var cur = max(interval.startMillis, earliestStartMillis)
             val effectiveIntervalEnd = min(interval.endMillis, latestAllowedEndMillis)
-            while (candidateStart + durationMillis <= effectiveIntervalEnd) {
+            while (cur + durationMillis <= effectiveIntervalEnd) {
+                candidateStarts.add(cur)
+                cur += stepMillis
+            }
+            // ADR-061: Boundary-aligned slot packing (snug interval end anchor before meetings/protected slots)
+            val maxHorizonEnd = freeIntervals.maxOfOrNull { it.endMillis } ?: Long.MAX_VALUE
+            if (effectiveIntervalEnd < maxHorizonEnd || latestAllowedEndMillis != Long.MAX_VALUE) {
+                val snugEndStart = effectiveIntervalEnd - durationMillis
+                if (snugEndStart >= max(interval.startMillis, earliestStartMillis) && snugEndStart !in candidateStarts) {
+                    candidateStarts.add(snugEndStart)
+                    candidateStarts.sort()
+                }
+            }
+
+            for (candidateStart in candidateStarts) {
                 val candidateEnd = candidateStart + durationMillis
                 // BUG-AUDIT-002: Hard filter post-deadline candidates in primary search so they cannot displace valid slots
                 if (!allowDeadlineBreach && task.deadlineMillis != null && candidateEnd > task.deadlineMillis) {
-                    candidateStart += stepMillis
                     continue
                 }
-                val midpoint = candidateStart + durationMillis / 2
+
+                val isCognitiveHeavy = task.energyDemand == EnergyDemand.HIGH ||
+                    task.category == TaskCategory.DEEP_WORK ||
+                    task.category == TaskCategory.CREATIVE
+
                 val simulatedFocus = computeSimulatedFocusLoadAt(candidateStart, placements)
-                val snap = circadianService.evaluateSnapshotWithStimulants(
-                    timestampMillis = midpoint,
+
+                // ADR-061: Ultradian Recovery Gap Enforcement
+                // When contiguous deep-work load reaches >= 90m, candidate cognitive-heavy tasks
+                // must allow at least a 15-minute recovery gap after the preceding cognitive block.
+                if (isCognitiveHeavy && simulatedFocus >= 90) {
+                    val lastCognitiveEnd = placements
+                        .filter { it.window.endMillis <= candidateStart }
+                        .filter { it.task.energyDemand == EnergyDemand.HIGH || it.task.category == TaskCategory.DEEP_WORK || it.task.category == TaskCategory.CREATIVE }
+                        .maxOfOrNull { it.window.endMillis }
+                    if (lastCognitiveEnd != null) {
+                        val gapFromLast = (candidateStart - lastCognitiveEnd) / 60_000L
+                        if (gapFromLast < 15L) {
+                            continue
+                        }
+                    }
+                }
+
+                // ADR-061: 3-Point Simpson Gaussian Quadrature Energy Sampling (20%, 50%, 80%)
+                val t20 = candidateStart + (durationMillis * 0.20).toLong()
+                val t50 = candidateStart + durationMillis / 2
+                val t80 = candidateStart + (durationMillis * 0.80).toLong()
+
+                val snap50 = circadianService.evaluateSnapshotWithStimulants(
+                    timestampMillis = t50,
                     wakeTimeMillis = wakeTimeMillis,
                     lastSleepDurationMinutes = lastSleepDurationMinutes,
                     continuousActiveFocusMinutes = simulatedFocus,
@@ -1602,21 +1680,67 @@ class DefaultTaskSchedulerService @Inject constructor(
                     stimulantDoses = stimulantDoses,
                     socialJetlagLagHours = socialJetlagLagHours
                 )
+                val snap20 = circadianService.evaluateSnapshotWithStimulants(
+                    timestampMillis = t20,
+                    wakeTimeMillis = wakeTimeMillis,
+                    lastSleepDurationMinutes = lastSleepDurationMinutes,
+                    continuousActiveFocusMinutes = simulatedFocus,
+                    zoneId = zoneId,
+                    naps = naps,
+                    chronotype = chronotype,
+                    manualPeakStartHour = manualPeakStartHour,
+                    learnedProfile = learnedProfile,
+                    rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                    cognitiveBlocks = physiologicalBlocks,
+                    stimulantDoses = stimulantDoses,
+                    socialJetlagLagHours = socialJetlagLagHours
+                )
+                val snap80 = circadianService.evaluateSnapshotWithStimulants(
+                    timestampMillis = t80,
+                    wakeTimeMillis = wakeTimeMillis,
+                    lastSleepDurationMinutes = lastSleepDurationMinutes,
+                    continuousActiveFocusMinutes = simulatedFocus,
+                    zoneId = zoneId,
+                    naps = naps,
+                    chronotype = chronotype,
+                    manualPeakStartHour = manualPeakStartHour,
+                    learnedProfile = learnedProfile,
+                    rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                    cognitiveBlocks = physiologicalBlocks,
+                    stimulantDoses = stimulantDoses,
+                    socialJetlagLagHours = socialJetlagLagHours
+                )
+
+                val effectiveUsableEnergy = (0.25 * snap20.usableEnergy + 0.50 * snap50.usableEnergy + 0.25 * snap80.usableEnergy).roundToInt()
+                val minUsable = minOf(snap20.usableEnergy, snap50.usableEnergy, snap80.usableEnergy)
+                val anyDipOrCrash = listOf(snap20.phase, snap50.phase, snap80.phase).any {
+                    it == EnergyPhase.DIP || it == EnergyPhase.CRASH || it == EnergyPhase.TROUGH
+                }
+
+                val dipBoundaryBreachPenalty = if (
+                    (task.energyDemand == EnergyDemand.HIGH || task.category == TaskCategory.DEEP_WORK) &&
+                    (minUsable < 45 || anyDipOrCrash)
+                ) {
+                    25.0
+                } else 0.0
+
+                val effectiveSnap = snap50.copy(usableEnergy = effectiveUsableEnergy)
                 val breakdown = evaluateTaskScoreWithWeights(
                     task = task,
-                    snapshot = snap,
+                    snapshot = effectiveSnap,
                     dependentCount = dependentCount,
                     calibrationRatio = calibrationRatio,
                     weights = priorityWeights,
                     referenceNowMillis = referenceNowMillis ?: earliestStartMillis
                 )
-                val hourlyDecayLambda = when {
+                val baseHourlyDecay = when {
                     task.energyDemand == EnergyDemand.HIGH ||
                     task.category == TaskCategory.DEEP_WORK ||
                     task.category == TaskCategory.CREATIVE -> 0.08
                     task.energyDemand == EnergyDemand.MODERATE -> 0.22
                     else -> 0.45
                 }
+                val hourlyDecayLambda = baseHourlyDecay * (1.0 + 0.35 * min(3, dependentCount))
 
                 val candidateHour = Instant.ofEpochMilli(candidateStart).atZone(zoneId).hour
 
@@ -1642,7 +1766,7 @@ class DefaultTaskSchedulerService @Inject constructor(
                     .sumOf { it.window.durationMinutes }
                 val peakFraction = (peakMinutesUsed / 120.0).coerceIn(0.0, 1.0)
                 val peakCannibalizationPenalty = if (
-                    (snap.phase == EnergyPhase.PEAK || snap.phase == EnergyPhase.SURGE) &&
+                    (snap50.phase == EnergyPhase.PEAK || snap50.phase == EnergyPhase.SURGE) &&
                     breakdown.urgencyScore < 75.0 &&
                     (task.energyDemand == EnergyDemand.LOW || task.category == TaskCategory.ADMIN)
                 ) {
@@ -1719,17 +1843,170 @@ class DefaultTaskSchedulerService @Inject constructor(
 
                 val antiFragmentationDelta = edgePackingBonus - sliverPenalty - internalSplitPenalty
 
-                val utility = breakdown.totalScore - (hourlyDecayLambda * hoursFromNow) - peakCannibalizationPenalty + contextDelta + stimAlignmentDelta - deadlineBreachPenalty + antiFragmentationDelta - totalRejectionPenalty - energyDebtPenalty
+                val utility = breakdown.totalScore - (hourlyDecayLambda * hoursFromNow) - peakCannibalizationPenalty + contextDelta + stimAlignmentDelta - deadlineBreachPenalty - dipBoundaryBreachPenalty + antiFragmentationDelta - totalRejectionPenalty - energyDebtPenalty
 
                 if (utility > bestUtility) {
                     bestUtility = utility
                     bestWindow = TimeSlotWindow(candidateStart, candidateStart + durationMillis)
                     bestBreakdown = breakdown
                 }
-                candidateStart += stepMillis
             }
         }
         return if (bestWindow != null && bestBreakdown != null) bestWindow to bestBreakdown else null
+    }
+
+    // ADR-061: Pairwise 2-Opt Schedule Utility Optimization
+    internal fun optimizePlacementsWith2Opt(
+        placements: List<ScheduledPlacement>,
+        wakeTimeMillis: Long,
+        lastSleepDurationMinutes: Int,
+        zoneId: ZoneId,
+        priorityWeights: PriorityWeightProfile = PriorityWeightProfile.DEFAULT,
+        referenceNowMillis: Long = System.currentTimeMillis(),
+        calibrationRatio: Double = 1.0,
+        naps: List<DaytimeNapBout> = emptyList(),
+        chronotype: ChronotypeProfile = ChronotypeProfile.INTERMEDIATE,
+        manualPeakStartHour: Int? = null,
+        learnedProfile: LearnedCircadianProfile? = null,
+        rollingAverageSleepMinutes: Double? = null,
+        physiologicalBlocks: List<CognitiveBlockWindow> = emptyList(),
+        stimulantDoses: List<StimulantDoseBout> = emptyList(),
+        socialJetlagLagHours: Double = 0.0,
+        rejectionPatternsJson: String = "{}"
+    ): List<ScheduledPlacement> {
+        if (placements.size < 2) return placements
+        val current = placements.sortedBy { it.window.startMillis }.toMutableList()
+
+        fun computePlacementUtility(
+            task: SchedulableTask,
+            window: TimeSlotWindow,
+            placedList: List<ScheduledPlacement>
+        ): Double {
+            val midpoint = window.startMillis + window.durationMinutes * 30_000L
+            val simulatedFocus = computeSimulatedFocusLoadAt(window.startMillis, placedList)
+            val snap = circadianService.evaluateSnapshotWithStimulants(
+                timestampMillis = midpoint,
+                wakeTimeMillis = wakeTimeMillis,
+                lastSleepDurationMinutes = lastSleepDurationMinutes,
+                continuousActiveFocusMinutes = simulatedFocus,
+                zoneId = zoneId,
+                naps = naps,
+                chronotype = chronotype,
+                manualPeakStartHour = manualPeakStartHour,
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                cognitiveBlocks = physiologicalBlocks,
+                stimulantDoses = stimulantDoses,
+                socialJetlagLagHours = socialJetlagLagHours
+            )
+            val breakdown = evaluateTaskScoreWithWeights(
+                task = task,
+                snapshot = snap,
+                dependentCount = 0,
+                calibrationRatio = calibrationRatio,
+                weights = priorityWeights,
+                referenceNowMillis = referenceNowMillis
+            )
+            val contextDelta = computeContextTransitionDelta(placedList, window.startMillis, task, window.endMillis)
+            val candidateHour = Instant.ofEpochMilli(window.startMillis).atZone(zoneId).hour
+            val rejPenalty = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.computePenalty(
+                json = rejectionPatternsJson,
+                category = task.category.name,
+                hour = candidateHour,
+                nowMillis = referenceNowMillis
+            )
+            val peakCannibalizationPenalty = if (
+                (snap.phase == EnergyPhase.PEAK || snap.phase == EnergyPhase.SURGE) &&
+                breakdown.urgencyScore < 75.0 &&
+                (task.energyDemand == EnergyDemand.LOW || task.category == TaskCategory.ADMIN)
+            ) {
+                16.0
+            } else 0.0
+            return breakdown.totalScore + contextDelta - rejPenalty - peakCannibalizationPenalty
+        }
+
+        var improved = true
+        var passes = 0
+        while (improved && passes < 3) {
+            improved = false
+            passes++
+            for (i in 0 until current.size - 1) {
+                val p1 = current[i]
+                val p2 = current[i + 1]
+
+                // Guard 1: Never swap locked tasks
+                if (p1.task.isLocked || p2.task.isLocked) continue
+
+                // Guard 2: Never swap split continuation parts or causal dependencies
+                if (p1.task.parentTaskId != null || p2.task.parentTaskId != null ||
+                    p1.task.id.contains(Regex("""[#_]part""")) || p2.task.id.contains(Regex("""[#_]part""")) ||
+                    p1.task.id in p2.task.prerequisiteIds || p2.task.id in p1.task.prerequisiteIds ||
+                    cleanSplitTaskId(p1.task.id) == cleanSplitTaskId(p2.task.id)
+                ) continue
+
+                val gapMillis = p2.window.startMillis - p1.window.endMillis
+                // Only consider adjacent blocks separated by standard transition gap (<= 20 mins)
+                if (gapMillis < 0 || gapMillis > 20 * 60_000L) continue
+
+                val d1 = p1.window.durationMinutes * 60_000L
+                val d2 = p2.window.durationMinutes * 60_000L
+                val startA = p1.window.startMillis
+                val newEndB = startA + d2
+                val newStartA = newEndB + gapMillis
+                val newEndA = newStartA + d1
+
+                // Guard 3: Total span invariance check
+                if (newEndA != p2.window.endMillis) continue
+
+                // Guard 4: Deadline feasibility for both swapped windows
+                if (p2.task.deadlineMillis != null && newEndB > p2.task.deadlineMillis) continue
+                if (p1.task.deadlineMillis != null && newEndA > p1.task.deadlineMillis) continue
+
+                // Guard 5: Downstream dependent checks
+                val p1HasEarlierDependent = current.drop(i + 2).any { other ->
+                    p1.task.id in other.task.prerequisiteIds && other.window.startMillis < newEndA
+                }
+                if (p1HasEarlierDependent) continue
+
+                val newWindow2 = TimeSlotWindow(startA, newEndB)
+                val newWindow1 = TimeSlotWindow(newStartA, newEndA)
+
+                val others = current.filterIndexed { idx, _ -> idx != i && idx != i + 1 }
+                val currentUtility = computePlacementUtility(p1.task, p1.window, others) +
+                    computePlacementUtility(p2.task, p2.window, others + p1)
+
+                val swappedPlacements = others + ScheduledPlacement(p2.task, newWindow2, p2.scoreBreakdown)
+                val swappedUtility = computePlacementUtility(p2.task, newWindow2, others) +
+                    computePlacementUtility(p1.task, newWindow1, swappedPlacements)
+
+                if (swappedUtility - currentUtility > 1.5) {
+                    val p2Rej = computeRejectionPenalty(p2.task, newWindow2.startMillis, zoneId, rejectionPatternsJson)
+                    val (p2Conf, p2Rat) = computePlacementConfidenceAndRationale(
+                        task = p2.task,
+                        window = newWindow2,
+                        breakdown = p2.scoreBreakdown,
+                        rejectionPenalty = p2Rej,
+                        zoneId = zoneId,
+                        wakeTimeMillis = wakeTimeMillis,
+                        lastSleepDurationMinutes = lastSleepDurationMinutes
+                    )
+                    val p1Rej = computeRejectionPenalty(p1.task, newWindow1.startMillis, zoneId, rejectionPatternsJson)
+                    val (p1Conf, p1Rat) = computePlacementConfidenceAndRationale(
+                        task = p1.task,
+                        window = newWindow1,
+                        breakdown = p1.scoreBreakdown,
+                        rejectionPenalty = p1Rej,
+                        zoneId = zoneId,
+                        wakeTimeMillis = wakeTimeMillis,
+                        lastSleepDurationMinutes = lastSleepDurationMinutes
+                    )
+                    current[i] = ScheduledPlacement(p2.task, newWindow2, p2.scoreBreakdown, p2Conf, p2Rat)
+                    current[i + 1] = ScheduledPlacement(p1.task, newWindow1, p1.scoreBreakdown, p1Conf, p1Rat)
+                    improved = true
+                }
+            }
+        }
+        return current
     }
 
     private fun fitsInFreeIntervals(freeIntervals: List<TimeSlotWindow>, target: TimeSlotWindow): Boolean {

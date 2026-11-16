@@ -24,8 +24,8 @@ android {
         applicationId = "com.neuroflow.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 44
-        versionName = "20.24"
+        versionCode = 45
+        versionName = "20.25"
 
         // Toggle strict kiosk behavior at build time:
         // -PkioskStrictMode=true  => full lock task + hard restrictions
