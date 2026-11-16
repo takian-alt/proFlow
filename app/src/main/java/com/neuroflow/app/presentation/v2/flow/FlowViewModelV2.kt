@@ -85,6 +85,27 @@ import java.util.Calendar
 import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.roundToInt
+import com.neuroflow.app.domain.model.ProtectedTimeSlot
+import com.neuroflow.app.domain.model.PtsCategory
+import com.neuroflow.app.domain.service.SimulationOutcome
+import java.time.LocalTime
+import java.time.ZoneId
+
+enum class SimulationLeverType {
+    NAP,
+    CAFFEINE,
+    WALK,
+    BEDTIME
+}
+
+data class SimulationState(
+    val isActive: Boolean = false,
+    val simulatedNaps: List<DaytimeNapBout> = emptyList(),
+    val simulatedStimulants: List<StimulantDoseBout> = emptyList(),
+    val simulatedImpulses: List<CognitiveBlockWindow> = emptyList(),
+    val simulatedBedtimeDeltaMinutes: Int = 0,
+    val outcome: SimulationOutcome? = null
+)
 
 data class FlowUiStateV2(
     val activeTasks: List<TaskEntity> = emptyList(),
@@ -120,7 +141,8 @@ data class FlowUiStateV2(
     val latestSafeStimulantCutoffFormatted: String = "16:11",
     val dailyBlueprint: DailyBlueprint? = null,
     val isBlueprintLoading: Boolean = false,
-    val blueprintIncludedTaskIds: Set<String> = emptySet()
+    val blueprintIncludedTaskIds: Set<String> = emptySet(),
+    val simulationState: SimulationState = SimulationState()
 )
 
 @HiltViewModel
@@ -150,6 +172,7 @@ class FlowViewModelV2 @Inject constructor(
     private val _dailyBlueprint = MutableStateFlow<DailyBlueprint?>(null)
     private val _isBlueprintLoading = MutableStateFlow(false)
     private val _blueprintIncludedTaskIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _simulationState = MutableStateFlow(SimulationState())
 
     internal var nowProvider: () -> Long = { System.currentTimeMillis() }
 
@@ -230,9 +253,10 @@ class FlowViewModelV2 @Inject constructor(
             _lastActionMessage,
             _dailyBlueprint,
             _isBlueprintLoading,
-            _blueprintIncludedTaskIds
-        ) { lastDeferred, actionMsg, bp, bpLoading, bpTaskIds ->
-            listOf<Any?>(lastDeferred, actionMsg, bp, bpLoading, bpTaskIds)
+            _blueprintIncludedTaskIds,
+            _simulationState
+        ) { args ->
+            args.toList()
         }
     ) { (rawActiveTasks, completedTasks, prefs, sleepLogs), (dismissedGuilt, tag, shutdownDismissed, lastCompleted), thirdList ->
         @Suppress("UNCHECKED_CAST")
@@ -242,6 +266,7 @@ class FlowViewModelV2 @Inject constructor(
         val isBlueprintLoading = thirdList[3] as Boolean
         @Suppress("UNCHECKED_CAST")
         val blueprintIncludedTaskIds = thirdList[4] as Set<String>
+        val simState = thirdList[5] as SimulationState
         val activeTasks = rawActiveTasks.filterNot { it.id == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
         val now = nowProvider()
         val currentHour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
@@ -687,7 +712,8 @@ class FlowViewModelV2 @Inject constructor(
             latestSafeStimulantCutoffFormatted = cutoffFormatted,
             dailyBlueprint = dailyBlueprint,
             isBlueprintLoading = isBlueprintLoading,
-            blueprintIncludedTaskIds = blueprintIncludedTaskIds
+            blueprintIncludedTaskIds = blueprintIncludedTaskIds,
+            simulationState = simState
         )
     }.stateIn(
         viewModelScope,
@@ -736,6 +762,161 @@ class FlowViewModelV2 @Inject constructor(
 
     fun dismissDailyBlueprint() {
         _dailyBlueprint.value = null
+    }
+
+    fun toggleSimulationMode(active: Boolean? = null) {
+        val current = _simulationState.value
+        val newActive = active ?: !current.isActive
+        if (!newActive) {
+            _simulationState.value = SimulationState(isActive = false)
+        } else {
+            _simulationState.value = current.copy(isActive = true)
+        }
+    }
+
+    fun toggleSimulatedLever(leverType: SimulationLeverType) {
+        val current = _simulationState.value
+        val now = nowProvider()
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+
+        val newNaps = current.simulatedNaps.toMutableList()
+        val newStimulants = current.simulatedStimulants.toMutableList()
+        val newImpulses = current.simulatedImpulses.toMutableList()
+        var newBedtimeDelta = current.simulatedBedtimeDeltaMinutes
+
+        when (leverType) {
+            SimulationLeverType.NAP -> {
+                if (newNaps.isNotEmpty()) {
+                    newNaps.clear()
+                } else {
+                    val dipStart = today.atTime(LocalTime.of(13, 30)).atZone(zone).toInstant().toEpochMilli()
+                    val napStart = if (now < dipStart) dipStart else now + 5 * 60_000L
+                    newNaps.add(DaytimeNapBout(napStart, napStart + 20 * 60_000L))
+                }
+            }
+            SimulationLeverType.CAFFEINE -> {
+                if (newStimulants.isNotEmpty()) {
+                    newStimulants.clear()
+                } else {
+                    newStimulants.add(StimulantDoseBout(now, 100.0, StimulantType.CAFFEINE))
+                }
+            }
+            SimulationLeverType.WALK -> {
+                if (newImpulses.isNotEmpty()) {
+                    newImpulses.clear()
+                } else {
+                    val walkStartMin = Instant.ofEpochMilli(now).atZone(zone).hour * 60 + Instant.ofEpochMilli(now).atZone(zone).minute
+                    newImpulses.add(
+                        CognitiveBlockWindow(
+                            startMinuteOfDay = walkStartMin,
+                            endMinuteOfDay = walkStartMin + 30,
+                            category = CognitiveBlockCategory.EXERCISE,
+                            intensity = 1.0,
+                            label = "Walk",
+                            explicitStartMillis = now,
+                            explicitEndMillis = now + 30 * 60_000L
+                        )
+                    )
+                }
+            }
+            SimulationLeverType.BEDTIME -> {
+                newBedtimeDelta = if (newBedtimeDelta > 0) 0 else 45
+            }
+        }
+
+        val baseTimeline = uiState.value.energyTimeline.ifEmpty {
+            val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
+            val wakeTime = dayStart + 7 * 3600_000L
+            circadianEnergyService.projectDayTimeline(dayStart, wakeTime, 480, 15, zone)
+        }
+        val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val wakeTime = baseTimeline.firstOrNull()?.timestampMillis ?: (dayStart + 7 * 3600_000L)
+        val sleepDuration = 480
+
+        val outcome = if (newNaps.isNotEmpty() || newStimulants.isNotEmpty() || newImpulses.isNotEmpty() || newBedtimeDelta > 0) {
+            circadianEnergyService.simulateDayInterventions(
+                baseTimeline = baseTimeline,
+                dayStartMillis = dayStart,
+                wakeTimeMillis = wakeTime,
+                lastSleepDurationMinutes = sleepDuration,
+                stepMinutes = 15,
+                zoneId = zone,
+                simulatedNaps = newNaps,
+                simulatedStimulants = newStimulants,
+                simulatedImpulses = newImpulses,
+                simulatedBedtimeDeltaMinutes = newBedtimeDelta,
+                activeBlocks = uiState.value.dailyCognitiveBlocks
+            )
+        } else null
+
+        _simulationState.value = current.copy(
+            isActive = true,
+            simulatedNaps = newNaps,
+            simulatedStimulants = newStimulants,
+            simulatedImpulses = newImpulses,
+            simulatedBedtimeDeltaMinutes = newBedtimeDelta,
+            outcome = outcome
+        )
+    }
+
+    fun resetSimulation() {
+        _simulationState.value = SimulationState(isActive = false)
+    }
+
+    fun applySimulationToPlan() {
+        val current = _simulationState.value
+        val now = nowProvider()
+        val zone = ZoneId.systemDefault()
+
+        viewModelScope.launch {
+            val existingSlots = preferencesDataStore.preferencesFlow.first().protectedTimeSlots.toMutableList()
+
+            if (current.simulatedNaps.isNotEmpty()) {
+                val nap = current.simulatedNaps.first()
+                val napZdt = Instant.ofEpochMilli(nap.startMillis).atZone(zone)
+                val startMin = napZdt.hour * 60 + napZdt.minute
+                val napSlot = ProtectedTimeSlot(
+                    id = "pts_nap_${System.currentTimeMillis()}",
+                    label = "Power Nap",
+                    startMinuteOfDay = startMin,
+                    durationMinutes = nap.durationMinutes,
+                    category = PtsCategory.BREAK,
+                    isEnabled = true,
+                    dateMillis = napZdt.toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+                )
+                existingSlots.add(napSlot)
+            }
+
+            if (current.simulatedImpulses.isNotEmpty()) {
+                val walk = current.simulatedImpulses.first()
+                val walkZdt = Instant.ofEpochMilli(walk.startMillis).atZone(zone)
+                val startMin = walkZdt.hour * 60 + walkZdt.minute
+                val walkSlot = ProtectedTimeSlot(
+                    id = "pts_walk_${System.currentTimeMillis()}",
+                    label = "Energy Walk",
+                    startMinuteOfDay = startMin,
+                    durationMinutes = 30,
+                    category = PtsCategory.BREAK,
+                    isEnabled = true,
+                    dateMillis = walkZdt.toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+                )
+                existingSlots.add(walkSlot)
+            }
+
+            if (current.simulatedNaps.isNotEmpty() || current.simulatedImpulses.isNotEmpty()) {
+                preferencesDataStore.updateProtectedTimeSlots(existingSlots)
+            }
+
+            if (current.simulatedBedtimeDeltaMinutes > 0) {
+                preferencesDataStore.updatePreferences { prefs ->
+                    val newHour = ((prefs.sleepHour * 60 - current.simulatedBedtimeDeltaMinutes) / 60).coerceIn(18, 23)
+                    prefs.copy(sleepHour = newHour)
+                }
+            }
+
+            _simulationState.value = SimulationState(isActive = false)
+        }
     }
 
     fun addTask(task: TaskEntity) {

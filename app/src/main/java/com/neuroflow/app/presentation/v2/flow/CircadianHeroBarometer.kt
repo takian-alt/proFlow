@@ -59,6 +59,11 @@ fun CircadianHeroBarometer(
     socialJetlagLagHours: Double = 0.0,
     predictedSwsSuppressionPercent: Int = 0,
     latestSafeStimulantCutoffFormatted: String = "16:11",
+    simulationState: SimulationState = SimulationState(),
+    onToggleSimulationMode: (Boolean?) -> Unit = {},
+    onToggleSimulatedLever: (SimulationLeverType) -> Unit = {},
+    onResetSimulation: () -> Unit = {},
+    onApplySimulationToPlan: () -> Unit = {},
     onClearStimulants: () -> Unit = {},
     onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
     onLogStimulant: (StimulantType) -> Unit = {},
@@ -128,24 +133,56 @@ fun CircadianHeroBarometer(
                     }
                 }
 
-                if (dayTimeline.size >= 2) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Surface(
-                        onClick = { isGraphExpanded = !isGraphExpanded },
+                        onClick = {
+                            val next = !simulationState.isActive
+                            onToggleSimulationMode(next)
+                            if (next) isGraphExpanded = true
+                        },
                         shape = RoundedCornerShape(20.dp),
-                        color = NeuroFlowPaletteV2.SurfaceElevated,
-                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
+                        color = if (simulationState.isActive) accent.copy(alpha = 0.2f) else NeuroFlowPaletteV2.SurfaceElevated,
+                        border = BorderStroke(
+                            0.75.dp,
+                            if (simulationState.isActive) accent else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f)
+                        )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = if (isGraphExpanded) "24h Curve ▲" else "24h Curve ▼",
+                                text = if (simulationState.isActive) "⚡ Simulating" else "⚡ Simulate",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = NeuroFlowPaletteV2.TextSecondary
+                                color = if (simulationState.isActive) accent else NeuroFlowPaletteV2.TextSecondary
                             )
+                        }
+                    }
+
+                    if (dayTimeline.size >= 2) {
+                        Surface(
+                            onClick = { isGraphExpanded = !isGraphExpanded },
+                            shape = RoundedCornerShape(20.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = if (isGraphExpanded) "24h Curve ▲" else "24h Curve ▼",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = NeuroFlowPaletteV2.TextSecondary
+                                )
+                            }
                         }
                     }
                 }
@@ -153,7 +190,7 @@ fun CircadianHeroBarometer(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (isGraphExpanded && dayTimeline.size >= 2) {
+            if ((isGraphExpanded || simulationState.isActive) && dayTimeline.size >= 2) {
                 EnhancedCircadianEnergyGraph(
                     timeline = dayTimeline,
                     currentMillis = System.currentTimeMillis(),
@@ -162,8 +199,20 @@ fun CircadianHeroBarometer(
                     isFallbackSleep = isFallbackSleep,
                     learnedSampleCount = learnedSampleCount,
                     embeddedInHeroCard = true,
+                    simulatedTimeline = simulationState.outcome?.simulatedTimeline,
+                    showSleepPressure = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (simulationState.isActive) {
+                    SimulationTray(
+                        simulationState = simulationState,
+                        onToggleSimulatedLever = onToggleSimulatedLever,
+                        onResetSimulation = onResetSimulation,
+                        onApplySimulationToPlan = onApplySimulationToPlan,
+                        accent = accent
+                    )
+                }
             } else {
                 // Compact 3-metric strip
                 Row(
@@ -335,6 +384,11 @@ fun CircadianHeroBarometer(
     socialJetlagLagHours: Double = 0.0,
     predictedSwsSuppressionPercent: Int = 0,
     latestSafeStimulantCutoffFormatted: String = "16:11",
+    simulationState: SimulationState = SimulationState(),
+    onToggleSimulationMode: (Boolean?) -> Unit = {},
+    onToggleSimulatedLever: (SimulationLeverType) -> Unit = {},
+    onResetSimulation: () -> Unit = {},
+    onApplySimulationToPlan: () -> Unit = {},
     onClearStimulants: () -> Unit = {},
     onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
     onLogStimulant: (StimulantType) -> Unit = {},
@@ -414,6 +468,11 @@ fun CircadianHeroBarometer(
         socialJetlagLagHours = socialJetlagLagHours,
         predictedSwsSuppressionPercent = predictedSwsSuppressionPercent,
         latestSafeStimulantCutoffFormatted = latestSafeStimulantCutoffFormatted,
+        simulationState = simulationState,
+        onToggleSimulationMode = onToggleSimulationMode,
+        onToggleSimulatedLever = onToggleSimulatedLever,
+        onResetSimulation = onResetSimulation,
+        onApplySimulationToPlan = onApplySimulationToPlan,
         onClearStimulants = onClearStimulants,
         onRemoveStimulantDose = onRemoveStimulantDose,
         onLogStimulant = onLogStimulant,
@@ -486,6 +545,7 @@ fun PhaseGuidanceRow(
                 text = when (phase) {
                     EnergyPhase.SURGE -> "🚀"
                     EnergyPhase.PEAK -> "⚡"
+                    EnergyPhase.MORNING_RAMP -> "🌅"
                     EnergyPhase.REBOUND -> "📈"
                     EnergyPhase.DIP -> "☕"
                     EnergyPhase.WIND_DOWN -> "🌙"
@@ -523,6 +583,7 @@ fun PhaseGuidanceRow(
 fun PhaseBadgeText(phase: EnergyPhase): String = when (phase) {
     EnergyPhase.SURGE -> "HYPERFOCUS SURGE"
     EnergyPhase.PEAK -> "PEAK COGNITIVE"
+    EnergyPhase.MORNING_RAMP -> "MORNING RAMP"
     EnergyPhase.REBOUND -> "ENERGY REBOUND"
     EnergyPhase.DIP -> "CIRCADIAN DIP"
     EnergyPhase.WIND_DOWN -> "WIND-DOWN"
@@ -544,6 +605,7 @@ fun PhaseRecommendation(
     return when (phase) {
         EnergyPhase.SURGE -> "Peak stimulant / flow state active. Ideal window for high-friction, critical goals."
         EnergyPhase.PEAK -> "Tackle highest-leverage deep work. Peak window active until ${peakEnd.format(fmt)}."
+        EnergyPhase.MORNING_RAMP -> "Ascending morning vigilance. Great window for structured focus and planning."
         EnergyPhase.REBOUND -> "Secondary alertness wave. Ideal for collaborative execution."
         EnergyPhase.DIP -> "Midday lull (${dipStart.format(fmt)}–${dipEnd.format(fmt)}). Switch to light admin or rest."
         EnergyPhase.INERTIA -> "Waking grogginess active. Clear brain fog with hydration and natural light."
@@ -678,6 +740,11 @@ fun StimulantQuickLogRow(
     activePlasmaMg: Double = 0.0,
     predictedSwsSuppressionPercent: Int = 0,
     latestSafeStimulantCutoffFormatted: String = "16:11",
+    simulationState: SimulationState = SimulationState(),
+    onToggleSimulationMode: (Boolean?) -> Unit = {},
+    onToggleSimulatedLever: (SimulationLeverType) -> Unit = {},
+    onResetSimulation: () -> Unit = {},
+    onApplySimulationToPlan: () -> Unit = {},
     onClearStimulants: () -> Unit = {},
     onRemoveStimulantDose: (StimulantDoseBout) -> Unit = {},
     onLogStimulant: (StimulantType) -> Unit,
@@ -1115,3 +1182,173 @@ fun StimulantQuickLogRow(
         }
     }
 }
+
+@Composable
+fun SimulationTray(
+    simulationState: SimulationState,
+    onToggleSimulatedLever: (SimulationLeverType) -> Unit,
+    onResetSimulation: () -> Unit,
+    onApplySimulationToPlan: () -> Unit,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .background(
+                color = NeuroFlowPaletteV2.SurfaceElevated.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .border(
+                1.dp,
+                accent.copy(alpha = 0.25f),
+                RoundedCornerShape(14.dp)
+            )
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "⚡ BIO-SIMULATOR LEVERS",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = accent,
+                letterSpacing = 0.6.sp
+            )
+            if (simulationState.outcome != null) {
+                Text(
+                    text = "+${simulationState.outcome.netEnergyDeltaPercent}% Avg Lift",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = NeuroFlowPaletteV2.OptimalEmerald
+                )
+            }
+        }
+
+        // Horizontal scrollable levers row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val isNapActive = simulationState.simulatedNaps.isNotEmpty()
+            val isCaffeineActive = simulationState.simulatedStimulants.isNotEmpty()
+            val isWalkActive = simulationState.simulatedImpulses.isNotEmpty()
+            val isBedtimeActive = simulationState.simulatedBedtimeDeltaMinutes > 0
+
+            SimulationLeverChip(
+                label = "😴 +20m Nap",
+                isSelected = isNapActive,
+                accent = accent,
+                onClick = { onToggleSimulatedLever(SimulationLeverType.NAP) }
+            )
+            SimulationLeverChip(
+                label = "☕ +100mg Caffeine",
+                isSelected = isCaffeineActive,
+                accent = accent,
+                onClick = { onToggleSimulatedLever(SimulationLeverType.CAFFEINE) }
+            )
+            SimulationLeverChip(
+                label = "🚶 +30m Walk",
+                isSelected = isWalkActive,
+                accent = accent,
+                onClick = { onToggleSimulatedLever(SimulationLeverType.WALK) }
+            )
+            SimulationLeverChip(
+                label = "🌙 Bedtime -45m",
+                isSelected = isBedtimeActive,
+                accent = accent,
+                onClick = { onToggleSimulatedLever(SimulationLeverType.BEDTIME) }
+            )
+        }
+
+        if (simulationState.outcome != null) {
+            val outcome = simulationState.outcome
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = NeuroFlowPaletteV2.SurfaceCard,
+                border = BorderStroke(0.5.dp, NeuroFlowPaletteV2.BorderSubtle)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = outcome.summaryInsight,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextPrimary,
+                        fontSize = 12.sp
+                    )
+                    if (outcome.netFocusMinutesSaved > 0) {
+                        Text(
+                            text = "💡 Saved ~${outcome.netFocusMinutesSaved}m of cognitive focus capacity.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onResetSimulation,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("Reset", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary)
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Button(
+                    onClick = onApplySimulationToPlan,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accent,
+                        contentColor = Color.Black
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("Apply to Plan", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SimulationLeverChip(
+    label: String,
+    isSelected: Boolean,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (isSelected) accent.copy(alpha = 0.2f) else NeuroFlowPaletteV2.SurfaceCard,
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.6f)
+        )
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) accent else NeuroFlowPaletteV2.TextSecondary,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
+}
+
