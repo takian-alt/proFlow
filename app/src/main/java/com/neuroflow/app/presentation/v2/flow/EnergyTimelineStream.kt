@@ -44,6 +44,11 @@ import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.domain.service.FatigueWarningLevel
+import com.neuroflow.app.domain.service.TaskFatigueScoreUi
+import com.neuroflow.app.presentation.v2.common.FatigueAwareScoreBadge
+import com.neuroflow.app.presentation.v2.common.FatigueBurnoutWarningBanner
+import com.neuroflow.app.presentation.v2.common.FatigueScoreDetailCard
 
 @Composable
 fun EnergyTimelineStream(
@@ -55,6 +60,7 @@ fun EnergyTimelineStream(
     onEditTask: (TaskEntity) -> Unit = {},
     onShiftToPeak: ((TaskEntity) -> Unit)? = null,
     timeline: List<CircadianSnapshot> = emptyList(),
+    fatigueScores: Map<String, TaskFatigueScoreUi> = emptyMap(),
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
@@ -200,7 +206,8 @@ fun EnergyTimelineStream(
                                 onEdit = { onEditTask(currentTask) },
                                 onShiftToPeak = onShiftToPeak?.let { shift -> { shift(currentTask) } },
                                 onLogPastTime = { taskToLogTime = currentTask },
-                                timeline = timeline
+                                timeline = timeline,
+                                fatigueScore = fatigueScores[task.id]
                             )
                         }
                     }
@@ -237,7 +244,8 @@ fun TimelineTaskCard(
     onEdit: () -> Unit = {},
     onShiftToPeak: (() -> Unit)? = null,
     onLogPastTime: () -> Unit = {},
-    timeline: List<CircadianSnapshot> = emptyList()
+    timeline: List<CircadianSnapshot> = emptyList(),
+    fatigueScore: TaskFatigueScoreUi? = null
 ) {
     val energyBadgeColor = when (task.energyLevel) {
         EnergyLevel.HIGH -> NeuroFlowThemeV2Colors.WarmAmber
@@ -286,7 +294,11 @@ fun TimelineTaskCard(
             EnergyLevel.LOW -> EnergyPhase.RECOVERY
         }
     }
-    val accentColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+    val accentColor = if (fatigueScore?.warningLevel == FatigueWarningLevel.HIGH_BURNOUT_RISK) {
+        NeuroFlowPaletteV2.RecoveryRose
+    } else {
+        NeuroFlowPaletteV2.accentForPhase(taskPhase)
+    }
     val cardShape = RoundedCornerShape(16.dp)
 
     SwipeToDismissBox(
@@ -503,6 +515,18 @@ fun TimelineTaskCard(
                                 )
                             }
                         }
+
+                        if (fatigueScore != null) {
+                            FatigueAwareScoreBadge(
+                                score = fatigueScore,
+                                onClick = { showDetailSheet = true }
+                            )
+                        }
+                    }
+
+                    if (fatigueScore != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FatigueBurnoutWarningBanner(score = fatigueScore)
                     }
 
                     if (scheduledMillis != null && timeline.isNotEmpty()) {
@@ -596,6 +620,10 @@ fun TimelineTaskCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = energyBadgeColor
                     )
+                }
+
+                if (fatigueScore != null) {
+                    FatigueScoreDetailCard(score = fatigueScore)
                 }
 
                 if (task.description.isNotBlank()) {

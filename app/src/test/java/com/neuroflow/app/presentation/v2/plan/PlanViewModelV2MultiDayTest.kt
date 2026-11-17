@@ -225,13 +225,19 @@ class PlanViewModelV2MultiDayTest {
         )
 
         coEvery {
-            multiDayOrchestrator.orchestrateMultiDaySchedule(
+            multiDayOrchestrator.orchestrateMultiDayScheduleWithContext(
                 tasks = any(),
                 startDate = any(),
                 horizonDays = any(),
                 zoneId = any(),
                 referenceNowMillis = any(),
-                rejectionPatternsJson = any()
+                rejectionPatternsJson = any(),
+                allKnownTasks = any(),
+                closedSessions = any(),
+                extraActiveUncompletedIds = any(),
+                externalAndFixedBusyWindowsByDate = any(),
+                precommittedCognitiveMinutesByDate = any(),
+                forceReplan = any()
             )
         } returns MultiDaySchedulingOutcome(
             dayOutcomes = mapOf(today to SchedulingOutcome(placements = listOf(placement), deferrals = emptyList())),
@@ -258,6 +264,100 @@ class PlanViewModelV2MultiDayTest {
                     it.scheduledTime == 36_000_000L &&
                     it.isAutoScheduled
             })
+        }
+    }
+
+    @Test
+    fun testAutoBalance_forwardsLockedBusyWindowsAndPrecommittedCognitiveMinutes() = runTest(testDispatcher) {
+        val zoneId = ZoneId.systemDefault()
+        val today = LocalDate.now(zoneId)
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        val lockedTask = TaskEntity(
+            id = "locked-morning",
+            title = "Locked Architecture Review",
+            scheduledDate = dayStart,
+            scheduledTime = 9 * 3600_000L,
+            plannedBlockMinutes = 90,
+            estimatedDurationMinutes = 90,
+            isScheduleLocked = true,
+            isAutoScheduled = false,
+            energyLevel = com.neuroflow.app.domain.model.EnergyLevel.HIGH,
+            status = TaskStatus.ACTIVE
+        )
+        val completedTodayTask = TaskEntity(
+            id = "done-today",
+            title = "Completed Morning Deep Work",
+            scheduledDate = dayStart,
+            plannedBlockMinutes = 45,
+            estimatedDurationMinutes = 45,
+            energyLevel = com.neuroflow.app.domain.model.EnergyLevel.HIGH,
+            status = TaskStatus.COMPLETED,
+            completedAt = dayStart + 8 * 3600_000L
+        )
+        val mutableTask = TaskEntity(
+            id = "mutable-1",
+            title = "Flexible Task",
+            estimatedDurationMinutes = 60,
+            status = TaskStatus.ACTIVE,
+            isScheduleLocked = false
+        )
+
+        coEvery { taskRepo.getActiveTasks() } returns listOf(lockedTask, mutableTask)
+        coEvery { taskRepo.getAllTasks() } returns listOf(lockedTask, completedTodayTask, mutableTask)
+        coEvery {
+            multiDayOrchestrator.orchestrateMultiDayScheduleWithContext(
+                tasks = any(),
+                startDate = any(),
+                horizonDays = any(),
+                zoneId = any(),
+                referenceNowMillis = any(),
+                rejectionPatternsJson = any(),
+                allKnownTasks = any(),
+                closedSessions = any(),
+                extraActiveUncompletedIds = any(),
+                externalAndFixedBusyWindowsByDate = any(),
+                precommittedCognitiveMinutesByDate = any(),
+                forceReplan = any()
+            )
+        } returns MultiDaySchedulingOutcome(
+            dayOutcomes = emptyMap(),
+            totalScheduledTasks = 0,
+            crossDaySplits = emptyList(),
+            finalDeferred = emptyList()
+        )
+
+        val viewModel = PlanViewModelV2(
+            taskRepository = taskRepo,
+            preferencesDataStore = prefsDataStore,
+            workManager = workManager,
+            calendarSyncRepository = calendarRepo,
+            multiDayScheduleOrchestrator = multiDayOrchestrator
+        )
+
+        viewModel.autoBalance(horizonDays = 7).join()
+        advanceUntilIdle()
+
+        coVerify {
+            multiDayOrchestrator.orchestrateMultiDayScheduleWithContext(
+                tasks = match { it.size == 1 && it.first().id == "mutable-1" },
+                startDate = today,
+                horizonDays = 7,
+                zoneId = any(),
+                referenceNowMillis = any(),
+                rejectionPatternsJson = any(),
+                allKnownTasks = match { it.size == 3 },
+                closedSessions = any(),
+                extraActiveUncompletedIds = any(),
+                externalAndFixedBusyWindowsByDate = match { map ->
+                    val wins = map[today].orEmpty()
+                    wins.any { w -> w.startMillis == dayStart + 9 * 3600_000L && w.durationMinutes == 90 }
+                },
+                precommittedCognitiveMinutesByDate = match { map ->
+                    map[today] == 135
+                },
+                forceReplan = true
+            )
         }
     }
 }

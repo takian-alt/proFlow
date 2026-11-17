@@ -395,4 +395,220 @@ class DailyBlueprintOrchestratorTest {
             taskRepository.update(match { it.id == "t1" })
         }
     }
+
+    @Test
+    fun testGenerateBlueprint_includesOverdueAndUnscheduledBacklogWithoutBlockingFixedWindows() = runBlocking {
+        val yesterdayStart = LocalDate.now(zoneId).minusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val tomorrowStart = LocalDate.now(zoneId).plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        val overdueTask = TaskEntity(
+            id = "overdue-1",
+            title = "Overdue Draft",
+            scheduledDate = yesterdayStart,
+            scheduledTime = 9 * 3600_000L,
+            estimatedDurationMinutes = 30,
+            isAutoScheduled = true,
+            quadrant = Quadrant.DO_FIRST
+        )
+        // Backlog task carrying a default time-of-day offset without scheduledDate must NOT block busyWindows
+        val backlogWithOffset = TaskEntity(
+            id = "backlog-1",
+            title = "Backlog Deep Work",
+            scheduledDate = null,
+            scheduledTime = 11 * 3600_000L,
+            estimatedDurationMinutes = 45,
+            isAutoScheduled = false,
+            quadrant = Quadrant.SCHEDULE
+        )
+        coEvery { taskRepository.getActiveTasks() } returns listOf(overdueTask, backlogWithOffset)
+        coEvery { taskRepository.getAllTasks() } returns listOf(overdueTask, backlogWithOffset)
+
+        every {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = any(),
+                dayDate = any(),
+                nowMillis = any(),
+                wakeTimeMillis = any(),
+                lastSleepDurationMinutes = any(),
+                busyWindows = any(),
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = any(),
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        } returns SchedulingOutcome(emptyList(), emptyList())
+
+        orchestrator.generateBlueprint(todayStart)
+        coVerify {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = match { tasks ->
+                    tasks.any { it.id == "overdue-1" } && tasks.any { it.id == "backlog-1" }
+                },
+                dayDate = LocalDate.now(zoneId),
+                nowMillis = any(),
+                wakeTimeMillis = any(),
+                lastSleepDurationMinutes = any(),
+                busyWindows = match { it.isEmpty() },
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = true,
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        }
+
+        // Future target date should ALSO receive unscheduled backlog items (minus overdue)
+        orchestrator.generateBlueprint(tomorrowStart)
+        coVerify {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = match { tasks -> tasks.any { it.id == "backlog-1" } },
+                dayDate = LocalDate.now(zoneId).plusDays(1),
+                nowMillis = any(),
+                wakeTimeMillis = any(),
+                lastSleepDurationMinutes = any(),
+                busyWindows = any(),
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = any(),
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        }
+    }
+
+    @Test
+    fun testGenerateBlueprint_deductsCompletedAndFixedCognitiveMinutesAndGroupsDynamicSplitAtomically() = runBlocking {
+        val completedToday = TaskEntity(
+            id = "done-today",
+            title = "Finished Morning Spec",
+            scheduledDate = todayStart,
+            plannedBlockMinutes = 60,
+            estimatedDurationMinutes = 60,
+            energyLevel = EnergyLevel.HIGH,
+            status = com.neuroflow.app.domain.model.TaskStatus.COMPLETED,
+            completedAt = todayStart + 8 * 3600_000L
+        )
+        val lockedToday = TaskEntity(
+            id = "locked-today",
+            title = "Locked Sync",
+            scheduledDate = todayStart,
+            scheduledTime = 9 * 3600_000L,
+            plannedBlockMinutes = 60,
+            estimatedDurationMinutes = 60,
+            energyLevel = EnergyLevel.MEDIUM,
+            isScheduleLocked = true,
+            isAutoScheduled = false,
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE
+        )
+        val normalTask = TaskEntity(
+            id = "normal-fit",
+            title = "Fits Budget",
+            estimatedDurationMinutes = 60,
+            quadrant = Quadrant.DO_FIRST
+        )
+        val bigSplitTask = TaskEntity(
+            id = "big-split",
+            title = "Big Design Work",
+            estimatedDurationMinutes = 90,
+            quadrant = Quadrant.SCHEDULE
+        )
+
+        coEvery { taskRepository.getActiveTasks() } returns listOf(lockedToday, normalTask, bigSplitTask)
+        coEvery { taskRepository.getAllTasks() } returns listOf(completedToday, lockedToday, normalTask, bigSplitTask)
+
+        // Daily target = 240m, precommitted = 120m (60 done + 60 locked) -> remaining = 120m.
+        // Normal (60m) + Big Split (45m + 45m = 90m) total 150m > 120m remaining.
+        // Both Big Split parts must move to overflow together rather than leaving orphaned Part 1!
+        val pNormal = ScheduledPlacement(
+            task = SchedulableTask(id = "normal-fit", title = "Fits Budget", durationMinutes = 60),
+            window = TimeSlotWindow(todayStart + 10 * 3600_000L, todayStart + 11 * 3600_000L)
+        )
+        val pSplit1 = ScheduledPlacement(
+            task = SchedulableTask(id = "big-split#part1", title = "Big Design Work", durationMinutes = 45),
+            window = TimeSlotWindow(todayStart + 11 * 3600_000L, todayStart + 11 * 3600_000L + 45 * 60_000L)
+        )
+        val pSplit2 = ScheduledPlacement(
+            task = SchedulableTask(id = "big-split#part2", title = "Big Design Work", durationMinutes = 45),
+            window = TimeSlotWindow(todayStart + 12 * 3600_000L, todayStart + 12 * 3600_000L + 45 * 60_000L)
+        )
+
+        every {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = any(),
+                dayDate = any(),
+                nowMillis = any(),
+                wakeTimeMillis = any(),
+                lastSleepDurationMinutes = any(),
+                busyWindows = any(),
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = any(),
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        } returns SchedulingOutcome(placements = listOf(pNormal, pSplit1, pSplit2), deferrals = emptyList())
+
+        val blueprint = orchestrator.generateBlueprint(todayStart)
+
+        assertEquals(120, blueprint.precommittedMinutes)
+        assertEquals(60, blueprint.plannedMinutes)
+        assertEquals(1, blueprint.items.size)
+        assertEquals("normal-fit", blueprint.items.first().task.id)
+        assertEquals(1, blueprint.overflowTasks.size)
+        assertEquals("big-split", blueprint.overflowTasks.first().id)
+        assertEquals((180f / 240f) * 100f, blueprint.capacityUtilizationPercent, 0.01f)
+    }
 }

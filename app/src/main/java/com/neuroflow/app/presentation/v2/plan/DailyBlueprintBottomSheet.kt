@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.BottomSheetDefaults
@@ -42,6 +44,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -60,8 +63,11 @@ import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.scheduler.BlueprintTaskItem
 import com.neuroflow.app.domain.scheduler.DailyBlueprint
+import com.neuroflow.app.domain.scheduler.SchedulableTaskMapper
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.domain.service.TaskFatigueScoreUi
+import com.neuroflow.app.presentation.v2.common.FatigueAwareScoreBadge
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.time.Instant
@@ -111,6 +117,9 @@ fun DailyBlueprintBottomSheet(
     onToggleTask: (taskId: String, isIncluded: Boolean) -> Unit,
     onApply: () -> Unit,
     onDismiss: () -> Unit,
+    fatigueScoresByTaskId: Map<String, TaskFatigueScoreUi> = emptyMap(),
+    onAutoBalanceWeek: (() -> Unit)? = null,
+    onRegenerate: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -174,14 +183,22 @@ fun DailyBlueprintBottomSheet(
         val dynamicPlannedMinutes = remember(blueprint, includedTaskIds) {
             blueprint.items
                 .filter { it.task.id in includedTaskIds }
-                .sumOf { TaskBlockPlan.plannedMinutes(it.task) }
+                .sumOf { item ->
+                    if (parseSplitBadge(item.task) != null) {
+                        val slotDuration = ((item.proposedEndMillis - item.proposedStartMillis) / 60_000L).toInt()
+                        if (slotDuration > 0) slotDuration else TaskBlockPlan.plannedMinutes(item.task)
+                    } else {
+                        TaskBlockPlan.plannedMinutes(item.task)
+                    }
+                }
         }
+        val totalCommittedMinutes = blueprint.precommittedMinutes + dynamicPlannedMinutes
         val capacityTarget = blueprint.capacityTargetMinutes
         val utilizationPercent = if (capacityTarget > 0) {
-            ((dynamicPlannedMinutes.toFloat() / capacityTarget) * 100).roundToInt()
+            ((totalCommittedMinutes.toFloat() / capacityTarget) * 100).roundToInt()
         } else 0
         val progressFraction = if (capacityTarget > 0) {
-            (dynamicPlannedMinutes.toFloat() / capacityTarget).coerceIn(0f, 1f)
+            (totalCommittedMinutes.toFloat() / capacityTarget).coerceIn(0f, 1f)
         } else 0f
 
         Column(
@@ -246,16 +263,36 @@ fun DailyBlueprintBottomSheet(
                                 }
                             }
 
-                            IconButton(
-                                onClick = onDismiss,
-                                modifier = Modifier.size(48.dp)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = NeuroFlowPaletteV2.TextSecondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                if (onRegenerate != null) {
+                                    IconButton(
+                                        onClick = onRegenerate,
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .testTag("blueprint_regenerate_button")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "Re-optimize blueprint",
+                                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Close",
+                                        tint = NeuroFlowPaletteV2.TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -286,10 +323,17 @@ fun DailyBlueprintBottomSheet(
                                     color = NeuroFlowPaletteV2.TextSecondary
                                 )
                                 Text(
-                                    text = "${dynamicPlannedMinutes}m / ${capacityTarget}m planned • ${utilizationPercent}%",
+                                    text = "${totalCommittedMinutes}m / ${capacityTarget}m • ${utilizationPercent}%",
                                     style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (utilizationPercent > 100) NeuroFlowPaletteV2.RecoveryRose else NeuroFlowPaletteV2.OptimalEmerald
+                                )
+                            }
+                            if (blueprint.precommittedMinutes > 0) {
+                                Text(
+                                    text = "Fixed & completed: ${blueprint.precommittedMinutes}m • New blueprint slots: ${dynamicPlannedMinutes}m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowPaletteV2.TextSecondary
                                 )
                             }
                             LinearProgressIndicator(
@@ -352,12 +396,69 @@ fun DailyBlueprintBottomSheet(
                     )
                 }
 
+                if (blueprint.items.isEmpty()) {
+                    item(key = "empty_blueprint") {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = if (blueprint.precommittedMinutes >= capacityTarget) {
+                                        "Today's cognitive budget is already full from fixed or completed blocks."
+                                    } else {
+                                        "No additional tasks fit into remaining focus windows for this day."
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NeuroFlowPaletteV2.TextPrimary
+                                )
+                                if (onAutoBalanceWeek != null) {
+                                    OutlinedButton(
+                                        onClick = onAutoBalanceWeek,
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.6f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .testTag("blueprint_auto_balance_week_button")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Spread Tasks Across 7-Day Week",
+                                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 items(blueprint.items, key = { it.task.id }) { item ->
                     val isIncluded = item.task.id in includedTaskIds
                     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(item.energyPhase)
                     val splitBadge = parseSplitBadge(item.task)
                     val cleanTitle = item.task.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
-                    val plannedMinutes = TaskBlockPlan.plannedMinutes(item.task)
+                    val plannedMinutes = if (splitBadge != null) {
+                        ((item.proposedEndMillis - item.proposedStartMillis) / 60_000L).toInt()
+                            .takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(item.task)
+                    } else {
+                        TaskBlockPlan.plannedMinutes(item.task)
+                    }
+                    val baseId = SchedulableTaskMapper.cleanSplitTaskId(item.task.id)
+                    val fatigueScore = fatigueScoresByTaskId[item.task.id] ?: fatigueScoresByTaskId[baseId]
 
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -454,8 +555,16 @@ fun DailyBlueprintBottomSheet(
                                         color = NeuroFlowPaletteV2.TextPrimary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        modifier = Modifier.weight(1f)
                                     )
+
+                                    if (fatigueScore != null) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        FatigueAwareScoreBadge(
+                                            score = fatigueScore,
+                                            compact = true
+                                        )
+                                    }
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -489,32 +598,54 @@ fun DailyBlueprintBottomSheet(
                             border = BorderStroke(1.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.35f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Info,
-                                    contentDescription = null,
-                                    tint = NeuroFlowPaletteV2.PeakAmber,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Column {
-                                    Text(
-                                        text = "${blueprint.overflowTasks.size} task(s) deferred to upcoming days to protect your deep work capacity.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = NeuroFlowPaletteV2.TextPrimary,
-                                        fontWeight = FontWeight.Medium
+                                Row(
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = NeuroFlowPaletteV2.PeakAmber,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = blueprint.overflowTasks.joinToString(", ") { it.title },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = NeuroFlowPaletteV2.TextSecondary,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Column {
+                                        Text(
+                                            text = "${blueprint.overflowTasks.size} task(s) deferred to upcoming days to protect your deep work capacity.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = NeuroFlowPaletteV2.TextPrimary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = blueprint.overflowTasks.joinToString(", ") { it.title },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowPaletteV2.TextSecondary,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                if (onAutoBalanceWeek != null) {
+                                    OutlinedButton(
+                                        onClick = onAutoBalanceWeek,
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.55f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .testTag("blueprint_overflow_balance_button")
+                                    ) {
+                                        Text(
+                                            text = "Spread Overflow Across 7-Day Week",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeuroFlowPaletteV2.PeakAmber
+                                        )
+                                    }
                                 }
                             }
                         }

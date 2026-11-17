@@ -17,6 +17,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.domain.service.FatigueWarningLevel
+import com.neuroflow.app.domain.service.TaskFatigueScoreUi
+import com.neuroflow.app.presentation.v2.common.FatigueAwareScoreBadge
+import com.neuroflow.app.presentation.v2.common.FatigueBurnoutWarningBanner
+import com.neuroflow.app.presentation.v2.common.FatigueScoreDetailCard
 import com.neuroflow.app.presentation.v2.flow.TaskSlotEnergyFitBadge
 import com.neuroflow.app.presentation.v2.flow.UltradianRecoveryDivider
 import com.neuroflow.app.presentation.v2.flow.formatDurationChip
@@ -29,6 +34,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
@@ -120,6 +126,7 @@ fun PlanScreenV2(
     var showFrogConfetti by remember { mutableStateOf(false) }
     var showProtectedSlotSheet by remember { mutableStateOf(false) }
     var showInboxSweepSheet by remember { mutableStateOf(false) }
+    var inspectingFatigueScore by remember { mutableStateOf<TaskFatigueScoreUi?>(null) }
 
     val handleCompleteTask: (TaskEntity) -> Unit = { task ->
         if (task.isFrog) showFrogConfetti = true
@@ -539,8 +546,20 @@ fun PlanScreenV2(
                                             text = "${unscheduled.priority.name} • Tap to schedule",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.WarmAmber,
-                                            fontSize = 10.sp
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
+                                        val unscheduledFatigue = state.fatigueScoresByTaskId[unscheduled.id]
+                                        if (unscheduledFatigue != null) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            FatigueAwareScoreBadge(
+                                                score = unscheduledFatigue,
+                                                compact = true,
+                                                onClick = { inspectingFatigueScore = unscheduledFatigue }
+                                            )
+                                        }
                                     }
                                     val deferral = state.deferrals.firstOrNull { it.taskId == unscheduled.id }
                                     if (deferral != null) {
@@ -671,7 +690,7 @@ fun PlanScreenV2(
                     state = effectiveState,
                     onSelectDate = { viewModel.selectDate(it) },
                     onResolveConflict = { viewModel.resolveConflict(it) },
-                    onAutoBalanceClick = { viewModel.triggerAutoScheduleNow() },
+                    onAutoBalanceClick = { viewModel.autoBalance(horizonDays = 7) },
                     onStartFocus = onNavigateToFocus,
                     onCompleteTask = handleCompleteTask,
                     onDeleteTask = { viewModel.requestDeleteTask(it) },
@@ -680,7 +699,8 @@ fun PlanScreenV2(
                     onAssignTaskTime = { task -> taskToScheduleTime = task },
                     onLogPastTime = { taskToLogTime = it },
                     onEditTask = { task -> editingTask = task },
-                    onRatePlacement = { task, rating -> viewModel.ratePlacement(task, rating) }
+                    onRatePlacement = { task, rating -> viewModel.ratePlacement(task, rating) },
+                    onInspectFatigueScore = { score -> inspectingFatigueScore = score }
                 )
                 PlanViewModeV2.MATRIX -> MatrixPlanView(
                     state = state,
@@ -689,12 +709,14 @@ fun PlanScreenV2(
                     onMoveQuadrant = { task, q -> viewModel.moveTaskToQuadrant(task, q) },
                     onCompleteTask = handleCompleteTask,
                     onBreakDownTask = { viewModel.breakDownTask(it) },
-                    onEditTask = { task -> editingTask = task }
+                    onEditTask = { task -> editingTask = task },
+                    onInspectFatigueScore = { score -> inspectingFatigueScore = score }
                 )
                 PlanViewModeV2.AUTOPILOT -> AutopilotConfigView(
                     state = state,
                     onToggleAutoSchedule = { viewModel.toggleAutoSchedule() },
                     onTriggerNow = { viewModel.triggerAutoScheduleNow() },
+                    onAutoBalanceWeek = { viewModel.autoBalance(horizonDays = 7) },
                     onToggleSlot = { id, enabled -> viewModel.toggleProtectedSlot(id, enabled) },
                     onManageSlotsClick = { showProtectedSlotSheet = true }
                 )
@@ -776,7 +798,13 @@ fun PlanScreenV2(
             includedTaskIds = state.blueprintIncludedTaskIds,
             onToggleTask = { taskId, included -> viewModel.toggleBlueprintTask(taskId, included) },
             onApply = { viewModel.applyDailyBlueprint() },
-            onDismiss = { viewModel.dismissDailyBlueprint() }
+            onDismiss = { viewModel.dismissDailyBlueprint() },
+            fatigueScoresByTaskId = state.fatigueScoresByTaskId,
+            onAutoBalanceWeek = {
+                viewModel.dismissDailyBlueprint()
+                viewModel.autoBalance(horizonDays = 7)
+            },
+            onRegenerate = { viewModel.openDailyBlueprint(forceReplan = true) }
         )
     }
 
@@ -856,6 +884,23 @@ fun PlanScreenV2(
             onParkInNotes = { task -> viewModel.parkTaskInNotes(task) },
             onDismiss = { showInboxSweepSheet = false }
         )
+    }
+
+    inspectingFatigueScore?.let { score ->
+        ModalBottomSheet(
+            onDismissRequest = { inspectingFatigueScore = null },
+            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = NeuroFlowThemeV2Colors.TextSecondary.copy(alpha = 0.5f)) }
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp)
+            ) {
+                FatigueScoreDetailCard(score = score)
+            }
+        }
     }
 
     FrogConfettiOverlay(trigger = showFrogConfetti)
@@ -1035,7 +1080,8 @@ fun TimelineScheduleView(
     onAssignTaskTime: (TaskEntity) -> Unit = {},
     onLogPastTime: (TaskEntity) -> Unit = {},
     onEditTask: (TaskEntity) -> Unit = {},
-    onRatePlacement: (TaskEntity, Int) -> Unit = { _, _ -> }
+    onRatePlacement: (TaskEntity, Int) -> Unit = { _, _ -> },
+    onInspectFatigueScore: (TaskFatigueScoreUi) -> Unit = {}
 ) {
     val peakPrefs = state.preferences
     val manualPeak = if (peakPrefs.manualPeakProfileEnabled) (peakPrefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
@@ -1060,6 +1106,44 @@ fun TimelineScheduleView(
             loadDistribution = state.sevenDayLoadDistribution,
             selectedDateMillis = state.selectedDateMillis
         )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "7-Day Load Balance",
+                style = MaterialTheme.typography.labelSmall,
+                color = NeuroFlowThemeV2Colors.TextSecondary,
+                fontWeight = FontWeight.Medium
+            )
+            TextButton(
+                onClick = onAutoBalanceClick,
+                enabled = !state.isAutoScheduling,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("auto_balance_week_button")
+            ) {
+                if (state.isAutoScheduling) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = if (state.isAutoScheduling) "Balancing..." else "Auto-Balance Week",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                )
+            }
+        }
 
         DateCarouselStrip(
             selectedDateMillis = state.selectedDateMillis,
@@ -1219,7 +1303,12 @@ fun TimelineScheduleView(
                             com.neuroflow.app.domain.model.EnergyLevel.LOW -> EnergyPhase.RECOVERY
                         }
                     }
-                    val accentColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+                    val fatigueScore = state.fatigueScoresByTaskId[task.id]
+                    val accentColor = if (fatigueScore?.warningLevel == FatigueWarningLevel.HIGH_BURNOUT_RISK) {
+                        NeuroFlowPaletteV2.RecoveryRose
+                    } else {
+                        NeuroFlowPaletteV2.accentForPhase(taskPhase)
+                    }
                     val cardShape = RoundedCornerShape(14.dp)
 
                     SwipeToDismissBox(
@@ -1438,6 +1527,18 @@ fun TimelineScheduleView(
                                                 )
                                             }
                                         }
+
+                                        if (fatigueScore != null) {
+                                            FatigueAwareScoreBadge(
+                                                score = fatigueScore,
+                                                onClick = { onInspectFatigueScore(fatigueScore) }
+                                            )
+                                        }
+                                    }
+
+                                    if (fatigueScore != null) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        FatigueBurnoutWarningBanner(score = fatigueScore)
                                     }
 
                                     val scheduledMillis = if (task.scheduledTime != null) {
@@ -1712,7 +1813,8 @@ fun MatrixPlanView(
     onMoveQuadrant: (TaskEntity, Quadrant) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
     onBreakDownTask: (TaskEntity) -> Unit = {},
-    onEditTask: (TaskEntity) -> Unit = {}
+    onEditTask: (TaskEntity) -> Unit = {},
+    onInspectFatigueScore: (TaskFatigueScoreUi) -> Unit = {}
 ) {
     val coral = NeuroFlowThemeV2Colors.MutedCoral
     val indigoGlow = NeuroFlowThemeV2Colors.ElectricIndigoGlow
@@ -1845,11 +1947,24 @@ fun MatrixPlanView(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
-                                        Text(
-                                            "${com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)}m • ${task.energyLevel.name}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = NeuroFlowThemeV2Colors.TextSecondary
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                "${com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)}m • ${task.energyLevel.name}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NeuroFlowThemeV2Colors.TextSecondary
+                                            )
+                                            val matrixFatigue = state.fatigueScoresByTaskId[task.id]
+                                            if (matrixFatigue != null) {
+                                                FatigueAwareScoreBadge(
+                                                    score = matrixFatigue,
+                                                    compact = true,
+                                                    onClick = { onInspectFatigueScore(matrixFatigue) }
+                                                )
+                                            }
+                                        }
 
                                         val matrixSteps = remember(task.ifThenPlan) { StepByStepPlanCodec.parse(task.ifThenPlan) }
                                         if (matrixSteps.isNotEmpty()) {
@@ -1933,6 +2048,7 @@ fun AutopilotConfigView(
     state: PlanUiStateV2,
     onToggleAutoSchedule: () -> Unit,
     onTriggerNow: () -> Unit,
+    onAutoBalanceWeek: () -> Unit = {},
     onToggleSlot: (String, Boolean) -> Unit,
     onManageSlotsClick: () -> Unit = {}
 ) {
@@ -1995,6 +2111,30 @@ fun AutopilotConfigView(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Run Auto-Schedule Optimization Now", fontWeight = FontWeight.Bold)
                         }
+                    }
+
+                    OutlinedButton(
+                        onClick = onAutoBalanceWeek,
+                        enabled = !state.isAutoScheduling,
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.55f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("autopilot_auto_balance_week_button")
+                    ) {
+                        Icon(
+                            Icons.Default.DateRange,
+                            contentDescription = null,
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Auto-Balance 7-Day Week",
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
                     }
                 }
             }

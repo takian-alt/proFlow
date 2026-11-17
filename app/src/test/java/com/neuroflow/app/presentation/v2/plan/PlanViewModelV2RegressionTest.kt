@@ -223,7 +223,10 @@ class PlanViewModelV2RegressionTest {
         )
 
         coEvery {
-            multiDayOrch.orchestrateMultiDaySchedule(any(), any(), any(), any(), any(), any())
+            multiDayOrch.orchestrateMultiDayScheduleWithContext(
+                any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any()
+            )
         } returns MultiDaySchedulingOutcome(
             dayOutcomes = mapOf(today to SchedulingOutcome(placements = listOf(placement1, placement2))),
             totalScheduledTasks = 2,

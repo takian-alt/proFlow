@@ -347,4 +347,189 @@ class MultiDayScheduleOrchestratorTest {
             )
         }
     }
+
+    @Test
+    fun testMultiDayOrchestrator_deduplicatesDynamicallySplitTasksAcrossDays() = runBlocking {
+        val today = LocalDate.of(2026, 11, 21)
+        val nextDay = today.plusDays(1)
+        val zoneId = ZoneId.of("UTC")
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        val bigTask = SchedulableTask(
+            id = "big_task",
+            title = "Big Architecture Refactor",
+            estimatedMinutes = 90,
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            energyDemand = EnergyDemand.HIGH
+        )
+        val part1 = bigTask.copy(id = "big_task#part1", estimatedMinutes = 45)
+        val part2 = bigTask.copy(id = "big_task#part2", estimatedMinutes = 45)
+
+        val p1 = ScheduledPlacement(part1, TimeSlotWindow(dayStart + 9 * 3600_000L, dayStart + 9 * 3600_000L + 45 * 60_000L), 90.0)
+        val p2 = ScheduledPlacement(part2, TimeSlotWindow(dayStart + 10 * 3600_000L, dayStart + 10 * 3600_000L + 45 * 60_000L), 88.0)
+
+        every {
+            schedulerService.scheduleDayWithOutcome(
+                tasks = match { it.any { t -> t.id == "big_task" } },
+                dayDate = today,
+                nowMillis = any(),
+                wakeTimeMillis = any(),
+                lastSleepDurationMinutes = any(),
+                busyWindows = any(),
+                protectedSlots = any(),
+                calibrationRatio = any(),
+                forceReplan = any(),
+                zoneId = any(),
+                naps = any(),
+                chronotype = any(),
+                manualPeakStartHour = any(),
+                priorityWeights = any(),
+                learnedProfile = any(),
+                rollingAverageSleepMinutes = any(),
+                physiologicalBlocks = any(),
+                stimulantDoses = any(),
+                socialJetlagLagHours = any(),
+                activeUncompletedTaskIds = any(),
+                workDayStartHour = any(),
+                workDayEndHour = any(),
+                dailyCognitiveCapacityMinutes = any(),
+                rejectionPatternsJson = any()
+            )
+        } returns SchedulingOutcome(listOf(p1, p2))
+
+        val outcome = orchestrator.orchestrateMultiDaySchedule(
+            tasks = listOf(bigTask),
+            startDate = today,
+            horizonDays = 3,
+            zoneId = zoneId
+        )
+
+        assertEquals(2, outcome.dayOutcomes[today]?.placements?.size)
+        assertTrue(
+            "Dynamically split task must not carry over to Day 1",
+            outcome.dayOutcomes[nextDay]?.placements.isNullOrEmpty()
+        )
+        assertTrue(outcome.finalDeferred.isEmpty())
+    }
+
+    @Test
+    fun testMultiDayOrchestrator_fillsModerateWorkloadWithoutUnderUtilizingDay0() = runTest {
+        coEvery { preferencesDataStore.preferencesFlow } returns flowOf(
+            UserPreferences(
+                wakeTimeHour = 7,
+                wakeTimeMinute = 0,
+                workDayStart = 8,
+                workDayEnd = 18,
+                dailyDeepWorkTargetMinutes = 240
+            )
+        )
+        every { sleepRepository.observeAllSleepLogs() } returns flowOf(emptyList())
+
+        val circadianService = DefaultCircadianEnergyService()
+        val realOrchestrator = MultiDayScheduleOrchestrator(
+            schedulerService = DefaultTaskSchedulerService(circadianService),
+            circadianEnergyService = circadianService,
+            calendarSyncRepository = null,
+            sleepTelemetryRepository = sleepRepository,
+            preferencesDataStore = preferencesDataStore
+        )
+
+        val today = LocalDate.of(2026, 11, 22)
+        val zoneId = ZoneId.of("UTC")
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        // 160m total across 4 tasks without deadlines: should fit comfortably on Day 0 (~240m cap)
+        val tasks = (1..4).map { idx ->
+            SchedulableTask(
+                id = "mod-$idx",
+                title = "Moderate Task $idx",
+                category = TaskCategory.DEEP_WORK,
+                priority = 2,
+                estimatedMinutes = 40,
+                energyDemand = EnergyDemand.HIGH
+            )
+        }
+
+        val outcome = realOrchestrator.orchestrateMultiDayScheduleWithContext(
+            tasks = tasks,
+            startDate = today,
+            horizonDays = 7,
+            zoneId = zoneId,
+            referenceNowMillis = dayStart + 7 * 3600_000L
+        )
+
+        val day0Count = outcome.dayOutcomes[today]?.placements?.size ?: 0
+        assertTrue("Expected Day 0 to take at least 3 moderate tasks (got $day0Count)", day0Count >= 3)
+        assertTrue("All 4 tasks should be scheduled across horizon", outcome.finalDeferred.isEmpty())
+    }
+
+    @Test
+    fun testMultiDayOrchestrator_respectsFixedWindowsAndPrecommittedBudget() = runTest {
+        coEvery { preferencesDataStore.preferencesFlow } returns flowOf(
+            UserPreferences(
+                wakeTimeHour = 7,
+                wakeTimeMinute = 0,
+                workDayStart = 9,
+                workDayEnd = 18,
+                dailyDeepWorkTargetMinutes = 180
+            )
+        )
+        every { sleepRepository.observeAllSleepLogs() } returns flowOf(emptyList())
+
+        val circadianService = DefaultCircadianEnergyService()
+        val realOrchestrator = MultiDayScheduleOrchestrator(
+            schedulerService = DefaultTaskSchedulerService(circadianService),
+            circadianEnergyService = circadianService,
+            calendarSyncRepository = null,
+            sleepTelemetryRepository = sleepRepository,
+            preferencesDataStore = preferencesDataStore
+        )
+
+        val today = LocalDate.of(2026, 11, 23)
+        val zoneId = ZoneId.of("UTC")
+        val dayStart = today.atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        // Precommitted 120m (locked 9:00-11:00) leaves only 60m cognitive capacity on Day 0
+        val fixedWin = TimeSlotWindow(dayStart + 9 * 3600_000L, dayStart + 11 * 3600_000L)
+        val taskA = SchedulableTask(
+            id = "task-a",
+            title = "Fits Day 0",
+            category = TaskCategory.DEEP_WORK,
+            priority = 2,
+            estimatedMinutes = 45,
+            energyDemand = EnergyDemand.HIGH,
+            isDurationExplicit = true
+        )
+        val taskB = SchedulableTask(
+            id = "task-b",
+            title = "Spills Day 1",
+            category = TaskCategory.DEEP_WORK,
+            priority = 1,
+            estimatedMinutes = 90,
+            energyDemand = EnergyDemand.HIGH,
+            isDurationExplicit = true
+        )
+
+        val outcome = realOrchestrator.orchestrateMultiDayScheduleWithContext(
+            tasks = listOf(taskA, taskB),
+            startDate = today,
+            horizonDays = 3,
+            zoneId = zoneId,
+            referenceNowMillis = dayStart + 8 * 3600_000L,
+            externalAndFixedBusyWindowsByDate = mapOf(today to listOf(fixedWin)),
+            precommittedCognitiveMinutesByDate = mapOf(today to 120)
+        )
+
+        val day0Placements = outcome.dayOutcomes[today]?.placements.orEmpty()
+        assertEquals(1, day0Placements.size)
+        assertEquals("task-a", day0Placements.first().task.id)
+        assertTrue(
+            "Day 0 placement must not overlap locked 9-11 window",
+            day0Placements.first().window.endMillis <= fixedWin.startMillis ||
+                day0Placements.first().window.startMillis >= fixedWin.endMillis
+        )
+        val day1Placements = outcome.dayOutcomes[today.plusDays(1)]?.placements.orEmpty()
+        assertTrue("Task B should spill cleanly to Day 1+", day1Placements.isNotEmpty() || outcome.totalScheduledTasks >= 2)
+    }
 }

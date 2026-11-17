@@ -65,6 +65,8 @@ import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
+import com.neuroflow.app.domain.service.FatigueScoreEvaluator
+import com.neuroflow.app.domain.service.TaskFatigueScoreUi
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.worker.ScheduleAutoTasksWorker
 import com.neuroflow.app.domain.scheduler.MultiDayScheduleOrchestrator
@@ -149,7 +151,8 @@ data class PlanUiStateV2(
     val isFeedbackLoading: Boolean = false,
     val dailyBlueprint: DailyBlueprint? = null,
     val isBlueprintLoading: Boolean = false,
-    val blueprintIncludedTaskIds: Set<String> = emptySet()
+    val blueprintIncludedTaskIds: Set<String> = emptySet(),
+    val fatigueScoresByTaskId: Map<String, TaskFatigueScoreUi> = emptyMap()
 )
 
 internal fun startOfTodayMillis(zoneId: ZoneId = ZoneId.systemDefault()): Long {
@@ -341,7 +344,18 @@ class PlanViewModelV2 @Inject constructor(
                 old.meqScore == new.meqScore &&
                 old.manualPeakProfileEnabled == new.manualPeakProfileEnabled &&
                 old.manualPeakAnchorMinuteOfDay == new.manualPeakAnchorMinuteOfDay &&
-                old.dailyDeepWorkTargetMinutes == new.dailyDeepWorkTargetMinutes
+                old.dailyDeepWorkTargetMinutes == new.dailyDeepWorkTargetMinutes &&
+                old.weightDeadlineUrgency == new.weightDeadlineUrgency &&
+                old.weightImpact == new.weightImpact &&
+                old.weightCircadianMatch == new.weightCircadianMatch &&
+                old.weightSessionProgress == new.weightSessionProgress &&
+                old.weightFrogBonus == new.weightFrogBonus &&
+                old.weightQuadrant == new.weightQuadrant &&
+                old.weightPriorityLevel == new.weightPriorityLevel &&
+                old.weightDuration == new.weightDuration &&
+                old.weightFocusMode == new.weightFocusMode &&
+                old.weightPlanBoost == new.weightPlanBoost &&
+                old.weightEnjoyment == new.weightEnjoyment
         },
         combine(
             (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
@@ -415,7 +429,7 @@ class PlanViewModelV2 @Inject constructor(
 
         val allStimulants = parseStimulantLogs(prefs.stimulantLogsJson)
 
-        val (_, energyUi) = computeEnergyUiState(
+        val (currentSnapshot, energyUi) = computeEnergyUiState(
             circadianEnergyService = circadianEnergyService,
             sleepTelemetryRepository = sleepTelemetryRepository,
             prefs = prefs,
@@ -563,6 +577,22 @@ class PlanViewModelV2 @Inject constructor(
         val capacityMinutes = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
             ?: circadianSummary?.recommendedDeepWorkMinutes ?: 240
 
+        val tasksToScore = (tasksForDay + unscheduled + searchFilteredAll).distinctBy { it.id }
+        val fatigueScoresByTaskId = FatigueScoreEvaluator.evaluateTasks(
+            tasks = tasksToScore,
+            allContextTasks = baseTasks,
+            completedTasks = completedList,
+            allSessions = allSessionsList,
+            dayStartMillis = dayStart,
+            dayEndMillis = dayEnd,
+            nowMillis = now,
+            timeline = energyTimeline,
+            fallbackSnapshot = currentSnapshot,
+            prefs = prefs,
+            taskSchedulerService = taskSchedulerService,
+            zoneId = zoneId
+        )
+
         PlanUiStateV2(
             selectedDateMillis = dateMillis,
             viewMode = mode,
@@ -598,7 +628,8 @@ class PlanViewModelV2 @Inject constructor(
             isFeedbackLoading = params.isFeedbackLoading,
             dailyBlueprint = params.dailyBlueprint,
             isBlueprintLoading = params.isBlueprintLoading,
-            blueprintIncludedTaskIds = params.blueprintIncludedTaskIds
+            blueprintIncludedTaskIds = params.blueprintIncludedTaskIds,
+            fatigueScoresByTaskId = fatigueScoresByTaskId
         )
     }.stateIn(
         viewModelScope,
@@ -622,18 +653,23 @@ class PlanViewModelV2 @Inject constructor(
         _selectedTag.value = tag
     }
 
-    fun openDailyBlueprint(dateMillis: Long = _selectedDate.value) {
+    fun openDailyBlueprint(dateMillis: Long = _selectedDate.value, forceReplan: Boolean = true) {
         viewModelScope.launch {
             _isBlueprintLoading.value = true
             try {
                 val orchestrator = dailyBlueprintOrchestrator
                 if (orchestrator != null) {
-                    val blueprint = orchestrator.generateBlueprint(dateMillis)
+                    val blueprint = if (forceReplan) {
+                        orchestrator.generateBlueprint(dateMillis)
+                    } else {
+                        orchestrator.generateBlueprint(dateMillis, forceReplan = false)
+                    }
                     _dailyBlueprint.value = blueprint
                     _blueprintIncludedTaskIds.value = blueprint.items.map { it.task.id }.toSet()
                 }
             } catch (e: Exception) {
-                // Non-blocking fallback
+                android.util.Log.w("PlanViewModelV2", "Daily blueprint generation failed", e)
+                _userActionMessage.emit("Unable to generate daily blueprint.")
             } finally {
                 _isBlueprintLoading.value = false
             }
@@ -1096,9 +1132,11 @@ class PlanViewModelV2 @Inject constructor(
                 val nowMillis = System.currentTimeMillis()
                 val enjoymentCalibration = com.neuroflow.app.domain.engine.AnalyticsEngine.EnjoymentCalibration.from(allKnownTasks)
 
+                val safeHorizon = horizonDays.coerceIn(1, 14)
                 val allSessions = runCatching {
                     sessionRepository?.getAllSessions().orEmpty()
                 }.getOrDefault(emptyList())
+                val closedSessions = allSessions.filter { it.endedAt != null }
                 val focusedTaskIds = sessionRepository?.getOpenSessions().orEmpty().filter { session ->
                     val activeServiceTaskId = FocusService.activeSession.value?.taskId
                     if (activeServiceTaskId != null && activeServiceTaskId == session.taskId) return@filter true
@@ -1132,7 +1170,19 @@ class PlanViewModelV2 @Inject constructor(
                         val part1Id = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
                         part1Id != task.id && part1Id in activeTaskIds
                     } else false
-                    return isParentActive || isPart1Active
+                    val isPrecedingPartActive = if (hasPartRegex && partNum != null) {
+                        (1 until partNum).any { prevPart ->
+                            val prevId = task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart")
+                            prevId != task.id && prevId in activeTaskIds
+                        }
+                    } else if (task.parentTaskId != null && partNum != null && partNum > 1) {
+                        allTasks.any { other ->
+                            other.id != task.id && other.id in activeTaskIds &&
+                                (other.parentTaskId == task.parentTaskId || other.id == task.parentTaskId) &&
+                                (Regex("""\(Part (\d+)/""").find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
+                        }
+                    } else false
+                    return isParentActive || isPart1Active || isPrecedingPartActive
                 }
 
                 val mutableEntities = allTasks.filter {
@@ -1140,6 +1190,7 @@ class PlanViewModelV2 @Inject constructor(
                         it.id !in focusedTaskIds &&
                         !isContinuationBlocked(it)
                 }
+                val mutableIds = mutableEntities.map { it.id }.toSet()
                 val microStepCounts = mutableEntities.associate { task ->
                     val steps = runCatching { taskRepository.getMicroSteps(task.id) }.getOrDefault(emptyList())
                     task.id to Pair(steps.count { it.isCompleted }, steps.size)
@@ -1155,14 +1206,94 @@ class PlanViewModelV2 @Inject constructor(
                 }
 
                 val zoneId = ZoneId.systemDefault()
-                val startDate = Instant.ofEpochMilli(_selectedDate.value).atZone(zoneId).toLocalDate()
-                val outcome = orch.orchestrateMultiDaySchedule(
+                val todayDate = LocalDate.now(zoneId)
+                val selectedLocalDate = Instant.ofEpochMilli(_selectedDate.value).atZone(zoneId).toLocalDate()
+                val startDate = maxOf(todayDate, selectedLocalDate)
+
+                fun isCognitiveDemand(t: TaskEntity): Boolean =
+                    t.energyLevel != EnergyLevel.LOW ||
+                        t.isFrog ||
+                        t.taskType == com.neuroflow.app.domain.model.TaskType.ANALYTICAL
+
+                val fixedTasks = allTasks
+                    .filter { it.quadrant != Quadrant.ELIMINATE }
+                    .filterNot { task ->
+                        if (task.id in mutableIds) return@filterNot true
+                        val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                        val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                            ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                        val isContinuation = (partNum != null && partNum >= 2) ||
+                            task.id.endsWith("_part2") ||
+                            task.id.contains("#part2") ||
+                            task.parentTaskId != null
+                        if (isContinuation) {
+                            val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                            parentSlug in mutableIds ||
+                                task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1") in mutableIds
+                        } else {
+                            false
+                        }
+                    }
+
+                val fixedBusyWindowsByDate = mutableMapOf<LocalDate, List<TimeSlotWindow>>()
+                val precommittedCognitiveMinutesByDate = mutableMapOf<LocalDate, Int>()
+
+                val todayStart = todayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                val todayEnd = todayDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+                val completedCognitiveMinutesToday = allKnownTasks
+                    .filter {
+                        it.status == com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                            (
+                                it.effectiveScheduledDateMillis()?.let { d -> d in todayStart..todayEnd } == true ||
+                                    it.completedAt?.let { c -> c in todayStart..todayEnd } == true
+                                ) &&
+                            isCognitiveDemand(it)
+                    }
+                    .sumOf { TaskBlockPlan.plannedMinutes(it) }
+
+                for (dayOffset in 0 until safeHorizon) {
+                    val currentDate = startDate.plusDays(dayOffset.toLong())
+                    val dayStart = currentDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                    val dayEnd = currentDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+
+                    val dayFixedPairs = fixedTasks.mapNotNull { task ->
+                        if (task.scheduledTime == null) return@mapNotNull null
+                        val sDate = task.effectiveScheduledDateMillis()
+                        val isDualEpoch = task.scheduledTime >= ONE_DAY_MILLIS
+                        val isDateMatching = (sDate != null && sDate in dayStart..dayEnd) ||
+                            (isDualEpoch && task.scheduledTime in dayStart..dayEnd)
+                        if (!isDateMatching) return@mapNotNull null
+                        val start = task.resolveScheduledEpochMillis(dayStart) ?: return@mapNotNull null
+                        val duration = TaskBlockPlan.plannedMinutes(task)
+                        val end = start + duration * 60_000L
+                        if (end > dayStart && start < dayEnd) task to TimeSlotWindow(start, end) else null
+                    }
+                    if (dayFixedPairs.isNotEmpty()) {
+                        fixedBusyWindowsByDate[currentDate] = dayFixedPairs.map { it.second }
+                    }
+                    val fixedCognitiveMinutes = dayFixedPairs
+                        .filter { (t, _) -> isCognitiveDemand(t) }
+                        .sumOf { (_, win) -> ((win.endMillis - win.startMillis) / 60_000L).toInt() }
+                    val completedCredit = if (currentDate == todayDate) completedCognitiveMinutesToday else 0
+                    val totalPrecommitted = fixedCognitiveMinutes + completedCredit
+                    if (totalPrecommitted > 0) {
+                        precommittedCognitiveMinutesByDate[currentDate] = totalPrecommitted
+                    }
+                }
+
+                val outcome = orch.orchestrateMultiDayScheduleWithContext(
                     tasks = candidateTasks,
                     startDate = startDate,
-                    horizonDays = horizonDays,
+                    horizonDays = safeHorizon,
                     zoneId = zoneId,
                     referenceNowMillis = nowMillis,
-                    rejectionPatternsJson = prefs.schedulingRejectionsJson
+                    rejectionPatternsJson = prefs.schedulingRejectionsJson,
+                    allKnownTasks = allKnownTasks,
+                    closedSessions = closedSessions,
+                    extraActiveUncompletedIds = activeTaskIds,
+                    externalAndFixedBusyWindowsByDate = fixedBusyWindowsByDate,
+                    precommittedCognitiveMinutesByDate = precommittedCognitiveMinutesByDate,
+                    forceReplan = true
                 )
 
                 val placedBaseIds = mutableSetOf<String>()
@@ -1175,7 +1306,12 @@ class PlanViewModelV2 @Inject constructor(
                         val isStandalonePart2 = placements.size == 1 &&
                             (primary.task.id.contains(Regex("""[#_]part[2-9]""")) || primary.task.id.endsWith("_part2"))
                         val targetTaskId = if (isStandalonePart2) primary.task.id else baseId
-                        val fresh = taskRepository.getById(targetTaskId) ?: continue
+                        val existingTarget = taskRepository.getById(targetTaskId)
+                        val fresh = existingTarget ?: if (isStandalonePart2) {
+                            taskRepository.getById(baseId)
+                        } else {
+                            null
+                        } ?: continue
                         if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
                             fresh.id in focusedTaskIds ||
                             !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)
@@ -1188,21 +1324,35 @@ class PlanViewModelV2 @Inject constructor(
                         val part2Placement = placements.getOrNull(1)
                         val titleToUse = when {
                             isSplit -> "$cleanTitle (Part 1/2)"
-                            isStandalonePart2 -> fresh.title
+                            isStandalonePart2 && existingTarget != null -> fresh.title
+                            isStandalonePart2 -> "$cleanTitle (Part 2/2)"
                             else -> cleanTitle
                         }
+                        val insertingStandalonePart2 = isStandalonePart2 && existingTarget == null
                         val updatedParent = fresh.copy(
+                            id = if (insertingStandalonePart2) primary.task.id else fresh.id,
                             title = titleToUse,
+                            parentTaskId = if (insertingStandalonePart2) baseId else fresh.parentTaskId,
+                            dependsOnTaskIds = if (insertingStandalonePart2) baseId else fresh.dependsOnTaskIds,
+                            estimatedDurationMinutes = if (insertingStandalonePart2) primary.window.durationMinutes else fresh.estimatedDurationMinutes,
                             scheduledDate = startDay,
                             scheduledTime = timeOffset,
-                            habitDate = if (fresh.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startDay else fresh.habitDate,
+                            habitDate = if (!insertingStandalonePart2 && fresh.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startDay else if (insertingStandalonePart2) null else fresh.habitDate,
+                            recurrence = if (insertingStandalonePart2) com.neuroflow.app.domain.model.Recurrence.NONE else fresh.recurrence,
+                            recurrenceIntervalDays = if (insertingStandalonePart2) 0 else fresh.recurrenceIntervalDays,
+                            isHabitual = if (insertingStandalonePart2) false else fresh.isHabitual,
+                            isFrog = if (insertingStandalonePart2) false else fresh.isFrog,
                             isAutoScheduled = true,
                             plannedBlockMinutes = primary.window.durationMinutes,
                             lastAutoScheduledAt = nowMillis,
                             lastStabilizedAt = nowMillis,
                             updatedAt = nowMillis
                         )
-                        taskRepository.update(updatedParent)
+                        if (insertingStandalonePart2) {
+                            taskRepository.insert(updatedParent)
+                        } else {
+                            taskRepository.update(updatedParent)
+                        }
                         val shouldSyncToCalendar = when (prefs.calendarSyncScope) {
                             "ALL_SCHEDULED" -> true
                             "DISABLED" -> false
@@ -1327,13 +1477,23 @@ class PlanViewModelV2 @Inject constructor(
                     DeferralRationale(
                         taskId = task.id,
                         reasonCode = DeferralReasonCode.COGNITIVE_BUDGET_EXCEEDED,
-                        explanation = "Deferred past $horizonDays-day horizon.",
+                        explanation = "Deferred past $safeHorizon-day horizon.",
                         actionableSuggestion = "Move to backlog or break down."
                     )
                 }
-                _userActionMessage.emit(
-                    "Auto-balanced $horizonDays-day schedule: placed ${outcome.totalScheduledTasks} tasks across horizon."
-                )
+                val activeDayCount = outcome.dayOutcomes.count { it.value.placements.isNotEmpty() }
+                val deferredCount = deferredBaseIds.size
+                val summaryMessage = when {
+                    placedBaseIds.isNotEmpty() && deferredCount > 0 ->
+                        "Balanced ${placedBaseIds.size} tasks across $activeDayCount day(s); $deferredCount kept in backlog."
+                    placedBaseIds.isNotEmpty() ->
+                        "Auto-balanced ${placedBaseIds.size} tasks across $activeDayCount day(s)."
+                    deferredCount > 0 ->
+                        "$deferredCount task(s) kept in backlog to protect your cognitive budget."
+                    else ->
+                        "No eligible tasks found to balance across the next $safeHorizon days."
+                }
+                _userActionMessage.emit(summaryMessage)
             } catch (e: Exception) {
                 android.util.Log.e("PlanViewModelV2", "Multi-day auto-balance failed", e)
             } finally {

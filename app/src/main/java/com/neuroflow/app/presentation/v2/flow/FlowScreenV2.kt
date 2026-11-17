@@ -403,7 +403,8 @@ fun FlowScreenV2(
                         onEasyWinClick = if (easyWinTasks.isNotEmpty() || battery < 45) {
                             { showEasyWinSheet = true }
                         } else null,
-                        isLowBatterySuggested = battery < 45
+                        isLowBatterySuggested = battery < 45,
+                        topTaskFatigueScore = topTask?.let { state.fatigueScoresByTaskId[it.id] }
                     )
                 }
             } else {
@@ -552,7 +553,8 @@ fun FlowScreenV2(
                 onBreakDownTask = { task -> viewModel.breakDownTask(task) },
                 onEditTask = { task -> editingTask = task },
                 onShiftToPeak = { task -> viewModel.shiftTaskToPeak(task) },
-                timeline = state.energyTimeline
+                timeline = state.energyTimeline,
+                fatigueScores = state.fatigueScoresByTaskId
             )
 
             Spacer(modifier = Modifier.height(80.dp))

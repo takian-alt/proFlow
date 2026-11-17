@@ -63,6 +63,9 @@ import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.CognitiveBlockCategory
 import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.domain.service.TaskFatigueScoreUi
+import com.neuroflow.app.presentation.v2.common.FatigueAwareScoreBadge
+import com.neuroflow.app.presentation.v2.common.FatigueBurnoutWarningBanner
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import kotlin.math.roundToInt
 
@@ -86,7 +89,8 @@ fun FlowSpotlightHeroCard(
     onToggleMicroStep: ((Int) -> Unit)? = null,
     onDoorway2mStart: ((String) -> Unit)? = null,
     onEasyWinClick: (() -> Unit)? = null,
-    isLowBatterySuggested: Boolean = false
+    isLowBatterySuggested: Boolean = false,
+    topTaskFatigueScore: TaskFatigueScoreUi? = null
 ) {
     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
     val cardShape = RoundedCornerShape(24.dp)
@@ -385,6 +389,13 @@ fun FlowSpotlightHeroCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+
+            if (topTaskFatigueScore != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FatigueAwareScoreBadge(score = topTaskFatigueScore)
+                Spacer(modifier = Modifier.height(6.dp))
+                FatigueBurnoutWarningBanner(score = topTaskFatigueScore)
+            }
 
             if (topTaskMicroSteps.isNotEmpty()) {
                 val completedCount = topTaskMicroSteps.count { it.completed }

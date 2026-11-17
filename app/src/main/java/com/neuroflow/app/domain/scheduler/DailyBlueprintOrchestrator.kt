@@ -4,6 +4,7 @@ import com.neuroflow.app.data.calendar.CalendarSyncRepository
 import com.neuroflow.app.data.local.PhysiologicalEventType
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
+import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.bedTimeMillis
 import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
@@ -12,6 +13,7 @@ import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.wakeTimeMillis
 import com.neuroflow.app.data.local.parsePhysiologicalLogs
 import com.neuroflow.app.data.local.parseStimulantLogs
+import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
 import com.neuroflow.app.domain.engine.AnalyticsEngine
@@ -35,6 +37,7 @@ import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.domain.service.GeminiAiOnlineService
 import com.neuroflow.app.domain.service.ProtectedLocalSlot
 import com.neuroflow.app.domain.service.SchedulableTask
+import com.neuroflow.app.domain.service.ScheduledPlacement
 import com.neuroflow.app.domain.service.SchedulingOutcome
 import com.neuroflow.app.domain.service.SocialJetlagCalculator
 import com.neuroflow.app.domain.service.TaskCategory
@@ -67,7 +70,8 @@ data class DailyBlueprint(
     val capacityUtilizationPercent: Float,
     val aiStrategyRationale: String,
     val items: List<BlueprintTaskItem>,
-    val overflowTasks: List<TaskEntity>
+    val overflowTasks: List<TaskEntity>,
+    val precommittedMinutes: Int = 0
 )
 
 data class BlueprintApplyResult(
@@ -84,7 +88,8 @@ class DailyBlueprintOrchestrator(
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val preferencesDataStore: UserPreferencesDataStore,
     private val calendarSyncRepository: CalendarSyncRepository? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val sessionRepository: SessionRepository? = null
 ) {
 
     @Inject
@@ -95,7 +100,8 @@ class DailyBlueprintOrchestrator(
         geminiAiOnlineService: GeminiAiOnlineService,
         sleepTelemetryRepository: SleepTelemetryRepository? = null,
         preferencesDataStore: UserPreferencesDataStore,
-        calendarSyncRepository: CalendarSyncRepository? = null
+        calendarSyncRepository: CalendarSyncRepository? = null,
+        sessionRepository: SessionRepository? = null
     ) : this(
         taskRepository,
         schedulerService,
@@ -104,10 +110,17 @@ class DailyBlueprintOrchestrator(
         sleepTelemetryRepository,
         preferencesDataStore,
         calendarSyncRepository,
-        Dispatchers.IO
+        Dispatchers.IO,
+        sessionRepository
     )
 
-    suspend fun generateBlueprint(targetDateMillis: Long): DailyBlueprint = withContext(ioDispatcher) {
+    suspend fun generateBlueprint(targetDateMillis: Long): DailyBlueprint =
+        generateBlueprint(targetDateMillis = targetDateMillis, forceReplan = true)
+
+    suspend fun generateBlueprint(
+        targetDateMillis: Long,
+        forceReplan: Boolean
+    ): DailyBlueprint = withContext(ioDispatcher) {
         val zoneId = ZoneId.systemDefault()
         val targetInstant = Instant.ofEpochMilli(targetDateMillis)
         val targetDate = targetInstant.atZone(zoneId).toLocalDate()
@@ -150,24 +163,103 @@ class DailyBlueprintOrchestrator(
             zoneId = zoneId
         ).mondayMorningPhaseLagHours
 
+        val allSessions = runCatching {
+            sessionRepository?.getAllSessions().orEmpty()
+        }.getOrDefault(emptyList())
+        val closedSessions = allSessions.filter { it.endedAt != null }
+        val openSessions = runCatching {
+            sessionRepository?.getOpenSessions().orEmpty()
+        }.getOrDefault(allSessions.filter { it.endedAt == null })
+        val focusedTaskIds = openSessions.filter { session ->
+            val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
+            elapsedMs < 120 * 60_000L
+        }.map { it.taskId }.toSet()
+        val activeTaskId = openSessions.firstOrNull { it.endedAt == null }?.taskId
+
+        val activeTaskIds = allActiveTasks.map { it.id }.toSet()
+        fun isContinuationBlocked(task: TaskEntity): Boolean {
+            val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+            val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+            val isContinuation = (partNum != null && partNum >= 2) ||
+                task.id.endsWith("_part2") ||
+                task.id.contains("#part2") ||
+                task.parentTaskId != null
+            if (!isContinuation) return false
+            val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+            val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                (parentSlug != task.id && parentSlug in activeTaskIds)
+            val hasPartRegex = task.id.contains(Regex("""[#_]part\d+"""))
+            val isPart1Active = if (hasPartRegex) {
+                val part1Id = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
+                part1Id != task.id && part1Id in activeTaskIds
+            } else false
+            val isPrecedingPartActive = if (hasPartRegex && partNum != null) {
+                (1 until partNum).any { prevPart ->
+                    val prevId = task.id.replace(Regex("""([#_]part)\d+"""), "$1$prevPart")
+                    prevId != task.id && prevId in activeTaskIds
+                }
+            } else if (task.parentTaskId != null && partNum != null && partNum > 1) {
+                allActiveTasks.any { other ->
+                    other.id != task.id && other.id in activeTaskIds &&
+                        (other.parentTaskId == task.parentTaskId || other.id == task.parentTaskId) &&
+                        (Regex("""\(Part (\d+)/""").find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
+                }
+            } else false
+            return isParentActive || isPart1Active || isPrecedingPartActive
+        }
+
         val candidateTasks = allActiveTasks.filter { task ->
             val effectiveDate = task.effectiveScheduledDateMillis()
-            val isEligible = (effectiveDate != null && effectiveDate in dayStart..dayEnd) || (isToday && task.scheduledDate == null)
-            isEligible && AutoSchedulingContracts.isMutableByAutoScheduler(task, dayNowMillis)
+            val rawTime = task.scheduledTime
+            val dualEpochOnTargetDay = rawTime != null && rawTime >= ONE_DAY_MILLIS &&
+                (if (isToday) rawTime <= dayEnd else rawTime in dayStart..dayEnd)
+            val dualEpochOtherDay = rawTime != null && rawTime >= ONE_DAY_MILLIS && !dualEpochOnTargetDay
+            val isDateEligible = when {
+                dualEpochOtherDay -> false
+                effectiveDate != null -> if (isToday) effectiveDate <= dayEnd else effectiveDate in dayStart..dayEnd
+                else -> true // Unscheduled backlog is eligible for both Today and future daily blueprints
+            }
+            isDateEligible &&
+                AutoSchedulingContracts.isMutableByAutoScheduler(task, dayNowMillis) &&
+                task.id !in focusedTaskIds &&
+                !isContinuationBlocked(task)
         }
         val taskById = candidateTasks.associateBy { it.id }
 
         val externalBusyWindows = calendarSyncRepository?.getBusyWindows(dayStart, dayEnd + 1) ?: emptyList()
-        val fixedTaskEntries = allActiveTasks.mapNotNull { t ->
-            if (t.id in taskById) return@mapNotNull null
-            if (t.scheduledTime == null) return@mapNotNull null
-            val start = t.resolveScheduledEpochMillis(dayStart) ?: return@mapNotNull null
-            val dur = TaskBlockPlan.plannedMinutes(t).coerceIn(5, 480)
-            val end = start + dur * 60_000L
-            if (start < dayEnd + 1 && end > dayStart) {
-                t to TimeSlotWindow(start, end)
-            } else null
-        }
+        val fixedTaskEntries = allActiveTasks
+            .filter { it.quadrant != Quadrant.ELIMINATE }
+            .mapNotNull { t ->
+                if (t.id in taskById) return@mapNotNull null
+                val rawTime = t.scheduledTime ?: return@mapNotNull null
+                val sDate = t.effectiveScheduledDateMillis()
+                val isDualEpoch = rawTime >= ONE_DAY_MILLIS
+                val isDateMatching = (sDate != null && sDate in dayStart..dayEnd) ||
+                    (isDualEpoch && rawTime in dayStart..dayEnd)
+                if (!isDateMatching) return@mapNotNull null
+
+                // Do not let blocked continuation parts of an active candidate block slots
+                val partNumMatch = Regex("""[#_]part(\d+)""").find(t.id)
+                val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                    ?: Regex("""\(Part (\d+)/""").find(t.title)?.groupValues?.get(1)?.toIntOrNull()
+                val isContinuation = (partNum != null && partNum >= 2) ||
+                    t.id.endsWith("_part2") ||
+                    t.id.contains("#part2") ||
+                    t.parentTaskId != null
+                if (isContinuation) {
+                    val parentSlug = t.parentTaskId ?: t.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val part1Id = t.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
+                    if (parentSlug in taskById || part1Id in taskById) return@mapNotNull null
+                }
+
+                val start = t.resolveScheduledEpochMillis(dayStart) ?: return@mapNotNull null
+                val dur = TaskBlockPlan.plannedMinutes(t).coerceIn(5, 480)
+                val end = start + dur * 60_000L
+                if (start < dayEnd + 1 && end > dayStart) {
+                    t to TimeSlotWindow(start, end)
+                } else null
+            }
         val fixedTaskBusyWindows = fixedTaskEntries.map { it.second }
         val busyWindows = externalBusyWindows + fixedTaskBusyWindows
 
@@ -177,14 +269,16 @@ class DailyBlueprintOrchestrator(
         val completedMinutesToday = allKnownTasks
             .filter {
                 it.status == TaskStatus.COMPLETED &&
-                    it.effectiveScheduledDateMillis() in dayStart..dayEnd &&
+                    (it.effectiveScheduledDateMillis() in dayStart..dayEnd ||
+                        (it.completedAt != null && it.completedAt in dayStart..dayEnd)) &&
                     isCognitiveDemand(it)
             }
             .sumOf { TaskBlockPlan.plannedMinutes(it) }
         val fixedCommittedMinutes = fixedTaskEntries
-            .filter { (t, _) -> t.quadrant != Quadrant.ELIMINATE && isCognitiveDemand(t) }
+            .filter { (t, _) -> isCognitiveDemand(t) }
             .sumOf { (_, win) -> win.durationMinutes }
-        val remainingCapacity = (dailyCapacityMinutes - (completedMinutesToday + fixedCommittedMinutes)).coerceAtLeast(0)
+        val precommittedMinutes = (completedMinutesToday + fixedCommittedMinutes).coerceAtLeast(0)
+        val remainingCapacity = (dailyCapacityMinutes - precommittedMinutes).coerceAtLeast(0)
 
         val protectedSlots = prefs.protectedTimeSlots
             .filter { it.isEnabled && ProtectedSlotClock.occursOnDay(it, dayStart) }
@@ -255,23 +349,30 @@ class DailyBlueprintOrchestrator(
         val physiologicalBlocks = basePhysioBlocks + quickPhysBlocks
 
         val completedTasks = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
-        val observations = buildBehavioralObservations(completedTasks, emptyList(), zoneId)
+        val observations = buildBehavioralObservations(completedTasks, closedSessions, zoneId)
         val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
         val learnedProfile = if (observations.isNotEmpty()) {
             AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
         } else null
+
+        val microStepCounts = candidateTasks.associate { task ->
+            val steps = runCatching { taskRepository.getMicroSteps(task.id) }.getOrDefault(emptyList())
+            task.id to Pair(steps.count { it.isCompleted }, steps.size)
+        }
 
         val rawSchedulableTasks = candidateTasks.map { task ->
             SchedulableTaskMapper.toSchedulableTask(
                 task = task,
                 allContextTasks = candidateTasks,
                 dayStartMillis = dayStart,
-                enjoymentCalibration = enjoymentCalibration
+                enjoymentCalibration = enjoymentCalibration,
+                activeTaskId = activeTaskId,
+                microStepCounts = microStepCounts
             )
         }
         val schedulableTasks = DependencyGraphValidator.sanitizeDag(rawSchedulableTasks).tasks
 
-        val outcome = if (schedulableTasks.isNotEmpty()) {
+        val outcome = if (schedulableTasks.isNotEmpty() && remainingCapacity > 0) {
             schedulerService.scheduleDayWithOutcome(
                 tasks = schedulableTasks,
                 dayDate = targetDate,
@@ -281,6 +382,7 @@ class DailyBlueprintOrchestrator(
                 busyWindows = busyWindows,
                 protectedSlots = protectedSlots,
                 calibrationRatio = globalCalibrationRatio,
+                forceReplan = forceReplan,
                 zoneId = zoneId,
                 naps = allNaps,
                 chronotype = chronotype,
@@ -316,97 +418,145 @@ class DailyBlueprintOrchestrator(
         val overflowTaskList = mutableListOf<TaskEntity>()
         val includedTaskIds = mutableSetOf<String>()
         var accumulatedMinutes = 0
+        val processedIndices = mutableSetOf<Int>()
 
-        for (placement in outcome.placements) {
-            val baseId = placement.task.id.replace(Regex("""[#_]part\d+.*$"""), "")
-            val sourceTask = taskById[placement.task.id] ?: taskById[baseId] ?: continue
-            val isSplitPart = placement.task.id != sourceTask.id &&
-                (placement.task.id.contains("#part") || placement.task.id.contains("_part"))
+        fun appendPlacementItem(placement: ScheduledPlacement, sourceTask: TaskEntity, isSplitPart: Boolean, dur: Int) {
             val displayTask = if (isSplitPart) {
+                val baseId = SchedulableTaskMapper.cleanSplitTaskId(placement.task.id)
                 sourceTask.copy(
                     id = placement.task.id,
                     title = placement.task.title,
                     parentTaskId = baseId,
-                    plannedBlockMinutes = placement.window.durationMinutes
+                    plannedBlockMinutes = placement.window.durationMinutes.takeIf { it > 0 } ?: dur
                 )
             } else {
-                sourceTask
-            }
-            val dur = if (isSplitPart) {
-                placement.window.durationMinutes.takeIf { it > 0 }
-                    ?: TaskBlockPlan.plannedMinutes(displayTask).coerceAtLeast(1)
-            } else {
-                TaskBlockPlan.plannedMinutes(displayTask).coerceAtLeast(1)
-            }
-            if (!displayTask.isScheduleLocked && (accumulatedMinutes + dur > remainingCapacity)) {
-                if (overflowTaskList.none { it.id == sourceTask.id }) {
-                    overflowTaskList.add(sourceTask)
-                }
-            } else {
-                includedTaskIds.add(sourceTask.id)
-                accumulatedMinutes += dur
-
-                val useBasicSnapshot = chronotype == ChronotypeProfile.INTERMEDIATE &&
-                    manualPeakStartHour == null &&
-                    stimulantDoses.isEmpty() &&
-                    physiologicalBlocks.isEmpty() &&
-                    allNaps.isEmpty() &&
-                    learnedProfile == null
-                val snapshot = if (useBasicSnapshot) {
-                    circadianEnergyService.evaluateSnapshot(
-                        timestampMillis = placement.window.startMillis,
-                        wakeTimeMillis = wakeTimeMillis,
-                        lastSleepDurationMinutes = sleepDurationMinutes,
-                        continuousActiveFocusMinutes = 0,
-                        zoneId = zoneId
-                    )
-                } else {
-                    circadianEnergyService.evaluateSnapshotWithStimulants(
-                        timestampMillis = placement.window.startMillis,
-                        wakeTimeMillis = wakeTimeMillis,
-                        lastSleepDurationMinutes = sleepDurationMinutes,
-                        continuousActiveFocusMinutes = 0,
-                        zoneId = zoneId,
-                        naps = allNaps,
-                        chronotype = chronotype,
-                        manualPeakStartHour = manualPeakStartHour,
-                        learnedProfile = learnedProfile,
-                        rollingAverageSleepMinutes = rollingAvgSleep,
-                        cognitiveBlocks = physiologicalBlocks,
-                        stimulantDoses = stimulantDoses,
-                        socialJetlagLagHours = socialJetlagLagHours
-                    )
-                }
-                val zdt = Instant.ofEpochMilli(placement.window.startMillis).atZone(zoneId)
-                val h = zdt.hour
-                val inPeakHour = if (dailySummary.peakWindowStartHour <= dailySummary.peakWindowEndHour) {
-                    h in dailySummary.peakWindowStartHour until dailySummary.peakWindowEndHour
-                } else {
-                    h >= dailySummary.peakWindowStartHour || h < dailySummary.peakWindowEndHour
-                }
-                val isDuringPeak = snapshot.phase == EnergyPhase.PEAK || snapshot.phase == EnergyPhase.SURGE || snapshot.phase == EnergyPhase.MORNING_RAMP || inPeakHour
-
-                val hasConflict = busyWindows.any { bw ->
-                    placement.window.startMillis < bw.endMillis && placement.window.endMillis > bw.startMillis
-                }
-
-                val proposedEnd = if (placement.window.endMillis > placement.window.startMillis) {
-                    placement.window.endMillis
-                } else {
-                    placement.window.startMillis + dur * 60_000L
-                }
-
-                includedItems.add(
-                    BlueprintTaskItem(
-                        task = displayTask,
-                        proposedStartMillis = placement.window.startMillis,
-                        proposedEndMillis = proposedEnd,
-                        energyPhase = snapshot.phase,
-                        isDuringPeak = isDuringPeak,
-                        isIncluded = true,
-                        conflictWarning = if (hasConflict) "Overlaps with external calendar event" else null
-                    )
+                sourceTask.copy(
+                    plannedBlockMinutes = placement.window.durationMinutes.takeIf { it > 0 } ?: sourceTask.plannedBlockMinutes
                 )
+            }
+
+            includedTaskIds.add(sourceTask.id)
+            accumulatedMinutes += dur
+
+            val useBasicSnapshot = chronotype == ChronotypeProfile.INTERMEDIATE &&
+                manualPeakStartHour == null &&
+                stimulantDoses.isEmpty() &&
+                physiologicalBlocks.isEmpty() &&
+                allNaps.isEmpty() &&
+                learnedProfile == null
+            val snapshot = if (useBasicSnapshot) {
+                circadianEnergyService.evaluateSnapshot(
+                    timestampMillis = placement.window.startMillis,
+                    wakeTimeMillis = wakeTimeMillis,
+                    lastSleepDurationMinutes = sleepDurationMinutes,
+                    continuousActiveFocusMinutes = 0,
+                    zoneId = zoneId
+                )
+            } else {
+                circadianEnergyService.evaluateSnapshotWithStimulants(
+                    timestampMillis = placement.window.startMillis,
+                    wakeTimeMillis = wakeTimeMillis,
+                    lastSleepDurationMinutes = sleepDurationMinutes,
+                    continuousActiveFocusMinutes = 0,
+                    zoneId = zoneId,
+                    naps = allNaps,
+                    chronotype = chronotype,
+                    manualPeakStartHour = manualPeakStartHour,
+                    learnedProfile = learnedProfile,
+                    rollingAverageSleepMinutes = rollingAvgSleep,
+                    cognitiveBlocks = physiologicalBlocks,
+                    stimulantDoses = stimulantDoses,
+                    socialJetlagLagHours = socialJetlagLagHours
+                )
+            }
+            val zdt = Instant.ofEpochMilli(placement.window.startMillis).atZone(zoneId)
+            val h = zdt.hour
+            val inPeakHour = if (dailySummary.peakWindowStartHour <= dailySummary.peakWindowEndHour) {
+                h in dailySummary.peakWindowStartHour until dailySummary.peakWindowEndHour
+            } else {
+                h >= dailySummary.peakWindowStartHour || h < dailySummary.peakWindowEndHour
+            }
+            val isDuringPeak = snapshot.phase == EnergyPhase.PEAK ||
+                snapshot.phase == EnergyPhase.SURGE ||
+                snapshot.phase == EnergyPhase.MORNING_RAMP ||
+                inPeakHour
+
+            val hasConflict = busyWindows.any { bw ->
+                placement.window.startMillis < bw.endMillis && placement.window.endMillis > bw.startMillis
+            }
+
+            val proposedEnd = if (placement.window.endMillis > placement.window.startMillis) {
+                placement.window.endMillis
+            } else {
+                placement.window.startMillis + dur * 60_000L
+            }
+
+            includedItems.add(
+                BlueprintTaskItem(
+                    task = displayTask,
+                    proposedStartMillis = placement.window.startMillis,
+                    proposedEndMillis = proposedEnd,
+                    energyPhase = snapshot.phase,
+                    isDuringPeak = isDuringPeak,
+                    isIncluded = true,
+                    conflictWarning = if (hasConflict) "Overlaps with external calendar event" else null
+                )
+            )
+        }
+
+        for (idx in outcome.placements.indices) {
+            if (idx in processedIndices) continue
+            val placement = outcome.placements[idx]
+            val baseId = SchedulableTaskMapper.cleanSplitTaskId(placement.task.id)
+            val sourceTask = taskById[placement.task.id] ?: taskById[baseId]
+            if (sourceTask == null) {
+                processedIndices.add(idx)
+                continue
+            }
+            val isDynamicSplit = placement.task.id !in taskById &&
+                (placement.task.id.contains("#part") || placement.task.id.contains("_part"))
+
+            if (isDynamicSplit) {
+                val groupIndices = outcome.placements.indices.filter { j ->
+                    val q = outcome.placements[j]
+                    q.task.id !in taskById &&
+                        (q.task.id.contains("#part") || q.task.id.contains("_part")) &&
+                        SchedulableTaskMapper.cleanSplitTaskId(q.task.id) == baseId
+                }
+                processedIndices.addAll(groupIndices)
+                val groupPlacements = groupIndices.map { outcome.placements[it] }
+                val groupDuration = groupPlacements.sumOf { p ->
+                    p.window.durationMinutes.takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
+                }
+                if (!sourceTask.isScheduleLocked && accumulatedMinutes + groupDuration > remainingCapacity) {
+                    if (overflowTaskList.none { it.id == sourceTask.id }) {
+                        overflowTaskList.add(sourceTask)
+                    }
+                } else {
+                    for (partPlacement in groupPlacements) {
+                        val partDur = partPlacement.window.durationMinutes.takeIf { it > 0 }
+                            ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
+                        appendPlacementItem(partPlacement, sourceTask, isSplitPart = true, dur = partDur)
+                    }
+                }
+            } else {
+                processedIndices.add(idx)
+                val isSplitPart = placement.task.id != sourceTask.id &&
+                    (placement.task.id.contains("#part") || placement.task.id.contains("_part"))
+                val dur = if (isSplitPart) {
+                    placement.window.durationMinutes.takeIf { it > 0 }
+                        ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
+                } else {
+                    TaskBlockPlan.plannedMinutes(sourceTask).takeIf { it > 0 }
+                        ?: placement.window.durationMinutes.coerceAtLeast(1)
+                }
+                if (!sourceTask.isScheduleLocked && accumulatedMinutes + dur > remainingCapacity) {
+                    if (overflowTaskList.none { it.id == sourceTask.id }) {
+                        overflowTaskList.add(sourceTask)
+                    }
+                } else {
+                    appendPlacementItem(placement, sourceTask, isSplitPart = isSplitPart, dur = dur)
+                }
             }
         }
 
@@ -418,7 +568,7 @@ class DailyBlueprintOrchestrator(
 
         val plannedMinutes = accumulatedMinutes
         val capacityUtilizationPercent = if (dailyCapacityMinutes > 0) {
-            (plannedMinutes.toFloat() / dailyCapacityMinutes) * 100f
+            ((precommittedMinutes + plannedMinutes).toFloat() / dailyCapacityMinutes) * 100f
         } else {
             0f
         }
@@ -463,7 +613,8 @@ class DailyBlueprintOrchestrator(
             capacityUtilizationPercent = capacityUtilizationPercent,
             aiStrategyRationale = aiStrategyRationale,
             items = includedItems,
-            overflowTasks = overflowTaskList
+            overflowTasks = overflowTaskList,
+            precommittedMinutes = precommittedMinutes
         )
     }
 
@@ -474,10 +625,14 @@ class DailyBlueprintOrchestrator(
         val tasksToApply = blueprint.items.filter { it.task.id in includedTaskIds }
         val committedTaskIds = mutableListOf<String>()
         val now = System.currentTimeMillis()
+        val hasSplitPartByBaseId = tasksToApply
+            .groupBy { SchedulableTaskMapper.cleanSplitTaskId(it.task.id) }
+            .mapValues { (_, items) -> items.any { it.task.id.contains("#part") || it.task.id.contains("_part") } }
 
         for (item in tasksToApply) {
             val isPart2 = item.task.id.endsWith("#part2") || item.task.id.endsWith("_part2")
-            val baseId = item.task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+            val isPart1 = item.task.id.contains("#part1") || item.task.id.contains("_part1")
+            val baseId = SchedulableTaskMapper.cleanSplitTaskId(item.task.id)
             val persistId = if (isPart2) item.task.id else baseId
             val existing = taskRepository.getById(persistId)
                 ?: if (!isPart2) taskRepository.getById(item.task.id) else null
@@ -487,9 +642,11 @@ class DailyBlueprintOrchestrator(
 
             if (isPart2 && existing == null) {
                 val baseTask = taskRepository.getById(baseId) ?: item.task
+                val cleanTitle = baseTask.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
+                val part2Title = if (item.task.title.contains("(Part")) item.task.title else "$cleanTitle (Part 2/2)"
                 val part2Task = baseTask.copy(
                     id = item.task.id,
-                    title = item.task.title,
+                    title = part2Title,
                     parentTaskId = baseId,
                     dependsOnTaskIds = baseId,
                     estimatedDurationMinutes = durMinutes,
@@ -502,6 +659,8 @@ class DailyBlueprintOrchestrator(
                     recurrenceIntervalDays = 0,
                     isHabitual = false,
                     habitDate = null,
+                    lastAutoScheduledAt = now,
+                    lastStabilizedAt = now,
                     updatedAt = now
                 )
                 taskRepository.insert(part2Task)
@@ -509,14 +668,22 @@ class DailyBlueprintOrchestrator(
                 committedTaskIds.add(part2Task.id)
             } else {
                 val targetTask = existing ?: item.task
-                val isPart1 = item.task.id.contains("#part1") || item.task.id.contains("_part1")
+                val cleanTitle = targetTask.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
+                val isSplitGroup = hasSplitPartByBaseId[baseId] == true
+                val titleToUse = when {
+                    isPart2 -> if (item.task.title.contains("(Part")) item.task.title else "$cleanTitle (Part 2/2)"
+                    isPart1 || (isSplitGroup && !isPart2) -> "$cleanTitle (Part 1/2)"
+                    else -> cleanTitle
+                }
                 val updatedTask = targetTask.copy(
+                    title = titleToUse,
                     scheduledDate = startDay,
                     scheduledTime = timeOffset,
                     habitDate = if (targetTask.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startDay else targetTask.habitDate,
                     isAutoScheduled = true,
                     plannedBlockMinutes = if (isPart2 || isPart1) durMinutes else targetTask.plannedBlockMinutes,
                     lastAutoScheduledAt = now,
+                    lastStabilizedAt = now,
                     updatedAt = now
                 )
                 taskRepository.update(updatedTask)

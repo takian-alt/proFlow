@@ -61,12 +61,14 @@ import com.neuroflow.app.domain.service.DefaultBehavioralSupportService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultTaskSchedulerService
 import com.neuroflow.app.domain.service.EnergyDemand
+import com.neuroflow.app.domain.service.FatigueScoreEvaluator
 import com.neuroflow.app.domain.service.PharmacokineticStimulantCalculator
 import com.neuroflow.app.domain.service.SchedulableTask
 import com.neuroflow.app.domain.service.SocialJetlagCalculator
 import com.neuroflow.app.domain.service.StimulantDoseBout
 import com.neuroflow.app.domain.service.StimulantType
 import com.neuroflow.app.domain.service.TaskCategory
+import com.neuroflow.app.domain.service.TaskFatigueScoreUi
 import com.neuroflow.app.domain.service.TaskSchedulerService
 import com.neuroflow.app.domain.service.TimeSlotWindow
 import com.neuroflow.app.domain.service.computeLatestSafeStimulantCutoffMinute
@@ -144,7 +146,8 @@ data class FlowUiStateV2(
     val isBlueprintLoading: Boolean = false,
     val blueprintIncludedTaskIds: Set<String> = emptySet(),
     val simulationState: SimulationState = SimulationState(),
-    val normalizedSleepDurationMinutes: Int = 480
+    val normalizedSleepDurationMinutes: Int = 480,
+    val fatigueScoresByTaskId: Map<String, TaskFatigueScoreUi> = emptyMap()
 )
 
 @HiltViewModel
@@ -249,7 +252,18 @@ class FlowViewModelV2 @Inject constructor(
                     old.energyTelemetryEnabled == new.energyTelemetryEnabled &&
                     old.affirmations == new.affirmations &&
                     old.quizPeakEnabled == new.quizPeakEnabled &&
-                    old.adaptiveSystemDirective == new.adaptiveSystemDirective
+                    old.adaptiveSystemDirective == new.adaptiveSystemDirective &&
+                    old.weightDeadlineUrgency == new.weightDeadlineUrgency &&
+                    old.weightImpact == new.weightImpact &&
+                    old.weightCircadianMatch == new.weightCircadianMatch &&
+                    old.weightSessionProgress == new.weightSessionProgress &&
+                    old.weightFrogBonus == new.weightFrogBonus &&
+                    old.weightQuadrant == new.weightQuadrant &&
+                    old.weightPriorityLevel == new.weightPriorityLevel &&
+                    old.weightDuration == new.weightDuration &&
+                    old.weightFocusMode == new.weightFocusMode &&
+                    old.weightPlanBoost == new.weightPlanBoost &&
+                    old.weightEnjoyment == new.weightEnjoyment
             },
             (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) }
         ) { active, completed, prefs, sleepLogs ->
@@ -693,6 +707,21 @@ class FlowViewModelV2 @Inject constructor(
             currentTime = zonedDateTime.toLocalTime()
         )
 
+        val fatigueScoresByTaskId = FatigueScoreEvaluator.evaluateTasks(
+            tasks = (todayActiveTasks + actionableActiveTasks).distinctBy { it.id },
+            allContextTasks = activeTasks,
+            completedTasks = completedTasks,
+            allSessions = allSessions,
+            dayStartMillis = dayStart,
+            dayEndMillis = dayEnd,
+            nowMillis = now,
+            timeline = dayTimeline,
+            fallbackSnapshot = effectiveSnapshot,
+            prefs = prefs,
+            taskSchedulerService = taskSchedulerService,
+            zoneId = systemZone
+        )
+
         FlowUiStateV2(
             activeTasks = activeTasks,
             filteredTasks = filtered,
@@ -729,7 +758,8 @@ class FlowViewModelV2 @Inject constructor(
             isBlueprintLoading = isBlueprintLoading,
             blueprintIncludedTaskIds = blueprintIncludedTaskIds,
             simulationState = simState,
-            normalizedSleepDurationMinutes = sleepDurationMinutes
+            normalizedSleepDurationMinutes = sleepDurationMinutes,
+            fatigueScoresByTaskId = fatigueScoresByTaskId
         )
     }.stateIn(
         viewModelScope,
