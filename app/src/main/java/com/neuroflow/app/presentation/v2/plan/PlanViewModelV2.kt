@@ -85,6 +85,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEmpty
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -213,8 +214,8 @@ class PlanViewModelV2 @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val sevenDayLoadDistribution: StateFlow<Map<LocalDate, Float>> = combine(
-        taskRepository.observeActiveTasks(),
-        preferencesDataStore.preferencesFlow
+        taskRepository.observeActiveTasks().onEmpty { emit(emptyList()) },
+        preferencesDataStore.preferencesFlow.onEmpty { emit(UserPreferences()) }
     ) { allTasks, prefs ->
         val zoneId = ZoneId.systemDefault()
         val today = LocalDate.now(zoneId)
@@ -318,8 +319,8 @@ class PlanViewModelV2 @Inject constructor(
                 blueprintIncludedTaskIds = combinedFourthFifth[5] as Set<String>
             )
         },
-        taskRepository.observeActiveTasks(),
-        preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+        taskRepository.observeActiveTasks().onEmpty { emit(emptyList()) },
+        preferencesDataStore.preferencesFlow.onEmpty { emit(UserPreferences()) }.distinctUntilChanged { old, new ->
             old.workDayStart == new.workDayStart &&
                 old.workDayEnd == new.workDayEnd &&
                 old.peakEnergyStart == new.peakEnergyStart &&
@@ -343,11 +344,13 @@ class PlanViewModelV2 @Inject constructor(
                 old.dailyDeepWorkTargetMinutes == new.dailyDeepWorkTargetMinutes
         },
         combine(
-            sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList()),
-            goalRepository?.observeActiveGoals() ?: flowOf(emptyList()),
-            taskRepository.observeCompletedTasks(),
-            sessionRepository?.observeAll() ?: flowOf(emptyList()),
-            clockTicker?.currentMinuteTick ?: flowOf(0L)
+            (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
+            (goalRepository?.observeActiveGoals() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
+            taskRepository.observeCompletedTasks().onEmpty { emit(emptyList()) },
+            (sessionRepository?.observeAll() ?: flowOf(emptyList())).onEmpty {
+                emit(runCatching { sessionRepository?.getAllSessions() }.getOrNull() ?: emptyList())
+            },
+            (clockTicker?.currentMinuteTick ?: flowOf(0L)).onEmpty { emit(0L) }
         ) { sleepLogs, activeGoals, completedList, allSessionsList, _ ->
             PlanAuxData(sleepLogs, activeGoals, completedList, allSessionsList)
         }
@@ -871,11 +874,17 @@ class PlanViewModelV2 @Inject constructor(
                         updatedAt = nowMillis
                     )
                     taskRepository.update(updated)
-                    if (updated.isFrog) {
+                    val shouldSyncToCalendar = when (prefs.calendarSyncScope) {
+                        "ALL_SCHEDULED" -> true
+                        "DISABLED" -> false
+                        else -> updated.isFrog || updated.isScheduleLocked
+                    }
+                    if (shouldSyncToCalendar) {
                         calendarSyncRepository?.upsertTaskEvent(
                             updated,
                             startMillis = primaryPlacement.window.startMillis,
-                            durationMinutes = primaryPlacement.window.durationMinutes
+                            durationMinutes = primaryPlacement.window.durationMinutes,
+                            targetCalendarId = prefs.calendarSyncTargetId
                         )
                     }
                     context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
@@ -920,6 +929,14 @@ class PlanViewModelV2 @Inject constructor(
                             } else {
                                 taskRepository.insert(part2Entity)
                             }
+                            if (shouldSyncToCalendar) {
+                                calendarSyncRepository?.upsertTaskEvent(
+                                    part2Entity,
+                                    startMillis = part2Placement.window.startMillis,
+                                    durationMinutes = part2Placement.window.durationMinutes,
+                                    targetCalendarId = prefs.calendarSyncTargetId
+                                )
+                            }
                             context?.let { AutonomyNudgeEngine.scheduleNudge(it, part2Entity) }
                         } else {
                             if (existingPart2 != null &&
@@ -927,6 +944,7 @@ class PlanViewModelV2 @Inject constructor(
                                 existingPart2.id !in focusedTaskIds
                             ) {
                                 context?.let { AutonomyNudgeEngine.cancelNudge(it, existingPart2.id) }
+                                calendarSyncRepository?.deleteTaskEvent(existingPart2.id)
                                 taskRepository.delete(existingPart2)
                             }
                             val legacyPart2 = taskRepository.getById("${baseTaskId}_part2")
@@ -935,6 +953,7 @@ class PlanViewModelV2 @Inject constructor(
                                 legacyPart2.id !in focusedTaskIds
                             ) {
                                 context?.let { AutonomyNudgeEngine.cancelNudge(it, legacyPart2.id) }
+                                calendarSyncRepository?.deleteTaskEvent(legacyPart2.id)
                                 taskRepository.delete(legacyPart2)
                             }
                         }
@@ -1067,119 +1086,243 @@ class PlanViewModelV2 @Inject constructor(
                 val orch = multiDayScheduleOrchestrator ?: MultiDayScheduleOrchestrator(
                     schedulerService = taskSchedulerService,
                     circadianEnergyService = circadianEnergyService,
-                    calendarSyncRepository = calendarSyncRepository
+                    calendarSyncRepository = calendarSyncRepository,
+                    sleepTelemetryRepository = sleepTelemetryRepository,
+                    preferencesDataStore = preferencesDataStore
                 )
+                val prefs = preferencesDataStore.preferencesFlow.first()
                 val allTasks = taskRepository.getActiveTasks()
+                val allKnownTasks = taskRepository.getAllTasks().ifEmpty { allTasks }
                 val nowMillis = System.currentTimeMillis()
-                val candidateTasks = allTasks.filter {
-                    AutoSchedulingContracts.isMutableByAutoScheduler(it, nowMillis)
-                }.map { task ->
-                    val resolvedCat = when (task.determineCategory()) {
-                        com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
-                        com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
-                        com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
-                        com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
-                        com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
-                        com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
-                        com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
-                        com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
+                val enjoymentCalibration = com.neuroflow.app.domain.engine.AnalyticsEngine.EnjoymentCalibration.from(allKnownTasks)
+
+                val allSessions = runCatching {
+                    sessionRepository?.getAllSessions().orEmpty()
+                }.getOrDefault(emptyList())
+                val focusedTaskIds = sessionRepository?.getOpenSessions().orEmpty().filter { session ->
+                    val activeServiceTaskId = FocusService.activeSession.value?.taskId
+                    if (activeServiceTaskId != null && activeServiceTaskId == session.taskId) return@filter true
+                    val modeDurationSec = FocusTimerModeV2.entries
+                        .firstOrNull { it.name == session.sessionType }?.durationSeconds
+                    val maxDurationMs = if (modeDurationSec != null && modeDurationSec > 0L) {
+                        modeDurationSec * 1000L
+                    } else {
+                        120 * 60_000L
                     }
-                    val energyDemand = when (task.energyLevel) {
-                        com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
-                        com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
-                        else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
-                    }
-                    SchedulableTask(
-                        id = task.id,
-                        title = task.title,
-                        category = resolvedCat,
-                        priority = when (task.priority) {
-                            com.neuroflow.app.domain.model.Priority.HIGH -> 2
-                            com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
-                            else -> 0
-                        },
-                        estimatedMinutes = com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task),
-                        energyDemand = energyDemand,
-                        deadlineMillis = task.resolveDeadlineEpochMillis(),
-                        isFrog = task.isFrog
+                    val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
+                    elapsedMs < maxDurationMs
+                }.map { it.taskId }.toSet()
+                val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+                val activeTaskIds = allTasks.map { it.id }.toSet()
+
+                fun isContinuationBlocked(task: TaskEntity): Boolean {
+                    val partNumMatch = Regex("""[#_]part(\d+)""").find(task.id)
+                    val partNum = partNumMatch?.groupValues?.get(1)?.toIntOrNull()
+                        ?: Regex("""\(Part (\d+)/""").find(task.title)?.groupValues?.get(1)?.toIntOrNull()
+                    val isContinuation = (partNum != null && partNum >= 2) ||
+                        task.id.endsWith("_part2") ||
+                        task.id.contains("#part2") ||
+                        task.parentTaskId != null
+                    if (!isContinuation) return false
+                    val parentSlug = task.parentTaskId ?: task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                    val isParentActive = (task.parentTaskId != null && task.parentTaskId in activeTaskIds) ||
+                        (parentSlug != task.id && parentSlug in activeTaskIds)
+                    val hasPartRegex = task.id.contains(Regex("""[#_]part\d+"""))
+                    val isPart1Active = if (hasPartRegex) {
+                        val part1Id = task.id.replace(Regex("""([#_]part)\d+"""), "$1" + "1")
+                        part1Id != task.id && part1Id in activeTaskIds
+                    } else false
+                    return isParentActive || isPart1Active
+                }
+
+                val mutableEntities = allTasks.filter {
+                    AutoSchedulingContracts.isMutableByAutoScheduler(it, nowMillis) &&
+                        it.id !in focusedTaskIds &&
+                        !isContinuationBlocked(it)
+                }
+                val microStepCounts = mutableEntities.associate { task ->
+                    val steps = runCatching { taskRepository.getMicroSteps(task.id) }.getOrDefault(emptyList())
+                    task.id to Pair(steps.count { it.isCompleted }, steps.size)
+                }
+                val candidateTasks = mutableEntities.map { task ->
+                    com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
+                        task = task,
+                        allContextTasks = mutableEntities,
+                        enjoymentCalibration = enjoymentCalibration,
+                        activeTaskId = activeTaskId,
+                        microStepCounts = microStepCounts
                     )
                 }
+
                 val zoneId = ZoneId.systemDefault()
                 val startDate = Instant.ofEpochMilli(_selectedDate.value).atZone(zoneId).toLocalDate()
                 val outcome = orch.orchestrateMultiDaySchedule(
                     tasks = candidateTasks,
                     startDate = startDate,
                     horizonDays = horizonDays,
-                    zoneId = zoneId
+                    zoneId = zoneId,
+                    referenceNowMillis = nowMillis,
+                    rejectionPatternsJson = prefs.schedulingRejectionsJson
                 )
+
+                val placedBaseIds = mutableSetOf<String>()
                 for ((_, dayOutcome) in outcome.dayOutcomes) {
                     val placementsByBaseId = dayOutcome.placements.groupBy {
-                        it.task.id.replace(Regex("""[#_]part\d+.*$"""), "")
+                        com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.cleanSplitTaskId(it.task.id)
                     }
                     for ((baseId, placements) in placementsByBaseId) {
                         val primary = placements.first()
-                        val fresh = taskRepository.getById(baseId) ?: continue
-                        if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE) continue
+                        val isStandalonePart2 = placements.size == 1 &&
+                            (primary.task.id.contains(Regex("""[#_]part[2-9]""")) || primary.task.id.endsWith("_part2"))
+                        val targetTaskId = if (isStandalonePart2) primary.task.id else baseId
+                        val fresh = taskRepository.getById(targetTaskId) ?: continue
+                        if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
+                            fresh.id in focusedTaskIds ||
+                            !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)
+                        ) continue
 
+                        placedBaseIds.add(baseId)
                         val (startDay, timeOffset) = ScheduleAutoTasksWorker.splitMillisToDateAndTime(primary.window.startMillis)
                         val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
                         val isSplit = placements.size > 1 || primary.task.id.contains("#part1")
                         val part2Placement = placements.getOrNull(1)
+                        val titleToUse = when {
+                            isSplit -> "$cleanTitle (Part 1/2)"
+                            isStandalonePart2 -> fresh.title
+                            else -> cleanTitle
+                        }
                         val updatedParent = fresh.copy(
-                            title = if (isSplit) "$cleanTitle (Part 1/2)" else cleanTitle,
+                            title = titleToUse,
                             scheduledDate = startDay,
                             scheduledTime = timeOffset,
                             habitDate = if (fresh.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startDay else fresh.habitDate,
                             isAutoScheduled = true,
                             plannedBlockMinutes = primary.window.durationMinutes,
                             lastAutoScheduledAt = nowMillis,
+                            lastStabilizedAt = nowMillis,
                             updatedAt = nowMillis
                         )
                         taskRepository.update(updatedParent)
-
-                        val part2Id = "${baseId}#part2"
-                        val existingPart2 = taskRepository.getById(part2Id) ?: taskRepository.getById("${baseId}_part2")
-                        if (isSplit && part2Placement != null && existingPart2?.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED) {
-                            val (p2Date, p2Offset) = ScheduleAutoTasksWorker.splitMillisToDateAndTime(part2Placement.window.startMillis)
-                            val part2Entity = (existingPart2 ?: fresh).copy(
-                                id = existingPart2?.id ?: part2Id,
-                                title = "$cleanTitle (Part 2/2)",
-                                parentTaskId = baseId,
-                                dependsOnTaskIds = baseId,
-                                estimatedDurationMinutes = part2Placement.window.durationMinutes,
-                                plannedBlockMinutes = part2Placement.window.durationMinutes,
-                                scheduledDate = p2Date,
-                                scheduledTime = p2Offset,
-                                isAutoScheduled = true,
-                                isFrog = false,
-                                recurrence = com.neuroflow.app.domain.model.Recurrence.NONE,
-                                recurrenceIntervalDays = 0,
-                                isHabitual = false,
-                                habitDate = null,
-                                sessionCount = existingPart2?.sessionCount ?: 0,
-                                totalTimeTrackedMinutes = existingPart2?.totalTimeTrackedMinutes ?: 0f,
-                                actualDurationMinutes = existingPart2?.actualDurationMinutes ?: 0f,
-                                lastSessionDurationMinutes = existingPart2?.lastSessionDurationMinutes ?: 0f,
-                                lastAutoScheduledAt = nowMillis,
-                                lastStabilizedAt = nowMillis,
-                                updatedAt = nowMillis
+                        val shouldSyncToCalendar = when (prefs.calendarSyncScope) {
+                            "ALL_SCHEDULED" -> true
+                            "DISABLED" -> false
+                            else -> updatedParent.isFrog || updatedParent.isScheduleLocked
+                        }
+                        if (shouldSyncToCalendar) {
+                            calendarSyncRepository?.upsertTaskEvent(
+                                updatedParent,
+                                startMillis = primary.window.startMillis,
+                                durationMinutes = primary.window.durationMinutes,
+                                targetCalendarId = prefs.calendarSyncTargetId
                             )
-                            if (existingPart2 != null) {
-                                taskRepository.update(part2Entity)
-                            } else {
-                                taskRepository.insert(part2Entity)
-                            }
-                        } else if (!isSplit) {
-                            if (existingPart2 != null && existingPart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED) {
-                                taskRepository.delete(existingPart2)
-                            }
-                            val legacyPart2 = taskRepository.getById("${baseId}_part2")
-                            if (legacyPart2 != null && legacyPart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED) {
-                                taskRepository.delete(legacyPart2)
+                        }
+                        context?.let { AutonomyNudgeEngine.scheduleNudge(it, updatedParent) }
+
+                        if (!isStandalonePart2) {
+                            val part2Id = "${baseId}#part2"
+                            val existingPart2 = taskRepository.getById(part2Id) ?: taskRepository.getById("${baseId}_part2")
+                            if (isSplit && part2Placement != null &&
+                                existingPart2?.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                                existingPart2?.id !in focusedTaskIds
+                            ) {
+                                val (p2Date, p2Offset) = ScheduleAutoTasksWorker.splitMillisToDateAndTime(part2Placement.window.startMillis)
+                                val part2Entity = (existingPart2 ?: fresh).copy(
+                                    id = existingPart2?.id ?: part2Id,
+                                    title = "$cleanTitle (Part 2/2)",
+                                    parentTaskId = baseId,
+                                    dependsOnTaskIds = baseId,
+                                    estimatedDurationMinutes = part2Placement.window.durationMinutes,
+                                    plannedBlockMinutes = part2Placement.window.durationMinutes,
+                                    scheduledDate = p2Date,
+                                    scheduledTime = p2Offset,
+                                    isAutoScheduled = true,
+                                    isFrog = false,
+                                    recurrence = com.neuroflow.app.domain.model.Recurrence.NONE,
+                                    recurrenceIntervalDays = 0,
+                                    isHabitual = false,
+                                    habitDate = null,
+                                    sessionCount = existingPart2?.sessionCount ?: 0,
+                                    totalTimeTrackedMinutes = existingPart2?.totalTimeTrackedMinutes ?: 0f,
+                                    actualDurationMinutes = existingPart2?.actualDurationMinutes ?: 0f,
+                                    lastSessionDurationMinutes = existingPart2?.lastSessionDurationMinutes ?: 0f,
+                                    lastAutoScheduledAt = nowMillis,
+                                    lastStabilizedAt = nowMillis,
+                                    updatedAt = nowMillis
+                                )
+                                if (existingPart2 != null) {
+                                    taskRepository.update(part2Entity)
+                                } else {
+                                    taskRepository.insert(part2Entity)
+                                }
+                                if (shouldSyncToCalendar) {
+                                    calendarSyncRepository?.upsertTaskEvent(
+                                        part2Entity,
+                                        startMillis = part2Placement.window.startMillis,
+                                        durationMinutes = part2Placement.window.durationMinutes,
+                                        targetCalendarId = prefs.calendarSyncTargetId
+                                    )
+                                }
+                                context?.let { AutonomyNudgeEngine.scheduleNudge(it, part2Entity) }
+                            } else if (!isSplit) {
+                                if (existingPart2 != null &&
+                                    existingPart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                                    existingPart2.id !in focusedTaskIds
+                                ) {
+                                    context?.let { AutonomyNudgeEngine.cancelNudge(it, existingPart2.id) }
+                                    calendarSyncRepository?.deleteTaskEvent(existingPart2.id)
+                                    taskRepository.delete(existingPart2)
+                                }
+                                val legacyPart2 = taskRepository.getById("${baseId}_part2")
+                                if (legacyPart2 != null &&
+                                    legacyPart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                                    legacyPart2.id !in focusedTaskIds
+                                ) {
+                                    context?.let { AutonomyNudgeEngine.cancelNudge(it, legacyPart2.id) }
+                                    calendarSyncRepository?.deleteTaskEvent(legacyPart2.id)
+                                    taskRepository.delete(legacyPart2)
+                                }
                             }
                         }
                     }
                 }
+
+                // Clean up stale schedules on unlocked mutable tasks that stayed unscheduled beyond the horizon
+                val deferredBaseIds = outcome.finalDeferred
+                    .map { com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.cleanSplitTaskId(it.id) }
+                    .filter { it !in placedBaseIds }
+                    .toSet()
+                for (deferredBaseId in deferredBaseIds) {
+                    val fresh = taskRepository.getById(deferredBaseId) ?: continue
+                    if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
+                        fresh.id in focusedTaskIds ||
+                        fresh.isScheduleLocked
+                    ) continue
+                    if (fresh.scheduledDate != null || fresh.scheduledTime != null || fresh.isAutoScheduled) {
+                        val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
+                        val updatedDeferred = fresh.copy(
+                            title = cleanTitle,
+                            scheduledDate = null,
+                            scheduledTime = null,
+                            isAutoScheduled = false,
+                            plannedBlockMinutes = 0,
+                            updatedAt = nowMillis
+                        )
+                        taskRepository.update(updatedDeferred)
+                        calendarSyncRepository?.deleteTaskEvent(updatedDeferred.id)
+                        context?.let { AutonomyNudgeEngine.cancelNudge(it, updatedDeferred.id) }
+                    }
+                    val existingPart2 = taskRepository.getById("${deferredBaseId}#part2")
+                        ?: taskRepository.getById("${deferredBaseId}_part2")
+                    if (existingPart2 != null &&
+                        existingPart2.status != com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
+                        existingPart2.id !in focusedTaskIds
+                    ) {
+                        context?.let { AutonomyNudgeEngine.cancelNudge(it, existingPart2.id) }
+                        calendarSyncRepository?.deleteTaskEvent(existingPart2.id)
+                        taskRepository.delete(existingPart2)
+                    }
+                }
+
                 _deferrals.value = outcome.finalDeferred.map { task ->
                     DeferralRationale(
                         taskId = task.id,
@@ -1189,7 +1332,7 @@ class PlanViewModelV2 @Inject constructor(
                     )
                 }
                 _userActionMessage.emit(
-                    "Auto-balanced 7-day schedule: placed ${outcome.totalScheduledTasks} tasks across horizon."
+                    "Auto-balanced $horizonDays-day schedule: placed ${outcome.totalScheduledTasks} tasks across horizon."
                 )
             } catch (e: Exception) {
                 android.util.Log.e("PlanViewModelV2", "Multi-day auto-balance failed", e)

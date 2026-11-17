@@ -31,7 +31,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -149,13 +151,18 @@ class HyperFocusViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            combine(tickerFlow, hyperFocusDataStore.flow) { _, prefs -> prefs }
-                .collect { prefs ->
-                    if (!prefs.isActive || prefs.sessionMode != HyperFocusSessionMode.TIME_BASED) return@collect
-                    val endsAt = prefs.sessionEndsAtMillis ?: return@collect
-                    if (endsAt <= System.currentTimeMillis()) {
-                        hyperFocusManager.deactivate()
+            hyperFocusDataStore.flow
+                .map { prefs -> Triple(prefs.isActive, prefs.sessionMode, prefs.sessionEndsAtMillis) }
+                .distinctUntilChanged()
+                .collectLatest { (isActive, mode, endsAt) ->
+                    if (!isActive || mode != HyperFocusSessionMode.TIME_BASED || endsAt == null) {
+                        return@collectLatest
                     }
+                    val remainingMillis = (endsAt - System.currentTimeMillis()).coerceAtLeast(0L)
+                    if (remainingMillis > 0L) {
+                        delay(remainingMillis)
+                    }
+                    hyperFocusManager.deactivate()
                 }
         }
     }

@@ -1,6 +1,7 @@
 package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.calendar.CalendarSyncRepository
+import com.neuroflow.app.data.local.PhysiologicalEventType
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.TaskEntity
@@ -9,19 +10,36 @@ import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.wakeTimeMillis
+import com.neuroflow.app.data.local.parsePhysiologicalLogs
+import com.neuroflow.app.data.local.parseStimulantLogs
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
+import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.model.buildBehavioralObservations
+import com.neuroflow.app.domain.model.buildDailyCognitiveBlocks
+import com.neuroflow.app.domain.model.computeRollingDailySleepAverage
+import com.neuroflow.app.domain.model.extractStimulantDosesFromSlots
+import com.neuroflow.app.domain.service.AdaptiveCircadianLearner
+import com.neuroflow.app.domain.service.ChronotypeProfile
 import com.neuroflow.app.domain.service.CircadianEnergyService
+import com.neuroflow.app.domain.service.CognitiveBlockCategory
+import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.DailyBlueprintCoachingResult
+import com.neuroflow.app.domain.service.DaytimeNapBout
 import com.neuroflow.app.domain.service.EnergyDemand
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.domain.service.GeminiAiOnlineService
+import com.neuroflow.app.domain.service.ProtectedLocalSlot
 import com.neuroflow.app.domain.service.SchedulableTask
 import com.neuroflow.app.domain.service.SchedulingOutcome
+import com.neuroflow.app.domain.service.SocialJetlagCalculator
 import com.neuroflow.app.domain.service.TaskCategory
 import com.neuroflow.app.domain.service.TaskSchedulerService
+import com.neuroflow.app.domain.service.TimeSlotWindow
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
@@ -121,6 +139,17 @@ class DailyBlueprintOrchestrator(
         }
 
         val allActiveTasks = taskRepository.getActiveTasks()
+        val allKnownTasks = taskRepository.getAllTasks().ifEmpty { allActiveTasks }
+        val planningCalibration = AnalyticsEngine.PlanningCalibration.from(allKnownTasks)
+        val enjoymentCalibration = AnalyticsEngine.EnjoymentCalibration.from(allKnownTasks)
+        val globalCalibrationRatio = planningCalibration.globalFactor.toDouble().coerceIn(0.8, 1.6)
+        val rollingAvgSleep = computeRollingDailySleepAverage(sleepLogs, dayNowMillis, zoneId)
+        val socialJetlagLagHours = SocialJetlagCalculator.evaluateFromSleepWindows(
+            sleepWindows = sleepLogs.map { TimeSlotWindow(it.startAt, it.endAt) },
+            nowMillis = dayNowMillis,
+            zoneId = zoneId
+        ).mondayMorningPhaseLagHours
+
         val candidateTasks = allActiveTasks.filter { task ->
             val effectiveDate = task.effectiveScheduledDateMillis()
             val isEligible = (effectiveDate != null && effectiveDate in dayStart..dayEnd) || (isToday && task.scheduledDate == null)
@@ -129,96 +158,115 @@ class DailyBlueprintOrchestrator(
         val taskById = candidateTasks.associateBy { it.id }
 
         val externalBusyWindows = calendarSyncRepository?.getBusyWindows(dayStart, dayEnd + 1) ?: emptyList()
-        val fixedTaskBusyWindows = allActiveTasks.mapNotNull { t ->
+        val fixedTaskEntries = allActiveTasks.mapNotNull { t ->
             if (t.id in taskById) return@mapNotNull null
             if (t.scheduledTime == null) return@mapNotNull null
             val start = t.resolveScheduledEpochMillis(dayStart) ?: return@mapNotNull null
             val dur = TaskBlockPlan.plannedMinutes(t).coerceIn(5, 480)
             val end = start + dur * 60_000L
             if (start < dayEnd + 1 && end > dayStart) {
-                com.neuroflow.app.domain.service.TimeSlotWindow(start, end)
+                t to TimeSlotWindow(start, end)
             } else null
         }
+        val fixedTaskBusyWindows = fixedTaskEntries.map { it.second }
         val busyWindows = externalBusyWindows + fixedTaskBusyWindows
+
+        fun isCognitiveDemand(t: TaskEntity): Boolean =
+            t.energyLevel != EnergyLevel.LOW || t.isFrog || t.taskType == TaskType.ANALYTICAL
+
+        val completedMinutesToday = allKnownTasks
+            .filter {
+                it.status == TaskStatus.COMPLETED &&
+                    it.effectiveScheduledDateMillis() in dayStart..dayEnd &&
+                    isCognitiveDemand(it)
+            }
+            .sumOf { TaskBlockPlan.plannedMinutes(it) }
+        val fixedCommittedMinutes = fixedTaskEntries
+            .filter { (t, _) -> t.quadrant != Quadrant.ELIMINATE && isCognitiveDemand(t) }
+            .sumOf { (_, win) -> win.durationMinutes }
+        val remainingCapacity = (dailyCapacityMinutes - (completedMinutesToday + fixedCommittedMinutes)).coerceAtLeast(0)
 
         val protectedSlots = prefs.protectedTimeSlots
             .filter { it.isEnabled && ProtectedSlotClock.occursOnDay(it, dayStart) }
             .map {
-                com.neuroflow.app.domain.service.ProtectedLocalSlot(
+                ProtectedLocalSlot(
                     startHour = (it.startMinuteOfDay / 60).coerceIn(0, 23),
                     startMinute = (it.startMinuteOfDay % 60).coerceIn(0, 59),
                     durationMinutes = (it.durationMinutes + it.recoveryBufferMinutes).coerceIn(15, 480)
                 )
             }
-        val chronotype = com.neuroflow.app.domain.service.ChronotypeProfile.fromString(prefs.quizChronotype ?: prefs.manualChronotype)
+        val chronotype = ChronotypeProfile.fromString(prefs.quizChronotype ?: prefs.manualChronotype)
         val manualPeakStartHour = if (prefs.manualPeakProfileEnabled) {
             (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
         } else null
-        val weights = com.neuroflow.app.domain.service.PriorityWeightProfile(
-            urgencyWeight = prefs.weightDeadlineUrgency.toDouble(),
-            impactWeight = prefs.weightImpact.toDouble(),
-            circadianMatchWeight = prefs.weightCircadianMatch.toDouble(),
-            momentumWeight = prefs.weightSessionProgress.toDouble(),
-            frogBonusMultiplier = prefs.weightFrogBonus.toDouble(),
-            quadrantWeight = prefs.weightQuadrant.toDouble(),
-            priorityLevelWeight = prefs.weightPriorityLevel.toDouble(),
-            durationWeight = prefs.weightDuration.toDouble(),
-            focusModeWeight = prefs.weightFocusMode.toDouble(),
-            planBoostWeight = prefs.weightPlanBoost.toDouble(),
-            enjoymentWeight = prefs.weightEnjoyment.toDouble()
-        )
+        val weights = SchedulableTaskMapper.toPriorityWeights(prefs)
         val activeUncompletedTaskIds = allActiveTasks.map { it.id }.toSet()
+
+        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
+        val quickPhysBlocks = physLogs.mapNotNull { log ->
+            val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
+            val minOfDay = logZdt.hour * 60 + logZdt.minute
+            val duration = log.durationMinutes.coerceIn(5, 240)
+            when (log.type) {
+                PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
+                    startMinuteOfDay = minOfDay,
+                    endMinuteOfDay = (minOfDay + duration) % 1440,
+                    category = CognitiveBlockCategory.MEAL,
+                    intensity = log.intensity,
+                    label = "Quick Logged Meal #${log.timestampMillis}",
+                    explicitStartMillis = log.timestampMillis,
+                    explicitEndMillis = log.timestampMillis + duration * 60_000L
+                )
+                PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
+                    startMinuteOfDay = minOfDay,
+                    endMinuteOfDay = (minOfDay + duration) % 1440,
+                    category = CognitiveBlockCategory.EXERCISE,
+                    intensity = log.intensity,
+                    label = "Quick Logged Workout #${log.timestampMillis}",
+                    explicitStartMillis = log.timestampMillis,
+                    explicitEndMillis = log.timestampMillis + duration * 60_000L
+                )
+                PhysiologicalEventType.NAP -> null
+            }
+        }
+        val quickPhysNaps = physLogs
+            .filter { it.type == PhysiologicalEventType.NAP }
+            .map { log ->
+                DaytimeNapBout(
+                    startMillis = log.timestampMillis,
+                    endMillis = log.timestampMillis + log.durationMinutes.coerceIn(5, 180) * 60_000L
+                )
+            }
+        val allNaps = quickPhysNaps.sortedBy { it.startMillis }
+
         val stimulantDoses = (
-            com.neuroflow.app.data.local.parseStimulantLogs(prefs.stimulantLogsJson) +
-            com.neuroflow.app.domain.model.extractStimulantDosesFromSlots(prefs.protectedTimeSlots, targetDate, zoneId)
-        ).distinctBy { it.timestampMillis to it.type }
-        val physiologicalBlocks = com.neuroflow.app.domain.model.buildDailyCognitiveBlocks(
+            parseStimulantLogs(prefs.stimulantLogsJson) +
+                extractStimulantDosesFromSlots(prefs.protectedTimeSlots, targetDate, zoneId)
+            ).distinctBy { it.timestampMillis to it.type }
+        val basePhysioBlocks = buildDailyCognitiveBlocks(
             slots = prefs.protectedTimeSlots,
             date = targetDate,
             zoneId = zoneId
         ).filter {
-            it.category == com.neuroflow.app.domain.service.CognitiveBlockCategory.MEAL ||
-                it.category == com.neuroflow.app.domain.service.CognitiveBlockCategory.EXERCISE
+            it.category == CognitiveBlockCategory.MEAL ||
+                it.category == CognitiveBlockCategory.EXERCISE
         }
+        val physiologicalBlocks = basePhysioBlocks + quickPhysBlocks
+
+        val completedTasks = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
+        val observations = buildBehavioralObservations(completedTasks, emptyList(), zoneId)
+        val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
+        val learnedProfile = if (observations.isNotEmpty()) {
+            AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
+        } else null
 
         val rawSchedulableTasks = candidateTasks.map { task ->
-            val category = when (task.quadrant) {
-                Quadrant.DO_FIRST -> TaskCategory.DEEP_WORK
-                Quadrant.SCHEDULE -> TaskCategory.DEEP_WORK
-                Quadrant.DELEGATE -> TaskCategory.ADMIN
-                Quadrant.ELIMINATE -> TaskCategory.GENERAL
-            }
-            val energyDemand = when (task.energyLevel) {
-                EnergyLevel.HIGH -> EnergyDemand.HIGH
-                EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
-                else -> EnergyDemand.LOW
-            }
-            val priority = when (task.quadrant) {
-                Quadrant.DO_FIRST -> 2
-                Quadrant.SCHEDULE -> 1
-                else -> 0
-            }
-            val prereqs = task.dependsOnTaskIds.split(",")
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .toMutableSet()
-            if (!task.parentTaskId.isNullOrBlank() && task.parentTaskId != task.id) {
-                prereqs.add(task.parentTaskId)
-            }
-            SchedulableTask(
-                id = task.id,
-                title = task.title,
-                category = category,
-                priority = priority,
-                estimatedMinutes = TaskBlockPlan.plannedMinutes(task),
-                energyDemand = energyDemand,
-                isFrog = task.isFrog,
-                deadlineMillis = task.resolveDeadlineEpochMillis(dayStart),
-                isLocked = task.isScheduleLocked,
-                parentTaskId = task.parentTaskId,
-                prerequisiteIds = prereqs,
-                impactScore = task.impactScore,
-                postponeCount = task.postponeCount
+            SchedulableTaskMapper.toSchedulableTask(
+                task = task,
+                allContextTasks = candidateTasks,
+                dayStartMillis = dayStart,
+                enjoymentCalibration = enjoymentCalibration
             )
         }
         val schedulableTasks = DependencyGraphValidator.sanitizeDag(rawSchedulableTasks).tasks
@@ -232,16 +280,21 @@ class DailyBlueprintOrchestrator(
                 lastSleepDurationMinutes = sleepDurationMinutes,
                 busyWindows = busyWindows,
                 protectedSlots = protectedSlots,
+                calibrationRatio = globalCalibrationRatio,
                 zoneId = zoneId,
+                naps = allNaps,
                 chronotype = chronotype,
                 manualPeakStartHour = manualPeakStartHour,
                 priorityWeights = weights,
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAvgSleep,
                 physiologicalBlocks = physiologicalBlocks,
                 stimulantDoses = stimulantDoses,
+                socialJetlagLagHours = socialJetlagLagHours,
                 activeUncompletedTaskIds = activeUncompletedTaskIds,
                 workDayStartHour = prefs.workDayStart,
                 workDayEndHour = prefs.workDayEnd,
-                dailyCognitiveCapacityMinutes = dailyCapacityMinutes,
+                dailyCognitiveCapacityMinutes = remainingCapacity,
                 rejectionPatternsJson = prefs.schedulingRejectionsJson
             )
         } else {
@@ -279,9 +332,13 @@ class DailyBlueprintOrchestrator(
             } else {
                 sourceTask
             }
-            val dur = placement.window.durationMinutes.takeIf { it > 0 }
-                ?: TaskBlockPlan.plannedMinutes(displayTask).coerceAtLeast(1)
-            if (!displayTask.isScheduleLocked && (accumulatedMinutes + dur > dailyCapacityMinutes)) {
+            val dur = if (isSplitPart) {
+                placement.window.durationMinutes.takeIf { it > 0 }
+                    ?: TaskBlockPlan.plannedMinutes(displayTask).coerceAtLeast(1)
+            } else {
+                TaskBlockPlan.plannedMinutes(displayTask).coerceAtLeast(1)
+            }
+            if (!displayTask.isScheduleLocked && (accumulatedMinutes + dur > remainingCapacity)) {
                 if (overflowTaskList.none { it.id == sourceTask.id }) {
                     overflowTaskList.add(sourceTask)
                 }
@@ -289,13 +346,37 @@ class DailyBlueprintOrchestrator(
                 includedTaskIds.add(sourceTask.id)
                 accumulatedMinutes += dur
 
-                val snapshot = circadianEnergyService.evaluateSnapshot(
-                    timestampMillis = placement.window.startMillis,
-                    wakeTimeMillis = wakeTimeMillis,
-                    lastSleepDurationMinutes = sleepDurationMinutes,
-                    continuousActiveFocusMinutes = 0,
-                    zoneId = zoneId
-                )
+                val useBasicSnapshot = chronotype == ChronotypeProfile.INTERMEDIATE &&
+                    manualPeakStartHour == null &&
+                    stimulantDoses.isEmpty() &&
+                    physiologicalBlocks.isEmpty() &&
+                    allNaps.isEmpty() &&
+                    learnedProfile == null
+                val snapshot = if (useBasicSnapshot) {
+                    circadianEnergyService.evaluateSnapshot(
+                        timestampMillis = placement.window.startMillis,
+                        wakeTimeMillis = wakeTimeMillis,
+                        lastSleepDurationMinutes = sleepDurationMinutes,
+                        continuousActiveFocusMinutes = 0,
+                        zoneId = zoneId
+                    )
+                } else {
+                    circadianEnergyService.evaluateSnapshotWithStimulants(
+                        timestampMillis = placement.window.startMillis,
+                        wakeTimeMillis = wakeTimeMillis,
+                        lastSleepDurationMinutes = sleepDurationMinutes,
+                        continuousActiveFocusMinutes = 0,
+                        zoneId = zoneId,
+                        naps = allNaps,
+                        chronotype = chronotype,
+                        manualPeakStartHour = manualPeakStartHour,
+                        learnedProfile = learnedProfile,
+                        rollingAverageSleepMinutes = rollingAvgSleep,
+                        cognitiveBlocks = physiologicalBlocks,
+                        stimulantDoses = stimulantDoses,
+                        socialJetlagLagHours = socialJetlagLagHours
+                    )
+                }
                 val zdt = Instant.ofEpochMilli(placement.window.startMillis).atZone(zoneId)
                 val h = zdt.hour
                 val inPeakHour = if (dailySummary.peakWindowStartHour <= dailySummary.peakWindowEndHour) {
@@ -428,17 +509,28 @@ class DailyBlueprintOrchestrator(
                 committedTaskIds.add(part2Task.id)
             } else {
                 val targetTask = existing ?: item.task
+                val isPart1 = item.task.id.contains("#part1") || item.task.id.contains("_part1")
                 val updatedTask = targetTask.copy(
                     scheduledDate = startDay,
                     scheduledTime = timeOffset,
                     habitDate = if (targetTask.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startDay else targetTask.habitDate,
                     isAutoScheduled = true,
-                    plannedBlockMinutes = if (isPart2 || item.task.id.contains("#part1")) durMinutes else targetTask.plannedBlockMinutes,
+                    plannedBlockMinutes = if (isPart2 || isPart1) durMinutes else targetTask.plannedBlockMinutes,
+                    lastAutoScheduledAt = now,
                     updatedAt = now
                 )
                 taskRepository.update(updatedTask)
                 calendarSyncRepository?.handleTaskStateChanged(updatedTask)
                 committedTaskIds.add(updatedTask.id)
+
+                if (!isPart2 && !isPart1) {
+                    val stalePart2 = taskRepository.getById("${baseId}#part2")
+                        ?: taskRepository.getById("${baseId}_part2")
+                    if (stalePart2 != null && stalePart2.status != TaskStatus.COMPLETED) {
+                        calendarSyncRepository?.deleteTaskEvent(stalePart2.id)
+                        taskRepository.delete(stalePart2)
+                    }
+                }
             }
         }
 

@@ -47,8 +47,15 @@ object CompleteTaskWidgetAction {
             if (FocusService.activeSession.value?.taskId == taskId) {
                 FocusService.stopService(context)
             }
+            val finalizer = runCatching { entryPoint.focusSessionFinalizer() }.getOrElse {
+                com.neuroflow.app.presentation.v2.focus.service.FocusSessionFinalizer.createForFallback(
+                    taskRepository = entryPoint.taskRepository(),
+                    sessionRepository = runCatching { entryPoint.sessionRepository() }.getOrNull(),
+                    preferencesDataStore = entryPoint.preferencesDataStore()
+                )
+            }
             val result = runCatching {
-                entryPoint.focusSessionFinalizer().finalize(
+                finalizer.finalize(
                     taskId = taskId,
                     markComplete = true,
                     now = now,

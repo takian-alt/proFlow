@@ -225,45 +225,11 @@ class DailyPlanWorker @AssistedInject constructor(
             )
 
             val topTasks = candidateTasks.map { task ->
-                val resolvedCategory = when (task.determineCategory()) {
-                    com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK,
-                    com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> com.neuroflow.app.domain.service.TaskCategory.DEEP_WORK
-                    com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> com.neuroflow.app.domain.service.TaskCategory.CREATIVE
-                    com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> com.neuroflow.app.domain.service.TaskCategory.ADMIN
-                    com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE,
-                    com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> com.neuroflow.app.domain.service.TaskCategory.EXERCISE
-                    com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> com.neuroflow.app.domain.service.TaskCategory.MINDFULNESS
-                    com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> com.neuroflow.app.domain.service.TaskCategory.GENERAL
-                }
-                val schedulable = com.neuroflow.app.domain.service.SchedulableTask(
-                    id = task.id,
-                    title = task.title,
-                    category = resolvedCategory,
-                    priority = when (task.priority) {
-                        com.neuroflow.app.domain.model.Priority.HIGH -> 2
-                        com.neuroflow.app.domain.model.Priority.MEDIUM -> 1
-                        else -> 0
-                    },
-                    estimatedMinutes = TaskBlockPlan.plannedMinutes(task),
-                    energyDemand = when (task.energyLevel) {
-                        com.neuroflow.app.domain.model.EnergyLevel.HIGH -> com.neuroflow.app.domain.service.EnergyDemand.HIGH
-                        com.neuroflow.app.domain.model.EnergyLevel.MEDIUM -> com.neuroflow.app.domain.service.EnergyDemand.MODERATE
-                        else -> com.neuroflow.app.domain.service.EnergyDemand.LOW
-                    },
-                    isFrog = task.isFrog,
-                    scheduledStartMillis = task.resolveScheduledEpochMillis(nowMillis),
-                    deadlineMillis = task.resolveDeadlineEpochMillis(),
-                    isLocked = task.isScheduleLocked,
-                    parentTaskId = task.parentTaskId,
-                    prerequisiteIds = let {
-                        val parsed = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
-                        task.parentTaskId?.trim()?.takeIf { it.isNotBlank() && it != task.id }?.let { parsed.add(it) }
-                        parsed
-                    },
-                    impactScore = task.impactScore,
-                    postponeCount = task.postponeCount,
-                    isAnxietyTask = task.isAnxietyTask,
-                    hasImplementationIntention = task.ifThenPlan.isNotBlank()
+                val schedulable = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
+                    task = task,
+                    allContextTasks = candidateTasks,
+                    dayStartMillis = dayStart,
+                    usePlannedBlockForScoring = true
                 )
                 val score = taskSchedulerService.evaluateTaskScore(schedulable, snapshot).totalScore
                 task to score

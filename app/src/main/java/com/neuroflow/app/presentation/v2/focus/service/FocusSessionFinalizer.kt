@@ -33,11 +33,36 @@ import kotlin.math.roundToInt
  * never double-credits focus minutes, session counts, or completion streaks.
  */
 @Singleton
-class FocusSessionFinalizer @Inject constructor(
+class FocusSessionFinalizer private constructor(
     private val taskRepository: TaskRepository,
-    private val sessionRepository: SessionRepository,
-    private val preferencesDataStore: UserPreferencesDataStore
+    private val sessionRepository: SessionRepository?,
+    private val preferencesDataStore: UserPreferencesDataStore,
+    @Suppress("UNUSED_PARAMETER") unused: Unit
 ) {
+    @Inject
+    constructor(
+        taskRepository: TaskRepository,
+        sessionRepository: SessionRepository,
+        preferencesDataStore: UserPreferencesDataStore
+    ) : this(
+        taskRepository = taskRepository,
+        sessionRepository = sessionRepository as SessionRepository?,
+        preferencesDataStore = preferencesDataStore,
+        unused = Unit
+    )
+
+    companion object {
+        internal fun createForFallback(
+            taskRepository: TaskRepository,
+            sessionRepository: SessionRepository?,
+            preferencesDataStore: UserPreferencesDataStore
+        ): FocusSessionFinalizer = FocusSessionFinalizer(
+            taskRepository = taskRepository,
+            sessionRepository = sessionRepository,
+            preferencesDataStore = preferencesDataStore,
+            unused = Unit
+        )
+    }
     private val mutex = Mutex()
     private val finalizedSessionIds = object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean =
@@ -70,7 +95,7 @@ class FocusSessionFinalizer @Inject constructor(
             var creditedDurationMins = 0f
             var didCreditSession = false
 
-            val openSession = runCatching { sessionRepository.getOpenSessionForTask(taskId) }.getOrNull()
+            val openSession = runCatching { sessionRepository?.getOpenSessionForTask(taskId) }.getOrNull()
             if (openSession != null) {
                 if (openSession.id !in finalizedSessionIds) {
                     val baseStartedAt = openSession.startedAt.takeIf { it > 0L }
@@ -96,7 +121,7 @@ class FocusSessionFinalizer @Inject constructor(
                         minOf(now, baseStartedAt + (maxAllowedMins * 60_000L).toLong() + totalPauseMs)
                     }
                     val mergedPauseCount = maxOf(fallbackPauseCount, openSession.pauseResumeCount)
-                    sessionRepository.update(
+                    sessionRepository?.update(
                         openSession.copy(
                             endedAt = calculatedEndAt,
                             pausedAt = null,
@@ -300,6 +325,32 @@ class FocusSessionFinalizer @Inject constructor(
                 val didComplete = if (task == null) {
                     runCatching { taskRepository.markTaskCompleted(taskId, now) }.getOrDefault(false)
                 } else false
+                val prefsFocusIncrement = if (didCreditSession) max(1, creditedDurationMins.roundToInt()) else 0
+                if (didComplete || prefsFocusIncrement > 0) {
+                    runCatching {
+                        preferencesDataStore.updatePreferences { prefs ->
+                            val newTotalFocus = prefs.totalFocusMinutes + prefsFocusIncrement
+                            val newCompleted = prefs.totalTasksCompleted + if (didComplete) 1 else 0
+                            val lastActive = prefs.lastActiveDate
+                            val todayStart = startOfLocalDay(now)
+                            val isNewDay = lastActive < todayStart
+                            val isConsecutive = lastActive >= startOfPreviousLocalDay(todayStart) && isNewDay
+                            val newStreak = when {
+                                isConsecutive -> prefs.dailyStreak + 1
+                                isNewDay -> 1
+                                else -> prefs.dailyStreak
+                            }
+                            val longest = maxOf(prefs.longestStreak, newStreak)
+                            prefs.copy(
+                                totalFocusMinutes = newTotalFocus,
+                                totalTasksCompleted = newCompleted,
+                                lastActiveDate = now,
+                                dailyStreak = newStreak,
+                                longestStreak = longest
+                            )
+                        }
+                    }
+                }
                 if (context != null) {
                     runCatching { FocusWidgetUpdateWorker.enqueueImmediateUpdate(context) }
                 }

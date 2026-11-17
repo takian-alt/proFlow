@@ -119,137 +119,13 @@ class SchedulePreparationOrchestrator @Inject constructor(
         val dayStartMillis = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
 
         val rawSchedulable = candidateTasks.map { task ->
-            val resolvedCategory = when (task.determineCategory()) {
-                com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK,
-                com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> TaskCategory.DEEP_WORK
-                com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> TaskCategory.CREATIVE
-                com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> TaskCategory.ADMIN
-                com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE,
-                com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> TaskCategory.EXERCISE
-                com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> TaskCategory.MINDFULNESS
-                com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> TaskCategory.GENERAL
-            }
-            val tagProfiles = TaskTagSchedulingProfile.profilesFor(task.tags)
-            val fragTolerance = tagProfiles.minOfOrNull { it.fragmentationTolerance } ?: 0.5f
-            val inferredContext = task.contextTag.ifBlank {
-                tagProfiles.firstNotNullOfOrNull { it.preferredContext }.orEmpty()
-            }
-            val calibratedEnjoyment = (enjoymentCalibration.forecast(task.enjoymentScore) / 10.0).roundToInt().coerceIn(0, 10)
-
-            val isPart1 = task.id.contains(Regex("""[#_]part1""")) || task.title.contains("(Part 1/")
-            // BUG-328 & BUG-417 Fix: Ensure Part 1 is not erroneously flagged as a Part 2+ continuation,
-            // and isolate Part 2+ continuation tasks while preserving subtask metadata.
-            val isPart2Continuation = !isPart1 && (
-                task.id.endsWith("_part2") ||
-                task.id.contains(Regex("""[#_]part[2-9]""")) ||
-                (task.parentTaskId != null && (task.id.contains(Regex("""[#_]part""")) || task.title.contains(Regex("""\((Part|part) \d+/\d+\)""")))) ||
-                task.title.contains(Regex("""\(Part (?!1/)\d+/\d+\)"""))
-            )
-
-            val cleanTitle = if (!isPart2Continuation) {
-                task.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").replace(Regex("""\s*#part\d+"""), "").trim()
-            } else {
-                task.title
-            }
-            // BUG-328 & BUG-376 Fix: Wipe plannedBlockMinutes on Part 1 tasks ONLY when no continuation parts are present,
-            // to allow full re-evaluation of solitary tasks. When continuation parts are present, Part 1 retains its planned duration.
-            val hasContinuationInCandidates = candidateTasks.any { other ->
-                other.id != task.id && (
-                    other.parentTaskId == task.id ||
-                    other.parentTaskId == cleanSplitTaskId(task.id) ||
-                    other.id == "${task.id}_part2" ||
-                    other.id == "${task.id}#part2" ||
-                    other.id == "${cleanSplitTaskId(task.id)}_part2" ||
-                    other.id == "${cleanSplitTaskId(task.id)}#part2" ||
-                    (cleanSplitTaskId(other.id) == cleanSplitTaskId(task.id) && other.id != cleanSplitTaskId(task.id))
-                )
-            }
-            val taskToEstimate = if (!isPart2Continuation && !task.isScheduleLocked && isPart1 && !hasContinuationInCandidates) {
-                task.copy(title = cleanTitle, plannedBlockMinutes = 0)
-            } else {
-                task
-            }
-            val expectedDuration = TaskBlockPlan.expectedMinutes(taskToEstimate)
-            val isDurationExplicit = task.isScheduleLocked || isPart2Continuation
-
-            // BUG-376 & BUG-415 & BUG-451 Fix: Synchronize parentTaskId and continuation part dependencies into prerequisiteIds.
-            // Part 1 is the initial part and must never depend on parent (preventing self/cross-day deadlock).
-            val parsedPrereqs = task.dependsOnTaskIds.split(",")
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .toMutableSet()
-            val parent = task.parentTaskId?.trim().orEmpty()
-            if (parent.isNotBlank() && parent != task.id && !isPart1) {
-                parsedPrereqs.add(parent)
-            }
-            if (task.id.contains(Regex("""[#_]part([2-9]|\d{2,})"""))) {
-                val inferredParent = task.id.replace(Regex("""[#_]part\d+.*$"""), "")
-                if (inferredParent.isNotBlank() && inferredParent != task.id) {
-                    parsedPrereqs.add(inferredParent)
-                    val p1Hash = "${inferredParent}#part1"
-                    val p1Underscore = "${inferredParent}_part1"
-                    if (candidateTasks.any { it.id == p1Hash }) parsedPrereqs.add(p1Hash)
-                    if (candidateTasks.any { it.id == p1Underscore }) parsedPrereqs.add(p1Underscore)
-                }
-            } else if (task.id.endsWith("_part2")) {
-                val inferredParent = task.id.removeSuffix("_part2")
-                if (inferredParent.isNotBlank() && inferredParent != task.id) {
-                    parsedPrereqs.add(inferredParent)
-                }
-            }
-
-            val isPersonal = task.isPersonalTask()
-            val effectivePriority = when {
-                isPersonal && task.priority == Priority.LOW -> 1
-                task.priority == Priority.HIGH -> 2
-                task.priority == Priority.MEDIUM -> 1
-                else -> 0
-            }
-            val effectiveImpact = if (isPersonal) {
-                (task.impactScore + 25).coerceIn(0, 100)
-            } else {
-                task.impactScore
-            }
-
-            SchedulableTask(
-                id = task.id,
-                title = if (!task.isScheduleLocked && !isPart2Continuation) cleanTitle else task.title,
-                category = resolvedCategory,
-                priority = effectivePriority,
-                estimatedMinutes = expectedDuration,
-                isDurationExplicit = isDurationExplicit,
-                energyDemand = when (task.energyLevel) {
-                    EnergyLevel.HIGH -> EnergyDemand.HIGH
-                    EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
-                    else -> EnergyDemand.LOW
-                },
-                isFrog = task.isFrog,
-                // BUG-451 Fix: Date-only untimed tasks (scheduledTime == null) represent day-level intent and must not resolve to midnight
-                scheduledStartMillis = if (task.scheduledTime != null) task.resolveScheduledEpochMillis(dayStartMillis) else null,
-                deadlineMillis = task.resolveDeadlineEpochMillis(dayStartMillis),
-                isLocked = task.isScheduleLocked,
-                parentTaskId = task.parentTaskId,
-                completedMicroSteps = microStepCounts[task.id]?.first ?: 0,
-                totalMicroSteps = microStepCounts[task.id]?.second ?: 0,
-                isCurrentlyActive = (activeTaskId != null && (
-                    task.id == activeTaskId ||
-                    task.id.startsWith("$activeTaskId#") ||
-                    task.id.startsWith("${activeTaskId}_") ||
-                    task.parentTaskId == activeTaskId
-                )),
-                createdAtMillis = task.createdAt,
-                prerequisiteIds = parsedPrereqs,
-                impactScore = effectiveImpact,
-                estimatedEnjoyment = calibratedEnjoyment,
-                postponeCount = task.postponeCount,
-                contextTag = inferredContext,
-                isAnxietyTask = task.isAnxietyTask,
-                hasImplementationIntention = task.ifThenPlan.isNotBlank(),
-                fragmentationTolerance = fragTolerance,
-                distractionScore = task.distractionScore,
-                isPersonalTask = isPersonal,
-                userSchedulingRating = task.userSchedulingRating,
-                schedulingRejectedSlotHour = task.schedulingRejectedSlotHour
+            SchedulableTaskMapper.toSchedulableTask(
+                task = task,
+                allContextTasks = candidateTasks,
+                dayStartMillis = dayStartMillis,
+                enjoymentCalibration = enjoymentCalibration,
+                activeTaskId = activeTaskId,
+                microStepCounts = microStepCounts
             )
         }
 
@@ -369,19 +245,7 @@ class SchedulePreparationOrchestrator @Inject constructor(
             AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
         } else null
 
-        val weights = PriorityWeightProfile(
-            urgencyWeight = prefs.weightDeadlineUrgency.toDouble(),
-            impactWeight = prefs.weightImpact.toDouble(),
-            circadianMatchWeight = prefs.weightCircadianMatch.toDouble(),
-            momentumWeight = prefs.weightSessionProgress.toDouble(),
-            frogBonusMultiplier = prefs.weightFrogBonus.toDouble(),
-            quadrantWeight = prefs.weightQuadrant.toDouble(),
-            priorityLevelWeight = prefs.weightPriorityLevel.toDouble(),
-            durationWeight = prefs.weightDuration.toDouble(),
-            focusModeWeight = prefs.weightFocusMode.toDouble(),
-            planBoostWeight = prefs.weightPlanBoost.toDouble(),
-            enjoymentWeight = prefs.weightEnjoyment.toDouble()
-        )
+        val weights = SchedulableTaskMapper.toPriorityWeights(prefs)
 
         val effectiveDailyCapacity = dailyCognitiveCapacityMinutes
             ?: prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 }

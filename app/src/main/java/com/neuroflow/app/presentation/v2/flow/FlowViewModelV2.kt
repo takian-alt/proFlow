@@ -79,6 +79,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEmpty
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -220,9 +221,9 @@ class FlowViewModelV2 @Inject constructor(
 
     val uiState: StateFlow<FlowUiStateV2> = combine(
         combine(
-            taskRepository.observeActiveTasks(),
-            taskRepository.observeCompletedTasks(),
-            preferencesDataStore.preferencesFlow.distinctUntilChanged { old, new ->
+            taskRepository.observeActiveTasks().onEmpty { emit(emptyList()) },
+            taskRepository.observeCompletedTasks().onEmpty { emit(emptyList()) },
+            preferencesDataStore.preferencesFlow.onEmpty { emit(UserPreferences()) }.distinctUntilChanged { old, new ->
                 old.wakeUpHour == new.wakeUpHour &&
                     old.wakeTimeMinute == new.wakeTimeMinute &&
                     old.workDayStart == new.workDayStart &&
@@ -250,7 +251,7 @@ class FlowViewModelV2 @Inject constructor(
                     old.quizPeakEnabled == new.quizPeakEnabled &&
                     old.adaptiveSystemDirective == new.adaptiveSystemDirective
             },
-            sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())
+            (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) }
         ) { active, completed, prefs, sleepLogs ->
             Quad(active, completed, prefs, sleepLogs)
         },
@@ -269,8 +270,10 @@ class FlowViewModelV2 @Inject constructor(
             _isBlueprintLoading,
             _blueprintIncludedTaskIds,
             _simulationState,
-            sessionRepository?.observeAll() ?: flowOf(emptyList<TimeSessionEntity>()),
-            clockTicker?.currentMinuteTick ?: flowOf(0L)
+            (sessionRepository?.observeAll() ?: flowOf(emptyList<TimeSessionEntity>())).onEmpty {
+                emit(runCatching { sessionRepository?.getAllSessions() }.getOrNull() ?: emptyList())
+            },
+            (clockTicker?.currentMinuteTick ?: flowOf(0L)).onEmpty { emit(0L) }
         ) { args ->
             args.toList()
         }
@@ -528,43 +531,27 @@ class FlowViewModelV2 @Inject constructor(
             actionableActiveTasks
         }
         val effectiveSnapshot = snapshot.copy(usableEnergy = battery)
-        val recommended = candidatePool.maxByOrNull { task: TaskEntity ->
-            val isPersonal = task.isPersonalTask()
-            val schedulable = SchedulableTask(
-                id = task.id,
-                title = task.title,
-                category = when (task.taskType) {
-                    TaskType.ANALYTICAL -> TaskCategory.DEEP_WORK
-                    TaskType.CREATIVE -> TaskCategory.CREATIVE
-                    TaskType.ADMIN -> TaskCategory.ADMIN
-                    TaskType.PHYSICAL -> TaskCategory.EXERCISE
-                    TaskType.GENERAL -> TaskCategory.GENERAL
-                    TaskType.MINDFULNESS -> TaskCategory.MINDFULNESS
-                },
-                priority = when (task.priority) {
-                    Priority.HIGH -> 2
-                    Priority.MEDIUM -> 1
-                    else -> 0
-                },
-                estimatedMinutes = task.estimatedDurationMinutes,
-                energyDemand = when (task.energyLevel) {
-                    EnergyLevel.HIGH -> EnergyDemand.HIGH
-                    EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
-                    else -> EnergyDemand.LOW
-                },
-                isFrog = task.isFrog,
-                scheduledStartMillis = if (task.scheduledTime != null) task.resolveScheduledEpochMillis() else null,
-                deadlineMillis = task.resolveDeadlineEpochMillis(),
-                isLocked = task.isScheduleLocked,
-                parentTaskId = task.parentTaskId,
-                prerequisiteIds = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                impactScore = task.impactScore,
-                estimatedEnjoyment = task.enjoymentScore / 10,
-                postponeCount = task.postponeCount,
-                distractionScore = task.distractionScore,
-                isPersonalTask = isPersonal
+        val planningCalibration = com.neuroflow.app.domain.engine.AnalyticsEngine.PlanningCalibration.from(completedTasks + activeTasks)
+        val enjoymentCalibration = com.neuroflow.app.domain.engine.AnalyticsEngine.EnjoymentCalibration.from(completedTasks + activeTasks)
+        val calibrationRatio = planningCalibration.globalFactor.toDouble().coerceIn(0.8, 1.6)
+        val priorityWeights = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toPriorityWeights(prefs)
+
+        val candidateSchedulables = candidatePool.associate { task ->
+            task.id to com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
+                task = task,
+                allContextTasks = activeTasks,
+                dayStartMillis = dayStart,
+                enjoymentCalibration = enjoymentCalibration,
+                usePlannedBlockForScoring = true
             )
-            val personalBonus = if (isPersonal) 1000.0 else 0.0
+        }
+        val dependentCounts = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.computeDependentCounts(
+            candidateSchedulables.values.toList()
+        )
+
+        val recommended = candidatePool.maxByOrNull { task: TaskEntity ->
+            val schedulable = candidateSchedulables[task.id]!!
+            val isPersonal = schedulable.isPersonalTask
             if (isWindDown) {
                 // In WIND_DOWN, subdue high-intensity frogs & deep-work prompts; prioritize low-energy & brief wrap-up duration
                 val lowEnergyBonus = when (task.energyLevel) {
@@ -573,11 +560,21 @@ class FlowViewModelV2 @Inject constructor(
                     EnergyLevel.HIGH -> -100.0
                 }
                 val frogPenalty = if (task.isFrog) -500.0 else 0.0
-                val durationPenalty = task.estimatedDurationMinutes.coerceAtLeast(0).toDouble()
-                lowEnergyBonus + frogPenalty + task.impactScore.toDouble() + personalBonus - durationPenalty
+                val durationPenalty = com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task).coerceAtLeast(0).toDouble()
+                val personalBonus = if (isPersonal) 15.0 else 0.0
+                lowEnergyBonus + frogPenalty + (task.impactScore * 0.5) + personalBonus - durationPenalty
             } else {
-                val baseLeverage = (if (task.isFrog) 1000.0 else 0.0) + task.impactScore.toDouble() + personalBonus
-                baseLeverage + taskSchedulerService.evaluateTaskScore(schedulable, effectiveSnapshot).totalScore
+                val breakdown = taskSchedulerService.evaluateTaskScoreWithWeights(
+                    task = schedulable,
+                    snapshot = effectiveSnapshot,
+                    dependentCount = dependentCounts[task.id] ?: 0,
+                    calibrationRatio = calibrationRatio,
+                    weights = priorityWeights,
+                    referenceNowMillis = now
+                )
+                val frogBoost = if (task.isFrog) 8.0 * prefs.weightFrogBonus else 0.0
+                val personalBoost = if (isPersonal) 6.0 else 0.0
+                breakdown.totalScore + frogBoost + personalBoost
             }
         }
 

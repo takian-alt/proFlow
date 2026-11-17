@@ -629,7 +629,7 @@ class TaskRepository @Inject constructor(
                         val nextStreak = parent.habitStreak + 1
                         val updatedParent = parent.copy(habitStreak = nextStreak, updatedAt = now)
                         update(updatedParent)
-                        return spawnNextRecurringOccurrence(updatedParent, now)
+                        return spawnNextRecurringOccurrence(parent, now)
                     }
                 }
             }

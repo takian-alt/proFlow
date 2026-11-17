@@ -82,50 +82,30 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
                 chronotype = chronotype
             )
 
-            val sortedWithScores = candidateTasks.map { task ->
-                val resolvedCategory = when (task.determineCategory()) {
-                    com.neuroflow.app.domain.scheduler.TaskCategory.HARD_WORK,
-                    com.neuroflow.app.domain.scheduler.TaskCategory.ANALYTICAL -> TaskCategory.DEEP_WORK
-                    com.neuroflow.app.domain.scheduler.TaskCategory.CREATIVE -> TaskCategory.CREATIVE
-                    com.neuroflow.app.domain.scheduler.TaskCategory.ROUTINE -> TaskCategory.ADMIN
-                    com.neuroflow.app.domain.scheduler.TaskCategory.EXERCISE,
-                    com.neuroflow.app.domain.scheduler.TaskCategory.PHYSICAL -> TaskCategory.EXERCISE
-                    com.neuroflow.app.domain.scheduler.TaskCategory.MINDFULNESS -> TaskCategory.MINDFULNESS
-                    com.neuroflow.app.domain.scheduler.TaskCategory.FLEXIBLE -> TaskCategory.GENERAL
-                }
-                val schedulable = SchedulableTask(
-                    id = task.id,
-                    title = task.title,
-                    category = resolvedCategory,
-                    priority = when (task.priority) {
-                        Priority.HIGH -> 2
-                        Priority.MEDIUM -> 1
-                        else -> 0
-                    },
-                    estimatedMinutes = TaskBlockPlan.plannedMinutes(task),
-                    energyDemand = when (task.energyLevel) {
-                        EnergyLevel.HIGH -> EnergyDemand.HIGH
-                        EnergyLevel.MEDIUM -> EnergyDemand.MODERATE
-                        else -> EnergyDemand.LOW
-                    },
-                    isFrog = task.isFrog,
-                    scheduledStartMillis = task.resolveScheduledEpochMillis(nowMillis),
-                    deadlineMillis = task.resolveDeadlineEpochMillis(),
-                    isLocked = task.isScheduleLocked,
-                    parentTaskId = task.parentTaskId,
-                    prerequisiteIds = let {
-                        val parsed = task.dependsOnTaskIds.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
-                        task.parentTaskId?.trim()?.takeIf { it.isNotBlank() && it != task.id }?.let { parsed.add(it) }
-                        parsed
-                    },
-                    impactScore = task.impactScore,
-                    postponeCount = task.postponeCount,
-                    isAnxietyTask = task.isAnxietyTask,
-                    hasImplementationIntention = task.ifThenPlan.isNotBlank()
+            val priorityWeights = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toPriorityWeights(preferences)
+            val schedulableMap = candidateTasks.associate { task ->
+                task.id to com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
+                    task = task,
+                    allContextTasks = tasks,
+                    dayStartMillis = dayStart,
+                    usePlannedBlockForScoring = true
                 )
-                val breakdown = taskSchedulerService.evaluateTaskScore(schedulable, snapshot)
-                val baseLeverage = (if (task.isFrog) 1000.0 else 0.0) + task.impactScore
-                val totalPriority = baseLeverage + breakdown.totalScore
+            }
+            val dependentCounts = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.computeDependentCounts(
+                schedulableMap.values.toList()
+            )
+            val sortedWithScores = candidateTasks.map { task ->
+                val schedulable = schedulableMap[task.id]!!
+                val breakdown = taskSchedulerService.evaluateTaskScoreWithWeights(
+                    task = schedulable,
+                    snapshot = snapshot,
+                    dependentCount = dependentCounts[task.id] ?: 0,
+                    weights = priorityWeights,
+                    referenceNowMillis = nowMillis
+                )
+                val frogBoost = if (task.isFrog) 8.0 * preferences.weightFrogBonus else 0.0
+                val personalBoost = if (schedulable.isPersonalTask) 6.0 else 0.0
+                val totalPriority = breakdown.totalScore + frogBoost + personalBoost
                 Triple(task, breakdown, totalPriority)
             }.sortedByDescending { it.third }
 
