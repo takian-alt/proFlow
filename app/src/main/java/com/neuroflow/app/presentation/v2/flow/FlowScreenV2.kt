@@ -72,6 +72,18 @@ fun FlowScreenV2(
     var showFrogConfetti by remember { mutableStateOf(false) }
     var showEasyWinSheet by remember { mutableStateOf(false) }
     var locallyCompletedIds by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(state.activeTasks) {
+        val currentActiveIds = state.activeTasks.map { it.id }.toSet()
+        locallyCompletedIds = locallyCompletedIds.intersect(currentActiveIds)
+    }
+
+    val nowMinute by produceState(System.currentTimeMillis() / 60_000L) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000L)
+            value = System.currentTimeMillis() / 60_000L
+        }
+    }
+    val nowMillis = remember(nowMinute) { nowMinute * 60_000L }
 
     LaunchedEffect(initialOpenComposer) {
         if (initialOpenComposer) {
@@ -260,18 +272,12 @@ fun FlowScreenV2(
             Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                 ActiveBiophysicalImpulseStrip(
                     cognitiveBlocks = state.dailyCognitiveBlocks,
-                    activePlasmaMg = state.activePlasmaMg
+                    activePlasmaMg = state.activePlasmaMg,
+                    nowMillis = nowMillis
                 )
             }
 
             // Flow Spotlight Hero Card (Takeover or Top Action)
-            val nowMinute by produceState(System.currentTimeMillis() / 60_000L) {
-                while (true) {
-                    kotlinx.coroutines.delay(60_000L)
-                    value = System.currentTimeMillis() / 60_000L
-                }
-            }
-            val nowMillis = remember(nowMinute) { nowMinute * 60_000L }
             val activeTakeoverSlot = remember(state.preferences.protectedTimeSlots, nowMinute) {
                 ProtectedSlotClock.takeoverOf(state.preferences.protectedTimeSlots, nowMillis)
             }
@@ -318,7 +324,8 @@ fun FlowScreenV2(
                         }
                     } else if (task.parentTaskId != null && partNum != null && partNum > 1) {
                         state.activeTasks.any { other ->
-                            other.id != task.id &&
+                            other.id in activeIds &&
+                                other.id != task.id &&
                                 (other.parentTaskId == task.parentTaskId || other.id == task.parentTaskId) &&
                                 (PART_NUM_TITLE_REGEX.find(other.title)?.groupValues?.get(1)?.toIntOrNull() ?: 1) < partNum
                         }
@@ -418,12 +425,12 @@ fun FlowScreenV2(
             }
 
             // Fresh Start Recovery Banner (ADHD Safety Net)
-            val resetPlan = remember(state.activeTasks, state.showZeroGuiltPrompt) {
+            val resetPlan = remember(state.activeTasks, state.showZeroGuiltPrompt, nowMinute) {
                 val hasOverdue = state.showZeroGuiltPrompt || state.activeTasks.any { it.postponeCount >= 2 }
                 if (hasOverdue) {
                     FreshStartEngine.buildEmergencyResetPlan(
                         activeTasks = state.activeTasks,
-                        nowMillis = System.currentTimeMillis()
+                        nowMillis = nowMillis
                     )
                 } else null
             }
@@ -473,7 +480,7 @@ fun FlowScreenV2(
                                 color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                             )
                         }
-                        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+                        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
                         val todayCompletedCount = state.completedTasks.count {
                             val comp = it.completedAt ?: it.updatedAt
                             comp >= todayStart
@@ -493,7 +500,7 @@ fun FlowScreenV2(
                             onClick = { viewModel.completeEveningShutdown() },
                             colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.heightIn(min = 44.dp)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text("Complete Shutdown", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
@@ -534,18 +541,23 @@ fun FlowScreenV2(
                             labelColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.heightIn(min = 44.dp)
+                        modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val visibleStreamTasks = remember(state.filteredTasks, locallyCompletedIds) {
+                state.filteredTasks.filterNot { it.id in locallyCompletedIds }
+            }
+
             // Energy-Mapped Day Stream
             EnergyTimelineStream(
-                scheduledTasks = state.filteredTasks,
+                scheduledTasks = visibleStreamTasks,
                 onTaskClick = { task -> onStartFocus(task.id) },
                 onCompleteTask = { task ->
+                    locallyCompletedIds = locallyCompletedIds + task.id
                     if (task.isFrog) showFrogConfetti = true
                     viewModel.completeTask(task)
                 },
@@ -554,7 +566,8 @@ fun FlowScreenV2(
                 onEditTask = { task -> editingTask = task },
                 onShiftToPeak = { task -> viewModel.shiftTaskToPeak(task) },
                 timeline = state.energyTimeline,
-                fatigueScores = state.fatigueScoresByTaskId
+                fatigueScores = state.fatigueScoresByTaskId,
+                nowMillis = nowMillis
             )
 
             Spacer(modifier = Modifier.height(80.dp))
@@ -606,7 +619,9 @@ fun FlowScreenV2(
             includedTaskIds = state.blueprintIncludedTaskIds,
             onToggleTask = { taskId, included -> viewModel.toggleBlueprintTask(taskId, included) },
             onApply = { viewModel.applyDailyBlueprint() },
-            onDismiss = { viewModel.dismissDailyBlueprint() }
+            onDismiss = { viewModel.dismissDailyBlueprint() },
+            fatigueScoresByTaskId = state.fatigueScoresByTaskId,
+            onRegenerate = { viewModel.openDailyBlueprint() }
         )
     }
 

@@ -457,8 +457,10 @@ class FlowViewModelV2 @Inject constructor(
         }
 
         val overdueTasks = activeTasks.filter { task ->
+            val hasExplicitScheduledDay = task.effectiveScheduledDateMillis() != null ||
+                (task.scheduledTime ?: 0L) >= com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
             task.postponeCount >= 2 ||
-                (task.scheduledTime != null && task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
+                (hasExplicitScheduledDay && task.scheduledTime != null && task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
                 (task.effectiveScheduledDateMillis() != null && task.effectiveScheduledDateMillis()!! < now - 86_400_000L) ||
                 (task.deadlineDate != null && task.resolveDeadlineEpochMillis()?.let { it < now } == true)
         }
@@ -778,7 +780,7 @@ class FlowViewModelV2 @Inject constructor(
                     _blueprintIncludedTaskIds.value = blueprint.items.map { it.task.id }.toSet()
                 }
             } catch (e: Exception) {
-                // Non-blocking fallback
+                _lastActionMessage.value = "Unable to build daily blueprint. Please try again."
             } finally {
                 _isBlueprintLoading.value = false
             }
@@ -961,7 +963,21 @@ class FlowViewModelV2 @Inject constructor(
                 }
             }
 
+            if (current.simulatedStimulants.isNotEmpty()) {
+                current.simulatedStimulants.forEach { dose ->
+                    preferencesDataStore.recordStimulantDose(dose.type)
+                }
+            }
+
+            val hasAppliedChanges = current.simulatedNaps.isNotEmpty() ||
+                current.simulatedImpulses.isNotEmpty() ||
+                current.simulatedBedtimeDeltaMinutes > 0 ||
+                current.simulatedStimulants.isNotEmpty()
+
             _simulationState.value = SimulationState(isActive = false)
+            if (hasAppliedChanges) {
+                _lastActionMessage.value = "Applied simulated plan adjustments ⚡"
+            }
         }
     }
 
@@ -1505,8 +1521,10 @@ class FlowViewModelV2 @Inject constructor(
             _lastDeferredTask.value = null
             val now = System.currentTimeMillis()
             val overdue = uiState.value.activeTasks.filter { task ->
+                val hasExplicitScheduledDay = task.effectiveScheduledDateMillis() != null ||
+                    (task.scheduledTime ?: 0L) >= com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
                 task.postponeCount >= 2 ||
-                    (task.scheduledTime != null && task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
+                    (hasExplicitScheduledDay && task.scheduledTime != null && task.resolveScheduledEpochMillis()?.let { it < now - 2 * 3600_000L } == true) ||
                     (task.effectiveScheduledDateMillis() != null && task.effectiveScheduledDateMillis()!! < now - 86_400_000L) ||
                     (task.deadlineDate != null && task.resolveDeadlineEpochMillis()?.let { it < now } == true)
             }

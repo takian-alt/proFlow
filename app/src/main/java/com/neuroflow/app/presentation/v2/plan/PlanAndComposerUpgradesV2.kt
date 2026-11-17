@@ -22,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,7 +98,9 @@ fun ScheduleConflictResolverStrip(
                             Surface(
                                 color = NeuroFlowPaletteV2.RecoveryRose,
                                 shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.clickable { onResolveConflictClick(conflict) }
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clickable { onResolveConflictClick(conflict) }
                             ) {
                                 Text(
                                     text = "Shift to ${ConflictResolver.formatMinutesToTime(conflict.suggestedNewStartMinute)}",
@@ -266,7 +269,9 @@ fun ComposerAiEnrichmentPreviewCard(
                     Surface(
                         color = NeuroFlowPaletteV2.ReboundCyan,
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.clickable { onApplyEnrichmentClick(enrichment) }
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clickable { onApplyEnrichmentClick(enrichment) }
                     ) {
                         Text(
                             text = "Apply Steps",

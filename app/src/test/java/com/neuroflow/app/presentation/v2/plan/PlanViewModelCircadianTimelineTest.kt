@@ -19,6 +19,8 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -193,5 +195,26 @@ class PlanViewModelCircadianTimelineTest {
         advanceUntilIdle()
 
         coVerify { taskRepo.update(match { it.id == "task_to_shift" && it.isScheduleLocked }) }
+    }
+
+    @Test
+    fun testCircadianSummaryUsesLiveTimestampWhenTargetingToday() = runTest {
+        val viewModel = PlanViewModelV2(
+            taskRepository = taskRepo,
+            preferencesDataStore = prefsDataStore,
+            workManager = workManager,
+            circadianEnergyService = circadianService,
+            taskSchedulerService = schedulerService
+        )
+
+        val beforeCall = System.currentTimeMillis()
+        val state = viewModel.uiState.filter { !it.isLoading }.first()
+        val afterCall = System.currentTimeMillis()
+
+        val summaryTs = state.circadianSummary?.currentSnapshot?.timestampMillis ?: 0L
+        assertTrue(
+            "circadianSummary timestamp ($summaryTs) should reflect live now [$beforeCall..$afterCall] rather than midnight",
+            summaryTs in (beforeCall - 5_000L)..(afterCall + 5_000L)
+        )
     }
 }

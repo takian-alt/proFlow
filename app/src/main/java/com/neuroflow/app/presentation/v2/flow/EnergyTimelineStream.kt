@@ -61,6 +61,7 @@ fun EnergyTimelineStream(
     onShiftToPeak: ((TaskEntity) -> Unit)? = null,
     timeline: List<CircadianSnapshot> = emptyList(),
     fatigueScores: Map<String, TaskFatigueScoreUi> = emptyMap(),
+    nowMillis: Long = System.currentTimeMillis(),
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
@@ -109,7 +110,6 @@ fun EnergyTimelineStream(
                 }
             }
         } else {
-            val nowMillis = System.currentTimeMillis()
             val activeOrNextIndex = scheduledTasks.indexOfFirst { task ->
                 if (task.scheduledTime != null) {
                     val start = task.resolveScheduledEpochMillis() ?: (task.effectiveScheduledDateMillis() ?: 0L)
@@ -267,12 +267,12 @@ fun TimelineTaskCard(
                 SwipeToDismissBoxValue.StartToEnd -> {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     currentOnComplete()
-                    true
+                    false
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     currentOnDefer()
-                    true
+                    false
                 }
                 SwipeToDismissBoxValue.Settled -> false
             }

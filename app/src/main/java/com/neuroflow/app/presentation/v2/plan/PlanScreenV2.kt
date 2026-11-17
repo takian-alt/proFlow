@@ -450,49 +450,51 @@ fun PlanScreenV2(
                         FilterChip(
                             selected = isObjectivesExpanded,
                             onClick = { isObjectivesExpanded = !isObjectivesExpanded },
-                            label = {
-                                Text(
-                                    text = if (state.activeGoals.isNotEmpty()) "🎯 Objectives (${state.activeGoals.size})" else "🎯 Objectives",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
-                                selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            ),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                    }
-
-                    items(state.availableTags, key = { it }) { tag ->
-                        val isSelected = if (tag == "All") {
-                            state.selectedTag == null || state.selectedTag == "All"
-                        } else {
-                            state.selectedTag == tag
+                                label = {
+                                    Text(
+                                        text = if (state.activeGoals.isNotEmpty()) "🎯 Objectives (${state.activeGoals.size})" else "🎯 Objectives",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            )
                         }
 
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.selectTag(if (tag == "All" || tag == state.selectedTag) null else tag) },
-                            label = {
-                                Text(
-                                    tag,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
-                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                labelColor = NeuroFlowThemeV2Colors.TextSecondary
-                            ),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                    }
+                        items(state.availableTags, key = { it }) { tag ->
+                            val isSelected = if (tag == "All") {
+                                state.selectedTag == null || state.selectedTag == "All"
+                            } else {
+                                state.selectedTag == tag
+                            }
+
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.selectTag(if (tag == "All" || tag == state.selectedTag) null else tag) },
+                                label = {
+                                    Text(
+                                        tag,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                    selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
+                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                    labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            )
+                        }
                 }
 
                 // Expandable Unscheduled Tray Drawer
@@ -613,7 +615,7 @@ fun PlanScreenV2(
                                     ) {
                                         IconButton(
                                             onClick = { viewModel.completeGoal(goal) },
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(48.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.CheckCircle,
@@ -631,7 +633,7 @@ fun PlanScreenV2(
                                         )
                                         IconButton(
                                             onClick = { viewModel.deleteGoal(goal) },
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(48.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Close,
@@ -670,7 +672,7 @@ fun PlanScreenV2(
                                         }
                                     },
                                     enabled = newGoalTitle.isNotBlank(),
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
@@ -916,10 +918,10 @@ fun PlanScreenV2(
 fun SevenDayCapacityBar(
     loadDistribution: Map<LocalDate, Float>,
     selectedDateMillis: Long,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    today: LocalDate = LocalDate.now(ZoneId.systemDefault())
 ) {
     val zoneId = remember { ZoneId.systemDefault() }
-    val today = remember { LocalDate.now(zoneId) }
     val days = remember(today) { (0..6).map { today.plusDays(it.toLong()) } }
 
     Row(
@@ -953,9 +955,12 @@ fun SevenDayCapacityBar(
 @Composable
 fun DateCarouselStrip(
     selectedDateMillis: Long,
-    onSelectDate: (Long) -> Unit
+    onSelectDate: (Long) -> Unit,
+    nowMillis: Long = System.currentTimeMillis()
 ) {
-    val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+    val todayStart = remember(nowMillis / 60_000L) {
+        com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
+    }
     val tmrwStart = com.neuroflow.app.data.local.entity.startOfNextLocalDay(todayStart)
 
     val days = remember(todayStart) {
@@ -1065,7 +1070,7 @@ private fun shouldShowUltradianBufferAfter(tasks: List<TaskEntity>, index: Int):
     return false
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TimelineScheduleView(
     state: PlanUiStateV2,
@@ -1091,8 +1096,16 @@ fun TimelineScheduleView(
         ?: (if (peakPrefs.effectivePeakEnd in 0..23) peakPrefs.effectivePeakEnd else peakPrefs.peakEnergyEnd).coerceIn(0, 23))
     val dipStart = state.circadianSummary?.dipWindowStartHour ?: 13
     val dipEnd = state.circadianSummary?.dipWindowEndHour ?: 15
-    val currentMinuteOfDay = Calendar.getInstance().let {
-        it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
+    val nowMinute by produceState(System.currentTimeMillis() / 60_000L) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000L)
+            value = System.currentTimeMillis() / 60_000L
+        }
+    }
+    val nowMillis = remember(nowMinute) { nowMinute * 60_000L }
+    val zoneId = remember { ZoneId.systemDefault() }
+    val todayLocalDate = remember(nowMinute) {
+        java.time.Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
     }
     val listState = rememberLazyListState()
 
@@ -1104,7 +1117,8 @@ fun TimelineScheduleView(
     Column(modifier = Modifier.fillMaxSize()) {
         SevenDayCapacityBar(
             loadDistribution = state.sevenDayLoadDistribution,
-            selectedDateMillis = state.selectedDateMillis
+            selectedDateMillis = state.selectedDateMillis,
+            today = todayLocalDate
         )
 
         Row(
@@ -1147,7 +1161,8 @@ fun TimelineScheduleView(
 
         DateCarouselStrip(
             selectedDateMillis = state.selectedDateMillis,
-            onSelectDate = onSelectDate
+            onSelectDate = onSelectDate,
+            nowMillis = nowMillis
         )
 
         LazyColumn(
@@ -1368,187 +1383,286 @@ fun TimelineScheduleView(
                                         .fillMaxHeight()
                                         .background(accentColor)
                                 )
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                // Time Pill
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.width(48.dp)
-                                ) {
-                                    Text(
-                                        text = timeLabel,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isDuringPeak) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary,
-                                        fontSize = if (!hasTime) 11.sp else 12.sp,
-                                        maxLines = 1
-                                    )
-                                    if (isDuringPeak) {
-                                        Text(
-                                            "PEAK",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 9.sp,
-                                            color = NeuroFlowThemeV2Colors.WarmAmber
-                                        )
-                                    }
-                                }
-
-                                // Complete check
-                                IconButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onCompleteTask(task)
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = "Complete",
-                                        tint = NeuroFlowThemeV2Colors.TextSecondary
-                                    )
-                                }
-
-                                // Title & Metadata (Tap to Edit)
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { onEditTask(task) }
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Row(
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        if (task.isFrog) Text("🐸", fontSize = 14.sp)
-                                        Text(
-                                            text = task.title,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = NeuroFlowThemeV2Colors.TextPrimary,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        // Duration badge
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f),
-                                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
+                                        // Time Pill
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.width(44.dp)
                                         ) {
                                             Text(
-                                                text = "⚡ ${formatDurationChip(com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                text = timeLabel,
+                                                style = MaterialTheme.typography.labelMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                color = if (isDuringPeak) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary,
+                                                fontSize = if (!hasTime) 11.sp else 12.sp,
+                                                maxLines = 1
                                             )
-                                        }
-
-                                        // Start and end time chip (for scheduled tasks)
-                                        if (scheduledMillis != null) {
-                                            val timeRangeStr = formatTimeRange(scheduledMillis, com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
-                                            ) {
+                                            if (isDuringPeak) {
                                                 Text(
-                                                    text = "⏱️ $timeRangeStr",
+                                                    "PEAK",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = NeuroFlowThemeV2Colors.TextSecondary,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    fontSize = 9.sp,
+                                                    color = NeuroFlowThemeV2Colors.WarmAmber
                                                 )
                                             }
                                         }
 
-                                        Text(
-                                            text = "${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = NeuroFlowThemeV2Colors.TextSecondary
-                                        )
+                                        // Complete check
+                                        IconButton(
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onCompleteTask(task)
+                                            },
+                                            modifier = Modifier.size(48.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = "Complete",
+                                                tint = NeuroFlowThemeV2Colors.TextSecondary
+                                            )
+                                        }
 
-                                        val splitProgress = parseSplitProgress(task)
-                                        if (splitProgress != null) {
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
-                                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f))
+                                        // Title & Core Metadata (Tap to Edit)
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { onEditTask(task) }
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                if (task.isFrog) Text("🐸", fontSize = 14.sp)
+                                                Text(
+                                                    text = task.title,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = NeuroFlowThemeV2Colors.TextPrimary,
+                                                    modifier = Modifier.weight(1f, fill = false),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState()),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                // Duration badge
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f),
+                                                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
                                                 ) {
                                                     Text(
-                                                        text = "Part ${splitProgress.partNumber}/${splitProgress.totalParts}",
+                                                        text = "⚡ ${formatDurationChip(com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))}",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                        fontWeight = FontWeight.SemiBold
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
-                                                    LinearProgressIndicator(
-                                                        progress = { splitProgress.progress },
-                                                        modifier = Modifier
-                                                            .width(32.dp)
-                                                            .height(4.dp)
-                                                            .clip(RoundedCornerShape(2.dp)),
-                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                        trackColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f)
+                                                }
+
+                                                // Start and end time chip (for scheduled tasks)
+                                                if (scheduledMillis != null) {
+                                                    val timeRangeStr = formatTimeRange(scheduledMillis, com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                                                    ) {
+                                                        Text(
+                                                            text = "⏱️ $timeRangeStr",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = NeuroFlowThemeV2Colors.TextSecondary,
+                                                            fontWeight = FontWeight.Medium,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                Text(
+                                                    text = "${task.energyLevel.name} • ${task.quadrant.name.replace('_', ' ')}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                                )
+
+                                                val splitProgress = parseSplitProgress(task)
+                                                if (splitProgress != null) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f),
+                                                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f))
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "Part ${splitProgress.partNumber}/${splitProgress.totalParts}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                            LinearProgressIndicator(
+                                                                progress = { splitProgress.progress },
+                                                                modifier = Modifier
+                                                                    .width(32.dp)
+                                                                    .height(4.dp)
+                                                                    .clip(RoundedCornerShape(2.dp)),
+                                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                                trackColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.3f)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                if (task.postponeCount >= 3) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.18f)
+                                                    ) {
+                                                        Text(
+                                                            text = "⚡ Dopamine Warm-Up",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                    }
+                                                }
+
+                                                if (fatigueScore != null) {
+                                                    FatigueAwareScoreBadge(
+                                                        score = fatigueScore,
+                                                        onClick = { onInspectFatigueScore(fatigueScore) }
                                                     )
                                                 }
                                             }
                                         }
 
-                                        if (task.postponeCount >= 3) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.18f)
-                                            ) {
-                                                Text(
-                                                    text = "⚡ Dopamine Warm-Up",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = NeuroFlowThemeV2Colors.WarmAmber,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
+                                        // Focus Button
+                                        IconButton(
+                                            onClick = { onStartFocus(task.id) },
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f), CircleShape)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.PlayArrow,
+                                                contentDescription = "Start Focus",
+                                                tint = NeuroFlowThemeV2Colors.ElectricIndigo
+                                            )
                                         }
 
-                                        if (fatigueScore != null) {
-                                            FatigueAwareScoreBadge(
-                                                score = fatigueScore,
-                                                onClick = { onInspectFatigueScore(fatigueScore) }
-                                            )
+                                        // Consolidated Overflow Menu (AI Breakdown, Edit, Tune Slot, Log Time)
+                                        var showItemMenu by remember { mutableStateOf(false) }
+                                        val isDecomposing = state.decomposingTaskId == task.id
+                                        Box {
+                                            IconButton(
+                                                onClick = { showItemMenu = true },
+                                                modifier = Modifier.size(48.dp)
+                                            ) {
+                                                if (isDecomposing) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(16.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.Default.MoreVert,
+                                                        contentDescription = "Task options",
+                                                        tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                            DropdownMenu(
+                                                expanded = showItemMenu,
+                                                onDismissRequest = { showItemMenu = false },
+                                                modifier = Modifier.background(NeuroFlowThemeV2Colors.SlateSurfaceAlt)
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Break Down (AI Micro-Steps)", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                                    },
+                                                    onClick = {
+                                                        showItemMenu = false
+                                                        onBreakDownTask(task)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Edit Task", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.Edit, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                                    },
+                                                    onClick = {
+                                                        showItemMenu = false
+                                                        onEditTask(task)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Assign Time Slot", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                                    },
+                                                    onClick = {
+                                                        showItemMenu = false
+                                                        onAssignTaskTime(task)
+                                                    }
+                                                )
+                                                if (task.scheduledTime != null) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Tune / Rate Placement", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                                        leadingIcon = {
+                                                            Icon(Icons.Outlined.ThumbDown, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                                        },
+                                                        onClick = {
+                                                            showItemMenu = false
+                                                            onRatePlacement(task, -1)
+                                                        }
+                                                    )
+                                                }
+                                                DropdownMenuItem(
+                                                    text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                                                    },
+                                                    onClick = {
+                                                        showItemMenu = false
+                                                        onLogPastTime(task)
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
 
                                     if (fatigueScore != null) {
-                                        Spacer(modifier = Modifier.height(6.dp))
                                         FatigueBurnoutWarningBanner(score = fatigueScore)
                                     }
 
-                                    val scheduledMillis = if (task.scheduledTime != null) {
-                                        task.resolveScheduledEpochMillis(state.selectedDateMillis) ?: (task.scheduledDate?.let { it + (task.scheduledTime ?: 0L) })
-                                    } else null
                                     if (scheduledMillis != null && state.energyTimeline.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        FlowRow(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             TaskSlotEnergyFitBadge(
                                                 taskScheduledMillis = scheduledMillis,
@@ -1565,56 +1679,101 @@ fun TimelineScheduleView(
                                         }
                                     }
 
-                                    if (task.isAutoScheduled) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    if (task.isAutoScheduled || task.userSchedulingRating != 0) {
+                                        val isLiked = task.userSchedulingRating == 1
+                                        val isDisliked = task.userSchedulingRating == -1
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = NeuroFlowThemeV2Colors.SlateSurfaceAlt.copy(alpha = 0.85f),
+                                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("placement_feedback_bar_${task.id}")
                                         ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.15f)
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "✨ AI Placed",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-                                                }
-                                            }
-
                                             Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 10.dp, vertical = 4.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                IconButton(
-                                                    onClick = { onRatePlacement(task, if (task.userSchedulingRating == 1) 0 else 1) },
-                                                    modifier = Modifier.size(24.dp)
+                                                Text(
+                                                    text = if (task.isAutoScheduled) "✨ AI Placed" else "📍 Slot Placement",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
-                                                    Icon(
-                                                        imageVector = if (task.userSchedulingRating == 1) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
-                                                        contentDescription = "Good placement",
-                                                        tint = if (task.userSchedulingRating == 1) NeuroFlowThemeV2Colors.BioMint else NeuroFlowThemeV2Colors.TextSecondary,
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                }
-                                                IconButton(
-                                                    onClick = { onRatePlacement(task, if (task.userSchedulingRating == -1) 0 else -1) },
-                                                    modifier = Modifier.size(24.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (task.userSchedulingRating == -1) Icons.Default.ThumbDown else Icons.Outlined.ThumbDown,
-                                                        contentDescription = "Disliked time window",
-                                                        tint = if (task.userSchedulingRating == -1) NeuroFlowThemeV2Colors.RoseCoral else NeuroFlowThemeV2Colors.TextSecondary,
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
+                                                    Surface(
+                                                        onClick = { onRatePlacement(task, if (isLiked) 0 else 1) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = if (isLiked) NeuroFlowThemeV2Colors.BioMint.copy(alpha = 0.18f) else Color.Transparent,
+                                                        border = BorderStroke(
+                                                            1.dp,
+                                                            if (isLiked) NeuroFlowThemeV2Colors.BioMint.copy(alpha = 0.55f) else NeuroFlowThemeV2Colors.SlateBorder
+                                                        ),
+                                                        modifier = Modifier
+                                                            .heightIn(min = 48.dp)
+                                                            .testTag("placement_thumbs_up_${task.id}")
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = if (isLiked) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
+                                                                contentDescription = "Good placement",
+                                                                tint = if (isLiked) NeuroFlowThemeV2Colors.BioMint else NeuroFlowThemeV2Colors.TextSecondary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                            Text(
+                                                                text = if (isLiked) "Good" else "Like",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = if (isLiked) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (isLiked) NeuroFlowThemeV2Colors.BioMint else NeuroFlowThemeV2Colors.TextSecondary
+                                                            )
+                                                        }
+                                                    }
+
+                                                    Surface(
+                                                        onClick = { onRatePlacement(task, if (isDisliked) 0 else -1) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = if (isDisliked) NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.18f) else Color.Transparent,
+                                                        border = BorderStroke(
+                                                            1.dp,
+                                                            if (isDisliked) NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.55f) else NeuroFlowThemeV2Colors.SlateBorder
+                                                        ),
+                                                        modifier = Modifier
+                                                            .heightIn(min = 48.dp)
+                                                            .testTag("placement_thumbs_down_${task.id}")
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = if (isDisliked) Icons.Default.ThumbDown else Icons.Outlined.ThumbDown,
+                                                                contentDescription = "Disliked time window",
+                                                                tint = if (isDisliked) NeuroFlowThemeV2Colors.RoseCoral else NeuroFlowThemeV2Colors.TextSecondary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                            Text(
+                                                                text = "Tune",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = if (isDisliked) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (isDisliked) NeuroFlowThemeV2Colors.RoseCoral else NeuroFlowThemeV2Colors.TextSecondary
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1623,22 +1782,22 @@ fun TimelineScheduleView(
                                     val microSteps = remember(task.ifThenPlan) { StepByStepPlanCodec.parse(task.ifThenPlan) }
                                     if (microSteps.isNotEmpty()) {
                                         var showSteps by remember { mutableStateOf(false) }
-                                        Spacer(modifier = Modifier.height(4.dp))
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
                                             color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f),
-                                            modifier = Modifier.clickable { showSteps = !showSteps }
+                                            modifier = Modifier
+                                                .minimumInteractiveComponentSize()
+                                                .clickable { showSteps = !showSteps }
                                         ) {
                                             Text(
                                                 text = "🪜 ${microSteps.size} micro-steps ${if (showSteps) "▲" else "▼"}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                fontSize = 10.sp
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                fontSize = 11.sp
                                             )
                                         }
                                         if (showSteps) {
-                                            Spacer(modifier = Modifier.height(4.dp))
                                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 microSteps.forEachIndexed { i, step ->
                                                     Text(
@@ -1652,93 +1811,7 @@ fun TimelineScheduleView(
                                         }
                                     }
                                 }
-
-                                // Focus Button
-                                IconButton(
-                                    onClick = { onStartFocus(task.id) },
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f), CircleShape)
-                                ) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = "Start Focus",
-                                        tint = NeuroFlowThemeV2Colors.ElectricIndigo
-                                    )
-                                }
-
-                                // Consolidated Overflow Menu (AI Breakdown, Edit, Log Time)
-                                var showItemMenu by remember { mutableStateOf(false) }
-                                val isDecomposing = state.decomposingTaskId == task.id
-                                Box {
-                                    IconButton(
-                                        onClick = { showItemMenu = true },
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        if (isDecomposing) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(16.dp),
-                                                strokeWidth = 2.dp,
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = "Task options",
-                                                tint = NeuroFlowThemeV2Colors.TextSecondary,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                    DropdownMenu(
-                                        expanded = showItemMenu,
-                                        onDismissRequest = { showItemMenu = false },
-                                        modifier = Modifier.background(NeuroFlowThemeV2Colors.SlateSurfaceAlt)
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Break Down (AI Micro-Steps)", color = NeuroFlowThemeV2Colors.TextPrimary) },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
-                                            },
-                                            onClick = {
-                                                showItemMenu = false
-                                                onBreakDownTask(task)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Edit Task", color = NeuroFlowThemeV2Colors.TextPrimary) },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.Edit, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
-                                            },
-                                            onClick = {
-                                                showItemMenu = false
-                                                onEditTask(task)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Assign Time Slot", color = NeuroFlowThemeV2Colors.TextPrimary) },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.Schedule, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
-                                            },
-                                            onClick = {
-                                                showItemMenu = false
-                                                onAssignTaskTime(task)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Log Past Time", color = NeuroFlowThemeV2Colors.TextPrimary) },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.History, contentDescription = null, tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
-                                            },
-                                            onClick = {
-                                                showItemMenu = false
-                                                onLogPastTime(task)
-                                            }
-                                        )
-                                    }
-                                }
                             }
-                        }
                     }
                 }
 
@@ -1919,7 +1992,7 @@ fun MatrixPlanView(
                                 ) {
                                     IconButton(
                                         onClick = { onCompleteTask(task) },
-                                        modifier = Modifier.size(40.dp)
+                                        modifier = Modifier.size(48.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.CheckCircle,
@@ -1981,7 +2054,7 @@ fun MatrixPlanView(
                                     val isDecomposingMatrix = state.decomposingTaskId == task.id
                                     IconButton(
                                         onClick = { onBreakDownTask(task) },
-                                        modifier = Modifier.size(40.dp),
+                                        modifier = Modifier.size(48.dp),
                                         enabled = !isDecomposingMatrix
                                     ) {
                                         if (isDecomposingMatrix) {
@@ -2010,7 +2083,7 @@ fun MatrixPlanView(
                                             }
                                             onMoveQuadrant(task, nextQ)
                                         },
-                                        modifier = Modifier.size(40.dp)
+                                        modifier = Modifier.size(48.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Refresh,
@@ -2023,7 +2096,7 @@ fun MatrixPlanView(
                                     IconButton(
                                         onClick = { onStartFocus(task.id) },
                                         modifier = Modifier
-                                            .size(42.dp)
+                                            .size(48.dp)
                                             .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f), CircleShape)
                                     ) {
                                         Icon(

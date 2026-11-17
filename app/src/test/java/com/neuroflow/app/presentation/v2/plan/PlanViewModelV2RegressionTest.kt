@@ -32,6 +32,8 @@ import io.mockk.unmockkObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -259,5 +261,37 @@ class PlanViewModelV2RegressionTest {
         assertEquals("long-1", part2Slot.captured.dependsOnTaskIds)
         assertFalse(part2Slot.captured.isFrog)
         assertEquals(Recurrence.NONE, part2Slot.captured.recurrence)
+    }
+
+    @Test
+    fun `deadline task surfaced in tasksForDay is excluded from unscheduledTasks`() = runTest(testDispatcher) {
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        val zoneId = ZoneId.systemDefault()
+        val todayStart = LocalDate.now(zoneId).atStartOfDay(zoneId).toInstant().toEpochMilli()
+
+        val dueTodayTask = TaskEntity(
+            id = "due-today-1",
+            title = "Submit Quarterly Brief",
+            scheduledDate = null,
+            scheduledTime = null,
+            deadlineDate = todayStart + 17 * 3600_000L,
+            status = TaskStatus.ACTIVE
+        )
+
+        every { taskRepo.observeActiveTasks() } returns MutableStateFlow(listOf(dueTodayTask))
+        every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val vm = PlanViewModelV2(
+            taskRepository = taskRepo,
+            preferencesDataStore = prefsDataStore,
+            workManager = mockk<WorkManager>(relaxed = true)
+        )
+
+        val state = vm.uiState.filter { !it.isLoading }.first()
+        assertTrue("Task due today should appear in tasksForDay", state.tasksForDay.any { it.id == "due-today-1" })
+        assertFalse("Task already in tasksForDay must not duplicate in unscheduledTasks", state.unscheduledTasks.any { it.id == "due-today-1" })
     }
 }

@@ -790,7 +790,7 @@ fun ActiveDoseHistoryDialog(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 IconButton(
                                     onClick = { onRemoveDose(dose) },
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
@@ -1419,6 +1419,7 @@ fun SimulationLeverChip(
 ) {
     Surface(
         onClick = onClick,
+        modifier = Modifier.minimumInteractiveComponentSize(),
         shape = RoundedCornerShape(16.dp),
         color = if (isSelected) accent.copy(alpha = 0.2f) else NeuroFlowPaletteV2.SurfaceCard,
         border = BorderStroke(

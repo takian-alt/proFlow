@@ -92,4 +92,38 @@ class FlowViewModelSimulationTest {
         assertNotNull("Should have a protected nap slot", napSlot)
         assertEquals(20, napSlot!!.durationMinutes)
     }
+
+    @Test
+    fun testApplySimulationToPlanPersistsCaffeineDoseAndEmitsConfirmation() = runTest(testDispatcher) {
+        val circadianService = DefaultCircadianEnergyService()
+        val schedulerService = DefaultTaskSchedulerService(circadianService)
+        val behavioralService = DefaultBehavioralSupportService()
+
+        val viewModel = FlowViewModelV2(
+            taskRepository = taskRepo,
+            preferencesDataStore = prefsDataStore,
+            circadianEnergyService = circadianService,
+            taskSchedulerService = schedulerService,
+            behavioralSupportService = behavioralService
+        )
+        backgroundScope.launch(testDispatcher) { viewModel.uiState.collect() }
+        advanceUntilIdle()
+
+        viewModel.toggleSimulatedLever(SimulationLeverType.CAFFEINE)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.simulationState.simulatedStimulants.isNotEmpty())
+
+        viewModel.applySimulationToPlan()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.simulationState.isActive)
+        coVerify(exactly = 1) {
+            prefsDataStore.recordStimulantDose(
+                type = com.neuroflow.app.domain.service.StimulantType.CAFFEINE,
+                doseMg = any(),
+                timestampMillis = any()
+            )
+        }
+        assertTrue(viewModel.uiState.value.lastActionMessage?.contains("Applied simulated plan") == true)
+    }
 }

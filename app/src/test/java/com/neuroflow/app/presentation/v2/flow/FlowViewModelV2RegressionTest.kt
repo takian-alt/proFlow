@@ -157,4 +157,46 @@ class FlowViewModelV2RegressionTest {
         val stateAtWorkEnd21 = vm.uiState.filter { !it.isLoading && it.preferences.workDayEnd == 21 }.first()
         assertFalse(stateAtWorkEnd21.isEveningShutdownTime)
     }
+
+    @Test
+    fun `unscheduled backlog tasks with intraday scheduledTime hint are not falsely flagged overdue`() = runTest(testDispatcher) {
+        val taskRepo = mockk<TaskRepository>(relaxed = true)
+        val prefsDataStore = mockk<UserPreferencesDataStore>(relaxed = true)
+
+        val nowAtNoon = LocalDate.of(2026, 4, 15).atTime(12, 0)
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
+        val backlogTasks = (1..4).map { idx ->
+            TaskEntity(
+                id = "backlog-hint-$idx",
+                title = "Backlog Task $idx",
+                scheduledDate = null,
+                scheduledTime = 6 * 3600_000L, // < ONE_DAY_MILLIS time hint, not an epoch date
+                status = TaskStatus.ACTIVE
+            )
+        }
+
+        every { taskRepo.observeActiveTasks() } returns MutableStateFlow(backlogTasks)
+        every { taskRepo.observeCompletedTasks() } returns MutableStateFlow(emptyList())
+        every { prefsDataStore.preferencesFlow } returns MutableStateFlow(UserPreferences())
+
+        val vm = FlowViewModelV2(
+            taskRepository = taskRepo,
+            preferencesDataStore = prefsDataStore,
+            nowProvider = { nowAtNoon }
+        )
+
+        val state = vm.uiState.filter { !it.isLoading }.first()
+        assertFalse(
+            "Unscheduled backlog tasks with intraday time hints must not trigger false overdue prompt",
+            state.showZeroGuiltPrompt
+        )
+
+        vm.freshStartRollover()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { taskRepo.update(any()) }
+    }
 }

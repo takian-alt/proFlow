@@ -218,8 +218,9 @@ class PlanViewModelV2 @Inject constructor(
 
     val sevenDayLoadDistribution: StateFlow<Map<LocalDate, Float>> = combine(
         taskRepository.observeActiveTasks().onEmpty { emit(emptyList()) },
-        preferencesDataStore.preferencesFlow.onEmpty { emit(UserPreferences()) }
-    ) { allTasks, prefs ->
+        preferencesDataStore.preferencesFlow.onEmpty { emit(UserPreferences()) },
+        (clockTicker?.currentMinuteTick ?: flowOf(0L)).onEmpty { emit(0L) }
+    ) { allTasks, prefs, _ ->
         val zoneId = ZoneId.systemDefault()
         val today = LocalDate.now(zoneId)
         val capacity = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 } ?: 240
@@ -434,6 +435,7 @@ class PlanViewModelV2 @Inject constructor(
             sleepTelemetryRepository = sleepTelemetryRepository,
             prefs = prefs,
             sleepLogs = sleepLogs,
+            completedTasks = completedList,
             nowMillis = now,
             stimulantDoses = allStimulants
         )
@@ -512,10 +514,12 @@ class PlanViewModelV2 @Inject constructor(
                 .thenByDescending { it.createdAt }
         )
 
+        val tasksForDayIds = tasksForDay.map { it.id }.toSet()
         val unscheduled = searchFilteredAll.filter { task ->
             val sDate = task.effectiveScheduledDateMillis()
             val isPastOverdue = sDate != null && sDate < todayStart
             task.quadrant != Quadrant.ELIMINATE &&
+                task.id !in tasksForDayIds &&
                 (sDate == null || (!isTargetingToday && isPastOverdue)) &&
                 (task.scheduledTime == null || task.scheduledTime < ONE_DAY_MILLIS || (!isTargetingToday && isPastOverdue))
         }
@@ -532,10 +536,45 @@ class PlanViewModelV2 @Inject constructor(
             dayMillis = dateMillis
         )
 
+        val slotBlocks = com.neuroflow.app.domain.model.buildDailyCognitiveBlocks(
+            slots = prefs.protectedTimeSlots,
+            date = targetLocalDate,
+            zoneId = zoneId
+        )
+        val physBlocks = physLogs
+            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
+            .mapNotNull { log ->
+                val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
+                val minOfDay = logZdt.hour * 60 + logZdt.minute
+                val duration = log.durationMinutes.coerceIn(5, 240)
+                when (log.type) {
+                    com.neuroflow.app.data.local.PhysiologicalEventType.MEAL -> com.neuroflow.app.domain.service.CognitiveBlockWindow(
+                        startMinuteOfDay = minOfDay,
+                        endMinuteOfDay = (minOfDay + duration) % 1440,
+                        category = com.neuroflow.app.domain.service.CognitiveBlockCategory.MEAL,
+                        intensity = log.intensity,
+                        label = "Quick Logged Meal #${log.timestampMillis}",
+                        explicitStartMillis = log.timestampMillis,
+                        explicitEndMillis = log.timestampMillis + duration * 60_000L
+                    )
+                    com.neuroflow.app.data.local.PhysiologicalEventType.WORKOUT -> com.neuroflow.app.domain.service.CognitiveBlockWindow(
+                        startMinuteOfDay = minOfDay,
+                        endMinuteOfDay = (minOfDay + duration) % 1440,
+                        category = com.neuroflow.app.domain.service.CognitiveBlockCategory.EXERCISE,
+                        intensity = log.intensity,
+                        label = "Quick Logged Workout #${log.timestampMillis}",
+                        explicitStartMillis = log.timestampMillis,
+                        explicitEndMillis = log.timestampMillis + duration * 60_000L
+                    )
+                    com.neuroflow.app.data.local.PhysiologicalEventType.NAP -> null
+                }
+            }
+        val dailyBlocks = slotBlocks + physBlocks
+
         val manualPeakHour = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
         val circadianSummary = runCatching {
             circadianEnergyService.computeDailySummary(
-                timestampMillis = dateMillis,
+                timestampMillis = if (isTargetingToday) now else dateMillis,
                 wakeTimeMillis = wakeTimeMillis,
                 lastSleepDurationMinutes = sleepDurationMinutes,
                 continuousActiveFocusMinutes = 0,
@@ -543,13 +582,14 @@ class PlanViewModelV2 @Inject constructor(
                 naps = naps,
                 chronotype = resolvedChronotype,
                 manualPeakStartHour = manualPeakHour,
+                cognitiveBlocks = dailyBlocks,
                 stimulantDoses = allStimulants
             )
         }.getOrNull()
 
         val energyTimeline = runCatching {
             circadianEnergyService.projectDayTimeline(
-                dayStartMillis = dateMillis,
+                dayStartMillis = dayStart,
                 wakeTimeMillis = wakeTimeMillis,
                 lastSleepDurationMinutes = sleepDurationMinutes,
                 stepMinutes = 30,
@@ -557,6 +597,7 @@ class PlanViewModelV2 @Inject constructor(
                 naps = naps,
                 chronotype = resolvedChronotype,
                 manualPeakStartHour = manualPeakHour,
+                cognitiveBlocks = dailyBlocks,
                 stimulantDoses = allStimulants
             )
         }.getOrDefault(emptyList())
@@ -1590,11 +1631,21 @@ class PlanViewModelV2 @Inject constructor(
             val workDayEndMillis = dayStart + prefs.workDayEnd * 3600_000L
 
             val otherTasks = uiState.value.tasksForDay.filter { it.id != task.id && it.scheduledTime != null }
-            val occupied = otherTasks.mapNotNull { t ->
+            val taskOccupied = otherTasks.mapNotNull { t ->
                 val s = t.resolveScheduledEpochMillis(dayMillis) ?: return@mapNotNull null
                 val dur = (if (t.plannedBlockMinutes > 0) t.plannedBlockMinutes else t.estimatedDurationMinutes).coerceIn(5, 240)
                 TimeSlotWindow(s, s + dur * 60_000L)
             }
+            val slotOccupied = com.neuroflow.app.domain.model.buildDailyCognitiveBlocks(
+                slots = prefs.protectedTimeSlots,
+                date = dayDate,
+                zoneId = zoneId
+            ).mapNotNull { block ->
+                val s = block.explicitStartMillis ?: return@mapNotNull null
+                val e = block.explicitEndMillis ?: return@mapNotNull null
+                TimeSlotWindow(s, e)
+            }
+            val occupied = taskOccupied + slotOccupied
             val availableWindows = computeAvailableWindows(workDayStartMillis, workDayEndMillis, occupied)
                 .ifEmpty { listOf(TimeSlotWindow(workDayStartMillis, workDayEndMillis)) }
 

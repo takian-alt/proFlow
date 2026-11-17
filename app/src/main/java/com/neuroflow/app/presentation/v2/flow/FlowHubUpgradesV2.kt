@@ -1198,14 +1198,14 @@ fun UltradianRecoveryDivider(modifier: Modifier = Modifier) {
 fun ActiveBiophysicalImpulseStrip(
     cognitiveBlocks: List<CognitiveBlockWindow>,
     activePlasmaMg: Double,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    nowMillis: Long = System.currentTimeMillis()
 ) {
-    val now = System.currentTimeMillis()
-    val activeBlocks = remember(cognitiveBlocks, now) {
+    val activeBlocks = remember(cognitiveBlocks, nowMillis) {
         cognitiveBlocks.filter { block ->
             val start = block.explicitStartMillis ?: return@filter false
             val end = block.explicitEndMillis ?: return@filter false
-            now in start..end
+            nowMillis in start..end
         }
     }
     val hasActiveImpulse = activeBlocks.isNotEmpty() || activePlasmaMg > 0.05
