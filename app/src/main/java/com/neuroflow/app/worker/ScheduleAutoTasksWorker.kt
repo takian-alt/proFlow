@@ -346,12 +346,37 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 sessionRepository.getAllSessions()
             }.getOrDefault(emptyList())
             val closedSessions = allSessions.filter { it.endedAt != null }
-            val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+            val activeTaskId = focusedTaskIds.firstOrNull()
             val microStepCounts = targetTasks.associate { task ->
                 val steps = taskRepository.getMicroSteps(task.id)
                 task.id to Pair(steps.count { it.isCompleted }, steps.size)
             }
             val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.first() ?: emptyList()
+
+            fun isCognitiveDemand(t: TaskEntity): Boolean =
+                t.energyLevel != com.neuroflow.app.domain.model.EnergyLevel.LOW ||
+                    t.isFrog ||
+                    t.taskType == com.neuroflow.app.domain.model.TaskType.ANALYTICAL
+
+            val completedMinutesToday = allKnownTasks
+                .filter {
+                    it.status == TaskStatus.COMPLETED &&
+                        (it.effectiveScheduledDateMillis()?.let { d -> d in dayStart..dayEnd } == true ||
+                            it.completedAt?.let { c -> c in dayStart..dayEnd } == true) &&
+                        isCognitiveDemand(it)
+                }
+                .sumOf { TaskBlockPlan.plannedMinutes(it) }
+            val fixedCommittedMinutes = fixedTasks
+                .filter { task ->
+                    if (task.scheduledTime == null) return@filter false
+                    val start = task.resolveScheduledEpochMillis() ?: return@filter false
+                    val duration = TaskBlockPlan.plannedMinutes(task)
+                    val end = start + duration * 60_000L
+                    end > dayStart && start < dayEnd && isCognitiveDemand(task)
+                }
+                .sumOf { TaskBlockPlan.plannedMinutes(it) }
+            val capacityMinutes = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 } ?: 240
+            val effectiveRemainingCapacity = (capacityMinutes - (completedMinutesToday + fixedCommittedMinutes)).coerceAtLeast(0)
 
             val outcome = scheduleOrchestrator.orchestrateDayScheduleWithOutcome(
                 candidateTasks = targetTasks,
@@ -365,7 +390,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 forceReplan = forceReplan,
                 zoneId = zoneId,
                 activeTaskId = activeTaskId,
-                microStepCounts = microStepCounts
+                microStepCounts = microStepCounts,
+                dailyCognitiveCapacityMinutes = effectiveRemainingCapacity
             )
             val placements = outcome.placements
 
@@ -498,6 +524,10 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 continue
             }
 
+            val nextStartHour = Instant.ofEpochMilli(primaryPlacement.window.startMillis)
+                .atZone(ZoneId.systemDefault()).hour
+            val clearedRejection = freshTask.userSchedulingRating == -1 &&
+                freshTask.schedulingRejectedSlotHour != nextStartHour
             val updatedTask = freshTask.copy(
                 title = titleToUse,
                 scheduledDate = scheduledDate,
@@ -505,6 +535,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 habitDate = if (freshTask.recurrence != Recurrence.NONE) scheduledDate else freshTask.habitDate,
                 isAutoScheduled = true,
                 plannedBlockMinutes = primaryPlacement.window.durationMinutes,
+                userSchedulingRating = if (clearedRejection) 0 else freshTask.userSchedulingRating,
+                schedulingRejectedSlotHour = if (clearedRejection) null else freshTask.schedulingRejectedSlotHour,
                 lastAutoScheduledAt = nowMillis,
                 lastStabilizedAt = nowMillis,
                 updatedAt = nowMillis

@@ -260,15 +260,26 @@ fun NeuroFlowAppV2(
                         )
                     }
                     if (showBottomBar) {
+                        HorizontalDivider(
+                            color = NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.35f),
+                            thickness = 0.75.dp
+                        )
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.surface,
-                            contentColor = MaterialTheme.colorScheme.onSurface
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            tonalElevation = 0.dp
                         ) {
                             NavHubsV2.items.forEach { hub ->
                                 val selected = currentDestination?.hierarchy?.any { it.route == hub.route } == true
                                 NavigationBarItem(
                                     icon = { Icon(hub.icon, contentDescription = hub.title) },
-                                    label = { Text(hub.title) },
+                                    label = {
+                                        Text(
+                                            text = hub.title,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    },
                                     selected = selected,
                                     onClick = {
                                         navController.navigate(hub.route) {
@@ -282,7 +293,7 @@ fun NeuroFlowAppV2(
                                     colors = NavigationBarItemDefaults.colors(
                                         selectedIconColor = MaterialTheme.colorScheme.primary,
                                         selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

@@ -319,12 +319,16 @@ class SettingsViewModel @Inject constructor(
                     before.streakNotificationsEnabled != after.streakNotificationsEnabled ||
                     before.deadlineEscalationNotificationsEnabled != after.deadlineEscalationNotificationsEnabled ||
                     before.dailyPlanNotificationHour != after.dailyPlanNotificationHour ||
-                    before.streakCheckNotificationHour != after.streakCheckNotificationHour
+                    before.streakCheckNotificationHour != after.streakCheckNotificationHour ||
+                    before.energyRecoveryAlertsEnabled != after.energyRecoveryAlertsEnabled
 
             if (scheduleChanged) {
                 scheduleNotificationWorkers(context, after)
             }
 
+            if (before.energyRecoveryAlertsEnabled && !after.energyRecoveryAlertsEnabled) {
+                com.neuroflow.app.worker.EnergyRecoveryNotificationWorker.cancelRecoveryNotification(context)
+            }
             if (before.autonomyNudgeNotificationsEnabled && !after.autonomyNudgeNotificationsEnabled) {
                 WorkManager.getInstance(context).cancelAllWorkByTag(AutonomyNudgeEngine.globalTag())
             }

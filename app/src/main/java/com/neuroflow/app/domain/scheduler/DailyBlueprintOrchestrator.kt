@@ -174,7 +174,7 @@ class DailyBlueprintOrchestrator(
             val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
             elapsedMs < 120 * 60_000L
         }.map { it.taskId }.toSet()
-        val activeTaskId = openSessions.firstOrNull { it.endedAt == null }?.taskId
+        val activeTaskId = focusedTaskIds.firstOrNull()
 
         val activeTaskIds = allActiveTasks.map { it.id }.toSet()
         fun isContinuationBlocked(task: TaskEntity): Boolean {
@@ -349,7 +349,11 @@ class DailyBlueprintOrchestrator(
         val physiologicalBlocks = basePhysioBlocks + quickPhysBlocks
 
         val completedTasks = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
-        val observations = buildBehavioralObservations(completedTasks, closedSessions, zoneId)
+        val approvedFeedbackObs = SchedulingFeedbackStore.extractApprovedCircadianObservations(
+            json = prefs.schedulingRejectionsJson,
+            nowMillis = nowMillis
+        )
+        val observations = buildBehavioralObservations(completedTasks, closedSessions, zoneId) + approvedFeedbackObs
         val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
         val learnedProfile = if (observations.isNotEmpty()) {
             AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
@@ -407,11 +411,16 @@ class DailyBlueprintOrchestrator(
             timestampMillis = dayStart,
             wakeTimeMillis = wakeTimeMillis,
             lastSleepDurationMinutes = sleepDurationMinutes,
+            continuousActiveFocusMinutes = 0,
             zoneId = zoneId,
+            naps = allNaps,
             chronotype = chronotype,
             manualPeakStartHour = manualPeakStartHour,
             cognitiveBlocks = physiologicalBlocks,
-            stimulantDoses = stimulantDoses
+            learnedProfile = learnedProfile,
+            rollingAverageSleepMinutes = rollingAvgSleep,
+            stimulantDoses = stimulantDoses,
+            socialJetlagLagHours = socialJetlagLagHours
         )
 
         val includedItems = mutableListOf<BlueprintTaskItem>()
@@ -504,6 +513,23 @@ class DailyBlueprintOrchestrator(
             )
         }
 
+        data class BlueprintPlacementGroup(
+            val sourceTask: TaskEntity,
+            val placements: List<ScheduledPlacement>,
+            val isDynamicSplit: Boolean,
+            val groupDuration: Int,
+            val priorityRank: Double,
+            val earliestStartMillis: Long
+        )
+
+        fun quadrantRank(q: Quadrant): Int = when (q) {
+            Quadrant.DO_FIRST -> 3
+            Quadrant.SCHEDULE -> 2
+            Quadrant.DELEGATE -> 1
+            Quadrant.ELIMINATE -> 0
+        }
+
+        val placementGroups = mutableListOf<BlueprintPlacementGroup>()
         for (idx in outcome.placements.indices) {
             if (idx in processedIndices) continue
             val placement = outcome.placements[idx]
@@ -516,7 +542,7 @@ class DailyBlueprintOrchestrator(
             val isDynamicSplit = placement.task.id !in taskById &&
                 (placement.task.id.contains("#part") || placement.task.id.contains("_part"))
 
-            if (isDynamicSplit) {
+            val groupPlacements = if (isDynamicSplit) {
                 val groupIndices = outcome.placements.indices.filter { j ->
                     val q = outcome.placements[j]
                     q.task.id !in taskById &&
@@ -524,41 +550,73 @@ class DailyBlueprintOrchestrator(
                         SchedulableTaskMapper.cleanSplitTaskId(q.task.id) == baseId
                 }
                 processedIndices.addAll(groupIndices)
-                val groupPlacements = groupIndices.map { outcome.placements[it] }
-                val groupDuration = groupPlacements.sumOf { p ->
-                    p.window.durationMinutes.takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
-                }
-                if (!sourceTask.isScheduleLocked && accumulatedMinutes + groupDuration > remainingCapacity) {
-                    if (overflowTaskList.none { it.id == sourceTask.id }) {
-                        overflowTaskList.add(sourceTask)
-                    }
-                } else {
-                    for (partPlacement in groupPlacements) {
-                        val partDur = partPlacement.window.durationMinutes.takeIf { it > 0 }
-                            ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
-                        appendPlacementItem(partPlacement, sourceTask, isSplitPart = true, dur = partDur)
-                    }
-                }
+                groupIndices.map { outcome.placements[it] }
             } else {
                 processedIndices.add(idx)
+                listOf(placement)
+            }
+
+            val groupDuration = if (isDynamicSplit) {
+                groupPlacements.sumOf { p ->
+                    p.window.durationMinutes.takeIf { it > 0 } ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
+                }
+            } else {
                 val isSplitPart = placement.task.id != sourceTask.id &&
                     (placement.task.id.contains("#part") || placement.task.id.contains("_part"))
-                val dur = if (isSplitPart) {
+                if (isSplitPart) {
                     placement.window.durationMinutes.takeIf { it > 0 }
                         ?: TaskBlockPlan.plannedMinutes(sourceTask).coerceAtLeast(1)
                 } else {
                     TaskBlockPlan.plannedMinutes(sourceTask).takeIf { it > 0 }
                         ?: placement.window.durationMinutes.coerceAtLeast(1)
                 }
-                if (!sourceTask.isScheduleLocked && accumulatedMinutes + dur > remainingCapacity) {
-                    if (overflowTaskList.none { it.id == sourceTask.id }) {
-                        overflowTaskList.add(sourceTask)
+            }
+
+            val effDl = sourceTask.resolveDeadlineEpochMillis() ?: Long.MAX_VALUE
+            val dueTierBonus = if (effDl <= dayEnd) 25.0 else 0.0
+            val frogBonus = if (sourceTask.isFrog) 8.0 else 0.0
+            val baseScore = groupPlacements.maxOfOrNull { it.scoreBreakdown.totalScore } ?: 0.0
+            val priorityRank = baseScore + dueTierBonus + frogBonus + (quadrantRank(sourceTask.quadrant) * 6.0) +
+                (sourceTask.priority.ordinal * 4.0)
+
+            placementGroups.add(
+                BlueprintPlacementGroup(
+                    sourceTask = sourceTask,
+                    placements = groupPlacements,
+                    isDynamicSplit = isDynamicSplit,
+                    groupDuration = groupDuration,
+                    priorityRank = priorityRank,
+                    earliestStartMillis = groupPlacements.minOf { it.window.startMillis }
+                )
+            )
+        }
+
+        placementGroups.sortWith(
+            compareByDescending<BlueprintPlacementGroup> { it.sourceTask.isScheduleLocked }
+                .thenByDescending { it.priorityRank }
+                .thenBy { it.earliestStartMillis }
+        )
+
+        for (group in placementGroups) {
+            if (!group.sourceTask.isScheduleLocked && accumulatedMinutes + group.groupDuration > remainingCapacity) {
+                if (overflowTaskList.none { it.id == group.sourceTask.id }) {
+                    overflowTaskList.add(group.sourceTask)
+                }
+            } else {
+                for (partPlacement in group.placements) {
+                    val isSplitPart = group.isDynamicSplit || (partPlacement.task.id != group.sourceTask.id &&
+                        (partPlacement.task.id.contains("#part") || partPlacement.task.id.contains("_part")))
+                    val partDur = if (isSplitPart) {
+                        partPlacement.window.durationMinutes.takeIf { it > 0 }
+                            ?: TaskBlockPlan.plannedMinutes(group.sourceTask).coerceAtLeast(1)
+                    } else {
+                        group.groupDuration
                     }
-                } else {
-                    appendPlacementItem(placement, sourceTask, isSplitPart = isSplitPart, dur = dur)
+                    appendPlacementItem(partPlacement, group.sourceTask, isSplitPart = isSplitPart, dur = partDur)
                 }
             }
         }
+        includedItems.sortBy { it.proposedStartMillis }
 
         for (candidate in candidateTasks) {
             if (candidate.id !in includedTaskIds && overflowTaskList.none { it.id == candidate.id }) {

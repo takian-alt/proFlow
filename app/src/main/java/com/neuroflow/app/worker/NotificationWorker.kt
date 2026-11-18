@@ -42,16 +42,19 @@ import kotlin.math.roundToInt
 const val CHANNEL_TASKS = "tasks"
 const val CHANNEL_FOCUS = "focus"
 const val CHANNEL_DAILY = "daily_plan"
+const val CHANNEL_RECOVERY = "energy_recovery"
 const val WORK_DAILY_PLAN = "daily_plan"
 const val WORK_STREAK_CHECK = "streak_check"
 const val WORK_DEADLINE_ESCALATION = "deadline_escalation"
+const val WORK_ENERGY_RECOVERY = "energy_recovery_check"
 
 internal data class NotificationWorkerPlan(
     val dailyPlanEnabled: Boolean,
     val dailyPlanDelayMs: Long,
     val streakEnabled: Boolean,
     val streakDelayMs: Long,
-    val escalationEnabled: Boolean
+    val escalationEnabled: Boolean,
+    val energyRecoveryEnabled: Boolean = false
 )
 
 internal fun delayUntilHour(hour: Int, nowMillis: Long = System.currentTimeMillis()): Long {
@@ -76,7 +79,8 @@ internal fun buildNotificationWorkerPlan(
         dailyPlanDelayMs = delayUntilHour(prefs.dailyPlanNotificationHour, nowMillis),
         streakEnabled = prefs.streakNotificationsEnabled,
         streakDelayMs = delayUntilHour(prefs.streakCheckNotificationHour, nowMillis),
-        escalationEnabled = prefs.deadlineEscalationNotificationsEnabled
+        escalationEnabled = prefs.deadlineEscalationNotificationsEnabled,
+        energyRecoveryEnabled = prefs.energyRecoveryAlertsEnabled
     )
 }
 
@@ -120,6 +124,20 @@ fun scheduleNotificationWorkers(context: Context, prefs: UserPreferences) {
     } else {
         workManager.cancelUniqueWork(WORK_DEADLINE_ESCALATION)
     }
+
+    if (plan.energyRecoveryEnabled) {
+        val recoveryRequest = PeriodicWorkRequestBuilder<EnergyRecoveryNotificationWorker>(30, TimeUnit.MINUTES)
+            .addTag(WORK_ENERGY_RECOVERY)
+            .build()
+        workManager.enqueueUniquePeriodicWork(
+            WORK_ENERGY_RECOVERY,
+            ExistingPeriodicWorkPolicy.KEEP,
+            recoveryRequest
+        )
+    } else {
+        workManager.cancelUniqueWork(WORK_ENERGY_RECOVERY)
+        EnergyRecoveryNotificationWorker.cancelRecoveryNotification(context)
+    }
 }
 
 fun createNotificationChannels(context: Context) {
@@ -141,7 +159,13 @@ fun createNotificationChannels(context: Context) {
         "autonomy_nudge", "Autonomy Nudges", NotificationManager.IMPORTANCE_DEFAULT
     ).apply { description = "Gentle nudges when a task hasn't been started" }
 
-    manager.createNotificationChannels(listOf(taskChannel, focusChannel, dailyChannel, autonomyNudgeChannel))
+    val recoveryChannel = NotificationChannel(
+        CHANNEL_RECOVERY, "Energy Recovery Breaks", NotificationManager.IMPORTANCE_DEFAULT
+    ).apply { description = "Short-break alerts when predicted energy drops below your recovery threshold" }
+
+    manager.createNotificationChannels(
+        listOf(taskChannel, focusChannel, dailyChannel, autonomyNudgeChannel, recoveryChannel)
+    )
 }
 
 @HiltWorker
@@ -224,14 +248,32 @@ class DailyPlanWorker @AssistedInject constructor(
                 chronotype = chronotype
             )
 
-            val topTasks = candidateTasks.map { task ->
-                val schedulable = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
+            val priorityWeights = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toPriorityWeights(prefs)
+            val schedulableMap = candidateTasks.associate { task ->
+                task.id to com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
                     task = task,
                     allContextTasks = candidateTasks,
                     dayStartMillis = dayStart,
                     usePlannedBlockForScoring = true
                 )
-                val score = taskSchedulerService.evaluateTaskScore(schedulable, snapshot).totalScore
+            }
+            val dependentCounts = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.computeDependentCounts(
+                schedulableMap.values.toList()
+            )
+            val topTasks = candidateTasks.map { task ->
+                val schedulable = schedulableMap[task.id]!!
+                val depCount = dependentCounts[task.id] ?: 0
+                val score = if (priorityWeights == com.neuroflow.app.domain.service.PriorityWeightProfile.DEFAULT && depCount == 0) {
+                    taskSchedulerService.evaluateTaskScore(schedulable, snapshot).totalScore
+                } else {
+                    taskSchedulerService.evaluateTaskScoreWithFatigue(
+                        task = schedulable,
+                        snapshot = snapshot,
+                        dependentCount = depCount,
+                        weights = priorityWeights,
+                        referenceNowMillis = nowMillis
+                    ).totalScore
+                }
                 task to score
             }.sortedByDescending { it.second }.take(3).map { it.first }
 

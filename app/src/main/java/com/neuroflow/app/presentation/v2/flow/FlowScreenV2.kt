@@ -3,6 +3,7 @@ package com.neuroflow.app.presentation.v2.flow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,11 +16,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShieldMoon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +43,7 @@ import com.neuroflow.app.presentation.v2.composer.SheetMode
 import com.neuroflow.app.presentation.v2.composer.SmartTaskComposerSheetV2
 import com.neuroflow.app.presentation.v2.notes.QuickNotesBottomSheet
 import com.neuroflow.app.presentation.v2.plan.DailyBlueprintBottomSheet
+import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 
 private val PART_NUM_ID_REGEX = Regex("""[#_]part(\d+)""")
@@ -121,8 +125,14 @@ fun FlowScreenV2(
         }
     }
 
+    val currentPhase = state.circadianSummary?.currentSnapshot?.phase
+        ?: state.energyTimeline.minByOrNull {
+            kotlin.math.abs(it.timestampMillis - nowMillis)
+        }?.phase ?: EnergyPhase.PEAK
+    val headerAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
+
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.Transparent,
         snackbarHost = {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -133,16 +143,18 @@ fun FlowScreenV2(
                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                     contentColor = NeuroFlowThemeV2Colors.TextPrimary,
                     actionColor = NeuroFlowThemeV2Colors.WarmAmber,
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
             }
         },
         floatingActionButton = {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(58.dp)
+                    .shadow(8.dp, CircleShape)
                     .clip(CircleShape)
                     .background(NeuroFlowThemeV2Colors.ElectricIndigo)
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                     .combinedClickable(
                         onClick = { showComposer = true },
                         onLongClick = { showNotesSheet = true }
@@ -152,16 +164,22 @@ fun FlowScreenV2(
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Quick Add Task (Long-press for Notes)",
-                    tint = NeuroFlowThemeV2Colors.TextPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(28.dp)
                 )
             }
         }
     ) { innerPanelPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPanelPadding)
+                .padding(innerPanelPadding),
+            contentAlignment = Alignment.TopCenter
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 680.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             // Top App Bar
@@ -172,7 +190,7 @@ fun FlowScreenV2(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = "neuroFlow",
                         style = MaterialTheme.typography.titleLarge,
@@ -180,45 +198,69 @@ fun FlowScreenV2(
                         color = NeuroFlowThemeV2Colors.TextPrimary,
                         letterSpacing = (-0.5).sp
                     )
-                    Text(
-                        text = "Biological High Performance",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(headerAccent, CircleShape)
+                        )
+                        Text(
+                            text = "Biological High Performance",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    IconButton(
-                        onClick = onOpenToolsSheet,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("tools_sheet_button")
+                    Surface(
+                        shape = CircleShape,
+                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt.copy(alpha = 0.85f),
+                        border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.6f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GridView,
-                            contentDescription = "Tools and Subsystems",
-                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                        )
+                        IconButton(
+                            onClick = onOpenToolsSheet,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("tools_sheet_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GridView,
+                                contentDescription = "Tools and Subsystems",
+                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
                     }
 
-                    IconButton(
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier.size(48.dp)
+                    Surface(
+                        shape = CircleShape,
+                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt.copy(alpha = 0.85f),
+                        border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.6f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = NeuroFlowThemeV2Colors.TextSecondary
-                        )
+                        IconButton(
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
                     }
                 }
             }
 
             HorizontalDivider(
-                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.12f),
+                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.16f),
                 thickness = 0.75.dp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
             )
@@ -290,10 +332,6 @@ fun FlowScreenV2(
             val activeIds = remember(state.activeTasks, locallyCompletedIds) {
                 state.activeTasks.map { it.id }.toSet() - locallyCompletedIds
             }
-            val currentPhase = state.circadianSummary?.currentSnapshot?.phase
-                ?: state.energyTimeline.minByOrNull {
-                    kotlin.math.abs(it.timestampMillis - nowMillis)
-                }?.phase ?: EnergyPhase.PEAK
 
             val topTask = remember(state.recommendedTask, state.filteredTasks, state.selectedTag, completedIds, activeIds, currentPhase) {
                 fun isTaskActionable(task: TaskEntity): Boolean {
@@ -460,19 +498,27 @@ fun FlowScreenV2(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     color = NeuroFlowThemeV2Colors.SlateSurface,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                    border = BorderStroke(
+                        1.dp,
+                        NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigoGlow, 0.85f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("🌙", fontSize = 18.sp)
+                            Icon(
+                                imageVector = Icons.Default.ShieldMoon,
+                                contentDescription = null,
+                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                modifier = Modifier.size(20.dp)
+                            )
                             Text(
                                 text = "Evening Shutdown Ritual",
                                 style = MaterialTheme.typography.titleSmall,
@@ -498,11 +544,14 @@ fun FlowScreenV2(
                         )
                         Button(
                             onClick = { viewModel.completeEveningShutdown() },
-                            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
-                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.heightIn(min = 48.dp)
                         ) {
-                            Text("Complete Shutdown", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Complete Shutdown", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -531,16 +580,22 @@ fun FlowScreenV2(
                             Text(
                                 tag,
                                 fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                            selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
+                            selectedLabelColor = Color.White,
                             containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                             labelColor = NeuroFlowThemeV2Colors.TextSecondary
                         ),
-                        shape = RoundedCornerShape(8.dp),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            borderColor = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.6f),
+                            selectedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        ),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
@@ -571,6 +626,7 @@ fun FlowScreenV2(
             )
 
             Spacer(modifier = Modifier.height(80.dp))
+        }
         }
     }
 

@@ -160,6 +160,7 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
 
     private data class CachedEntry(val jsonResponse: String, val timestampMillis: Long)
 
+    private val circadianService: CircadianEnergyService = DefaultCircadianEnergyService()
     private val responseCache = ConcurrentHashMap<String, CachedEntry>()
     private val cacheTtlMillis = 20 * 60 * 1000L // 20 minutes
 
@@ -502,10 +503,10 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
                     newSystemDirective = directiveFormatted
                 )
             } else {
-                localWeeklyAudit(recentlyDeletedTasksJson)
+                localWeeklyAudit(recentlyDeletedTasksJson, recentRejectionsJson)
             }
         } catch (_: Exception) {
-            localWeeklyAudit(recentlyDeletedTasksJson)
+            localWeeklyAudit(recentlyDeletedTasksJson, recentRejectionsJson)
         }
     }
 
@@ -684,11 +685,13 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
             REMEDY INSTRUCTIONS:
             1. Select the single best replacement window matching the task's cognitive and energy profile.
             2. If reason was TOO_LOW_ENERGY, pick a high-alertness peak window.
-            3. If reason was TOO_EARLY, shift to later in the day.
-            4. If reason was NEEDS_LONGER_BLOCK, select the longest contiguous gap.
-            5. If reason was ROUTINE_CONFLICT, steer clear of the conflict hour.
-            6. Provide a concise, science-grounded reasoning sentence.
-            7. Provide an optional 1-sentence adaptive directive patch to prevent future misplacement.
+            3. If reason was TOO_EARLY, shift to later in the day after sleep inertia clears.
+            4. If reason was TOO_LATE, pull earlier in the day before end-of-day cognitive fatigue.
+            5. If reason was NEEDS_LONGER_BLOCK, select the longest contiguous gap.
+            6. If reason was ROUTINE_CONFLICT, steer clear of the conflict hour.
+            7. If reason was WRONG_CONTEXT, shift to an alternate time-of-day period (morning vs afternoon vs evening).
+            8. Provide a concise, science-grounded reasoning sentence.
+            9. Provide an optional 1-sentence adaptive directive patch to prevent future misplacement.
 
             Return ONLY a valid JSON object:
             {
@@ -1197,67 +1200,153 @@ class DefaultGeminiAiOnlineService @Inject constructor() : GeminiAiOnlineService
         val fitting = availableWindows.filter { (it.endMillis - it.startMillis) >= taskDurationMs }
             .ifEmpty { availableWindows }
 
+        val zone = java.time.ZoneId.systemDefault()
+
         fun extractHour(ms: Long): Int {
             return if (ms < 1_000_000_000_000L) {
                 ((ms / 3600_000L) % 24).toInt()
             } else {
                 try {
-                    java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).hour
+                    java.time.Instant.ofEpochMilli(ms).atZone(zone).hour
                 } catch (_: Exception) {
                     ((ms / 3600_000L) % 24).toInt()
                 }
             }
         }
 
-        val selectedWindow: TimeSlotWindow
+        fun circadianEnergyScoreAt(startMs: Long): Int {
+            val midMs = startMs + (taskDurationMs / 2L)
+            return if (midMs >= 1_000_000_000_000L) {
+                val date = java.time.Instant.ofEpochMilli(midMs).atZone(zone).toLocalDate()
+                val wakeMs = date.atTime(7, 0).atZone(zone).toInstant().toEpochMilli()
+                circadianService.evaluateSnapshot(
+                    timestampMillis = midMs,
+                    wakeTimeMillis = wakeMs,
+                    lastSleepDurationMinutes = 480,
+                    continuousActiveFocusMinutes = 0,
+                    zoneId = zone
+                ).usableEnergy
+            } else {
+                val midHour = extractHour(midMs)
+                // Mirror bimodal circadian curve when given relative day-millis
+                when (midHour) {
+                    in 9..11 -> 92
+                    in 16..18 -> 80
+                    in 8..8, in 12..12 -> 75
+                    in 13..15 -> 58
+                    else -> 50
+                }
+            }
+        }
+
+        // Sample 30-minute offsets inside wide open gaps so remedies don't blindly land at trough boundaries
+        fun generateCandidateStarts(windows: List<TimeSlotWindow>): List<Long> {
+            val candidates = mutableListOf<Long>()
+            val stepMs = 30 * 60_000L
+            for (win in windows) {
+                candidates.add(win.startMillis)
+                var cur = win.startMillis + stepMs
+                while (cur + taskDurationMs <= win.endMillis) {
+                    candidates.add(cur)
+                    cur += stepMs
+                }
+            }
+            return candidates.distinct()
+        }
+
+        val candidates = generateCandidateStarts(fitting)
+        val recommendedStartMillis: Long
         val reasoning: String
         val directivePatch: String?
 
         when (reasonTag.uppercase(Locale.ROOT)) {
             "TOO_LOW_ENERGY" -> {
-                val peakWindow = fitting.firstOrNull { extractHour(it.startMillis) in 9..12 }
-                val fallbackWindow = fitting.firstOrNull { extractHour(it.startMillis) != rejectedStartHour }
-                    ?: fitting.first()
-                selectedWindow = peakWindow ?: fallbackWindow
-                val selHour = extractHour(selectedWindow.startMillis)
-                reasoning = "Re-routed to biological peak energy window ($selHour:00) with maximal dopaminergic focus and alertness."
-                directivePatch = "Prioritize peak circadian hours (09:00–12:00) for demanding tasks like '${task.title.take(30)}'."
+                val nonRejected = candidates.filter { extractHour(it) != rejectedStartHour }.ifEmpty { candidates }
+                val bestStart = nonRejected.maxByOrNull { circadianEnergyScoreAt(it) } ?: fitting.first().startMillis
+                recommendedStartMillis = bestStart
+                val selHour = extractHour(bestStart)
+                reasoning = "Re-routed to your peak energy window ($selHour:00) for stronger focus and cognitive alertness."
+                directivePatch = "Prioritize high-energy circadian hours around $selHour:00 for '${task.title.take(30)}'."
             }
             "TOO_EARLY" -> {
-                val laterWindow = fitting.firstOrNull { extractHour(it.startMillis) > rejectedStartHour }
-                    ?: fitting.maxByOrNull { extractHour(it.startMillis) }
-                    ?: fitting.first()
-                selectedWindow = laterWindow
-                val selHour = extractHour(selectedWindow.startMillis)
-                reasoning = "Shifted later to $selHour:00 to clear morning sleep inertia and reduce initiation resistance."
+                val laterCandidates = candidates.filter { extractHour(it) > rejectedStartHour }
+                val bestStart = if (laterCandidates.isNotEmpty()) {
+                    laterCandidates.maxByOrNull { startMs ->
+                        val hourDiffBonus = ((extractHour(startMs) - rejectedStartHour).coerceAtMost(4)) * 2
+                        circadianEnergyScoreAt(startMs) + hourDiffBonus
+                    } ?: laterCandidates.first()
+                } else {
+                    candidates.maxByOrNull { extractHour(it) } ?: fitting.first().startMillis
+                }
+                recommendedStartMillis = bestStart
+                val selHour = extractHour(bestStart)
+                reasoning = "Shifted later to $selHour:00 to clear morning sleep inertia and reduce initiation friction."
                 directivePatch = "Avoid scheduling high-friction tasks before ${(rejectedStartHour + 1).coerceAtMost(12)}:00."
             }
+            "TOO_LATE" -> {
+                val earlierCandidates = candidates.filter { extractHour(it) < rejectedStartHour }
+                val bestStart = if (earlierCandidates.isNotEmpty()) {
+                    earlierCandidates.maxByOrNull { circadianEnergyScoreAt(it) } ?: earlierCandidates.first()
+                } else {
+                    candidates.minByOrNull { extractHour(it) } ?: fitting.first().startMillis
+                }
+                recommendedStartMillis = bestStart
+                val selHour = extractHour(bestStart)
+                reasoning = "Pulled earlier to $selHour:00 before end-of-day cognitive fatigue degrades focus."
+                directivePatch = "Schedule '${task.title.take(30)}' before $rejectedStartHour:00."
+            }
             "NEEDS_LONGER_BLOCK" -> {
-                selectedWindow = fitting.maxByOrNull { it.endMillis - it.startMillis } ?: fitting.first()
+                val selectedWindow = fitting.maxByOrNull { it.endMillis - it.startMillis } ?: fitting.first()
+                recommendedStartMillis = selectedWindow.startMillis
                 val blockMinutes = ((selectedWindow.endMillis - selectedWindow.startMillis) / 60_000L).toInt()
-                reasoning = "Allocated expanded contiguous block (${blockMinutes}m) for deep uninterrupted flow."
-                directivePatch = "Allocate uninterrupted focus blocks >= 60m for '${task.title.take(30)}'."
+                reasoning = "Allocated your widest uninterrupted contiguous block (${blockMinutes}m) for sustained deep flow."
+                directivePatch = "Allocate uninterrupted focus blocks >= ${maxOf(60, taskDuration)}m for '${task.title.take(30)}'."
             }
             "ROUTINE_CONFLICT" -> {
-                val altWindow = fitting.filter { extractHour(it.startMillis) != rejectedStartHour }
-                    .maxByOrNull { kotlin.math.abs(extractHour(it.startMillis) - rejectedStartHour) }
-                    ?: fitting.first()
-                selectedWindow = altWindow
-                val selHour = extractHour(selectedWindow.startMillis)
-                reasoning = "Moved to $selHour:00 to eliminate conflict with daily personal routine."
-                directivePatch = "Protect $rejectedStartHour:00 as a routine conflict buffer."
+                val nonConflict = candidates.filter { kotlin.math.abs(extractHour(it) - rejectedStartHour) >= 1 }
+                    .ifEmpty { candidates }
+                val bestStart = nonConflict.maxByOrNull { startMs ->
+                    val distance = kotlin.math.abs(extractHour(startMs) - rejectedStartHour).coerceAtMost(6)
+                    circadianEnergyScoreAt(startMs) + distance * 4
+                } ?: fitting.first().startMillis
+                recommendedStartMillis = bestStart
+                val selHour = extractHour(bestStart)
+                reasoning = "Moved to $selHour:00 to eliminate overlap with your personal routine."
+                directivePatch = "Protect $rejectedStartHour:00 as a recurring personal routine buffer."
+            }
+            "WRONG_CONTEXT" -> {
+                fun dayPeriod(hour: Int): Int = when {
+                    hour < 12 -> 0
+                    hour < 17 -> 1
+                    else -> 2
+                }
+                val rejectedPeriod = dayPeriod(rejectedStartHour)
+                val otherPeriod = candidates.filter { dayPeriod(extractHour(it)) != rejectedPeriod }
+                    .ifEmpty { candidates.filter { extractHour(it) != rejectedStartHour } }
+                    .ifEmpty { candidates }
+                val bestStart = otherPeriod.maxByOrNull { circadianEnergyScoreAt(it) } ?: fitting.first().startMillis
+                recommendedStartMillis = bestStart
+                val selHour = extractHour(bestStart)
+                val periodName = when (dayPeriod(selHour)) {
+                    0 -> "morning"
+                    1 -> "afternoon"
+                    else -> "evening"
+                }
+                reasoning = "Shifted to $selHour:00 ($periodName context) to better fit your environment and task mode."
+                directivePatch = "Prefer $periodName hours around $selHour:00 for '${task.title.take(30)}'."
             }
             else -> {
-                selectedWindow = fitting.firstOrNull { extractHour(it.startMillis) != rejectedStartHour }
-                    ?: fitting.first()
-                val selHour = extractHour(selectedWindow.startMillis)
-                reasoning = "Re-scheduled to $selHour:00 to match task cognitive demands and availability."
+                val nonRejected = candidates.filter { extractHour(it) != rejectedStartHour }.ifEmpty { candidates }
+                val bestStart = nonRejected.maxByOrNull { circadianEnergyScoreAt(it) } ?: fitting.first().startMillis
+                recommendedStartMillis = bestStart
+                val selHour = extractHour(bestStart)
+                reasoning = "Re-scheduled to $selHour:00 to better align cognitive demand with open capacity."
                 directivePatch = null
             }
         }
 
         return SlotRemedyResult(
-            recommendedStartMillis = selectedWindow.startMillis,
+            recommendedStartMillis = recommendedStartMillis,
             reasoning = reasoning,
             directivePatch = directivePatch
         )

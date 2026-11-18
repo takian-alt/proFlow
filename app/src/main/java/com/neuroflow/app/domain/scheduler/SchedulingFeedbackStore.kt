@@ -1,19 +1,36 @@
 package com.neuroflow.app.domain.scheduler
 
+import com.neuroflow.app.domain.service.BehavioralObservation
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.abs
 import kotlin.math.exp
 
 /**
- * ADR-031: Local Bayesian Prior & Closed-Loop Rejection Learning Store.
+ * ADR-031: Local Bayesian Prior & Closed-Loop Rejection / Reinforcement Learning Store.
  *
- * Persists user 👍 / 👎 scheduling feedback by task category and clock hour,
- * applying an exponential 7-day half-life decay. Disliked slots receive an
- * immediate utility penalty to steer future auto-scheduling passes away from
- * rejected time windows, with zero network overhead.
+ * Persists user 👍 / 👎 scheduling feedback by canonical task category and clock hour,
+ * applying an exponential 7-day half-life decay, reason-specific spatial/directional
+ * kernels (TOO_EARLY, TOO_LATE, TOO_LOW_ENERGY, NEEDS_LONGER_BLOCK, ROUTINE_CONFLICT,
+ * WRONG_CONTEXT), and positive Bayesian hour reinforcement.
  */
 object SchedulingFeedbackStore {
     private const val FOURTEEN_DAYS_MILLIS = 14 * 86_400_000L
+    private const val SEVEN_DAYS_HALF_LIFE_MILLIS = 7 * 86_400_000.0
+
+    /**
+     * Maps both domain TaskCategory names (HARD_WORK, ROUTINE, etc.) and service
+     * TaskCategory names (DEEP_WORK, ADMIN, etc.) onto a unified alias family so
+     * feedback recorded from any layer informs TaskSchedulerService accurately.
+     */
+    internal fun categoryAliases(rawCategory: String): List<String> =
+        when (rawCategory.trim().uppercase()) {
+            "DEEP_WORK", "HARD_WORK", "ANALYTICAL" -> listOf("DEEP_WORK", "HARD_WORK", "ANALYTICAL")
+            "ADMIN", "ROUTINE" -> listOf("ADMIN", "ROUTINE")
+            "EXERCISE", "PHYSICAL" -> listOf("EXERCISE", "PHYSICAL")
+            "GENERAL", "FLEXIBLE" -> listOf("GENERAL", "FLEXIBLE")
+            else -> listOf(rawCategory.trim().uppercase())
+        }
 
     fun recordFeedback(
         currentJson: String,
@@ -28,37 +45,53 @@ object SchedulingFeedbackStore {
         } catch (_: Exception) {
             JSONObject()
         }
-        val safeCategory = category.uppercase()
-        val catObj = root.optJSONObject(safeCategory) ?: JSONObject()
+        val cutoff = timestampMillis - FOURTEEN_DAYS_MILLIS
+
+        // Global 14-day pruning across all categories and hours to prevent preference JSON bloat
+        val prunedRoot = JSONObject()
+        for (catKey in root.keys()) {
+            val catObj = root.optJSONObject(catKey) ?: continue
+            val cleanCatObj = JSONObject()
+            for (hKey in catObj.keys()) {
+                val arr = catObj.optJSONArray(hKey) ?: continue
+                val cleanArr = JSONArray()
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val ts = item.optLong("ts", 0L)
+                    if (ts >= cutoff) {
+                        cleanArr.put(item)
+                    }
+                }
+                if (cleanArr.length() > 0) {
+                    cleanCatObj.put(hKey, cleanArr)
+                }
+            }
+            if (cleanCatObj.length() > 0) {
+                prunedRoot.put(catKey, cleanCatObj)
+            }
+        }
+
+        val safeCategory = category.trim().uppercase()
+        val catObj = prunedRoot.optJSONObject(safeCategory) ?: JSONObject()
         val hourKey = hour.coerceIn(0, 23).toString()
         val arr = catObj.optJSONArray(hourKey) ?: JSONArray()
 
-        val cutoff = timestampMillis - FOURTEEN_DAYS_MILLIS
-        val cleanArr = JSONArray()
-        for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val ts = item.optLong("ts", 0L)
-            if (ts >= cutoff) {
-                cleanArr.put(item)
-            }
-        }
         val newEntry = JSONObject().apply {
             put("ts", timestampMillis)
             put("neg", isNegative)
             if (!reasonTag.isNullOrBlank()) {
-                put("tag", reasonTag)
+                put("tag", reasonTag.trim().uppercase())
             }
         }
-        cleanArr.put(newEntry)
-        catObj.put(hourKey, cleanArr)
-        root.put(safeCategory, catObj)
-        return root.toString()
+        arr.put(newEntry)
+        catObj.put(hourKey, arr)
+        prunedRoot.put(safeCategory, catObj)
+        return prunedRoot.toString()
     }
 
     /**
-     * Calculates the net rejection penalty for a given category and hour of day [0..23].
-     * Recency is decayed with a 7-day half-life: weight = exp(-dt / (7 days)).
-     * Negative feedback adds positive penalty (up to 30.0). Positive feedback reduces penalty.
+     * Calculates the non-negative rejection penalty [0.0..30.0] for a category and hour [0..23],
+     * bridging domain & service category aliases and applying reason-specific kernels.
      */
     fun computePenalty(
         json: String,
@@ -66,61 +99,202 @@ object SchedulingFeedbackStore {
         hour: Int,
         nowMillis: Long = System.currentTimeMillis()
     ): Double {
-        if (json.isBlank() || json == "{}") return 0.0
-        val root = try { JSONObject(json) } catch (_: Exception) { return 0.0 }
-        val catObj = root.optJSONObject(category.uppercase()) ?: return 0.0
-        val hourKey = hour.coerceIn(0, 23).toString()
-        val arr = catObj.optJSONArray(hourKey) ?: return 0.0
-
-        var netScore = 0.0
-        val halfLifeMillis = 7 * 86_400_000.0
-        for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val ts = item.optLong("ts", 0L)
-            val isNeg = item.optBoolean("neg", true)
-            val dt = (nowMillis - ts).coerceAtLeast(0L)
-            val decay = exp(-dt / halfLifeMillis)
-            if (isNeg) {
-                netScore += 10.0 * decay
-            } else {
-                netScore -= 6.0 * decay
-            }
-        }
-        return netScore.coerceIn(0.0, 30.0)
+        return computeComponents(json, category, hour, nowMillis).penalty
     }
 
     /**
-     * Synthesizes recent user rejections into a concise, token-efficient summary for LLM context.
+     * Computes the signed Bayesian feedback utility delta [-30.0..+12.0] for candidate slot scoring:
+     * negative rejections push slots away; positive approvals actively pull matching categories
+     * toward proven preferred hours.
+     */
+    fun computeAffinityDelta(
+        json: String,
+        category: String,
+        hour: Int,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Double {
+        val components = computeComponents(json, category, hour, nowMillis)
+        return (components.positiveAffinity - components.penalty).coerceIn(-30.0, 12.0)
+    }
+
+    /**
+     * Emits positive weighted observations from recent thumbs-up high-focus placements so
+     * [com.neuroflow.app.domain.service.AdaptiveCircadianLearner] shifts peak circadian focus
+     * based on explicit user approvals, not only task completions.
+     */
+    fun extractApprovedCircadianObservations(
+        json: String,
+        nowMillis: Long = System.currentTimeMillis()
+    ): List<BehavioralObservation> {
+        if (json.isBlank() || json == "{}") return emptyList()
+        val root = try { JSONObject(json) } catch (_: Exception) { return emptyList() }
+        val highFocusKeys = setOf("DEEP_WORK", "HARD_WORK", "ANALYTICAL", "CREATIVE")
+        val observations = mutableListOf<Pair<Long, BehavioralObservation>>()
+        for (cat in root.keys()) {
+            if (cat.uppercase() !in highFocusKeys) continue
+            val catObj = root.optJSONObject(cat) ?: continue
+            for (hKey in catObj.keys()) {
+                val hour = hKey.toIntOrNull()?.coerceIn(0, 23) ?: continue
+                val arr = catObj.optJSONArray(hKey) ?: continue
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val ts = item.optLong("ts", 0L)
+                    if (nowMillis - ts > FOURTEEN_DAYS_MILLIS) continue
+                    val isNeg = item.optBoolean("neg", true)
+                    if (!isNeg) {
+                        val decay = exp(-(nowMillis - ts).coerceAtLeast(0L) / SEVEN_DAYS_HALF_LIFE_MILLIS)
+                        observations.add(
+                            ts to BehavioralObservation(
+                                minuteOfDay = hour * 60 + 30,
+                                productivityRating = 0.9,
+                                weight = (0.75 * decay).coerceIn(0.15, 0.85)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        return observations.sortedBy { it.first }.map { it.second }
+    }
+
+    data class FeedbackComponents(
+        val penalty: Double,
+        val positiveAffinity: Double
+    )
+
+    private fun computeComponents(
+        json: String,
+        category: String,
+        targetHour: Int,
+        nowMillis: Long
+    ): FeedbackComponents {
+        if (json.isBlank() || json == "{}") return FeedbackComponents(0.0, 0.0)
+        val root = try { JSONObject(json) } catch (_: Exception) { return FeedbackComponents(0.0, 0.0) }
+        val safeTargetHour = targetHour.coerceIn(0, 23)
+        val aliases = categoryAliases(category).distinct().toSet()
+        val universalTags = setOf("ROUTINE_CONFLICT", "TOO_EARLY", "TOO_LATE")
+
+        var netNegative = 0.0
+        var netPositive = 0.0
+
+        for (rawCatKey in root.keys()) {
+            val catKey = rawCatKey.trim().uppercase()
+            val isSameCategory = catKey in aliases
+            val categoryTransferWeight = if (isSameCategory) 1.0 else 0.40
+
+            val catObj = root.optJSONObject(rawCatKey) ?: continue
+            for (hKey in catObj.keys()) {
+                val recordedHour = hKey.toIntOrNull()?.coerceIn(0, 23) ?: continue
+                val arr = catObj.optJSONArray(hKey) ?: continue
+                val hourDiff = abs(safeTargetHour - recordedHour)
+                if (hourDiff > 4) continue
+
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val ts = item.optLong("ts", 0L)
+                    val dt = (nowMillis - ts).coerceAtLeast(0L)
+                    if (dt > FOURTEEN_DAYS_MILLIS) continue
+                    val decay = exp(-dt / SEVEN_DAYS_HALF_LIFE_MILLIS)
+                    val isNeg = item.optBoolean("neg", true)
+                    val tag = item.optString("tag", "").trim().uppercase()
+
+                    if (!isSameCategory && (!isNeg || tag !in universalTags)) {
+                        continue
+                    }
+
+                    if (isNeg) {
+                        val kernelWeight = when {
+                            safeTargetHour == recordedHour -> when (tag) {
+                                "ROUTINE_CONFLICT" -> 14.5
+                                "TOO_LOW_ENERGY", "TOO_LATE" -> 13.5
+                                "TOO_EARLY" -> 13.0
+                                "WRONG_CONTEXT" -> 12.0
+                                "NEEDS_LONGER_BLOCK" -> 9.5
+                                else -> 10.0
+                            }
+                            tag == "TOO_EARLY" && safeTargetHour < recordedHour && (recordedHour - safeTargetHour) <= 3 ->
+                                6.0 * exp(-(recordedHour - safeTargetHour) * 0.4)
+                            tag == "TOO_LATE" && safeTargetHour > recordedHour && (safeTargetHour - recordedHour) <= 4 ->
+                                6.5 * exp(-(safeTargetHour - recordedHour) * 0.4)
+                            (tag == "TOO_LOW_ENERGY" || tag == "WRONG_CONTEXT") && hourDiff == 1 ->
+                                4.5
+                            tag.isBlank() && hourDiff == 1 ->
+                                2.5
+                            else -> 0.0
+                        }
+                        if (kernelWeight > 0.0) {
+                            netNegative += kernelWeight * decay * categoryTransferWeight
+                        }
+                    } else if (isSameCategory) {
+                        val posRelief = when (hourDiff) {
+                            0 -> 6.0 * decay
+                            1 -> 2.0 * decay
+                            else -> 0.0
+                        }
+                        if (posRelief > 0.0) {
+                            netNegative -= posRelief
+                            netPositive += when (hourDiff) {
+                                0 -> 7.0 * decay
+                                1 -> 2.5 * decay
+                                else -> 0.0
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val clampedPenalty = netNegative.coerceIn(0.0, 30.0)
+        // Net positive affinity only emerges when rejections don't dominate this hour
+        val clampedPositive = if (clampedPenalty > 2.0) 0.0 else netPositive.coerceIn(0.0, 12.0)
+        return FeedbackComponents(penalty = clampedPenalty, positiveAffinity = clampedPositive)
+    }
+
+    /**
+     * Synthesizes recent user rejections and approvals into a concise, deterministic summary for LLM context.
      */
     fun formatSummaryForLlm(json: String, nowMillis: Long = System.currentTimeMillis()): String {
         if (json.isBlank() || json == "{}") return "None"
         val root = try { JSONObject(json) } catch (_: Exception) { return "None" }
-        val summaries = mutableListOf<String>()
+        data class SummaryEntry(val isDislike: Boolean, val hour: Int, val strength: Int, val text: String)
+        val entries = mutableListOf<SummaryEntry>()
+
         for (cat in root.keys()) {
             val catObj = root.optJSONObject(cat) ?: continue
             for (hKey in catObj.keys()) {
                 val hour = hKey.toIntOrNull() ?: continue
                 val arr = catObj.optJSONArray(hKey) ?: continue
-                var count = 0
+                var negCount = 0
+                var posCount = 0
                 val tags = mutableListOf<String>()
                 for (i in 0 until arr.length()) {
                     val item = arr.optJSONObject(i) ?: continue
-                    if (item.optBoolean("neg", true)) {
-                        val ts = item.optLong("ts", 0L)
-                        if ((nowMillis - ts) < FOURTEEN_DAYS_MILLIS) {
-                            count++
+                    val ts = item.optLong("ts", 0L)
+                    if ((nowMillis - ts) < FOURTEEN_DAYS_MILLIS) {
+                        if (item.optBoolean("neg", true)) {
+                            negCount++
                             val tag = item.optString("tag").takeIf { it.isNotBlank() }
                             if (tag != null) tags.add(tag)
+                        } else {
+                            posCount++
                         }
                     }
                 }
-                if (count > 0) {
-                    val ampm = if (hour < 12) "${if (hour == 0) 12 else hour}AM" else "${if (hour == 12) 12 else hour - 12}PM"
+                val ampm = if (hour < 12) "${if (hour == 0) 12 else hour}AM" else "${if (hour == 12) 12 else hour - 12}PM"
+                if (negCount > 0) {
                     val tagSuffix = if (tags.isNotEmpty()) " (reasons: ${tags.distinct().joinToString()})" else ""
-                    summaries.add("$cat at $ampm (disliked $count times$tagSuffix)")
+                    entries.add(SummaryEntry(true, hour, negCount, "$cat at $ampm (disliked $negCount times$tagSuffix)"))
+                } else if (posCount > 0) {
+                    entries.add(SummaryEntry(false, hour, posCount, "$cat at $ampm (approved $posCount times)"))
                 }
             }
         }
-        return if (summaries.isEmpty()) "None" else summaries.joinToString("; ")
+        return if (entries.isEmpty()) {
+            "None"
+        } else {
+            entries
+                .sortedWith(compareByDescending<SummaryEntry> { it.isDislike }.thenByDescending { it.strength }.thenBy { it.hour })
+                .joinToString("; ") { it.text }
+        }
     }
 }

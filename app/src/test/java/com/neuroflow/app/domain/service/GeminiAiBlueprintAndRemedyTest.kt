@@ -169,4 +169,49 @@ class GeminiAiBlueprintAndRemedyTest {
         assertEquals(freeWindows[1].startMillis, remedy.recommendedStartMillis)
         assertTrue(remedy.reasoning.contains("routine", ignoreCase = true))
     }
+
+    @Test
+    fun testRemedyRejectedSlot_tooLatePullsEarlierAndWrongContextShiftsPeriod() = runBlocking {
+        val task = TaskEntity(
+            id = "4",
+            title = "Quarterly Budget Audit",
+            estimatedDurationMinutes = 60,
+            energyLevel = EnergyLevel.HIGH,
+            quadrant = Quadrant.DO_FIRST
+        )
+        val freeWindows = listOf(
+            TimeSlotWindow(1000L + 9 * 3600_000L, 1000L + 11 * 3600_000L),
+            TimeSlotWindow(1000L + 13 * 3600_000L, 1000L + 15 * 3600_000L),
+            TimeSlotWindow(1000L + 17 * 3600_000L, 1000L + 19 * 3600_000L)
+        )
+
+        val tooLateRemedy = service.remedyRejectedSlot(
+            task = task,
+            rejectedStartHour = 17,
+            reasonTag = "TOO_LATE",
+            availableWindows = freeWindows,
+            apiKey = "",
+            userDirective = ""
+        )
+        assertTrue(
+            "TOO_LATE should pull strictly earlier than 17:00",
+            tooLateRemedy.recommendedStartMillis < freeWindows[2].startMillis
+        )
+        assertTrue(tooLateRemedy.reasoning.contains("earlier", ignoreCase = true))
+
+        val wrongContextRemedy = service.remedyRejectedSlot(
+            task = task,
+            rejectedStartHour = 14,
+            reasonTag = "WRONG_CONTEXT",
+            availableWindows = freeWindows,
+            apiKey = "",
+            userDirective = ""
+        )
+        // Afternoon (14:00) rejected for WRONG_CONTEXT -> shifts to morning peak or evening
+        assertTrue(
+            "WRONG_CONTEXT should move out of afternoon window [13..15)",
+            wrongContextRemedy.recommendedStartMillis !in freeWindows[1].startMillis until freeWindows[1].endMillis
+        )
+        assertTrue(wrongContextRemedy.reasoning.contains("context", ignoreCase = true))
+    }
 }

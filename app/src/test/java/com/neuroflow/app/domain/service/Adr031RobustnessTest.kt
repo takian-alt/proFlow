@@ -293,4 +293,109 @@ class Adr031RobustnessTest {
             penalizedStartHour != baselineStartHour
         )
     }
+
+    @Test
+    fun testSchedulingFeedbackStore_bridgesDomainAndServiceCategoryAliases() {
+        val now = 1731580000000L
+        var json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = "{}",
+            category = "HARD_WORK",
+            hour = 9,
+            isNegative = true,
+            timestampMillis = now,
+            reasonTag = "TOO_EARLY"
+        )
+        json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = json,
+            category = "ROUTINE",
+            hour = 12,
+            isNegative = true,
+            timestampMillis = now,
+            reasonTag = "ROUTINE_CONFLICT"
+        )
+
+        val deepWorkPenaltyAt9 = SchedulingFeedbackStore.computePenalty(json, "DEEP_WORK", 9, nowMillis = now)
+        val deepWorkPenaltyAt8 = SchedulingFeedbackStore.computePenalty(json, "DEEP_WORK", 8, nowMillis = now)
+        val adminPenaltyAt12 = SchedulingFeedbackStore.computePenalty(json, "ADMIN", 12, nowMillis = now)
+
+        assertTrue("DEEP_WORK must inherit HARD_WORK rejection at 9AM, was $deepWorkPenaltyAt9", deepWorkPenaltyAt9 >= 12.0)
+        assertTrue("TOO_EARLY directional kernel must penalize 8AM too, was $deepWorkPenaltyAt8", deepWorkPenaltyAt8 > 0.0)
+        assertTrue("ADMIN must inherit ROUTINE conflict at 12PM, was $adminPenaltyAt12", adminPenaltyAt12 >= 14.0)
+    }
+
+    @Test
+    fun testPositiveAffinityDelta_pullsSchedulerTowardApprovedHourAndLearnsPeak() {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.of(2026, 11, 14)
+        val nowMillis = today.atTime(LocalTime.of(8, 0)).atZone(zone).toInstant().toEpochMilli()
+        val wakeMillis = today.atTime(LocalTime.of(7, 0)).atZone(zone).toInstant().toEpochMilli()
+
+        // Positive approvals at 16:00 (afternoon surge) + extract observations for AdaptiveCircadianLearner
+        var json = "{}"
+        for (i in 1..4) {
+            json = SchedulingFeedbackStore.recordFeedback(
+                currentJson = json,
+                category = "HARD_WORK",
+                hour = 16,
+                isNegative = false,
+                timestampMillis = nowMillis - (i * 3600_000L)
+            )
+        }
+        val deltaAt16 = SchedulingFeedbackStore.computeAffinityDelta(json, "DEEP_WORK", 16, nowMillis = nowMillis)
+        assertTrue("Expected positive affinity at 16:00, was $deltaAt16", deltaAt16 >= 10.0)
+
+        val obs = SchedulingFeedbackStore.extractApprovedCircadianObservations(json, nowMillis = nowMillis)
+        assertEquals(4, obs.size)
+        val learned = AdaptiveCircadianLearner.learnProfile(obs, initialPeakHour = 9.0)
+        assertTrue("Approved 16:00 placements should shift learned peak hour toward afternoon (> 9.5), was ${learned.peakHourMean}", learned.peakHourMean > 9.5)
+    }
+
+    @Test
+    fun testTooLateKernel_penalizesTargetAndSubsequentEveningHours() {
+        val now = 1731580000000L
+        val json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = "{}",
+            category = "ANALYTICAL",
+            hour = 16,
+            isNegative = true,
+            timestampMillis = now,
+            reasonTag = "TOO_LATE"
+        )
+        val at16 = SchedulingFeedbackStore.computePenalty(json, "DEEP_WORK", 16, nowMillis = now)
+        val at18 = SchedulingFeedbackStore.computePenalty(json, "DEEP_WORK", 18, nowMillis = now)
+        val at10 = SchedulingFeedbackStore.computePenalty(json, "DEEP_WORK", 10, nowMillis = now)
+
+        assertTrue("Target 16:00 should be strongly penalized", at16 >= 13.0)
+        assertTrue("Later 18:00 should receive directional TOO_LATE spillover", at18 > 0.0)
+        assertEquals("Morning 10:00 should have zero penalty", 0.0, at10, 0.001)
+    }
+
+    @Test
+    fun testGlobalPruningAndCrossCategoryUniversalTimeTransfer() {
+        val now = 1731580000000L
+        val oldTs = now - (16L * 86_400_000L) // > 14 days old
+
+        var json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = "{}",
+            category = "EXERCISE",
+            hour = 7,
+            isNegative = true,
+            timestampMillis = oldTs,
+            reasonTag = "TOO_EARLY"
+        )
+        // Recording feedback in an unrelated category/hour must prune expired EXERCISE entries globally
+        json = SchedulingFeedbackStore.recordFeedback(
+            currentJson = json,
+            category = "HARD_WORK",
+            hour = 19,
+            isNegative = true,
+            timestampMillis = now,
+            reasonTag = "TOO_LATE"
+        )
+        assertFalse("Expired category bucket should be globally pruned", json.contains("EXERCISE"))
+
+        // Universal constraint (TOO_LATE on HARD_WORK at 19:00) transfers partially to ADMIN/GENERAL
+        val adminPenaltyAt19 = SchedulingFeedbackStore.computePenalty(json, "ADMIN", 19, nowMillis = now)
+        assertTrue("Universal TOO_LATE at 19:00 should transfer partially to ADMIN, was $adminPenaltyAt19", adminPenaltyAt19 >= 5.0)
+    }
 }

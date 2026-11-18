@@ -6,11 +6,14 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
@@ -25,13 +28,18 @@ import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -138,21 +146,63 @@ fun FocusScreenV2(
         }
     }
 
+    val focusAmbientColor by animateColorAsState(
+        targetValue = when {
+            state.isCompleted -> NeuroFlowThemeV2Colors.SageGreen
+            state.isPaused -> NeuroFlowThemeV2Colors.WarmAmber
+            state.isRunning -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
+            else -> NeuroFlowThemeV2Colors.ElectricIndigo
+        },
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "focus_ambient_glow"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        focusAmbientColor.copy(alpha = if (state.isRunning && !state.isPaused) 0.16f else 0.09f),
+                        Color.Transparent
+                    ),
+                    radius = 950f
+                )
+            )
+    ) {
     Scaffold(
-        containerColor = NeuroFlowThemeV2Colors.Obsidian,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             text = state.task?.title ?: "Focus Engine",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = NeuroFlowThemeV2Colors.TextPrimary,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (state.task?.isFrog == true) {
-                            Text("🐸 Daily Frog (High Biological Leverage)", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.SageGreen)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.SageGreen,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    "Daily Frog · High Biological Leverage",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NeuroFlowThemeV2Colors.SageGreen,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 },
@@ -168,24 +218,40 @@ fun FocusScreenV2(
                 actions = {
                     FilledTonalButton(
                         onClick = { showSighSheet = true },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.35f)),
                         colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            containerColor = NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.14f),
                             contentColor = NeuroFlowThemeV2Colors.SageGreen
                         ),
-                        modifier = Modifier.padding(end = 8.dp).heightIn(min = 40.dp)
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .heightIn(min = 48.dp)
                     ) {
-                        Text("🫁 60s Reset", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.Default.SelfImprovement,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text("60s Reset", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = NeuroFlowThemeV2Colors.Obsidian)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .widthIn(max = 640.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -200,16 +266,30 @@ fun FocusScreenV2(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FocusTimerModeV2.entries.forEach { mode ->
+                        val isSelected = state.timerMode == mode
                         FilterChip(
-                            selected = state.timerMode == mode,
+                            selected = isSelected,
                             onClick = { viewModel.selectTimerMode(mode) },
-                            label = { Text(mode.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                            label = {
+                                Text(
+                                    mode.title,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
+                                selectedLabelColor = Color.White,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                 labelColor = NeuroFlowThemeV2Colors.TextSecondary
                             ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.65f),
+                                selectedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            ),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.heightIn(min = 48.dp)
                         )
                     }
@@ -278,9 +358,9 @@ fun FocusScreenV2(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Surface(
-                        color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.25f),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.6f)),
+                        color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.55f)),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     ) {
                         Row(
@@ -290,107 +370,162 @@ fun FocusScreenV2(
                         ) {
                             Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.SageGreen)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Task Completed", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
+                            Text("Task Completed", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
                         }
                     }
                     if (state.nextTaskId != null) {
                         Button(
                             onClick = { onNavigateToNextTask(state.nextTaskId!!) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Start Next: ${state.nextTaskTitle ?: "Next Task"}", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
+                            Text("Start Next: ${state.nextTaskTitle ?: "Next Task"}", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurface.copy(alpha = 0.92f),
+                    border = BorderStroke(
+                        1.dp,
+                        NeuroFlowPaletteV2.specularBorderBrush(
+                            if (state.isRunning && !state.isPaused) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder,
+                            0.9f
+                        )
+                    ),
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Play / Pause Button (min 64dp)
-                    Button(
-                        onClick = {
-                            if (state.isPaused) {
-                                viewModel.resumeTimer()
-                            } else if (!state.isRunning) {
-                                viewModel.startTimer()
-                            } else {
-                                viewModel.pauseTimer()
-                            }
-                        },
-                        modifier = Modifier.size(68.dp),
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
-                            tint = NeuroFlowThemeV2Colors.TextPrimary,
-                            modifier = Modifier.size(32.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Park Thought Button (touch target >= 48dp)
+                            OutlinedButton(
+                                onClick = { showParkThoughtSheet = true },
+                                modifier = Modifier.heightIn(min = 50.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.55f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.08f),
+                                    contentColor = NeuroFlowThemeV2Colors.WarmAmber
+                                ),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Lightbulb,
+                                    contentDescription = "Park Thought",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Park", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Play / Pause Core Button (72dp)
+                            Button(
+                                onClick = {
+                                    if (state.isPaused) {
+                                        viewModel.resumeTimer()
+                                    } else if (!state.isRunning) {
+                                        viewModel.startTimer()
+                                    } else {
+                                        viewModel.pauseTimer()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .shadow(if (state.isRunning && !state.isPaused) 10.dp else 4.dp, CircleShape),
+                                shape = CircleShape,
+                                contentPadding = PaddingValues(0.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (state.isPaused) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.ElectricIndigo,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = if (state.isRunning && !state.isPaused) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (state.isRunning && !state.isPaused) "Pause" else "Start",
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+
+                            // Complete Task Button (touch target >= 48dp)
+                            Button(
+                                onClick = {
+                                    if (state.task?.isFrog == true) showFrogConfetti = true
+                                    viewModel.completeTask()
+                                },
+                                modifier = Modifier.heightIn(min = 50.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NeuroFlowThemeV2Colors.SageGreenDark,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Complete", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        HorizontalDivider(
+                            color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.28f),
+                            thickness = 0.75.dp
+                        )
+
+                        FilterChip(
+                            selected = state.bodyDoublingEnabled,
+                            onClick = { viewModel.toggleBodyDoubling() },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = if (state.bodyDoublingEnabled) "Body-Doubling Pulse Active" else "Body-Doubling Pulse",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.18f),
+                                selectedLabelColor = NeuroFlowPaletteV2.ReboundCyan,
+                                selectedLeadingIconColor = NeuroFlowPaletteV2.ReboundCyan,
+                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                labelColor = NeuroFlowThemeV2Colors.TextSecondary,
+                                iconColor = NeuroFlowThemeV2Colors.TextSecondary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = state.bodyDoublingEnabled,
+                                borderColor = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.5f),
+                                selectedBorderColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.6f)
+                            ),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("body_doubling_toggle")
                         )
                     }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    // Complete Task Button (touch target >= 48dp)
-                    Button(
-                        onClick = {
-                            if (state.task?.isFrog == true) showFrogConfetti = true
-                            viewModel.completeTask()
-                        },
-                        modifier = Modifier.heightIn(min = 52.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
-                    ) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Complete", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // Park Thought Button (touch target >= 48dp)
-                    OutlinedIconButton(
-                        onClick = { showParkThoughtSheet = true },
-                        modifier = Modifier.size(52.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber)
-                    ) {
-                        Icon(Icons.Default.Lightbulb, contentDescription = "Park Thought", tint = NeuroFlowThemeV2Colors.WarmAmber)
-                    }
-                }
-            }
-
-            if (!state.isCompleted) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    FilterChip(
-                        selected = state.bodyDoublingEnabled,
-                        onClick = { viewModel.toggleBodyDoubling() },
-                        label = {
-                            Text(
-                                text = if (state.bodyDoublingEnabled) "🫧 Body-Doubling Pulse On" else "🫧 Body-Doubling Pulse",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.2f),
-                            selectedLabelColor = NeuroFlowPaletteV2.ReboundCyan,
-                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                            labelColor = NeuroFlowThemeV2Colors.TextSecondary
-                        ),
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .testTag("body_doubling_toggle")
-                    )
                 }
             }
 
@@ -416,9 +551,9 @@ fun FocusScreenV2(
             // Neural Soundscapes Card
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = NeuroFlowThemeV2Colors.SlateSurface,
-                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigoGlow, 0.75f))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -435,23 +570,39 @@ fun FocusScreenV2(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.weight(1f, fill = false)
                         ) {
-                            Text(
-                                "🎧 Neural Soundscapes",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = NeuroFlowThemeV2Colors.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (state.selectedSoundscape != SoundscapeType.NONE) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Headphones,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Column {
                                 Text(
-                                    state.selectedSoundscape.displayName,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    fontWeight = FontWeight.SemiBold,
+                                    "Neural Soundscapes",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                if (state.selectedSoundscape != SoundscapeType.NONE) {
+                                    Text(
+                                        state.selectedSoundscape.displayName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
@@ -460,12 +611,12 @@ fun FocusScreenV2(
                         ActiveAudioIndicator(isActive = isAudioActive)
                     }
 
-                    // Soundscape Selector Chips (Off, 40Hz Gamma 🧠, Deep Brown 🌊, Pink Rain 🌧️)
+                    // Soundscape Selector Chips (Off, 40Hz Gamma, Deep Brown, Pink Rain)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         SoundscapeType.entries.forEach { type ->
                             val isSelected = state.selectedSoundscape == type
@@ -475,16 +626,23 @@ fun FocusScreenV2(
                                 label = {
                                     Text(
                                         type.shortChipLabel,
-                                        fontSize = 11.sp,
+                                        style = MaterialTheme.typography.labelMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
+                                    selectedLabelColor = Color.White,
                                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                     labelColor = NeuroFlowThemeV2Colors.TextSecondary
                                 ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.55f),
+                                    selectedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                ),
+                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.heightIn(min = 48.dp)
                             )
                         }
@@ -681,9 +839,9 @@ fun FocusScreenV2(
             // Micro-Steps Decomposition Checklist
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = NeuroFlowThemeV2Colors.SlateSurface,
-                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.SageGreen, 0.65f))
             ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         val completedCount = state.microSteps.count { it.completed }
@@ -694,62 +852,109 @@ fun FocusScreenV2(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                "🪜 Micro-Steps Checklist",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f, fill = false),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.14f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Checklist,
+                                        contentDescription = null,
+                                        tint = NeuroFlowThemeV2Colors.SageGreen,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Text(
+                                    "Micro-Steps Checklist",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             if (totalSteps > 0) {
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("$completedCount/$totalSteps Done", style = MaterialTheme.typography.labelSmall, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.Bold)
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.14f)
+                                ) {
+                                    Text(
+                                        "$completedCount/$totalSteps Done",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                        color = NeuroFlowThemeV2Colors.SageGreen,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
 
                         if (totalSteps > 0) {
                             LinearProgressIndicator(
                                 progress = { completedCount.toFloat() / totalSteps },
-                                modifier = Modifier.fillMaxWidth().height(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(CircleShape),
                                 color = NeuroFlowThemeV2Colors.SageGreen,
                                 trackColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt
                             )
                         } else {
                             OutlinedButton(
                                 onClick = { viewModel.autoBreakDownTask() },
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
-                                shape = RoundedCornerShape(10.dp)
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.45f))
                             ) {
                                 Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Break It Down (Auto-Scaffold 3 Steps) 🪄", fontSize = 12.sp)
+                                Text("Break It Down (Auto-Scaffold 3 Steps)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
                         }
 
                     state.microSteps.forEachIndexed { index, step ->
-                        Row(
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (step.completed) NeuroFlowThemeV2Colors.SlateSurfaceAlt.copy(alpha = 0.55f) else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                            border = BorderStroke(
+                                0.75.dp,
+                                if (step.completed) NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.3f) else NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.4f)
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .minimumInteractiveComponentSize()
                                 .clickable { viewModel.toggleMicroStep(index) }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Checkbox(
-                                checked = step.completed,
-                                onCheckedChange = { viewModel.toggleMicroStep(index) },
-                                colors = CheckboxDefaults.colors(
-                                    checkedColor = NeuroFlowThemeV2Colors.SageGreen,
-                                    uncheckedColor = NeuroFlowThemeV2Colors.TextSecondary
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Checkbox(
+                                    checked = step.completed,
+                                    onCheckedChange = { viewModel.toggleMicroStep(index) },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = NeuroFlowThemeV2Colors.SageGreen,
+                                        uncheckedColor = NeuroFlowThemeV2Colors.TextSecondary
+                                    )
                                 )
-                            )
-                            Text(
-                                text = step.text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (step.completed) NeuroFlowThemeV2Colors.TextTertiary else NeuroFlowThemeV2Colors.TextPrimary,
-                                textDecoration = if (step.completed) TextDecoration.LineThrough else null
-                            )
+                                Text(
+                                    text = step.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (step.completed) NeuroFlowThemeV2Colors.TextTertiary else NeuroFlowThemeV2Colors.TextPrimary,
+                                    textDecoration = if (step.completed) TextDecoration.LineThrough else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
 
@@ -764,7 +969,7 @@ fun FocusScreenV2(
                             onValueChange = { newStepText = it },
                             placeholder = { Text("Add next small action...", fontSize = 13.sp) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             singleLine = true
                         )
                         IconButton(
@@ -783,6 +988,8 @@ fun FocusScreenV2(
 
             Spacer(modifier = Modifier.height(60.dp))
         }
+        }
+    }
     }
 
     // Executive Transition Buffer (Decompression Zone)
@@ -873,12 +1080,23 @@ fun FocusScreenV2(
 
                 Button(
                     onClick = { viewModel.readyNowBypassDecompression() },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                        contentColor = Color.White
+                    ),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
+                    if (state.decompressionRemainingSeconds > 0) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     Text(
-                        if (state.decompressionRemainingSeconds > 0) "⚡ Ready Now (Skip Buffer)" else "Continue",
+                        if (state.decompressionRemainingSeconds > 0) "Ready Now (Skip Buffer)" else "Continue",
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -893,18 +1111,45 @@ fun FocusScreenV2(
         AlertDialog(
             onDismissRequest = { viewModel.dismissCompletionCelebration() },
             title = {
-                Text("🎉 Focus Session Completed!", fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.SageGreen)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = NeuroFlowThemeV2Colors.SageGreen,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        "Focus Session Completed",
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.SageGreen
+                    )
+                }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Outstanding focus. You conquered '${state.task?.title}' and earned +${state.pointsEarned} dopamine points.", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Outstanding focus. You conquered '${state.task?.title}' and earned +${state.pointsEarned} dopamine points.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                     if (!state.completionAffirmation.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("✨ \"${state.completionAffirmation}\"", style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                        Text(
+                            "\"${state.completionAffirmation}\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
                     }
                     if (state.nextTaskId != null) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Next in queue: ${state.nextTaskTitle}", fontWeight = FontWeight.SemiBold, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow)
+                        Text(
+                            "Next in queue: ${state.nextTaskTitle}",
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
                     }
                 }
             },
@@ -915,21 +1160,35 @@ fun FocusScreenV2(
                             viewModel.dismissCompletionCelebration()
                             onNavigateToNextTask(state.nextTaskId!!)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        Text("Start Next Task")
+                        Text("Start Next Task", fontWeight = FontWeight.Bold)
                     }
                 } else {
-                    Button(onClick = {
-                        viewModel.dismissCompletionCelebration()
-                        onNavigateBack()
-                    }) {
-                        Text("Return to Flow")
+                    Button(
+                        onClick = {
+                            viewModel.dismissCompletionCelebration()
+                            onNavigateBack()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text("Return to Flow", fontWeight = FontWeight.Bold)
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissCompletionCelebration() }) {
+                TextButton(
+                    onClick = { viewModel.dismissCompletionCelebration() },
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
                     Text("Close")
                 }
             }
@@ -948,7 +1207,22 @@ fun FocusScreenV2(
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("💡 Distraction Parking Lot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = NeuroFlowThemeV2Colors.WarmAmber,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        "Distraction Parking Lot",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Text(
                     "Jot down your intrusive thought so your working memory stays clear. It will be saved as a low-energy task.",
                     style = MaterialTheme.typography.bodySmall,
@@ -970,11 +1244,14 @@ fun FocusScreenV2(
                         showParkThoughtSheet = false
                     },
                     enabled = newThoughtText.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.WarmAmber)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeuroFlowThemeV2Colors.WarmAmber,
+                        contentColor = Color(0xFF0A0B0E)
+                    )
                 ) {
-                    Text("Park Thought & Resume Flow", fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text("Park Thought & Resume Flow", fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -1111,9 +1388,10 @@ fun RadialTimerGauge(
     }
 
     val haloColor = NeuroFlowPaletteV2.ReboundCyan
+    val tickBaseColor = NeuroFlowThemeV2Colors.SlateBorder
     Box(
         modifier = Modifier
-            .size(248.dp)
+            .size(264.dp)
             .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -1149,6 +1427,25 @@ fun RadialTimerGauge(
                 radius = radius * 1.05f,
                 center = center
             )
+
+            // Precision 60-tick chronometer perimeter
+            val innerTickR = radius - strokeWidth * 0.85f
+            for (tick in 0 until 60) {
+                val isMajor = tick % 5 == 0
+                val angle = Math.toRadians((-90.0 + tick * 6.0))
+                val cosA = kotlin.math.cos(angle).toFloat()
+                val sinA = kotlin.math.sin(angle).toFloat()
+                val len = if (isMajor) 5.dp.toPx() else 2.5.dp.toPx()
+                val startPt = Offset(center.x + innerTickR * cosA, center.y + innerTickR * sinA)
+                val endPt = Offset(center.x + (innerTickR - len) * cosA, center.y + (innerTickR - len) * sinA)
+                drawLine(
+                    color = tickBaseColor.copy(alpha = if (isMajor) 0.45f else 0.22f),
+                    start = startPt,
+                    end = endPt,
+                    strokeWidth = if (isMajor) 1.5.dp.toPx() else 1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
 
             // 2. Background track
             drawArc(
@@ -1210,13 +1507,13 @@ fun RadialTimerGauge(
                 text = timeDisplay,
                 style = MaterialTheme.typography.displayMedium.copy(
                     fontWeight = FontWeight.Black,
-                    fontSize = 46.sp,
-                    letterSpacing = (-1).sp,
+                    fontSize = 48.sp,
+                    letterSpacing = (-1.2).sp,
                     fontFeatureSettings = "tnum"
                 ),
                 color = NeuroFlowThemeV2Colors.TextPrimary
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             val statusLabel = when {
                 isCompleted -> "TASK COMPLETED"
                 !isRunning && !isPaused -> "READY FOR DEEP WORK"
@@ -1238,6 +1535,19 @@ fun RadialTimerGauge(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
+            val elapsedMin = elapsedSeconds / 60
+            val subCaption = when {
+                timerMode == FocusTimerModeV2.FLOW_STOPWATCH -> "Flow Stopwatch"
+                elapsedMin > 0 -> "Target ${timerMode.durationSeconds / 60}m · ${elapsedMin}m logged"
+                else -> "${timerMode.durationSeconds / 60}m Target Sprint"
+            }
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(
+                text = subCaption,
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                color = NeuroFlowThemeV2Colors.TextSecondary,
+                fontSize = 11.sp
+            )
         }
     }
 }
@@ -1312,15 +1622,21 @@ fun BioluminescentSoundscapeWaveformCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.Headphones,
+                    contentDescription = null,
+                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                    modifier = Modifier.size(16.dp)
+                )
                 Text(
-                    text = "🎧 ${soundscape.displayName}",
+                    text = soundscape.displayName,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Soundscape Stream",
+                    text = "· Soundscape",
                     style = MaterialTheme.typography.labelSmall,
                     color = NeuroFlowThemeV2Colors.TextSecondary,
                     fontSize = 11.sp,
@@ -1363,11 +1679,12 @@ fun HeroTaskCard(
     modifier: Modifier = Modifier
 ) {
     if (task == null) return
+    val accentColor = if (task.isFrog) NeuroFlowThemeV2Colors.SageGreen else NeuroFlowThemeV2Colors.ElectricIndigoGlow
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = NeuroFlowThemeV2Colors.SlateSurface,
-        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
+        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush(accentColor, 0.75f))
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -1380,29 +1697,42 @@ fun HeroTaskCard(
             ) {
                 if (task.isFrog) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.35f),
-                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen)
+                        shape = RoundedCornerShape(8.dp),
+                        color = NeuroFlowThemeV2Colors.SageGreenDark.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.65f))
                     ) {
-                        Text(
-                            "🐸 Daily Frog",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = NeuroFlowThemeV2Colors.SageGreen
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = NeuroFlowThemeV2Colors.SageGreen,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                "Daily Frog",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NeuroFlowThemeV2Colors.SageGreen
+                            )
+                        }
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))
                 }
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                    shape = RoundedCornerShape(8.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                    border = BorderStroke(0.5.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.6f))
                 ) {
                     Text(
                         "${TaskBlockPlan.plannedMinutes(task)}m",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.SemiBold,
                         color = NeuroFlowThemeV2Colors.TextSecondary
                     )
                 }
@@ -1413,7 +1743,8 @@ fun HeroTaskCard(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = NeuroFlowThemeV2Colors.TextPrimary,
-                maxLines = 3
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
             )
 
             if (nextStep != null) {
@@ -1435,13 +1766,19 @@ fun HeroTaskCard(
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(NeuroFlowThemeV2Colors.ElectricIndigoGlow)
                         )
-                        Text("🎯", fontSize = 12.sp)
+                        Icon(
+                            imageVector = Icons.Default.Flag,
+                            contentDescription = null,
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            modifier = Modifier.size(14.dp)
+                        )
                         Text(
                             text = "Next: ${nextStep.text}",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
                             color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                            maxLines = 2
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -1460,11 +1797,11 @@ fun SprintCompletionSheet(
     onDismiss: () -> Unit
 ) {
     val isMicroStart = timerMode == FocusTimerModeV2.JUST_5_MIN
-    val title = if (isMicroStart) "⚡ Dopamine Micro-Start Complete!" else "🎯 Focus Sprint Complete!"
+    val title = if (isMicroStart) "Dopamine Micro-Start Complete" else "Focus Sprint Complete"
     val subtitle = if (isMicroStart) {
-        "You successfully broke initial task paralysis on \"$taskTitle\". Momentum is active!"
+        "You broke initial task paralysis on \"$taskTitle\". Momentum is active!"
     } else {
-        "Solid work on \"$taskTitle\"! Decide your next cognitive step below."
+        "Solid work on \"$taskTitle\". Choose your next cognitive step below."
     }
 
     Column(
@@ -1474,6 +1811,18 @@ fun SprintCompletionSheet(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        Surface(
+            shape = CircleShape,
+            color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f),
+            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.4f))
+        ) {
+            Icon(
+                imageVector = if (isMicroStart) Icons.Default.Bolt else Icons.Default.Flag,
+                contentDescription = null,
+                tint = NeuroFlowThemeV2Colors.WarmAmber,
+                modifier = Modifier.padding(10.dp).size(24.dp)
+            )
+        }
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
@@ -1498,9 +1847,12 @@ fun SprintCompletionSheet(
                 .fillMaxWidth()
                 .heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+            colors = ButtonDefaults.buttonColors(
+                containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                contentColor = Color.White
+            )
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
             Spacer(modifier = Modifier.width(8.dp))
             val keepGoingText = if (isMicroStart) {
                 "Keep Going (+25m Pomodoro)"
@@ -1510,7 +1862,7 @@ fun SprintCompletionSheet(
             Text(
                 keepGoingText,
                 fontWeight = FontWeight.Bold,
-                color = NeuroFlowThemeV2Colors.TextPrimary
+                color = Color.White
             )
         }
 
@@ -1521,14 +1873,17 @@ fun SprintCompletionSheet(
                 .fillMaxWidth()
                 .heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.SageGreenDark)
+            colors = ButtonDefaults.buttonColors(
+                containerColor = NeuroFlowThemeV2Colors.SageGreenDark,
+                contentColor = Color.White
+            )
         ) {
-            Icon(Icons.Default.Psychology, contentDescription = null, tint = NeuroFlowThemeV2Colors.TextPrimary)
+            Icon(Icons.Default.Psychology, contentDescription = null, tint = Color.White)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 "3-Minute Rest (Decompression)",
                 fontWeight = FontWeight.Bold,
-                color = NeuroFlowThemeV2Colors.TextPrimary
+                color = Color.White
             )
         }
 
@@ -1553,7 +1908,9 @@ fun SprintCompletionSheet(
         // Dismiss
         TextButton(
             onClick = onDismiss,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumInteractiveComponentSize()
         ) {
             Text("Stay on Focus Screen", color = NeuroFlowThemeV2Colors.TextSecondary)
         }
@@ -1570,7 +1927,7 @@ private fun DndPermissionNoticeCard(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = NeuroFlowThemeV2Colors.SlateSurface,
         border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.5f))
     ) {
@@ -1611,13 +1968,13 @@ private fun DndPermissionNoticeCard(
                 }
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Dismiss notice",
                         tint = NeuroFlowThemeV2Colors.TextSecondary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -1629,7 +1986,8 @@ private fun DndPermissionNoticeCard(
             ) {
                 TextButton(
                     onClick = onDismiss,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Text(
                         "Dismiss",
@@ -1640,15 +1998,18 @@ private fun DndPermissionNoticeCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = onOpenSettings,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.WarmAmber),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeuroFlowThemeV2Colors.WarmAmber,
+                        contentColor = Color(0xFF0A0B0E)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text(
                         "Open DND Settings",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.Black
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }

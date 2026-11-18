@@ -107,6 +107,11 @@
             android:name=".receiver.NudgeSnoozeReceiver"
             android:exported="false" />
 
+        <!-- Handles 1-hour snooze action from energy recovery break notification -->
+        <receiver
+            android:name=".receiver.EnergyRecoverySnoozeReceiver"
+            android:exported="false" />
+
            <!-- Device admin receiver used for fully managed device-owner provisioning -->
         <receiver
             android:name=".receiver.DeviceAdminReceiver"

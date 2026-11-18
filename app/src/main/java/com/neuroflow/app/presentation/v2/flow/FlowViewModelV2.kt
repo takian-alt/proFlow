@@ -40,6 +40,7 @@ import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.model.TaskType
 import com.neuroflow.app.domain.scheduler.DailyBlueprint
 import com.neuroflow.app.domain.scheduler.DailyBlueprintOrchestrator
+import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.scheduler.isPersonalTask
 import com.neuroflow.app.domain.model.buildBehavioralObservations
 import com.neuroflow.app.domain.model.buildDailyCognitiveBlocks
@@ -406,7 +407,11 @@ class FlowViewModelV2 @Inject constructor(
         val sleepWindows = sleepLogs.map { TimeSlotWindow(it.startAt, it.endAt) }
         val socialJetlagReport = SocialJetlagCalculator.evaluateFromSleepWindows(sleepWindows, now, systemZone)
 
-        val behavioralObservations = buildBehavioralObservations(completedTasks = completedTasks, zoneId = systemZone)
+        val approvedFeedbackObs = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.extractApprovedCircadianObservations(
+            json = prefs.schedulingRejectionsJson,
+            nowMillis = now
+        )
+        val behavioralObservations = buildBehavioralObservations(completedTasks = completedTasks, zoneId = systemZone) + approvedFeedbackObs
         val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
         val learnedProfile = if (behavioralObservations.isNotEmpty()) {
             AdaptiveCircadianLearner.learnProfile(behavioralObservations, initialPeakHour = initialPeak)
@@ -528,7 +533,6 @@ class FlowViewModelV2 @Inject constructor(
                 dependenciesMet
         }
         val isWindDown = snapshot.phase == com.neuroflow.app.domain.service.EnergyPhase.WIND_DOWN
-        val matchingTasks = actionableActiveTasks.filter { it.energyLevel == currentEnergyZone }
         val lowCognitiveTasks = actionableActiveTasks.filter { task ->
             task.energyLevel == EnergyLevel.LOW || (
                 task.energyLevel != EnergyLevel.HIGH &&
@@ -537,15 +541,9 @@ class FlowViewModelV2 @Inject constructor(
                 !task.tags.contains("deepwork", ignoreCase = true) &&
                 !task.contextTag.equals("deepwork", ignoreCase = true)
             )
-        }
-        val candidatePool: List<TaskEntity> = if (isWindDown) {
-            // Option 2C: When in WIND_DOWN, prioritize low-stress / low-energy tasks (EnergyLevel.LOW or non-deep tasks)
-            if (lowCognitiveTasks.isNotEmpty()) lowCognitiveTasks else actionableActiveTasks
-        } else if (matchingTasks.isNotEmpty()) {
-            matchingTasks
-        } else {
-            actionableActiveTasks
-        }
+        }.toSet()
+        // Evaluate all actionable tasks so urgent DO_FIRST / deadline work is never masked by trivial chores
+        val candidatePool: List<TaskEntity> = actionableActiveTasks
         val effectiveSnapshot = snapshot.copy(usableEnergy = battery)
         val planningCalibration = com.neuroflow.app.domain.engine.AnalyticsEngine.PlanningCalibration.from(completedTasks + activeTasks)
         val enjoymentCalibration = com.neuroflow.app.domain.engine.AnalyticsEngine.EnjoymentCalibration.from(completedTasks + activeTasks)
@@ -564,34 +562,45 @@ class FlowViewModelV2 @Inject constructor(
         val dependentCounts = com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.computeDependentCounts(
             candidateSchedulables.values.toList()
         )
+        val cognitiveLoadDoneToday = completedTasks
+            .filter { t ->
+                val d = t.effectiveScheduledDateMillis()
+                val c = t.completedAt
+                ((d != null && d in dayStart..dayEnd) || (c != null && c in dayStart..dayEnd)) &&
+                    (t.energyLevel != EnergyLevel.LOW || t.isFrog || t.taskType == TaskType.ANALYTICAL)
+            }
+            .sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
+            .toDouble()
 
         val recommended = candidatePool.maxByOrNull { task: TaskEntity ->
             val schedulable = candidateSchedulables[task.id]!!
-            val isPersonal = schedulable.isPersonalTask
-            if (isWindDown) {
-                // In WIND_DOWN, subdue high-intensity frogs & deep-work prompts; prioritize low-energy & brief wrap-up duration
-                val lowEnergyBonus = when (task.energyLevel) {
-                    EnergyLevel.LOW -> 200.0
-                    EnergyLevel.MEDIUM -> 50.0
-                    EnergyLevel.HIGH -> -100.0
-                }
-                val frogPenalty = if (task.isFrog) -500.0 else 0.0
-                val durationPenalty = com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task).coerceAtLeast(0).toDouble()
-                val personalBonus = if (isPersonal) 15.0 else 0.0
-                lowEnergyBonus + frogPenalty + (task.impactScore * 0.5) + personalBonus - durationPenalty
-            } else {
-                val breakdown = taskSchedulerService.evaluateTaskScoreWithWeights(
-                    task = schedulable,
-                    snapshot = effectiveSnapshot,
-                    dependentCount = dependentCounts[task.id] ?: 0,
-                    calibrationRatio = calibrationRatio,
-                    weights = priorityWeights,
-                    referenceNowMillis = now
-                )
-                val frogBoost = if (task.isFrog) 8.0 * prefs.weightFrogBonus else 0.0
-                val personalBoost = if (isPersonal) 6.0 else 0.0
-                breakdown.totalScore + frogBoost + personalBoost
+            val breakdown = taskSchedulerService.evaluateTaskScoreWithFatigue(
+                task = schedulable,
+                snapshot = effectiveSnapshot,
+                dependentCount = dependentCounts[task.id] ?: 0,
+                calibrationRatio = calibrationRatio,
+                weights = priorityWeights,
+                referenceNowMillis = now,
+                cumulativeCognitiveLoadMinutes = cognitiveLoadDoneToday
+            )
+            val energyDiff = kotlin.math.abs(task.energyLevel.ordinal - currentEnergyZone.ordinal)
+            val zoneAffinity = when (energyDiff) {
+                0 -> 6.0
+                1 -> 2.0
+                else -> -2.0
             }
+            val isAcuteDeadline = schedulable.deadlineMillis != null &&
+                schedulable.deadlineMillis - now <= 4 * 3_600_000L
+            val windDownDelta = if (isWindDown) {
+                when {
+                    task in lowCognitiveTasks -> 14.0 - (com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task).coerceAtLeast(0) * 0.08)
+                    !isAcuteDeadline && (task.energyLevel == EnergyLevel.HIGH || task.isFrog) -> -20.0
+                    else -> 0.0
+                }
+            } else 0.0
+            val frogBoost = if (task.isFrog && (!isWindDown || isAcuteDeadline)) 6.0 * prefs.weightFrogBonus else 0.0
+            val personalBoost = if (schedulable.isPersonalTask) 4.0 else 0.0
+            breakdown.totalScore + zoneAffinity + windDownDelta + frogBoost + personalBoost
         }
 
         val todayActiveTasks = activeTasks.filter { task ->
@@ -1427,6 +1436,22 @@ class FlowViewModelV2 @Inject constructor(
             calendarSyncRepository?.handleTaskStateChanged(updated)
             if (updated.quadrant != Quadrant.ELIMINATE && updated.status == TaskStatus.ACTIVE) {
                 context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
+            }
+            if (task.scheduledTime != null) {
+                val oldHour = java.time.Instant.ofEpochMilli(currentEpoch)
+                    .atZone(java.time.ZoneId.systemDefault()).hour
+                val inferredTag = when {
+                    oldHour >= 16 -> "TOO_LATE"
+                    oldHour < 10 -> "TOO_EARLY"
+                    else -> null
+                }
+                preferencesDataStore.recordSchedulingFeedback(
+                    category = task.determineCategory().name,
+                    hour = oldHour,
+                    isNegative = true,
+                    timestampMillis = now,
+                    reasonTag = inferredTag
+                )
             }
             _lastActionMessage.value = "Deferred by ${hours}h: ${task.title}"
         }

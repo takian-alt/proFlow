@@ -16,11 +16,15 @@ import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelfImprovement
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShieldMoon
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -193,11 +197,18 @@ fun FlowSpotlightHeroCard(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.ShieldMoon,
+                            contentDescription = null,
+                            tint = phaseAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "🌙 WIND-DOWN ACTIVE",
+                            text = "WIND-DOWN ACTIVE",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
                             color = phaseAccent,
                             letterSpacing = 1.sp,
@@ -228,7 +239,7 @@ fun FlowSpotlightHeroCard(
                             onClick = { onShutdownClick() },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = phaseAccent,
-                                contentColor = Color(0xFF0A0B0E)
+                                contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
                             ),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
@@ -288,10 +299,15 @@ fun FlowSpotlightHeroCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("🛡️", fontSize = 14.sp)
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = NeuroFlowPaletteV2.PeakAmber,
+                            modifier = Modifier.size(15.dp)
+                        )
                         Text(
                             text = "${approachingSlot.slot.label} starts in ${approachingSlot.minutesLeft}m — fit a quick doorway step before transition",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             fontWeight = FontWeight.SemiBold,
                             color = NeuroFlowPaletteV2.PeakAmber
                         )
@@ -304,21 +320,34 @@ fun FlowSpotlightHeroCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) {
-                        "🌙 WIND-DOWN ACTIVE"
-                    } else if (isTopTaskFrog) {
-                        "🐸 DAILY FROG SPOTLIGHT"
-                    } else {
-                        "⚡ OPTIMAL NEXT ACTION"
-                    },
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = phaseAccent,
-                    letterSpacing = 1.sp,
+                Row(
                     modifier = Modifier.weight(1f, fill = false),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    val (heroIcon, heroLabel) = when {
+                        currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH ->
+                            Icons.Default.ShieldMoon to "WIND-DOWN ACTIVE"
+                        isTopTaskFrog ->
+                            Icons.Default.Bolt to "DAILY FROG SPOTLIGHT"
+                        else ->
+                            Icons.Default.AutoAwesome to "OPTIMAL NEXT ACTION"
+                    }
+                    Icon(
+                        imageVector = heroIcon,
+                        contentDescription = null,
+                        tint = phaseAccent,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = heroLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                        color = phaseAccent,
+                        letterSpacing = 1.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -404,9 +433,9 @@ fun FlowSpotlightHeroCard(
                 val currentStep = topTaskMicroSteps[currentStepIndex]
                 val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
                 val stepLabel = if (completedCount >= totalCount) {
-                    "🪜 2m Doorway: All $totalCount steps completed"
+                    "2m Doorway: All $totalCount steps completed"
                 } else {
-                    "🪜 2m Doorway: Step ${completedCount + 1} of $totalCount"
+                    "2m Doorway: Step ${completedCount + 1} of $totalCount"
                 }
                 var localFallbackChecked by remember(topTaskId, currentStepIndex) { mutableStateOf(currentStep.completed) }
                 val isStepChecked = if (onToggleMicroStep != null) currentStep.completed else localFallbackChecked
@@ -426,14 +455,28 @@ fun FlowSpotlightHeroCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = stepLabel,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                            color = NeuroFlowPaletteV2.ReboundCyan,
+                        Row(
                             modifier = Modifier.weight(1f, fill = false),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Checklist,
+                                contentDescription = null,
+                                tint = NeuroFlowPaletteV2.ReboundCyan,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = stepLabel,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                color = NeuroFlowPaletteV2.ReboundCyan,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "${(progress * 100).toInt()}% completed",
@@ -495,11 +538,22 @@ fun FlowSpotlightHeroCard(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "🪜 2m Doorway: First Micro-Step",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                        color = NeuroFlowPaletteV2.ReboundCyan
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Checklist,
+                            contentDescription = null,
+                            tint = NeuroFlowPaletteV2.ReboundCyan,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "2m Doorway: First Micro-Step",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                            color = NeuroFlowPaletteV2.ReboundCyan
+                        )
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -542,7 +596,7 @@ fun FlowSpotlightHeroCard(
                     onClick = { onStartFocusClick(topTaskId) },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = phaseAccent,
-                        contentColor = Color(0xFF0A0B0E)
+                        contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
@@ -820,7 +874,7 @@ fun EasyWinPickerSheet(
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                                    contentColor = Color(0xFF0A0B0E)
+                                    contentColor = NeuroFlowPaletteV2.onAccentColor(NeuroFlowPaletteV2.OptimalEmerald)
                                 ),
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -870,12 +924,23 @@ fun FreeFlowHeroCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "✨ FLOW ZONE READY",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = accentColor,
-                    letterSpacing = 1.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "FLOW ZONE READY",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                        color = accentColor,
+                        letterSpacing = 1.sp
+                    )
+                }
                 Surface(
                     color = NeuroFlowPaletteV2.SurfaceElevated,
                     shape = RoundedCornerShape(50),
@@ -927,7 +992,7 @@ fun FreeFlowHeroCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "✨ Plan My Day",
+                        text = "Plan My Day",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
                         letterSpacing = 0.5.sp
                     )
@@ -1118,14 +1183,17 @@ fun TaskSlotEnergyFitBadge(
         ) {
             Text(
                 text = "${slotSnapshot.usableEnergy}%",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontFeatureSettings = "tnum"
+                ),
                 color = badgeColor
             )
             if (slotSnapshot.focusDepletionPenalty >= 0.04) {
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "(Load -${(slotSnapshot.focusDepletionPenalty * 100).toInt()}%)",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                     color = NeuroFlowPaletteV2.PeakAmber
                 )
             }
@@ -1138,10 +1206,17 @@ fun TaskSlotEnergyFitBadge(
                     .border(1.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                     .clickable { onShiftToPeakClick() }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.WarningAmber,
+                    contentDescription = null,
+                    tint = NeuroFlowPaletteV2.PeakAmber,
+                    modifier = Modifier.size(12.dp)
+                )
                 Text(
-                    text = "⚠ Dip Mismatch • Shift to Peak",
+                    text = "Dip Mismatch • Shift to Peak",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = NeuroFlowPaletteV2.PeakAmber
                 )
@@ -1172,10 +1247,18 @@ fun UltradianRecoveryDivider(modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("☕", fontSize = 13.sp)
+                Icon(
+                    imageVector = Icons.Default.LocalCafe,
+                    contentDescription = null,
+                    tint = NeuroFlowPaletteV2.OptimalEmerald,
+                    modifier = Modifier.size(14.dp)
+                )
                 Text(
                     text = "15m Ultradian Rest Buffer",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
                     color = NeuroFlowPaletteV2.OptimalEmerald,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1225,7 +1308,12 @@ fun ActiveBiophysicalImpulseStrip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("🧬", fontSize = 12.sp)
+            Icon(
+                imageVector = Icons.Default.Bolt,
+                contentDescription = null,
+                tint = NeuroFlowPaletteV2.ReboundCyan,
+                modifier = Modifier.size(14.dp)
+            )
             Text(
                 text = "Active Impulses:",
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),

@@ -142,7 +142,8 @@ class NeuroFlowApplication : Application(), Configuration.Provider {
                     old.dailyPlanNotificationHour == new.dailyPlanNotificationHour &&
                     old.streakNotificationsEnabled == new.streakNotificationsEnabled &&
                     old.streakCheckNotificationHour == new.streakCheckNotificationHour &&
-                    old.deadlineEscalationNotificationsEnabled == new.deadlineEscalationNotificationsEnabled
+                    old.deadlineEscalationNotificationsEnabled == new.deadlineEscalationNotificationsEnabled &&
+                    old.energyRecoveryAlertsEnabled == new.energyRecoveryAlertsEnabled
                 }
                 .collect { prefs ->
                     scheduleNotificationWorkers(this@NeuroFlowApplication, prefs)

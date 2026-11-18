@@ -11,12 +11,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreTime
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -83,25 +87,45 @@ fun EnergyTimelineStream(
                 fontWeight = FontWeight.Bold,
                 color = NeuroFlowThemeV2Colors.TextPrimary
             )
-            Text(
-                text = "${scheduledTasks.size} blocks",
-                style = MaterialTheme.typography.labelSmall,
-                color = NeuroFlowThemeV2Colors.TextSecondary
-            )
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                border = BorderStroke(0.5.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.55f))
+            ) {
+                Text(
+                    text = "${scheduledTasks.size} blocks",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    fontWeight = FontWeight.SemiBold,
+                    color = NeuroFlowThemeV2Colors.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
         }
 
         if (scheduledTasks.isEmpty()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = NeuroFlowThemeV2Colors.SlateSurface
+                shape = RoundedCornerShape(18.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("🧘 Quiet Waters", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Surface(
+                        shape = CircleShape,
+                        color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.14f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SelfImprovement,
+                            contentDescription = null,
+                            tint = NeuroFlowPaletteV2.OptimalEmerald,
+                            modifier = Modifier.padding(10.dp).size(22.dp)
+                        )
+                    }
+                    Text("Quiet Waters", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NeuroFlowThemeV2Colors.TextPrimary)
                     Text(
                         "No tasks scheduled for today. Tap the '+' composer to plan your next hyperfocus session.",
                         style = MaterialTheme.typography.bodySmall,
@@ -119,7 +143,6 @@ fun EnergyTimelineStream(
                     false
                 }
             }
-            var cumulativeMinutes = 0
 
             scheduledTasks.forEachIndexed { index, task ->
                 val scheduledMillis = if (task.scheduledTime != null) {
@@ -132,8 +155,9 @@ fun EnergyTimelineStream(
                     timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - alignedMillis) }?.phase ?: EnergyPhase.PEAK
                 } else EnergyPhase.PEAK
                 val phaseColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+                val isCurrentOrNext = index == activeOrNextIndex
 
-                if (index == activeOrNextIndex) {
+                if (isCurrentOrNext) {
                     // Pulsing "NOW" playhead indicator
                     Row(
                         modifier = Modifier
@@ -144,9 +168,16 @@ fun EnergyTimelineStream(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
-                                .background(NeuroFlowPaletteV2.ReboundCyan, CircleShape)
-                        )
+                                .size(14.dp)
+                                .background(NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.22f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .background(NeuroFlowPaletteV2.ReboundCyan, CircleShape)
+                            )
+                        }
                         Text(
                             text = "NOW",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
@@ -156,7 +187,7 @@ fun EnergyTimelineStream(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(1.dp)
+                                .height(1.5.dp)
                                 .background(
                                     Brush.horizontalGradient(
                                         listOf(NeuroFlowPaletteV2.ReboundCyan, Color.Transparent)
@@ -173,14 +204,24 @@ fun EnergyTimelineStream(
                     // Phase-colored vertical time-rail node & track
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.width(16.dp)
+                        modifier = Modifier.width(18.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .padding(top = 18.dp)
-                                .size(10.dp)
-                                .background(phaseColor, CircleShape)
-                        )
+                                .size(if (isCurrentOrNext) 16.dp else 10.dp)
+                                .background(
+                                    if (isCurrentOrNext) phaseColor.copy(alpha = 0.22f) else Color.Transparent,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (isCurrentOrNext) 9.dp else 8.dp)
+                                    .background(phaseColor, CircleShape)
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .width(2.dp)
@@ -188,7 +229,7 @@ fun EnergyTimelineStream(
                                 .heightIn(min = 40.dp)
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(phaseColor.copy(alpha = 0.5f), phaseColor.copy(alpha = 0.15f))
+                                        listOf(phaseColor.copy(alpha = 0.55f), phaseColor.copy(alpha = 0.12f))
                                     )
                                 )
                         )
@@ -377,7 +418,12 @@ fun TimelineTaskCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (task.isFrog) {
-                            Text("🐸", fontSize = 14.sp)
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "Daily Frog",
+                                tint = NeuroFlowThemeV2Colors.SageGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                         Text(
                             text = task.title,
@@ -390,28 +436,39 @@ fun TimelineTaskCard(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         // Duration badge
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
+                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f),
+                            border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
                         ) {
-                            Text(
-                                text = "⚡ ${formatDurationChip(TaskBlockPlan.plannedMinutes(task))}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Text(
+                                    text = formatDurationChip(TaskBlockPlan.plannedMinutes(task)),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         // Start and end time chip (for scheduled tasks)
@@ -420,28 +477,39 @@ fun TimelineTaskCard(
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                                border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.SlateBorder)
                             ) {
-                                Text(
-                                    text = "⏱️ $timeRangeStr",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NeuroFlowThemeV2Colors.TextSecondary,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Schedule,
+                                        contentDescription = null,
+                                        tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = timeRangeStr,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                        color = NeuroFlowThemeV2Colors.TextSecondary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
 
                         Box(
                             modifier = Modifier
-                                .background(energyBadgeColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .background(energyBadgeColor.copy(alpha = 0.14f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = task.energyLevel.name,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = energyBadgeColor,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
@@ -459,7 +527,7 @@ fun TimelineTaskCard(
                                 ) {
                                     Text(
                                         text = "Part ${splitProgress.partNumber}/${splitProgress.totalParts}",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                         color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -477,16 +545,30 @@ fun TimelineTaskCard(
                         }
 
                         if (hasMicroSteps) {
-                            Text(
-                                text = "🪜 ${microSteps.size} steps",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Checklist,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "${microSteps.size} steps",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
 
                         if (task.impactScore >= 70) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
                                 Icon(
                                     Icons.Default.Star,
                                     contentDescription = null,
@@ -504,11 +586,11 @@ fun TimelineTaskCard(
                         if (task.postponeCount >= 3) {
                             Box(
                                 modifier = Modifier
-                                    .background(NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .background(NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "⚡ Dopamine Warm-Up",
+                                    text = "Dopamine Warm-Up",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = NeuroFlowThemeV2Colors.WarmAmber,
                                     fontWeight = FontWeight.SemiBold
@@ -585,7 +667,12 @@ fun TimelineTaskCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (task.isFrog) {
-                            Text("🐸", fontSize = 20.sp)
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "Daily Frog",
+                                tint = NeuroFlowThemeV2Colors.SageGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                         Text(
                             text = task.title,
@@ -609,9 +696,15 @@ fun TimelineTaskCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = NeuroFlowThemeV2Colors.TextSecondary,
+                        modifier = Modifier.size(15.dp)
+                    )
                     Text(
-                        text = "⏱ ${TaskBlockPlan.plannedMinutes(task)} mins",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "${TaskBlockPlan.plannedMinutes(task)} mins",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                         color = NeuroFlowThemeV2Colors.TextSecondary
                     )
                     Text("•", color = NeuroFlowThemeV2Colors.TextSecondary)
@@ -749,8 +842,10 @@ fun TimelineTaskCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = NeuroFlowThemeV2Colors.ElectricIndigo
+                        containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                        contentColor = Color.White
                     )
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))

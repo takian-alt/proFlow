@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,6 +31,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -124,7 +127,7 @@ fun ZenMicroStepSpotlightCard(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = NeuroFlowPaletteV2.OptimalEmerald,
-                        contentColor = Color(0xFF0A0B0E)
+                        contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
@@ -356,15 +359,17 @@ fun UpgradedAffordanceRatingSheet(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(14.dp))
-        Text(
-            text = "Skip for now",
-            style = MaterialTheme.typography.labelMedium,
-            color = NeuroFlowPaletteV2.TextTertiary,
-            modifier = Modifier
-                .clickable { onSkip() }
-                .padding(8.dp)
-        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextButton(
+            onClick = onSkip,
+            modifier = Modifier.minimumInteractiveComponentSize()
+        ) {
+            Text(
+                text = "Skip for now",
+                style = MaterialTheme.typography.labelMedium,
+                color = NeuroFlowPaletteV2.TextTertiary
+            )
+        }
     }
 }
 
@@ -510,22 +515,25 @@ fun UpgradedWoopPromptSheet(
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
+                .heightIn(min = 48.dp)
         ) {
             Text(
                 text = "Lock In If-Then Plan",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = "Maybe Later",
-            style = MaterialTheme.typography.labelMedium,
-            color = NeuroFlowPaletteV2.TextTertiary,
+        Spacer(modifier = Modifier.height(6.dp))
+        TextButton(
+            onClick = onDismiss,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .clickable { onDismiss() }
-                .padding(8.dp)
-        )
+                .minimumInteractiveComponentSize()
+        ) {
+            Text(
+                text = "Maybe Later",
+                style = MaterialTheme.typography.labelMedium,
+                color = NeuroFlowPaletteV2.TextTertiary
+            )
+        }
     }
 }

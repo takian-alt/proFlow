@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -187,7 +188,9 @@ private fun QuadrantFilterTile(
                 if (isSelected) 1f else 0.7f
             )
         ),
-        modifier = modifier.clickable { onClick() }
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .clickable { onClick() }
     ) {
         Row(
             modifier = Modifier
@@ -204,7 +207,7 @@ private fun QuadrantFilterTile(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -213,7 +216,10 @@ private fun QuadrantFilterTile(
             ) {
                 Text(
                     text = count.toString(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
                     color = accent
                 )
             }
@@ -284,11 +290,24 @@ fun ComposerAiEnrichmentPreviewCard(
             }
             if (enrichment != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "💡 ${enrichment.activationTip}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NeuroFlowPaletteV2.TextPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = NeuroFlowPaletteV2.PeakAmber,
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .size(15.dp)
+                    )
+                    Text(
+                        text = enrichment.activationTip,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 enrichment.microSteps.forEachIndexed { idx, step ->
                     Row(
@@ -306,7 +325,10 @@ fun ComposerAiEnrichmentPreviewCard(
                         )
                         Text(
                             text = "${step.estimatedMinutes}m",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum"
+                            ),
                             color = NeuroFlowPaletteV2.TextSecondary
                         )
                     }

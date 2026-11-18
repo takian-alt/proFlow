@@ -32,6 +32,7 @@ class NotificationWorkerPlanTest : StringSpec({
             dailyPlanNotificationsEnabled = true,
             streakNotificationsEnabled = false,
             deadlineEscalationNotificationsEnabled = true,
+            energyRecoveryAlertsEnabled = false,
             dailyPlanNotificationHour = 8,
             streakCheckNotificationHour = 20
         )
@@ -41,6 +42,7 @@ class NotificationWorkerPlanTest : StringSpec({
         plan.dailyPlanEnabled shouldBe true
         plan.streakEnabled shouldBe false
         plan.escalationEnabled shouldBe true
+        plan.energyRecoveryEnabled shouldBe false
         (plan.dailyPlanDelayMs > 0) shouldBe true
         (plan.streakDelayMs > 0) shouldBe true
     }

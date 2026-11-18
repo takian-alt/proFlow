@@ -1,25 +1,20 @@
 package com.neuroflow.app.presentation.v2.plan
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Schedule
@@ -37,10 +32,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.service.SlotRemedyResult
 import com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors
 import java.time.Instant
@@ -82,14 +80,52 @@ internal fun formatRemedyTime(millis: Long): String {
     }
 }
 
-enum class FeedbackReason(val tag: String, val label: String) {
-    TOO_LOW_ENERGY("TOO_LOW_ENERGY", "⚡ Too low energy"),
-    TOO_EARLY("TOO_EARLY", "⏰ Too early in the day"),
-    NEEDS_LONGER_BLOCK("NEEDS_LONGER_BLOCK", "⏱️ Needs longer block"),
-    ROUTINE_CONFLICT("ROUTINE_CONFLICT", "🛑 Conflicts with routine")
+enum class FeedbackReason(
+    val tag: String,
+    val emoji: String,
+    val title: String,
+    val description: String
+) {
+    TOO_LOW_ENERGY(
+        tag = "TOO_LOW_ENERGY",
+        emoji = "⚡",
+        title = "Energy mismatch for this work",
+        description = "Move into your peak circadian focus window and raise future energy-matching weight."
+    ),
+    TOO_EARLY(
+        tag = "TOO_EARLY",
+        emoji = "🌅",
+        title = "Too early / sleep inertia",
+        description = "Shift later after morning warm-up and teach the planner to avoid early hours for this type."
+    ),
+    TOO_LATE(
+        tag = "TOO_LATE",
+        emoji = "🌙",
+        title = "Too late / end-of-day fatigue",
+        description = "Pull earlier before cognitive depletion and penalize late afternoon/evening slots."
+    ),
+    NEEDS_LONGER_BLOCK(
+        tag = "NEEDS_LONGER_BLOCK",
+        emoji = "⏱️",
+        title = "Needs a longer uninterrupted block",
+        description = "Find your widest continuous open gap so you aren't interrupted mid-flow."
+    ),
+    ROUTINE_CONFLICT(
+        tag = "ROUTINE_CONFLICT",
+        emoji = "🛑",
+        title = "Conflicts with a personal routine",
+        description = "Clear meals, commute, or daily habits and steer future tasks of this type away from this hour."
+    ),
+    WRONG_CONTEXT(
+        tag = "WRONG_CONTEXT",
+        emoji = "🧭",
+        title = "Wrong context or environment",
+        description = "Shift to a different part of your day (errands, calls, deep coding, home vs. office)."
+    );
+
+    val label: String get() = "$emoji $title"
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SchedulingFeedbackDialog(
     task: TaskEntity,
@@ -100,6 +136,10 @@ fun SchedulingFeedbackDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val blockDurationMinutes = (if (task.plannedBlockMinutes > 0) task.plannedBlockMinutes else task.estimatedDurationMinutes)
+        .coerceIn(5, 240)
+    val currentSlotText = task.scheduledTime?.let { formatRemedyTime(it) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = modifier,
@@ -114,26 +154,65 @@ fun SchedulingFeedbackDialog(
                     imageVector = Icons.Default.Tune,
                     contentDescription = null,
                     tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
-                Text(
-                    text = "Tune Your Schedule Preferences",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.TextPrimary
-                )
+                Column {
+                    Text(
+                        text = "Tune Placement & Train ML",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    Text(
+                        text = "Adapts circadian scoring & future auto-plans",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                    )
+                }
             }
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Why does this slot not work for \"${task.title}\"?",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NeuroFlowThemeV2Colors.TextSecondary
-                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NeuroFlowThemeV2Colors.SlateSurface,
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val slotMeta = buildString {
+                            if (currentSlotText != null) {
+                                append("Current: $currentSlotText")
+                                append(" · ")
+                            }
+                            append("${blockDurationMinutes}m block")
+                            append(" · ")
+                            append(task.determineCategory().name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() })
+                        }
+                        Text(
+                            text = slotMeta,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.TextSecondary
+                        )
+                    }
+                }
 
                 if (isLoading) {
                     Box(
@@ -159,7 +238,9 @@ fun SchedulingFeedbackDialog(
                     }
                 } else if (remedyProposal != null) {
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("remedy_proposal_card"),
                         shape = RoundedCornerShape(16.dp),
                         color = NeuroFlowThemeV2Colors.SlateSurface,
                         border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.5f))
@@ -226,10 +307,16 @@ fun SchedulingFeedbackDialog(
                         }
                     }
                 } else {
-                    FlowRow(
+                    Text(
+                        text = "What didn't fit about this time slot?",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeuroFlowThemeV2Colors.TextSecondary
+                    )
+
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         FeedbackReason.entries.forEach { reason ->
                             Surface(
@@ -237,16 +324,42 @@ fun SchedulingFeedbackDialog(
                                 color = NeuroFlowThemeV2Colors.SlateSurface,
                                 border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
                                 modifier = Modifier
+                                    .fillMaxWidth()
                                     .heightIn(min = 48.dp)
                                     .clip(RoundedCornerShape(12.dp))
+                                    .testTag("feedback_reason_${reason.tag}")
                                     .clickable { onSelectReason(reason.tag) }
                             ) {
-                                Text(
-                                    text = reason.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = NeuroFlowThemeV2Colors.TextPrimary,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = reason.emoji,
+                                        fontSize = 18.sp
+                                    )
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                                    ) {
+                                        Text(
+                                            text = reason.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = NeuroFlowThemeV2Colors.TextPrimary
+                                        )
+                                        Text(
+                                            text = reason.description,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowThemeV2Colors.TextSecondary,
+                                            lineHeight = 14.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -262,6 +375,7 @@ fun SchedulingFeedbackDialog(
                             remedyProposal.directivePatch
                         )
                     },
+                    modifier = Modifier.testTag("accept_remedy_button"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = NeuroFlowThemeV2Colors.ElectricIndigo
                     ),
@@ -277,10 +391,11 @@ fun SchedulingFeedbackDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss
+                onClick = onDismiss,
+                modifier = Modifier.testTag("dismiss_feedback_dialog_button")
             ) {
                 Text(
-                    text = "Dismiss / Re-schedule",
+                    text = if (remedyProposal != null) "Keep Current / Close" else "Cancel",
                     color = NeuroFlowThemeV2Colors.TextSecondary
                 )
             }

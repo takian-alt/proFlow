@@ -31,22 +31,33 @@ import com.neuroflow.app.presentation.v2.theme.NeuroFlowPaletteV2
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.*
@@ -171,36 +182,44 @@ fun PlanScreenV2(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(58.dp)
+                    .shadow(8.dp, CircleShape)
                     .clip(CircleShape)
                     .background(NeuroFlowThemeV2Colors.ElectricIndigo)
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                     .clickable { showComposer = true },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Add Task",
-                    tint = NeuroFlowThemeV2Colors.TextPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(28.dp)
                 )
             }
         }
     ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .widthIn(max = 680.dp)
         ) {
             // 1. Anchored Top Header Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -221,38 +240,50 @@ fun PlanScreenV2(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    IconButton(
-                        onClick = { viewModel.toggleSearchVisible() },
-                        modifier = Modifier.size(48.dp)
+                    Surface(
+                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        shape = CircleShape,
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = if (state.isSearchVisible || state.searchQuery.isNotBlank()) {
-                                NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            } else {
-                                NeuroFlowThemeV2Colors.TextSecondary
-                            }
-                        )
+                        IconButton(
+                            onClick = { viewModel.toggleSearchVisible() },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = if (state.isSearchVisible || state.searchQuery.isNotBlank()) {
+                                    NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                } else {
+                                    NeuroFlowThemeV2Colors.TextSecondary
+                                }
+                            )
+                        }
                     }
 
-                    IconButton(
-                        onClick = onOpenToolsSheet,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("tools_sheet_button")
+                    Surface(
+                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        shape = CircleShape,
+                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GridView,
-                            contentDescription = "Tools and Subsystems",
-                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                        )
+                        IconButton(
+                            onClick = onOpenToolsSheet,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("tools_sheet_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GridView,
+                                contentDescription = "Tools and Subsystems",
+                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                        }
                     }
 
                     Button(
@@ -285,15 +316,15 @@ fun PlanScreenV2(
                             )
                         }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Auto-Plan Day", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Auto-Plan", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                     }
                 }
             }
 
             HorizontalDivider(
-                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.15f),
+                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.18f),
                 thickness = 0.75.dp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
             // 2. Anchored Mode Selector Segmented Tabs (Never jumps vertically)
@@ -389,11 +420,21 @@ fun PlanScreenV2(
                             FilterChip(
                                 selected = state.isStagingDrawerExpanded,
                                 onClick = { viewModel.toggleStagingDrawer() },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Inbox,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = NeuroFlowThemeV2Colors.WarmAmber
+                                    )
+                                },
                                 label = {
                                     Text(
-                                        text = "📥 Unscheduled (${state.unscheduledTasks.size})",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = "Unscheduled (${state.unscheduledTasks.size})",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontFeatureSettings = "tnum"
+                                        )
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
@@ -408,7 +449,7 @@ fun PlanScreenV2(
                                     borderColor = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.4f),
                                     selectedBorderColor = NeuroFlowThemeV2Colors.WarmAmber
                                 ),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.minimumInteractiveComponentSize()
                             )
                         }
@@ -428,17 +469,16 @@ fun PlanScreenV2(
                                 label = {
                                     Text(
                                         text = "1-Min Sweep",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
+                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f),
                                     selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
                                     containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                     labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
                                 ),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .minimumInteractiveComponentSize()
                                     .testTag("inbox_sweep_button")
@@ -450,51 +490,61 @@ fun PlanScreenV2(
                         FilterChip(
                             selected = isObjectivesExpanded,
                             onClick = { isObjectivesExpanded = !isObjectivesExpanded },
-                                label = {
-                                    Text(
-                                        text = if (state.activeGoals.isNotEmpty()) "🎯 Objectives (${state.activeGoals.size})" else "🎯 Objectives",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Flag,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = if (state.activeGoals.isNotEmpty()) "Objectives (${state.activeGoals.size})" else "Objectives",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontFeatureSettings = "tnum"
                                     )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            )
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f),
+                                selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        )
+                    }
+
+                    items(state.availableTags, key = { it }) { tag ->
+                        val isSelected = if (tag == "All") {
+                            state.selectedTag == null || state.selectedTag == "All"
+                        } else {
+                            state.selectedTag == tag
                         }
 
-                        items(state.availableTags, key = { it }) { tag ->
-                            val isSelected = if (tag == "All") {
-                                state.selectedTag == null || state.selectedTag == "All"
-                            } else {
-                                state.selectedTag == tag
-                            }
-
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.selectTag(if (tag == "All" || tag == state.selectedTag) null else tag) },
-                                label = {
-                                    Text(
-                                        tag,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.TextPrimary,
-                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    labelColor = NeuroFlowThemeV2Colors.TextSecondary
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            )
-                        }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.selectTag(if (tag == "All" || tag == state.selectedTag) null else tag) },
+                            label = {
+                                Text(
+                                    tag,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                                selectedLabelColor = Color.White,
+                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        )
+                    }
                 }
 
                 // Expandable Unscheduled Tray Drawer
@@ -507,11 +557,11 @@ fun PlanScreenV2(
                     ) {
                         items(state.unscheduledTasks, key = { it.id }) { unscheduled ->
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 color = NeuroFlowThemeV2Colors.SlateSurface,
-                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
                                 modifier = Modifier
-                                    .width(210.dp)
+                                    .width(214.dp)
                                     .clickable { editingTask = unscheduled }
                             ) {
                                 Column(
@@ -535,7 +585,7 @@ fun PlanScreenV2(
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = "${unscheduled.estimatedDurationMinutes}m",
-                                            style = MaterialTheme.typography.labelSmall,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                             color = NeuroFlowThemeV2Colors.TextSecondary
                                         )
                                     }
@@ -566,18 +616,29 @@ fun PlanScreenV2(
                                     val deferral = state.deferrals.firstOrNull { it.taskId == unscheduled.id }
                                     if (deferral != null) {
                                         Surface(
-                                            shape = RoundedCornerShape(4.dp),
+                                            shape = RoundedCornerShape(6.dp),
                                             color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f)
                                         ) {
-                                            Text(
-                                                text = "⏳ ${deferral.reasonCode.name.replace('_', ' ')}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = NeuroFlowThemeV2Colors.WarmAmber,
-                                                fontSize = 9.sp,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Schedule,
+                                                    contentDescription = null,
+                                                    tint = NeuroFlowThemeV2Colors.WarmAmber,
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                                Text(
+                                                    text = deferral.reasonCode.name.replace('_', ' '),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                    fontSize = 9.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -693,6 +754,7 @@ fun PlanScreenV2(
                     onSelectDate = { viewModel.selectDate(it) },
                     onResolveConflict = { viewModel.resolveConflict(it) },
                     onAutoBalanceClick = { viewModel.autoBalance(horizonDays = 7) },
+                    onAutoPlanClick = { viewModel.openDailyBlueprint() },
                     onStartFocus = onNavigateToFocus,
                     onCompleteTask = handleCompleteTask,
                     onDeleteTask = { viewModel.requestDeleteTask(it) },
@@ -723,6 +785,7 @@ fun PlanScreenV2(
                     onManageSlotsClick = { showProtectedSlotSheet = true }
                 )
             }
+        }
         }
     }
 
@@ -956,7 +1019,9 @@ fun SevenDayCapacityBar(
 fun DateCarouselStrip(
     selectedDateMillis: Long,
     onSelectDate: (Long) -> Unit,
-    nowMillis: Long = System.currentTimeMillis()
+    nowMillis: Long = System.currentTimeMillis(),
+    loadDistribution: Map<LocalDate, Float> = emptyMap(),
+    today: LocalDate = LocalDate.now(ZoneId.systemDefault())
 ) {
     val todayStart = remember(nowMillis / 60_000L) {
         com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
@@ -969,17 +1034,17 @@ fun DateCarouselStrip(
                 timeInMillis = todayStart
                 add(Calendar.DAY_OF_YEAR, offset)
             }
-            cal.timeInMillis
+            offset to cal.timeInMillis
         }
     }
 
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(days) { dateMillis ->
+        items(days, key = { it.second }) { (offset, dateMillis) ->
             val isSelected = isSameDay(selectedDateMillis, dateMillis)
             val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
             val dayName = when {
@@ -988,18 +1053,30 @@ fun DateCarouselStrip(
                 else -> SimpleDateFormat("EEE", Locale.getDefault()).format(cal.time)
             }
             val dayNum = SimpleDateFormat("d", Locale.getDefault()).format(cal.time)
+            val date = today.plusDays(offset.toLong())
+            val load = (loadDistribution[date] ?: 0f).coerceIn(0f, 2.0f)
+            val loadDotColor = when {
+                isSelected -> Color.White.copy(alpha = 0.9f)
+                load > 1.0f -> NeuroFlowThemeV2Colors.PulseCoral
+                load > 0.8f -> NeuroFlowThemeV2Colors.WarmAmber
+                load > 0.0f -> NeuroFlowThemeV2Colors.BioMint
+                else -> Color.Transparent
+            }
 
             Surface(
                 onClick = { onSelectDate(dateMillis) },
-                shape = RoundedCornerShape(12.dp),
-                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo else NeuroFlowThemeV2Colors.SlateSurface,
+                shape = RoundedCornerShape(14.dp),
+                color = if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigo else NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                 border = BorderStroke(
-                    1.dp,
-                    if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder
+                    width = 1.dp,
+                    brush = NeuroFlowPaletteV2.specularBorderBrush(
+                        if (isSelected) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.SlateBorder,
+                        if (isSelected) 1f else 0.7f
+                    )
                 ),
                 modifier = Modifier
-                    .width(60.dp)
-                    .heightIn(min = 48.dp)
+                    .width(58.dp)
+                    .heightIn(min = 52.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(vertical = 6.dp),
@@ -1009,14 +1086,21 @@ fun DateCarouselStrip(
                     Text(
                         text = dayName,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextSecondary,
-                        fontWeight = FontWeight.Medium
+                        color = if (isSelected) Color.White.copy(alpha = 0.88f) else NeuroFlowThemeV2Colors.TextSecondary,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
                     )
                     Text(
                         text = dayNum,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) NeuroFlowThemeV2Colors.TextPrimary else NeuroFlowThemeV2Colors.TextPrimary
+                        color = if (isSelected) Color.White else NeuroFlowThemeV2Colors.TextPrimary
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(loadDotColor)
                     )
                 }
             }
@@ -1077,6 +1161,7 @@ fun TimelineScheduleView(
     onSelectDate: (Long) -> Unit = {},
     onResolveConflict: (com.neuroflow.app.domain.scheduler.ScheduleConflict) -> Unit = {},
     onAutoBalanceClick: () -> Unit = {},
+    onAutoPlanClick: () -> Unit = {},
     onStartFocus: (String) -> Unit,
     onCompleteTask: (TaskEntity) -> Unit,
     onDeleteTask: (TaskEntity) -> Unit = {},
@@ -1115,65 +1200,80 @@ fun TimelineScheduleView(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        SevenDayCapacityBar(
-            loadDistribution = state.sevenDayLoadDistribution,
-            selectedDateMillis = state.selectedDateMillis,
-            today = todayLocalDate
-        )
-
-        Row(
+        // Unified Horizon Dock: Capacity Bar + Week Balance CTA + Date Carousel
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = NeuroFlowThemeV2Colors.SlateSurface.copy(alpha = 0.88f),
+            border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush())
         ) {
-            Text(
-                text = "7-Day Load Balance",
-                style = MaterialTheme.typography.labelSmall,
-                color = NeuroFlowThemeV2Colors.TextSecondary,
-                fontWeight = FontWeight.Medium
-            )
-            TextButton(
-                onClick = onAutoBalanceClick,
-                enabled = !state.isAutoScheduling,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("auto_balance_week_button")
-            ) {
-                if (state.isAutoScheduling) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+            Column(modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)) {
+                SevenDayCapacityBar(
+                    loadDistribution = state.sevenDayLoadDistribution,
+                    selectedDateMillis = state.selectedDateMillis,
+                    today = todayLocalDate,
+                    modifier = Modifier.padding(horizontal = 0.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "7-Day Load Balance",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowThemeV2Colors.TextSecondary,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    TextButton(
+                        onClick = onAutoBalanceClick,
+                        enabled = !state.isAutoScheduling,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("auto_balance_week_button")
+                    ) {
+                        if (state.isAutoScheduling) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text(
+                            text = if (state.isAutoScheduling) "Balancing..." else "Auto-Balance Week",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
                 }
-                Text(
-                    text = if (state.isAutoScheduling) "Balancing..." else "Auto-Balance Week",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+
+                DateCarouselStrip(
+                    selectedDateMillis = state.selectedDateMillis,
+                    onSelectDate = onSelectDate,
+                    nowMillis = nowMillis,
+                    loadDistribution = state.sevenDayLoadDistribution,
+                    today = todayLocalDate
                 )
             }
         }
-
-        DateCarouselStrip(
-            selectedDateMillis = state.selectedDateMillis,
-            onSelectDate = onSelectDate,
-            nowMillis = nowMillis
-        )
 
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 88.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 88.dp)
         ) {
-            // 1. Daily Cognitive Budget Meter (Scoped inside scrollable timeline)
+            // 1. Daily Cognitive Budget Meter & Circadian Mini Bar
             item(key = "budget_meter") {
                 val scheduledMinutes = if (state.scheduledMinutesToday > 0 || state.tasksForDay.isEmpty()) {
                     state.scheduledMinutesToday
@@ -1181,21 +1281,34 @@ fun TimelineScheduleView(
                     state.tasksForDay.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
                 }
                 val capacityMinutes = state.recommendedCapacityMinutes
-                com.neuroflow.app.presentation.v2.theme.CognitiveBudgetMeterCard(
-                    scheduledMinutesToday = scheduledMinutes,
-                    recommendedCapacityMinutes = capacityMinutes,
-                    completedMinutesToday = state.completedMinutesToday,
-                    conflictCount = state.conflicts.size,
-                    onAutoBalanceClick = onAutoBalanceClick
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    com.neuroflow.app.presentation.v2.theme.CognitiveBudgetMeterCard(
+                        scheduledMinutesToday = scheduledMinutes,
+                        recommendedCapacityMinutes = capacityMinutes,
+                        completedMinutesToday = state.completedMinutesToday,
+                        conflictCount = state.conflicts.size,
+                        onAutoBalanceClick = onAutoBalanceClick
+                    )
 
-                if (state.energyTimeline.isNotEmpty()) {
-                    CircadianHorizonMiniBar(
-                        timeline = state.energyTimeline,
-                        peakStart = peakStart,
-                        peakEnd = peakEnd,
-                        dipStart = dipStart,
-                        dipEnd = dipEnd
+                    if (state.energyTimeline.isNotEmpty()) {
+                        CircadianHorizonMiniBar(
+                            timeline = state.energyTimeline,
+                            peakStart = peakStart,
+                            peakEnd = peakEnd,
+                            dipStart = dipStart,
+                            dipEnd = dipEnd
+                        )
+                    }
+                }
+            }
+
+            if (state.predictedEnergyCurve != null) {
+                item(key = "predicted_energy_chart") {
+                    PredictedDailyEnergyChart(
+                        curve = state.predictedEnergyCurve,
+                        onAutoScheduleClick = onAutoPlanClick,
+                        isAutoScheduling = state.isAutoScheduling || state.isBlueprintLoading,
+                        initiallyExpanded = true
                     )
                 }
             }
@@ -1210,26 +1323,67 @@ fun TimelineScheduleView(
                 }
             }
 
-            // 3. Circadian Peak Indicator Badge
-            item(key = "peak_window_badge") {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+            // 3. Scheduled Blocks Section Header with Peak Window Pill
+            item(key = "scheduled_blocks_header") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("⚡", fontSize = 15.sp)
                         Text(
-                            text = "Peak Circadian Window: ${String.format("%02d:00", peakStart)} – ${String.format("%02d:00", peakEnd)} (Optimal for Frogs & High Effort)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeuroFlowThemeV2Colors.WarmAmber,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Scheduled Blocks",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
                         )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.16f)
+                        ) {
+                            Text(
+                                text = "${state.tasksForDay.size}",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.12f),
+                        border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = NeuroFlowThemeV2Colors.WarmAmber,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "Peak ${String.format("%02d:00", peakStart)}–${String.format("%02d:00", peakEnd)}",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                fontSize = 11.sp,
+                                color = NeuroFlowThemeV2Colors.WarmAmber
+                            )
+                        }
                     }
                 }
             }
@@ -1240,18 +1394,32 @@ fun TimelineScheduleView(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        shape = RoundedCornerShape(14.dp),
+                            .padding(vertical = 8.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = NeuroFlowThemeV2Colors.SlateSurface,
-                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush())
                     ) {
                         Column(
                             modifier = Modifier.padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                             Text(
-                                "📅 Clear Horizon",
+                                "Clear Horizon",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = NeuroFlowThemeV2Colors.TextPrimary
@@ -1397,23 +1565,34 @@ fun TimelineScheduleView(
                                         // Time Pill
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                            modifier = Modifier.width(44.dp)
+                                            modifier = Modifier.width(46.dp)
                                         ) {
                                             Text(
                                                 text = timeLabel,
-                                                style = MaterialTheme.typography.labelMedium,
+                                                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isDuringPeak) NeuroFlowThemeV2Colors.WarmAmber else NeuroFlowThemeV2Colors.TextSecondary,
                                                 fontSize = if (!hasTime) 11.sp else 12.sp,
                                                 maxLines = 1
                                             )
                                             if (isDuringPeak) {
-                                                Text(
-                                                    "PEAK",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontSize = 9.sp,
-                                                    color = NeuroFlowThemeV2Colors.WarmAmber
-                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Bolt,
+                                                        contentDescription = null,
+                                                        tint = NeuroFlowThemeV2Colors.WarmAmber,
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                    Text(
+                                                        "PEAK",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontSize = 9.sp,
+                                                        color = NeuroFlowThemeV2Colors.WarmAmber
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -1442,7 +1621,33 @@ fun TimelineScheduleView(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                if (task.isFrog) Text("🐸", fontSize = 14.sp)
+                                                if (task.isFrog) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(5.dp),
+                                                        color = NeuroFlowThemeV2Colors.MutedCoral.copy(alpha = 0.16f),
+                                                        border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.MutedCoral.copy(alpha = 0.45f))
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Star,
+                                                                contentDescription = "Frog priority",
+                                                                tint = NeuroFlowThemeV2Colors.MutedCoral,
+                                                                modifier = Modifier.size(10.dp)
+                                                            )
+                                                            Text(
+                                                                text = "FROG",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.ExtraBold,
+                                                                color = NeuroFlowThemeV2Colors.MutedCoral
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                                 Text(
                                                     text = task.title,
                                                     style = MaterialTheme.typography.titleMedium,
@@ -1453,7 +1658,7 @@ fun TimelineScheduleView(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             }
-                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Spacer(modifier = Modifier.height(3.dp))
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -1464,16 +1669,27 @@ fun TimelineScheduleView(
                                                 // Duration badge
                                                 Surface(
                                                     shape = RoundedCornerShape(6.dp),
-                                                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.2f),
-                                                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.45f))
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f),
+                                                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
                                                 ) {
-                                                    Text(
-                                                        text = "⚡ ${formatDurationChip(com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task))}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Bolt,
+                                                            contentDescription = null,
+                                                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                            modifier = Modifier.size(11.dp)
+                                                        )
+                                                        Text(
+                                                            text = formatDurationChip(com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)),
+                                                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
                                                 }
 
                                                 // Start and end time chip (for scheduled tasks)
@@ -1484,13 +1700,24 @@ fun TimelineScheduleView(
                                                         color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
                                                         border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
                                                     ) {
-                                                        Text(
-                                                            text = "⏱️ $timeRangeStr",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = NeuroFlowThemeV2Colors.TextSecondary,
-                                                            fontWeight = FontWeight.Medium,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Schedule,
+                                                                contentDescription = null,
+                                                                tint = NeuroFlowThemeV2Colors.TextSecondary,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                            Text(
+                                                                text = timeRangeStr,
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                                color = NeuroFlowThemeV2Colors.TextSecondary,
+                                                                fontWeight = FontWeight.Medium
+                                                            )
+                                                        }
                                                     }
                                                 }
 
@@ -1514,7 +1741,7 @@ fun TimelineScheduleView(
                                                         ) {
                                                             Text(
                                                                 text = "Part ${splitProgress.partNumber}/${splitProgress.totalParts}",
-                                                                style = MaterialTheme.typography.labelSmall,
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                                                 color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
                                                                 fontWeight = FontWeight.SemiBold
                                                             )
@@ -1536,14 +1763,25 @@ fun TimelineScheduleView(
                                                         shape = RoundedCornerShape(4.dp),
                                                         color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.18f)
                                                     ) {
-                                                        Text(
-                                                            text = "⚡ Dopamine Warm-Up",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = NeuroFlowThemeV2Colors.WarmAmber,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.SemiBold
-                                                        )
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Bolt,
+                                                                contentDescription = null,
+                                                                tint = NeuroFlowThemeV2Colors.WarmAmber,
+                                                                modifier = Modifier.size(10.dp)
+                                                            )
+                                                            Text(
+                                                                text = "Dopamine Warm-Up",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = NeuroFlowThemeV2Colors.WarmAmber,
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
                                                     }
                                                 }
 
@@ -1697,15 +1935,42 @@ fun TimelineScheduleView(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Text(
-                                                    text = if (task.isAutoScheduled) "✨ AI Placed" else "📍 Slot Placement",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f, fill = false)
-                                                )
+                                                val feedbackStatusText = when {
+                                                    isLiked -> "Learned · Good fit"
+                                                    isDisliked -> "Tuning needed · Avoids this hour"
+                                                    task.isAutoScheduled -> "AI Placed · Energy-matched"
+                                                    else -> "Slot Placement"
+                                                }
+                                                val feedbackStatusColor = when {
+                                                    isLiked -> NeuroFlowThemeV2Colors.BioMint
+                                                    isDisliked -> NeuroFlowThemeV2Colors.RoseCoral
+                                                    else -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                                }
+                                                val feedbackStatusIcon = when {
+                                                    isDisliked -> Icons.Default.WarningAmber
+                                                    isLiked || task.isAutoScheduled -> Icons.Default.AutoAwesome
+                                                    else -> Icons.Default.Schedule
+                                                }
+                                                Row(
+                                                    modifier = Modifier.weight(1f, fill = false),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = feedbackStatusIcon,
+                                                        contentDescription = null,
+                                                        tint = feedbackStatusColor,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = feedbackStatusText,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = feedbackStatusColor,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -1744,7 +2009,7 @@ fun TimelineScheduleView(
                                                     }
 
                                                     Surface(
-                                                        onClick = { onRatePlacement(task, if (isDisliked) 0 else -1) },
+                                                        onClick = { onRatePlacement(task, -1) },
                                                         shape = RoundedCornerShape(8.dp),
                                                         color = if (isDisliked) NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.18f) else Color.Transparent,
                                                         border = BorderStroke(
@@ -1783,19 +2048,37 @@ fun TimelineScheduleView(
                                     if (microSteps.isNotEmpty()) {
                                         var showSteps by remember { mutableStateOf(false) }
                                         Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.18f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.16f),
                                             modifier = Modifier
                                                 .minimumInteractiveComponentSize()
                                                 .clickable { showSteps = !showSteps }
                                         ) {
-                                            Text(
-                                                text = "🪜 ${microSteps.size} micro-steps ${if (showSteps) "▲" else "▼"}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                fontSize = 11.sp
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Checklist,
+                                                    contentDescription = null,
+                                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "${microSteps.size} micro-steps",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 11.sp
+                                                )
+                                                Icon(
+                                                    imageVector = if (showSteps) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                    contentDescription = null,
+                                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
                                         }
                                         if (showSteps) {
                                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1826,20 +2109,31 @@ fun TimelineScheduleView(
             if (state.protectedSlots.any { it.isEnabled }) {
                 item(key = "protected_slots_header") {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "🛡️ Protected Deep Work & Rest Slots",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Protected Deep Work & Rest Slots",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
                 }
 
                 items(state.protectedSlots.filter { it.isEnabled }, key = { "slot_${it.id}" }) { slot ->
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush())
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -1866,7 +2160,7 @@ fun TimelineScheduleView(
                                 val endM = endMinuteOfDay % 60
                                 Text(
                                     text = String.format("%02d:%02d – %02d:%02d (%s)", startH, startM, endH, endM, slot.category.name),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                     color = NeuroFlowThemeV2Colors.TextSecondary
                                 )
                             }
@@ -1896,10 +2190,10 @@ fun MatrixPlanView(
 
     val allQuadrants = remember(coral, indigoGlow, sage, textTertiary) {
         listOf(
-            Quadrant.DO_FIRST to ("🎯 Do First (High Impact & Frog)" to coral),
-            Quadrant.SCHEDULE to ("🔵 Schedule (High Impact, Deep Focus)" to indigoGlow),
-            Quadrant.DELEGATE to ("🟢 Quick Wins / Low Energy" to sage),
-            Quadrant.ELIMINATE to ("⚪ Backlog / Low Priority" to textTertiary)
+            Quadrant.DO_FIRST to Triple("Do First (High Impact & Frog)", Icons.Default.Flag, coral),
+            Quadrant.SCHEDULE to Triple("Schedule (High Impact, Deep Focus)", Icons.Default.Schedule, indigoGlow),
+            Quadrant.DELEGATE to Triple("Quick Wins / Low Energy", Icons.Default.Bolt, sage),
+            Quadrant.ELIMINATE to Triple("Backlog / Low Priority", Icons.Default.Inbox, textTertiary)
         )
     }
 
@@ -1932,14 +2226,14 @@ fun MatrixPlanView(
         }
 
         items(visibleQuadrants, key = { it.first.name }) { (quadrant, info) ->
-            val (title, color) = info
+            val (title, qIcon, color) = info
             val tasks = state.tasksByQuadrant[quadrant] ?: emptyList()
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = NeuroFlowThemeV2Colors.SlateSurface,
-                border = BorderStroke(1.dp, color.copy(alpha = 0.3f))
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(color, 0.75f))
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -1947,12 +2241,35 @@ fun MatrixPlanView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = color
-                        )
+                        Row(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(color.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = qIcon,
+                                    contentDescription = null,
+                                    tint = color,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = color,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
                                 .background(color.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
@@ -1960,7 +2277,7 @@ fun MatrixPlanView(
                         ) {
                             Text(
                                 "${tasks.size}",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                 fontWeight = FontWeight.Bold,
                                 color = color
                             )
@@ -1982,8 +2299,9 @@ fun MatrixPlanView(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                                shape = RoundedCornerShape(12.dp),
+                                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.5f))
                             ) {
                                 Row(
                                     modifier = Modifier.padding(10.dp),
@@ -2008,9 +2326,16 @@ fun MatrixPlanView(
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                                         ) {
-                                            if (task.isFrog) Text("🐸", fontSize = 12.sp)
+                                            if (task.isFrog) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Star,
+                                                    contentDescription = "Frog priority",
+                                                    tint = NeuroFlowThemeV2Colors.MutedCoral,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
                                             Text(
                                                 task.title,
                                                 style = MaterialTheme.typography.bodyMedium,
@@ -2026,7 +2351,7 @@ fun MatrixPlanView(
                                         ) {
                                             Text(
                                                 "${com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(task)}m • ${task.energyLevel.name}",
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                                 color = NeuroFlowThemeV2Colors.TextSecondary
                                             )
                                             val matrixFatigue = state.fatigueScoresByTaskId[task.id]
@@ -2042,12 +2367,23 @@ fun MatrixPlanView(
                                         val matrixSteps = remember(task.ifThenPlan) { StepByStepPlanCodec.parse(task.ifThenPlan) }
                                         if (matrixSteps.isNotEmpty()) {
                                             Spacer(modifier = Modifier.height(3.dp))
-                                            Text(
-                                                text = "🪜 ${matrixSteps.size} steps",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                                fontSize = 10.sp
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Checklist,
+                                                    contentDescription = null,
+                                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Text(
+                                                    text = "${matrixSteps.size} steps",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                    color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
                                         }
                                     }
 
@@ -2135,9 +2471,9 @@ fun AutopilotConfigView(
         item(key = "autopilot_master") {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = NeuroFlowThemeV2Colors.SlateSurface,
-                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.4f))
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigo, 0.7f))
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
@@ -2148,18 +2484,38 @@ fun AutopilotConfigView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "🤖 Circadian Autopilot",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = NeuroFlowThemeV2Colors.TextPrimary
-                            )
-                            Text(
-                                "Automatically distributes your tasks across the day matched to your biological alertness and energy curves.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = NeuroFlowThemeV2Colors.TextSecondary
-                            )
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Circadian Autopilot",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.TextPrimary
+                                )
+                                Text(
+                                    "Automatically distributes your tasks across the day matched to your biological alertness and energy curves.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                            }
                         }
                         Switch(
                             checked = state.isAutoScheduleOn,
@@ -2175,10 +2531,13 @@ fun AutopilotConfigView(
                             .fillMaxWidth()
                             .height(50.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
+                            contentColor = Color.White
+                        )
                     ) {
                         if (state.isAutoScheduling) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = NeuroFlowThemeV2Colors.TextPrimary)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                         } else {
                             Icon(Icons.Default.AutoAwesome, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
@@ -2213,22 +2572,45 @@ fun AutopilotConfigView(
             }
         }
 
+        if (state.predictedEnergyCurve != null) {
+            item(key = "autopilot_energy_prediction_chart") {
+                PredictedDailyEnergyChart(
+                    curve = state.predictedEnergyCurve,
+                    onAutoScheduleClick = onTriggerNow,
+                    isAutoScheduling = state.isAutoScheduling,
+                    initiallyExpanded = true
+                )
+            }
+        }
+
         item(key = "autopilot_rules") {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt
+                shape = RoundedCornerShape(16.dp),
+                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush())
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        "🧠 Neuroscience Auto-Scheduling Rules",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Psychology,
+                            contentDescription = null,
+                            tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            "Neuroscience Auto-Scheduling Rules",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                        )
+                    }
                     Text(
                         "• Process C Alertness Matching: High cognitive effort and Frog tasks are assigned to peak circadian windows.",
                         style = MaterialTheme.typography.bodySmall,
@@ -2254,18 +2636,32 @@ fun AutopilotConfigView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "🛡️ Manage Protected Time Slots",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NeuroFlowThemeV2Colors.TextPrimary,
+                Row(
                     modifier = Modifier.weight(1f, fill = false),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        "Manage Protected Time Slots",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NeuroFlowThemeV2Colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
-                TextButton(onClick = onManageSlotsClick) {
-                    Text("+ Add Slot", color = NeuroFlowThemeV2Colors.ElectricIndigo, fontWeight = FontWeight.SemiBold)
+                TextButton(
+                    onClick = onManageSlotsClick,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
+                    Text("+ Add Slot", color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -2276,7 +2672,7 @@ fun AutopilotConfigView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onManageSlotsClick() },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = NeuroFlowThemeV2Colors.SlateSurface.copy(alpha = 0.5f),
                     border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
                 ) {
@@ -2286,7 +2682,7 @@ fun AutopilotConfigView(
                     ) {
                         Text("No protected time slots configured.", style = MaterialTheme.typography.bodySmall, color = NeuroFlowThemeV2Colors.TextSecondary)
                         Spacer(Modifier.height(4.dp))
-                        Text("+ Create your first protected block", style = MaterialTheme.typography.labelMedium, color = NeuroFlowThemeV2Colors.ElectricIndigo, fontWeight = FontWeight.SemiBold)
+                        Text("+ Create your first protected block", style = MaterialTheme.typography.labelMedium, color = NeuroFlowThemeV2Colors.ElectricIndigoGlow, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -2295,9 +2691,9 @@ fun AutopilotConfigView(
         items(state.protectedSlots, key = { it.id }) { slot ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = NeuroFlowThemeV2Colors.SlateSurface,
-                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush())
             ) {
                 Row(
                     modifier = Modifier.padding(14.dp),
@@ -2318,7 +2714,7 @@ fun AutopilotConfigView(
                         val endM = endMinuteOfDay % 60
                         Text(
                             text = String.format("%02d:%02d – %02d:%02d (%s)", startH, startM, endH, endM, slot.category.name),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             color = NeuroFlowThemeV2Colors.TextSecondary
                         )
                     }
@@ -2369,26 +2765,48 @@ fun CircadianHorizonMiniBar(
                     )
                 )
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "⚡ Peak: ${String.format(Locale.ROOT, "%02d:00", peakStart)}–${String.format(Locale.ROOT, "%02d:00", peakEnd)}",
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 10.sp,
-                color = NeuroFlowPaletteV2.OptimalEmerald,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "☕ Dip: ${String.format(Locale.ROOT, "%02d:00", dipStart)}–${String.format(Locale.ROOT, "%02d:00", dipEnd)}",
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 10.sp,
-                color = NeuroFlowPaletteV2.PeakAmber,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = NeuroFlowPaletteV2.OptimalEmerald,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "Peak: ${String.format(Locale.ROOT, "%02d:00", peakStart)}–${String.format(Locale.ROOT, "%02d:00", peakEnd)}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    fontSize = 10.sp,
+                    color = NeuroFlowPaletteV2.OptimalEmerald,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LocalCafe,
+                    contentDescription = null,
+                    tint = NeuroFlowPaletteV2.PeakAmber,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "Dip: ${String.format(Locale.ROOT, "%02d:00", dipStart)}–${String.format(Locale.ROOT, "%02d:00", dipEnd)}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    fontSize = 10.sp,
+                    color = NeuroFlowPaletteV2.PeakAmber,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }

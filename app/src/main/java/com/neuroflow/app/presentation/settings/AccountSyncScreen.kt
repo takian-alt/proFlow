@@ -1,8 +1,7 @@
 package com.neuroflow.app.presentation.settings
 
 import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.content.MutableContextWrapper
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,8 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.neuroflow.app.data.sync.BackupMeta
 import com.neuroflow.app.data.sync.BackupStatus
 import com.neuroflow.app.data.sync.GoogleAuthState
@@ -47,33 +45,27 @@ fun AccountSyncScreen(
     val availableBackups by viewModel.availableBackups.collectAsStateWithLifecycle()
     val autoSyncEnabled by viewModel.autoSyncEnabled.collectAsStateWithLifecycle()
 
-    // Google Sign-In launcher
-    val signInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        viewModel.handleSignInResult(result)
+    LaunchedEffect(Unit) {
+        val activity = context.findActivity()
+        if (activity != null && authState is GoogleAuthState.SignedOut) {
+            viewModel.attemptSilentSignInIfSignedOut(MutableContextWrapper(activity))
+        }
     }
 
     fun launchGoogleSignIn() {
         val activity = context.findActivity() ?: return
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(context.getString(com.neuroflow.app.R.string.default_web_client_id))
-            .requestEmail()
-            .build()
-        val client = GoogleSignIn.getClient(activity, gso)
-        client.signOut().addOnCompleteListener {
-            signInLauncher.launch(client.signInIntent)
-        }
+        viewModel.signInWithGoogle(MutableContextWrapper(activity))
     }
-
-
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Account & Cloud Sync") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.testTag("account_sync_back_button")
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
@@ -100,10 +92,12 @@ fun AccountSyncScreen(
                 }
 
                 is GoogleAuthState.SignedOut, is GoogleAuthState.Error -> {
-                    item { SignedOutCard(
-                        error = (state as? GoogleAuthState.Error)?.message,
-                        onSignIn = { launchGoogleSignIn() }
-                    ) }
+                    item {
+                        SignedOutCard(
+                            error = (state as? GoogleAuthState.Error)?.message,
+                            onSignIn = { launchGoogleSignIn() }
+                        )
+                    }
                 }
 
                 is GoogleAuthState.SignedIn -> {
@@ -145,7 +139,6 @@ fun AccountSyncScreen(
                         }
                     }
 
-
                     item {
                         Text(
                             "Your data is stored privately in your Google account and is never shared. Backups include tasks, goals, sessions, sleep logs, WOOP data, energy predictions, and settings.",
@@ -183,11 +176,26 @@ private fun SignedOutCard(error: String?, onSignIn: () -> Unit) {
                 textAlign = TextAlign.Center
             )
             if (error != null) {
-                Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
             }
             Button(
                 onClick = onSignIn,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("google_sign_in_button")
             ) {
                 Icon(Icons.Filled.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))

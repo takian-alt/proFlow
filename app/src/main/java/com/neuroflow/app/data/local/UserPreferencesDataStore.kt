@@ -110,6 +110,10 @@ data class UserPreferences(
     val autonomyNudgeNotificationsEnabled: Boolean = true,
     val deadlineReminderNotificationsEnabled: Boolean = true,
     val deadlineEscalationNotificationsEnabled: Boolean = true,
+    val energyRecoveryAlertsEnabled: Boolean = true,
+    val recoveryThresholdAutoPersonalized: Boolean = true,
+    val recoveryThresholdBasePercent: Int = 45,
+    val lastRecoveryAlertSentAtMillis: Long = 0L,
     val dailyPlanNotificationHour: Int = 7,
     val streakCheckNotificationHour: Int = 21,
     val userGuidePromptShown: Boolean = false,
@@ -275,6 +279,10 @@ class UserPreferencesDataStore @Inject constructor(
         val AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED = booleanPreferencesKey("autonomy_nudge_notifications_enabled")
         val DEADLINE_REMINDER_NOTIFICATIONS_ENABLED = booleanPreferencesKey("deadline_reminder_notifications_enabled")
         val DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED = booleanPreferencesKey("deadline_escalation_notifications_enabled")
+        val ENERGY_RECOVERY_ALERTS_ENABLED = booleanPreferencesKey("energy_recovery_alerts_enabled")
+        val RECOVERY_THRESHOLD_AUTO_PERSONALIZED = booleanPreferencesKey("recovery_threshold_auto_personalized")
+        val RECOVERY_THRESHOLD_BASE_PERCENT = intPreferencesKey("recovery_threshold_base_percent")
+        val LAST_RECOVERY_ALERT_SENT_AT_MILLIS = longPreferencesKey("last_recovery_alert_sent_at_millis")
         val DAILY_PLAN_NOTIFICATION_HOUR = intPreferencesKey("daily_plan_notification_hour")
         val STREAK_CHECK_NOTIFICATION_HOUR = intPreferencesKey("streak_check_notification_hour")
         val USER_GUIDE_PROMPT_SHOWN = booleanPreferencesKey("user_guide_prompt_shown")
@@ -410,6 +418,10 @@ class UserPreferencesDataStore @Inject constructor(
             autonomyNudgeNotificationsEnabled = prefs[Keys.AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED] ?: true,
             deadlineReminderNotificationsEnabled = prefs[Keys.DEADLINE_REMINDER_NOTIFICATIONS_ENABLED] ?: true,
             deadlineEscalationNotificationsEnabled = prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] ?: true,
+            energyRecoveryAlertsEnabled = prefs[Keys.ENERGY_RECOVERY_ALERTS_ENABLED] ?: true,
+            recoveryThresholdAutoPersonalized = prefs[Keys.RECOVERY_THRESHOLD_AUTO_PERSONALIZED] ?: true,
+            recoveryThresholdBasePercent = (prefs[Keys.RECOVERY_THRESHOLD_BASE_PERCENT] ?: 45).coerceIn(20, 75),
+            lastRecoveryAlertSentAtMillis = prefs[Keys.LAST_RECOVERY_ALERT_SENT_AT_MILLIS] ?: 0L,
             dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
             streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
             userGuidePromptShown = prefs[Keys.USER_GUIDE_PROMPT_SHOWN] ?: false,
@@ -631,6 +643,10 @@ class UserPreferencesDataStore @Inject constructor(
                 autonomyNudgeNotificationsEnabled = prefs[Keys.AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED] ?: true,
                 deadlineReminderNotificationsEnabled = prefs[Keys.DEADLINE_REMINDER_NOTIFICATIONS_ENABLED] ?: true,
                 deadlineEscalationNotificationsEnabled = prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] ?: true,
+                energyRecoveryAlertsEnabled = prefs[Keys.ENERGY_RECOVERY_ALERTS_ENABLED] ?: true,
+                recoveryThresholdAutoPersonalized = prefs[Keys.RECOVERY_THRESHOLD_AUTO_PERSONALIZED] ?: true,
+                recoveryThresholdBasePercent = (prefs[Keys.RECOVERY_THRESHOLD_BASE_PERCENT] ?: 45).coerceIn(20, 75),
+                lastRecoveryAlertSentAtMillis = prefs[Keys.LAST_RECOVERY_ALERT_SENT_AT_MILLIS] ?: 0L,
                 dailyPlanNotificationHour = prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] ?: 7,
                 streakCheckNotificationHour = prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] ?: 21,
                 userGuidePromptShown = prefs[Keys.USER_GUIDE_PROMPT_SHOWN] ?: false,
@@ -772,6 +788,10 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.AUTONOMY_NUDGE_NOTIFICATIONS_ENABLED] = updated.autonomyNudgeNotificationsEnabled
             prefs[Keys.DEADLINE_REMINDER_NOTIFICATIONS_ENABLED] = updated.deadlineReminderNotificationsEnabled
             prefs[Keys.DEADLINE_ESCALATION_NOTIFICATIONS_ENABLED] = updated.deadlineEscalationNotificationsEnabled
+            prefs[Keys.ENERGY_RECOVERY_ALERTS_ENABLED] = updated.energyRecoveryAlertsEnabled
+            prefs[Keys.RECOVERY_THRESHOLD_AUTO_PERSONALIZED] = updated.recoveryThresholdAutoPersonalized
+            prefs[Keys.RECOVERY_THRESHOLD_BASE_PERCENT] = updated.recoveryThresholdBasePercent.coerceIn(20, 75)
+            prefs[Keys.LAST_RECOVERY_ALERT_SENT_AT_MILLIS] = updated.lastRecoveryAlertSentAtMillis
             prefs[Keys.DAILY_PLAN_NOTIFICATION_HOUR] = updated.dailyPlanNotificationHour.coerceIn(0, 23)
             prefs[Keys.STREAK_CHECK_NOTIFICATION_HOUR] = updated.streakCheckNotificationHour.coerceIn(0, 23)
             prefs[Keys.USER_GUIDE_PROMPT_SHOWN] = updated.userGuidePromptShown
@@ -867,6 +887,24 @@ class UserPreferencesDataStore @Inject constructor(
 
     suspend fun setLastCalendarInboundSyncAt(timestamp: Long) {
         updatePreferences { it.copy(lastCalendarInboundSyncAt = timestamp) }
+    }
+
+    suspend fun recordRecoveryAlertSent(timestampMillis: Long = System.currentTimeMillis()) {
+        updatePreferences { it.copy(lastRecoveryAlertSentAtMillis = timestampMillis) }
+    }
+
+    suspend fun updateRecoveryThreshold(
+        basePercent: Int? = null,
+        autoPersonalized: Boolean? = null,
+        enabled: Boolean? = null
+    ) {
+        updatePreferences { prefs ->
+            prefs.copy(
+                recoveryThresholdBasePercent = basePercent?.coerceIn(20, 75) ?: prefs.recoveryThresholdBasePercent,
+                recoveryThresholdAutoPersonalized = autoPersonalized ?: prefs.recoveryThresholdAutoPersonalized,
+                energyRecoveryAlertsEnabled = enabled ?: prefs.energyRecoveryAlertsEnabled
+            )
+        }
     }
 
     suspend fun recordSchedulingFeedback(

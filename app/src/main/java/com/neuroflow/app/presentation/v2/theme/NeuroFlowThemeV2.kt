@@ -11,9 +11,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.neuroflow.app.R
 import com.neuroflow.app.domain.service.EnergyPhase
 import com.neuroflow.app.presentation.common.theme.LocalIsDarkTheme
 
@@ -166,58 +168,100 @@ fun phaseAccentColor(phase: EnergyPhase, colors: NeuroFlowExtendedColors): Color
 @ReadOnlyComposable
 fun phaseAccentColor(phase: EnergyPhase): Color = phaseAccentColor(phase, LocalNeuroFlowColors.current)
 
+val SpaceGroteskFontFamily = FontFamily(
+    Font(R.font.space_grotesk, FontWeight.Normal)
+)
+
+val PlusJakartaSansFontFamily = FontFamily(
+    Font(R.font.plus_jakarta_sans, FontWeight.Normal)
+)
+
 val NeuroFlowTypographyV2 = Typography(
+    displayLarge = TextStyle(
+        fontFamily = SpaceGroteskFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 48.sp,
+        lineHeight = 54.sp,
+        letterSpacing = (-1.2).sp,
+    ),
+    displayMedium = TextStyle(
+        fontFamily = SpaceGroteskFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 36.sp,
+        lineHeight = 42.sp,
+        letterSpacing = (-0.8).sp,
+    ),
     headlineLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = SpaceGroteskFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
         lineHeight = 34.sp,
         letterSpacing = (-0.5).sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = SpaceGroteskFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
         letterSpacing = (-0.3).sp,
     ),
     titleLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = SpaceGroteskFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 18.sp,
         lineHeight = 24.sp,
+        letterSpacing = (-0.2).sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
+        fontFamily = PlusJakartaSansFontFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp,
     ),
+    titleSmall = TextStyle(
+        fontFamily = PlusJakartaSansFontFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+    ),
     bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = PlusJakartaSansFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         lineHeight = 22.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = PlusJakartaSansFontFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
+        fontSize = 13.5.sp,
+        lineHeight = 19.sp,
+    ),
+    bodySmall = TextStyle(
+        fontFamily = PlusJakartaSansFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
     ),
     labelLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = PlusJakartaSansFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.4.sp,
+        letterSpacing = 0.25.sp,
+    ),
+    labelMedium = TextStyle(
+        fontFamily = PlusJakartaSansFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.5.sp,
+        lineHeight = 15.sp,
+        letterSpacing = 0.35.sp,
     ),
     labelSmall = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = PlusJakartaSansFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
+        fontSize = 10.5.sp,
         lineHeight = 14.sp,
-        letterSpacing = 0.5.sp,
+        letterSpacing = 0.45.sp,
     ),
 )
 

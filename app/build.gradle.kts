@@ -117,8 +117,10 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
 
-    // Google Sign-In
-    implementation("com.google.android.gms:play-services-auth:21.3.0")
+    // Google Sign-In via Jetpack Credential Manager
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     // Compose BOM
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

@@ -701,6 +701,41 @@ fun SettingsScreen(
                         viewModel.updatePreferences { p -> p.copy(deadlineEscalationNotificationsEnabled = it) }
                     }
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SettingsToggleRow(
+                    label = "Energy recovery break alerts",
+                    description = "Notify with a short break suggestion when your predicted energy drops below threshold",
+                    checked = prefs.energyRecoveryAlertsEnabled,
+                    onCheckedChange = {
+                        viewModel.updatePreferences { p -> p.copy(energyRecoveryAlertsEnabled = it) }
+                    }
+                )
+                if (prefs.energyRecoveryAlertsEnabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsToggleRow(
+                        label = "Auto-personalize recovery threshold",
+                        description = "Adapt the break threshold using your circadian dip floor, sleep pressure, and completion history",
+                        checked = prefs.recoveryThresholdAutoPersonalized,
+                        onCheckedChange = {
+                            viewModel.updatePreferences { p -> p.copy(recoveryThresholdAutoPersonalized = it) }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsNumberRow(
+                        label = if (prefs.recoveryThresholdAutoPersonalized) {
+                            "Baseline recovery threshold (%)"
+                        } else {
+                            "Recovery threshold (%)"
+                        },
+                        value = prefs.recoveryThresholdBasePercent,
+                        min = 25,
+                        max = 75
+                    ) {
+                        viewModel.updatePreferences { p -> p.copy(recoveryThresholdBasePercent = it) }
+                    }
+                }
             }
 
             // Features → Energy

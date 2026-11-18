@@ -133,6 +133,7 @@ data class PlanUiStateV2(
     val energyUi: EnergyUiModel? = null,
     val circadianSummary: DailyCircadianSummary? = null,
     val energyTimeline: List<CircadianSnapshot> = emptyList(),
+    val predictedEnergyCurve: com.neuroflow.app.domain.model.PredictedEnergyCurveUiModel? = null,
     val preferences: UserPreferences = UserPreferences(),
     val isLoading: Boolean = true,
     val pendingDeletedTask: TaskEntity? = null,
@@ -356,7 +357,10 @@ class PlanViewModelV2 @Inject constructor(
                 old.weightDuration == new.weightDuration &&
                 old.weightFocusMode == new.weightFocusMode &&
                 old.weightPlanBoost == new.weightPlanBoost &&
-                old.weightEnjoyment == new.weightEnjoyment
+                old.weightEnjoyment == new.weightEnjoyment &&
+                old.recoveryThresholdBasePercent == new.recoveryThresholdBasePercent &&
+                old.recoveryThresholdAutoPersonalized == new.recoveryThresholdAutoPersonalized &&
+                old.autoSchedulingBreakDurationMinutes == new.autoSchedulingBreakDurationMinutes
         },
         combine(
             (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
@@ -571,6 +575,35 @@ class PlanViewModelV2 @Inject constructor(
             }
         val dailyBlocks = slotBlocks + physBlocks
 
+        val rollingAverageSleepMinutes = com.neuroflow.app.domain.model.computeRollingDailySleepAverage(
+            sleepLogs = sleepLogs,
+            nowMillis = now,
+            zoneId = zoneId
+        )
+        val sleepWindows = sleepLogs.map { com.neuroflow.app.domain.service.TimeSlotWindow(it.startAt, it.endAt) }
+        val socialJetlagLagHours = com.neuroflow.app.domain.service.SocialJetlagCalculator.evaluateFromSleepWindows(
+            sleepWindows = sleepWindows,
+            nowMillis = now,
+            zoneId = zoneId
+        ).mondayMorningPhaseLagHours
+
+        val approvedFeedbackObs = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.extractApprovedCircadianObservations(
+            json = prefs.schedulingRejectionsJson,
+            nowMillis = now
+        )
+        val behavioralObservations = com.neuroflow.app.domain.model.buildBehavioralObservations(
+            completedTasks = completedList,
+            sessions = allSessionsList,
+            zoneId = zoneId
+        ) + approvedFeedbackObs
+        val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
+        val learnedProfile = if (behavioralObservations.isNotEmpty()) {
+            com.neuroflow.app.domain.service.AdaptiveCircadianLearner.learnProfile(
+                observations = behavioralObservations,
+                initialPeakHour = initialPeak
+            )
+        } else null
+
         val manualPeakHour = if (prefs.manualPeakProfileEnabled) (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23) else null
         val circadianSummary = runCatching {
             circadianEnergyService.computeDailySummary(
@@ -583,7 +616,10 @@ class PlanViewModelV2 @Inject constructor(
                 chronotype = resolvedChronotype,
                 manualPeakStartHour = manualPeakHour,
                 cognitiveBlocks = dailyBlocks,
-                stimulantDoses = allStimulants
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                stimulantDoses = allStimulants,
+                socialJetlagLagHours = socialJetlagLagHours
             )
         }.getOrNull()
 
@@ -598,9 +634,35 @@ class PlanViewModelV2 @Inject constructor(
                 chronotype = resolvedChronotype,
                 manualPeakStartHour = manualPeakHour,
                 cognitiveBlocks = dailyBlocks,
-                stimulantDoses = allStimulants
+                learnedProfile = learnedProfile,
+                rollingAverageSleepMinutes = rollingAverageSleepMinutes,
+                stimulantDoses = allStimulants,
+                socialJetlagLagHours = socialJetlagLagHours
             )
         }.getOrDefault(emptyList())
+
+        val currentHourOfDay = if (isTargetingToday) {
+            Instant.ofEpochMilli(now).atZone(zoneId).hour
+        } else {
+            null
+        }
+        val predictedEnergyCurve = com.neuroflow.app.domain.model.buildPredictedEnergyCurveUiModel(
+            timeline = energyTimeline,
+            completedTasks = completedList,
+            sessions = allSessionsList,
+            circadianSummary = circadianSummary,
+            learnedProfile = learnedProfile,
+            workDayStart = prefs.workDayStart,
+            workDayEnd = prefs.workDayEnd,
+            currentHour = currentHourOfDay,
+            zoneId = zoneId,
+            recoveryThresholdBasePercent = prefs.recoveryThresholdBasePercent,
+            recoveryThresholdAutoPersonalized = prefs.recoveryThresholdAutoPersonalized,
+            wakeUpHour = prefs.wakeUpHour,
+            sleepHour = prefs.sleepHour,
+            sleepPressurePoints = prefs.sleepPressurePoints,
+            recommendedBreakMinutes = prefs.autoSchedulingBreakDurationMinutes
+        )
 
         val scheduledMinutes = tasksForDay.sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
         val completedOnDate = completedList.filter { task ->
@@ -652,6 +714,7 @@ class PlanViewModelV2 @Inject constructor(
             energyUi = energyUi,
             circadianSummary = circadianSummary,
             energyTimeline = energyTimeline,
+            predictedEnergyCurve = predictedEnergyCurve,
             preferences = prefs,
             isLoading = false,
             pendingDeletedTask = params.pendingDeletedTask,
@@ -786,7 +849,7 @@ class PlanViewModelV2 @Inject constructor(
                     val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
                     elapsedMs < maxDurationMs
                 }.map { it.taskId }.toSet()
-                val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+                val activeTaskId = focusedTaskIds.firstOrNull()
 
                 val nowLocalDate = java.time.Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
                 val isTargetingToday = dayDate == nowLocalDate
@@ -886,7 +949,10 @@ class PlanViewModelV2 @Inject constructor(
                 val completedMinutesToday = allKnownTasks
                     .filter {
                         it.status == com.neuroflow.app.domain.model.TaskStatus.COMPLETED &&
-                            it.effectiveScheduledDateMillis() in dayStart..dayEnd &&
+                            (
+                                it.effectiveScheduledDateMillis()?.let { d -> d in dayStart..dayEnd } == true ||
+                                    it.completedAt?.let { c -> c in dayStart..dayEnd } == true
+                                ) &&
                             isCognitiveDemand(it)
                     }
                     .sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
@@ -939,6 +1005,10 @@ class PlanViewModelV2 @Inject constructor(
                         isStandalonePart2 -> fresh.title
                         else -> cleanTitle
                     }
+                    val nextStartHour = java.time.Instant.ofEpochMilli(primaryPlacement.window.startMillis)
+                        .atZone(zoneId).hour
+                    val clearedRejection = fresh.userSchedulingRating == -1 &&
+                        fresh.schedulingRejectedSlotHour != nextStartHour
                     val updated = fresh.copy(
                         title = titleToUse,
                         scheduledDate = startOfDay,
@@ -946,6 +1016,8 @@ class PlanViewModelV2 @Inject constructor(
                         habitDate = if (fresh.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startOfDay else fresh.habitDate,
                         isAutoScheduled = true,
                         plannedBlockMinutes = primaryPlacement.window.durationMinutes,
+                        userSchedulingRating = if (clearedRejection) 0 else fresh.userSchedulingRating,
+                        schedulingRejectedSlotHour = if (clearedRejection) null else fresh.schedulingRejectedSlotHour,
                         lastAutoScheduledAt = nowMillis,
                         lastStabilizedAt = nowMillis,
                         updatedAt = nowMillis
@@ -1191,7 +1263,7 @@ class PlanViewModelV2 @Inject constructor(
                     val elapsedMs = (nowMillis - session.startedAt - session.totalPausedMs).coerceAtLeast(0L)
                     elapsedMs < maxDurationMs
                 }.map { it.taskId }.toSet()
-                val activeTaskId = allSessions.firstOrNull { it.endedAt == null }?.taskId
+                val activeTaskId = focusedTaskIds.firstOrNull()
                 val activeTaskIds = allTasks.map { it.id }.toSet()
 
                 fun isContinuationBlocked(task: TaskEntity): Boolean {
@@ -1370,6 +1442,10 @@ class PlanViewModelV2 @Inject constructor(
                             else -> cleanTitle
                         }
                         val insertingStandalonePart2 = isStandalonePart2 && existingTarget == null
+                        val nextStartHour = java.time.Instant.ofEpochMilli(primary.window.startMillis)
+                            .atZone(java.time.ZoneId.systemDefault()).hour
+                        val clearedRejection = fresh.userSchedulingRating == -1 &&
+                            fresh.schedulingRejectedSlotHour != nextStartHour
                         val updatedParent = fresh.copy(
                             id = if (insertingStandalonePart2) primary.task.id else fresh.id,
                             title = titleToUse,
@@ -1385,6 +1461,8 @@ class PlanViewModelV2 @Inject constructor(
                             isFrog = if (insertingStandalonePart2) false else fresh.isFrog,
                             isAutoScheduled = true,
                             plannedBlockMinutes = primary.window.durationMinutes,
+                            userSchedulingRating = if (clearedRejection) 0 else fresh.userSchedulingRating,
+                            schedulingRejectedSlotHour = if (clearedRejection) null else fresh.schedulingRejectedSlotHour,
                             lastAutoScheduledAt = nowMillis,
                             lastStabilizedAt = nowMillis,
                             updatedAt = nowMillis
@@ -1588,15 +1666,24 @@ class PlanViewModelV2 @Inject constructor(
                 _feedbackTask.value = updatedTask
                 _feedbackRemedyProposal.value = null
                 _isFeedbackLoading.value = false
-                _userActionMessage.emit("Disliked slot noted. Select a reason to tune your schedule.")
+                _userActionMessage.emit("Select why this slot didn't fit so ML can fix & learn.")
             } else {
-                preferencesDataStore.recordSchedulingFeedback(
-                    category = category,
-                    hour = startHour,
-                    isNegative = false,
-                    timestampMillis = nowMillis
-                )
-                _userActionMessage.emit("Placement approved! Learning your preferences.")
+                if (rating > 0) {
+                    preferencesDataStore.recordSchedulingFeedback(
+                        category = category,
+                        hour = startHour,
+                        isNegative = false,
+                        timestampMillis = nowMillis
+                    )
+                    preferencesDataStore.updatePreferences { prefs ->
+                        prefs.copy(
+                            weightCircadianMatch = (prefs.weightCircadianMatch + 0.03f).coerceIn(0.6f, 1.4f)
+                        )
+                    }
+                    _userActionMessage.emit("Placement approved! Preferred hour reinforced.")
+                } else {
+                    _userActionMessage.emit("Placement rating cleared.")
+                }
             }
         }
     }
@@ -1622,10 +1709,24 @@ class PlanViewModelV2 @Inject constructor(
                 reasonTag = reasonTag
             )
 
+            when (reasonTag.uppercase()) {
+                "TOO_LOW_ENERGY", "TOO_EARLY", "TOO_LATE" -> {
+                    preferencesDataStore.updatePreferences { p ->
+                        p.copy(weightCircadianMatch = (p.weightCircadianMatch + 0.04f).coerceIn(0.6f, 1.4f))
+                    }
+                }
+                "NEEDS_LONGER_BLOCK" -> {
+                    preferencesDataStore.updatePreferences { p ->
+                        p.copy(weightDuration = (p.weightDuration + 0.03f).coerceIn(0.6f, 1.4f))
+                    }
+                }
+            }
+
             val prefs = preferencesDataStore.preferencesFlow.first()
             val dayMillis = uiState.value.selectedDateMillis
             val zoneId = java.time.ZoneId.systemDefault()
             val dayDate = java.time.Instant.ofEpochMilli(dayMillis).atZone(zoneId).toLocalDate()
+            val todayDate = java.time.LocalDate.now(zoneId)
             val dayStart = dayDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
             val workDayStartMillis = dayStart + prefs.workDayStart * 3600_000L
             val workDayEndMillis = dayStart + prefs.workDayEnd * 3600_000L
@@ -1646,7 +1747,18 @@ class PlanViewModelV2 @Inject constructor(
                 TimeSlotWindow(s, e)
             }
             val occupied = taskOccupied + slotOccupied
-            val availableWindows = computeAvailableWindows(workDayStartMillis, workDayEndMillis, occupied)
+            val rawWindows = computeAvailableWindows(workDayStartMillis, workDayEndMillis, occupied)
+            val futureTrimmedWindows = if (dayDate == todayDate) {
+                val cutoff = nowMillis + 5 * 60_000L
+                rawWindows.mapNotNull { win ->
+                    val s = maxOf(win.startMillis, cutoff)
+                    if (win.endMillis > s) TimeSlotWindow(s, win.endMillis) else null
+                }
+            } else {
+                rawWindows
+            }
+            val availableWindows = futureTrimmedWindows
+                .ifEmpty { rawWindows }
                 .ifEmpty { listOf(TimeSlotWindow(workDayStartMillis, workDayEndMillis)) }
 
             val onlineService = geminiAiOnlineService ?: GeminiAiOnlineService()
@@ -1673,11 +1785,26 @@ class PlanViewModelV2 @Inject constructor(
                 scheduledTime = sOffset,
                 isAutoScheduled = false,
                 isScheduleLocked = true,
+                userSchedulingRating = 1,
+                schedulingRejectedSlotHour = null,
                 habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) sDay else task.habitDate,
                 updatedAt = now
             )
             taskRepository.update(updatedTask)
             calendarSyncRepository?.handleTaskStateChanged(updatedTask)
+
+            val acceptedHour = if (newSlotMillis in 0L until com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) {
+                (newSlotMillis / 3_600_000L).toInt().coerceIn(0, 23)
+            } else {
+                java.time.Instant.ofEpochMilli(newSlotMillis)
+                    .atZone(java.time.ZoneId.systemDefault()).hour
+            }
+            preferencesDataStore.recordSchedulingFeedback(
+                category = task.determineCategory().name,
+                hour = acceptedHour,
+                isNegative = false,
+                timestampMillis = now
+            )
 
             if (!directivePatch.isNullOrBlank()) {
                 val prefs = preferencesDataStore.preferencesFlow.first()
@@ -1696,14 +1823,83 @@ class PlanViewModelV2 @Inject constructor(
             }
 
             dismissFeedbackDialog()
-            _userActionMessage.emit("Slot updated and locked for '${task.title.take(20)}'.")
+            _userActionMessage.emit("Slot updated & reinforced for '${task.title.take(20)}'.")
         }
     }
 
     fun dismissFeedbackDialog() {
+        val dismissedTask = _feedbackTask.value
+        val hadProposal = _feedbackRemedyProposal.value != null
         _feedbackTask.value = null
         _feedbackRemedyProposal.value = null
         _isFeedbackLoading.value = false
+
+        // If the user gave thumbs-down and dismissed before choosing a specific reason,
+        // still persist the untagged negative hour rejection and trigger background rescue.
+        if (dismissedTask != null && !hadProposal && dismissedTask.userSchedulingRating == -1) {
+            val rejectedHour = dismissedTask.schedulingRejectedSlotHour ?: extractTaskHour(dismissedTask)
+            viewModelScope.launch {
+                val now = System.currentTimeMillis()
+                if (rejectedHour != null) {
+                    preferencesDataStore.recordSchedulingFeedback(
+                        category = dismissedTask.determineCategory().name,
+                        hour = rejectedHour,
+                        isNegative = true,
+                        timestampMillis = now,
+                        reasonTag = null
+                    )
+                }
+                val prefs = preferencesDataStore.preferencesFlow.first()
+                if (prefs.autoSchedulingEnabled) {
+                    workManager.enqueueUniqueWork(
+                        "${ScheduleAutoTasksWorker.WORK_NAME}_rejection_rescue",
+                        androidx.work.ExistingWorkPolicy.REPLACE,
+                        ScheduleAutoTasksWorker.buildOneTimeWorkRequest(forceReplan = false)
+                    )
+                }
+            }
+        }
+    }
+
+    private fun extractTaskHour(task: TaskEntity): Int? {
+        val rawTime = task.scheduledTime ?: return null
+        return if (rawTime in 0L until com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) {
+            (rawTime / 3_600_000L).toInt().coerceIn(0, 23)
+        } else {
+            val epoch = task.resolveScheduledEpochMillis(uiState.value.selectedDateMillis) ?: return null
+            java.time.Instant.ofEpochMilli(epoch).atZone(java.time.ZoneId.systemDefault()).hour
+        }
+    }
+
+    private suspend fun recordImplicitSlotFeedback(
+        previousTask: TaskEntity,
+        newHour: Int,
+        nowMillis: Long,
+        shiftedToPeak: Boolean = false
+    ) {
+        val category = previousTask.determineCategory().name
+        val oldHour = extractTaskHour(previousTask)
+        if (previousTask.isAutoScheduled && oldHour != null && oldHour != newHour) {
+            val inferredTag = when {
+                shiftedToPeak -> "TOO_LOW_ENERGY"
+                oldHour < newHour && oldHour <= 10 -> "TOO_EARLY"
+                oldHour > newHour && oldHour >= 15 -> "TOO_LATE"
+                else -> "WRONG_CONTEXT"
+            }
+            preferencesDataStore.recordSchedulingFeedback(
+                category = category,
+                hour = oldHour,
+                isNegative = true,
+                timestampMillis = nowMillis,
+                reasonTag = inferredTag
+            )
+        }
+        preferencesDataStore.recordSchedulingFeedback(
+            category = category,
+            hour = newHour.coerceIn(0, 23),
+            isNegative = false,
+            timestampMillis = nowMillis
+        )
     }
 
     private fun computeAvailableWindows(
@@ -2145,15 +2341,19 @@ class PlanViewModelV2 @Inject constructor(
             }
             val activeSuffix = if (targetDate == todayStart && isPeakActive && targetHour == currentHour) " Active" else ""
             val messageLabel = "$labelPrefix ($formattedTime$activeSuffix)"
+            val nowMove = System.currentTimeMillis()
             val updated = task.copy(
                 scheduledDate = targetDate,
                 scheduledTime = millisInDay,
                 isAutoScheduled = false,
                 isScheduleLocked = true,
+                userSchedulingRating = if (task.userSchedulingRating == -1) 0 else task.userSchedulingRating,
+                schedulingRejectedSlotHour = if (task.userSchedulingRating == -1) null else task.schedulingRejectedSlotHour,
                 habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) targetDate else task.habitDate,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = nowMove
             )
             taskRepository.update(updated)
+            recordImplicitSlotFeedback(task, targetHour, nowMove, shiftedToPeak = true)
             calendarSyncRepository?.handleTaskStateChanged(updated)
             context?.let { AutonomyNudgeEngine.scheduleNudge(it, updated) }
             _userActionMessage.emit("Shifted '${task.title.take(20)}' to $messageLabel ⚡")
@@ -2166,15 +2366,19 @@ class PlanViewModelV2 @Inject constructor(
             val safeMinute = (minute % 60).coerceIn(0, 59)
             val millisInDay = safeHour * 3600_000L + safeMinute * 60_000L
             val selectedDay = _selectedDate.value
+            val nowAssign = System.currentTimeMillis()
             val updatedTask = task.copy(
                 scheduledDate = selectedDay,
                 scheduledTime = millisInDay,
                 isAutoScheduled = false,
                 isScheduleLocked = true,
+                userSchedulingRating = if (task.userSchedulingRating == -1) 0 else task.userSchedulingRating,
+                schedulingRejectedSlotHour = if (task.userSchedulingRating == -1) null else task.schedulingRejectedSlotHour,
                 habitDate = if (task.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) selectedDay else task.habitDate,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = nowAssign
             )
             taskRepository.update(updatedTask)
+            recordImplicitSlotFeedback(task, safeHour, nowAssign)
             val startMillis = selectedDay + millisInDay
             calendarSyncRepository?.upsertTaskEvent(updatedTask, startMillis = startMillis)
             context?.let { AutonomyNudgeEngine.scheduleNudge(it, updatedTask) }
@@ -2189,15 +2393,21 @@ class PlanViewModelV2 @Inject constructor(
                 ?: taskRepository.getById(taskId)
                 ?: return@launch
             val (startOfDay, timeOffset) = com.neuroflow.app.worker.ScheduleAutoTasksWorker.splitMillisToDateAndTime(newStartMillis)
+            val nowDrag = System.currentTimeMillis()
+            val newHour = java.time.Instant.ofEpochMilli(newStartMillis)
+                .atZone(java.time.ZoneId.systemDefault()).hour
             val updatedTask = targetTask.copy(
                 scheduledDate = startOfDay,
                 scheduledTime = timeOffset,
                 isAutoScheduled = false,
                 isScheduleLocked = true,
+                userSchedulingRating = if (targetTask.userSchedulingRating == -1) 0 else targetTask.userSchedulingRating,
+                schedulingRejectedSlotHour = if (targetTask.userSchedulingRating == -1) null else targetTask.schedulingRejectedSlotHour,
                 habitDate = if (targetTask.recurrence != com.neuroflow.app.domain.model.Recurrence.NONE) startOfDay else targetTask.habitDate,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = nowDrag
             )
             taskRepository.update(updatedTask)
+            recordImplicitSlotFeedback(targetTask, newHour, nowDrag)
             calendarSyncRepository?.upsertTaskEvent(updatedTask, startMillis = newStartMillis)
             context?.let { AutonomyNudgeEngine.scheduleNudge(it, updatedTask) }
         }
@@ -2244,6 +2454,17 @@ class PlanViewModelV2 @Inject constructor(
                     dailyStreak = newStreak,
                     longestStreak = longest,
                     lastActiveDate = now
+                )
+            }
+            // Reinforce proven hour affinity when a non-rejected scheduled task is completed
+            if (task.userSchedulingRating >= 0) {
+                val confirmedHour = extractTaskHour(task)
+                    ?: java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.systemDefault()).hour
+                preferencesDataStore.recordSchedulingFeedback(
+                    category = task.determineCategory().name,
+                    hour = confirmedHour,
+                    isNegative = false,
+                    timestampMillis = now
                 )
             }
             val affirmationSuffix = if (prefs.affirmations.isNotEmpty()) {

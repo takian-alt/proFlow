@@ -184,14 +184,27 @@ class SchedulingFeedbackViewModelTest {
         )
         advanceUntilIdle()
 
-        // Verify task updated with new scheduledTime and isScheduleLocked = true
+        // Verify task updated with new scheduledTime, isScheduleLocked = true, and rejection flags cleared
         coVerify {
             taskRepository.update(
                 match {
                     it.id == "task-1" &&
                         it.scheduledTime == 50_400_000L &&
-                        it.isScheduleLocked
+                        it.isScheduleLocked &&
+                        it.userSchedulingRating == 1 &&
+                        it.schedulingRejectedSlotHour == null
                 }
+            )
+        }
+
+        // Verify positive feedback recorded for accepted hour (50_400_000L = 14:00)
+        coVerify {
+            preferencesDataStore.recordSchedulingFeedback(
+                category = any(),
+                hour = 14,
+                isNegative = false,
+                timestampMillis = any(),
+                reasonTag = null
             )
         }
 
@@ -244,5 +257,44 @@ class SchedulingFeedbackViewModelTest {
         // 09:15 in day millis = (9 * 60 + 15) * 60_000L = 33_300_000L
         val morningFormatted = formatRemedyTime(33_300_000L)
         assertEquals("09:15 AM", morningFormatted)
+    }
+
+    @Test
+    fun testAssignTaskTime_autoScheduledMovedEarlierFromLateSlot_recordsTooLateAndPositiveNewHour() = runTest(testDispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val task = TaskEntity(
+            id = "task-late-move",
+            title = "Write Architecture Spec",
+            scheduledDate = 1000L,
+            scheduledTime = 17 * 3_600_000L, // 5:00 PM auto-scheduled
+            isAutoScheduled = true,
+            status = TaskStatus.ACTIVE,
+            quadrant = Quadrant.SCHEDULE
+        )
+
+        // User manually drags/assigns it earlier to 10:00 AM
+        viewModel.assignTaskTime(task, hour = 10, minute = 0)
+        advanceUntilIdle()
+
+        coVerify {
+            preferencesDataStore.recordSchedulingFeedback(
+                category = any(),
+                hour = 17,
+                isNegative = true,
+                timestampMillis = any(),
+                reasonTag = "TOO_LATE"
+            )
+        }
+        coVerify {
+            preferencesDataStore.recordSchedulingFeedback(
+                category = any(),
+                hour = 10,
+                isNegative = false,
+                timestampMillis = any(),
+                reasonTag = null
+            )
+        }
     }
 }

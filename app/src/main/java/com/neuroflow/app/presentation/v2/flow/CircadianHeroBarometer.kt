@@ -22,9 +22,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.NightlightRound
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SelfImprovement
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.WbSunny
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.CircadianEnergySummary
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -112,35 +130,33 @@ fun CircadianHeroBarometer(
                 )
                 .padding(18.dp),
         ) {
-            // Header: Phase Badge + Battery Score + Collapsible 24h Curve Toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Header: Phase Badge + Battery Score + Simulation & 24h Curve Toggles
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     PhaseBadge(phase = activePhase, accent = accent)
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = accent.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, accent.copy(alpha = 0.3f))
+                        shape = RoundedCornerShape(10.dp),
+                        color = accent.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f))
                     ) {
                         Text(
                             text = "${summary.currentEnergyScore}% Battery",
                             style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             color = accent,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
                 }
 
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
                         onClick = {
@@ -148,24 +164,35 @@ fun CircadianHeroBarometer(
                             onToggleSimulationMode(next)
                             if (next) isGraphExpanded = true
                         },
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (simulationState.isActive) accent.copy(alpha = 0.2f) else NeuroFlowPaletteV2.SurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (simulationState.isActive) accent.copy(alpha = 0.18f) else NeuroFlowPaletteV2.SurfaceElevated,
                         border = BorderStroke(
                             0.75.dp,
-                            if (simulationState.isActive) accent else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f)
+                            if (simulationState.isActive) accent else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.55f)
                         ),
-                        modifier = Modifier.minimumInteractiveComponentSize()
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.Center
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = if (simulationState.isActive) accent else NeuroFlowPaletteV2.TextSecondary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (simulationState.isActive) "⚡ Simulating" else "⚡ Simulate",
+                                text = if (simulationState.isActive) "Simulating" else "Simulate Levers",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (simulationState.isActive) accent else NeuroFlowPaletteV2.TextSecondary
+                                color = if (simulationState.isActive) accent else NeuroFlowPaletteV2.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -173,21 +200,41 @@ fun CircadianHeroBarometer(
                     if (dayTimeline.size >= 2) {
                         Surface(
                             onClick = { isGraphExpanded = !isGraphExpanded },
-                            shape = RoundedCornerShape(20.dp),
-                            color = NeuroFlowPaletteV2.SurfaceElevated,
-                            border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.5f)),
-                            modifier = Modifier.minimumInteractiveComponentSize()
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isGraphExpanded) accent.copy(alpha = 0.12f) else NeuroFlowPaletteV2.SurfaceElevated,
+                            border = BorderStroke(
+                                0.75.dp,
+                                if (isGraphExpanded) accent.copy(alpha = 0.45f) else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.55f)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .minimumInteractiveComponentSize()
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.Center
                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.ShowChart,
+                                    contentDescription = null,
+                                    tint = if (isGraphExpanded) accent else NeuroFlowPaletteV2.TextSecondary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (isGraphExpanded) "24h Curve ▲" else "24h Curve ▼",
+                                    text = "24h Curve",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = NeuroFlowPaletteV2.TextSecondary
+                                    color = if (isGraphExpanded) accent else NeuroFlowPaletteV2.TextSecondary,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = if (isGraphExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = if (isGraphExpanded) accent else NeuroFlowPaletteV2.TextSecondary,
+                                    modifier = Modifier.size(15.dp)
                                 )
                             }
                         }
@@ -307,7 +354,12 @@ fun CircadianHeroBarometer(
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.7f))
                         )
-                        Text("⚡", fontSize = 13.sp)
+                        Icon(
+                            imageVector = Icons.Default.WarningAmber,
+                            contentDescription = null,
+                            tint = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                            modifier = Modifier.size(16.dp)
+                        )
                         Text(
                             text = "Crash Guard active: Stimulant wear-off in progress — protecting you from high-friction tasks.",
                             style = MaterialTheme.typography.labelSmall,
@@ -388,12 +440,14 @@ fun CircadianHeroBarometer(
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(
                     onClick = onNavigateToMEQ,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize(),
                     shape = RoundedCornerShape(12.dp),
                     color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.08f)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -404,10 +458,15 @@ fun CircadianHeroBarometer(
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.7f))
                         )
-                        Text("🌅", fontSize = 13.sp)
+                        Icon(
+                            imageVector = Icons.Default.WbSunny,
+                            contentDescription = null,
+                            tint = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                            modifier = Modifier.size(16.dp)
+                        )
                         Text(
                             text = "Weekend Drift: ${if (socialJetlagLagHours > 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", socialJetlagLagHours)}h phase shift. Tap for MEQ advice.",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
                             fontWeight = FontWeight.Medium
                         )
@@ -419,12 +478,14 @@ fun CircadianHeroBarometer(
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
                     onClick = onNavigateToSleepLogs,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize(),
                     shape = RoundedCornerShape(12.dp),
                     color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.08f)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -435,7 +496,12 @@ fun CircadianHeroBarometer(
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.RoseCoral.copy(alpha = 0.7f))
                         )
-                        Text("🌙", fontSize = 12.sp)
+                        Icon(
+                            imageVector = Icons.Default.Bedtime,
+                            contentDescription = null,
+                            tint = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.RoseCoral,
+                            modifier = Modifier.size(15.dp)
+                        )
                         Text(
                             text = "Baseline sleep estimate used. Tap to log actual sleep.",
                             style = MaterialTheme.typography.labelSmall,
@@ -624,21 +690,23 @@ fun PhaseGuidanceRow(
                 .background(accent.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = when (phase) {
-                    EnergyPhase.SURGE -> "🚀"
-                    EnergyPhase.PEAK -> "⚡"
-                    EnergyPhase.MORNING_RAMP -> "🌅"
-                    EnergyPhase.REBOUND -> "📈"
-                    EnergyPhase.DIP -> "☕"
-                    EnergyPhase.WIND_DOWN -> "🌙"
-                    EnergyPhase.TROUGH -> "🌌"
-                    EnergyPhase.RECOVERY -> "🌿"
-                    EnergyPhase.RECOVERY_NEEDED -> "🧘"
-                    EnergyPhase.INERTIA -> "🥱"
-                    EnergyPhase.CRASH -> "⚠️"
+            Icon(
+                imageVector = when (phase) {
+                    EnergyPhase.SURGE -> Icons.Default.Bolt
+                    EnergyPhase.PEAK -> Icons.Default.Bolt
+                    EnergyPhase.MORNING_RAMP -> Icons.Default.WbSunny
+                    EnergyPhase.REBOUND -> Icons.Default.TrendingUp
+                    EnergyPhase.DIP -> Icons.Default.LocalCafe
+                    EnergyPhase.WIND_DOWN -> Icons.Default.Bedtime
+                    EnergyPhase.TROUGH -> Icons.Default.NightlightRound
+                    EnergyPhase.RECOVERY -> Icons.Default.Spa
+                    EnergyPhase.RECOVERY_NEEDED -> Icons.Default.SelfImprovement
+                    EnergyPhase.INERTIA -> Icons.Default.Schedule
+                    EnergyPhase.CRASH -> Icons.Default.WarningAmber
                 },
-                fontSize = 15.sp,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(16.dp)
             )
         }
         Text(
@@ -654,7 +722,7 @@ fun PhaseGuidanceRow(
         ) {
             Text(
                 text = "${cognitiveBudget}m left",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                 fontWeight = FontWeight.ExtraBold,
                 color = accent,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -739,11 +807,11 @@ fun ActiveDoseHistoryDialog(
                         val timeStr = java.time.Instant.ofEpochMilli(dose.timestampMillis)
                             .atZone(zoneId)
                             .format(timeFormatter)
-                        val emoji = when (dose.type) {
-                            StimulantType.CAFFEINE -> "☕"
-                            StimulantType.GREEN_TEA_L_THEANINE -> "🍵"
-                            StimulantType.PRESCRIPTION_STIMULANT_IR, StimulantType.PRESCRIPTION_STIMULANT_XR -> "💊"
-                            else -> "⚡"
+                        val doseIcon = when (dose.type) {
+                            StimulantType.CAFFEINE -> Icons.Default.LocalCafe
+                            StimulantType.GREEN_TEA_L_THEANINE -> Icons.Default.Spa
+                            StimulantType.PRESCRIPTION_STIMULANT_IR, StimulantType.PRESCRIPTION_STIMULANT_XR -> Icons.Default.Medication
+                            else -> Icons.Default.Bolt
                         }
                         val typeName = when (dose.type) {
                             StimulantType.CAFFEINE -> "Caffeine"
@@ -770,11 +838,16 @@ fun ActiveDoseHistoryDialog(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(emoji, fontSize = 16.sp)
+                                    Icon(
+                                        imageVector = doseIcon,
+                                        contentDescription = null,
+                                        tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Column(modifier = Modifier.weight(1f, fill = false)) {
                                         Text(
                                             text = "$typeName (~${dose.doseMg.roundToInt()}mg)",
-                                            style = MaterialTheme.typography.labelMedium,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                                             fontWeight = FontWeight.SemiBold,
                                             color = NeuroFlowPaletteV2.TextPrimary,
                                             maxLines = 1,
@@ -871,7 +944,12 @@ fun StimulantQuickLogRow(
                             .clip(RoundedCornerShape(2.dp))
                             .background(com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.7f))
                     )
-                    Text("⚡", fontSize = 13.sp)
+                    Icon(
+                        imageVector = Icons.Default.WarningAmber,
+                        contentDescription = null,
+                        tint = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Text(
                         text = "Crash Guard active: Stimulant wear-off in progress — protecting you from high-friction tasks.",
                         style = MaterialTheme.typography.labelSmall,
@@ -912,7 +990,7 @@ fun StimulantQuickLogRow(
                                 )
                                 Text(
                                     text = if (activePlasmaMg >= 1.0) "~${activePlasmaMg.roundToInt()}mg active" else "<1mg active",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                     color = NeuroFlowPaletteV2.TextSecondary,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -932,10 +1010,15 @@ fun StimulantQuickLogRow(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text("🛑", fontSize = 10.sp)
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = NeuroFlowPaletteV2.TextSecondary,
+                                    modifier = Modifier.size(11.dp)
+                                )
                                 Text(
                                     text = "Cutoff: $latestSafeStimulantCutoffFormatted",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                     color = NeuroFlowPaletteV2.TextSecondary,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -955,10 +1038,15 @@ fun StimulantQuickLogRow(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                Text("🌙", fontSize = 10.sp)
+                                Icon(
+                                    imageVector = Icons.Default.Bedtime,
+                                    contentDescription = null,
+                                    tint = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
+                                    modifier = Modifier.size(11.dp)
+                                )
                                 Text(
                                     text = "SWS -$predictedSwsSuppressionPercent%",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                     color = com.neuroflow.app.presentation.v2.theme.NeuroFlowThemeV2Colors.WarmAmber,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -967,7 +1055,7 @@ fun StimulantQuickLogRow(
                     }
                 }
 
-                // Dose Management Actions (Guaranteed visible, wrapped if needed, with high-contrast surfaces)
+                // Dose Management Actions
                 if (activePlasmaMg > 0.05 || stimulantDoses.isNotEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -976,19 +1064,25 @@ fun StimulantQuickLogRow(
                         if (stimulantDoses.isNotEmpty()) {
                             Surface(
                                 onClick = { showDoseHistoryDialog = true },
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.45f))
+                                border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.45f)),
+                                modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text("📋", fontSize = 10.sp)
+                                    Icon(
+                                        imageVector = Icons.Default.ListAlt,
+                                        contentDescription = null,
+                                        tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                        modifier = Modifier.size(12.dp)
+                                    )
                                     Text(
                                         text = "Doses (${stimulantDoses.size})",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                         color = NeuroFlowPaletteV2.OptimalEmerald,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -998,16 +1092,22 @@ fun StimulantQuickLogRow(
                         }
                         Surface(
                             onClick = onClearStimulants,
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = NeuroFlowPaletteV2.SurfaceElevated,
-                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                            modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text("🧹", fontSize = 10.sp)
+                                Icon(
+                                    imageVector = Icons.Default.CleaningServices,
+                                    contentDescription = null,
+                                    tint = NeuroFlowPaletteV2.TextSecondary,
+                                    modifier = Modifier.size(12.dp)
+                                )
                                 Text(
                                     text = "Clear",
                                     style = MaterialTheme.typography.labelSmall,
@@ -1042,17 +1142,18 @@ fun StimulantQuickLogRow(
                 onClick = { onLogStimulant(StimulantType.CAFFEINE) },
                 shape = RoundedCornerShape(50),
                 color = NeuroFlowPaletteV2.SurfaceElevated,
-                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                modifier = Modifier.minimumInteractiveComponentSize()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("☕", fontSize = 12.sp)
+                    Icon(Icons.Default.LocalCafe, contentDescription = null, tint = NeuroFlowPaletteV2.PeakAmber, modifier = Modifier.size(13.dp))
                     Text(
                         text = "+ Coffee (100mg)",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                         color = NeuroFlowPaletteV2.TextPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1064,17 +1165,18 @@ fun StimulantQuickLogRow(
                 onClick = { onLogStimulant(StimulantType.GREEN_TEA_L_THEANINE) },
                 shape = RoundedCornerShape(50),
                 color = NeuroFlowPaletteV2.SurfaceElevated,
-                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                modifier = Modifier.minimumInteractiveComponentSize()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("🍵", fontSize = 12.sp)
+                    Icon(Icons.Default.Spa, contentDescription = null, tint = NeuroFlowPaletteV2.OptimalEmerald, modifier = Modifier.size(13.dp))
                     Text(
                         text = "+ Green Tea (50mg)",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                         color = NeuroFlowPaletteV2.TextPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1086,17 +1188,18 @@ fun StimulantQuickLogRow(
                 onClick = { onLogStimulant(StimulantType.PRESCRIPTION_STIMULANT_IR) },
                 shape = RoundedCornerShape(50),
                 color = NeuroFlowPaletteV2.SurfaceElevated,
-                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                modifier = Modifier.minimumInteractiveComponentSize()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("💊", fontSize = 12.sp)
+                    Icon(Icons.Default.Medication, contentDescription = null, tint = NeuroFlowPaletteV2.ReboundCyan, modifier = Modifier.size(13.dp))
                     Text(
                         text = "+ Meds IR (10mg)",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                         color = NeuroFlowPaletteV2.TextPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1108,17 +1211,18 @@ fun StimulantQuickLogRow(
                 onClick = { onLogStimulant(StimulantType.PRESCRIPTION_STIMULANT_XR) },
                 shape = RoundedCornerShape(50),
                 color = NeuroFlowPaletteV2.SurfaceElevated,
-                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                modifier = Modifier.minimumInteractiveComponentSize()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("💊", fontSize = 12.sp)
+                    Icon(Icons.Default.Medication, contentDescription = null, tint = NeuroFlowPaletteV2.DipIndigo, modifier = Modifier.size(13.dp))
                     Text(
                         text = "+ Meds XR (20mg)",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                         color = NeuroFlowPaletteV2.TextPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1131,17 +1235,18 @@ fun StimulantQuickLogRow(
                     onClick = { showDoseHistoryDialog = true },
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.4f))
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.4f)),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("📋", fontSize = 12.sp)
+                        Icon(Icons.Default.ListAlt, contentDescription = null, tint = NeuroFlowPaletteV2.OptimalEmerald, modifier = Modifier.size(13.dp))
                         Text(
                             text = "Doses (${stimulantDoses.size})",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             color = NeuroFlowPaletteV2.OptimalEmerald,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1155,14 +1260,15 @@ fun StimulantQuickLogRow(
                     onClick = onClearStimulants,
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("🧹", fontSize = 12.sp)
+                        Icon(Icons.Default.CleaningServices, contentDescription = null, tint = NeuroFlowPaletteV2.TextSecondary, modifier = Modifier.size(13.dp))
                         Text(
                             text = "Clear Doses",
                             style = MaterialTheme.typography.labelSmall,
@@ -1179,14 +1285,15 @@ fun StimulantQuickLogRow(
                     onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.MEAL) },
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("🍽️", fontSize = 12.sp)
+                        Icon(Icons.Default.Restaurant, contentDescription = null, tint = NeuroFlowPaletteV2.PeakAmber, modifier = Modifier.size(13.dp))
                         Text(
                             text = "+ Meal Dip",
                             style = MaterialTheme.typography.labelSmall,
@@ -1201,14 +1308,15 @@ fun StimulantQuickLogRow(
                     onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.WORKOUT) },
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("🏃", fontSize = 12.sp)
+                        Icon(Icons.Default.DirectionsRun, contentDescription = null, tint = NeuroFlowPaletteV2.ReboundCyan, modifier = Modifier.size(13.dp))
                         Text(
                             text = "+ Workout",
                             style = MaterialTheme.typography.labelSmall,
@@ -1223,17 +1331,18 @@ fun StimulantQuickLogRow(
                     onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.NAP) },
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("💤", fontSize = 12.sp)
+                        Icon(Icons.Default.Bedtime, contentDescription = null, tint = NeuroFlowPaletteV2.OptimalEmerald, modifier = Modifier.size(13.dp))
                         Text(
                             text = "+ 20m Nap",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                             color = NeuroFlowPaletteV2.TextPrimary,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1245,14 +1354,15 @@ fun StimulantQuickLogRow(
                         onClick = onClearPhysiologicalEvents,
                         shape = RoundedCornerShape(50),
                         color = NeuroFlowPaletteV2.SurfaceElevated,
-                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle)
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                        modifier = Modifier.minimumInteractiveComponentSize()
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("🧹", fontSize = 12.sp)
+                            Icon(Icons.Default.CleaningServices, contentDescription = null, tint = NeuroFlowPaletteV2.TextSecondary, modifier = Modifier.size(13.dp))
                             Text(
                                 text = "Clear Bio",
                                 style = MaterialTheme.typography.labelSmall,
@@ -1297,17 +1407,28 @@ fun SimulationTray(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "⚡ BIO-SIMULATOR LEVERS",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = accent,
-                letterSpacing = 0.6.sp
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "BIO-SIMULATOR LEVERS",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = accent,
+                    letterSpacing = 0.6.sp
+                )
+            }
             if (simulationState.outcome != null) {
                 Text(
                     text = "+${simulationState.outcome.netEnergyDeltaPercent}% Avg Lift",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                     fontWeight = FontWeight.ExtraBold,
                     color = NeuroFlowPaletteV2.OptimalEmerald
                 )
@@ -1327,25 +1448,29 @@ fun SimulationTray(
             val isBedtimeActive = simulationState.simulatedBedtimeDeltaMinutes > 0
 
             SimulationLeverChip(
-                label = "😴 +20m Nap",
+                label = "+20m Nap",
+                icon = Icons.Default.Bedtime,
                 isSelected = isNapActive,
                 accent = accent,
                 onClick = { onToggleSimulatedLever(SimulationLeverType.NAP) }
             )
             SimulationLeverChip(
-                label = "☕ +100mg Caffeine",
+                label = "+100mg Caffeine",
+                icon = Icons.Default.LocalCafe,
                 isSelected = isCaffeineActive,
                 accent = accent,
                 onClick = { onToggleSimulatedLever(SimulationLeverType.CAFFEINE) }
             )
             SimulationLeverChip(
-                label = "🚶 +30m Walk",
+                label = "+30m Walk",
+                icon = Icons.Default.DirectionsWalk,
                 isSelected = isWalkActive,
                 accent = accent,
                 onClick = { onToggleSimulatedLever(SimulationLeverType.WALK) }
             )
             SimulationLeverChip(
-                label = "🌙 Bedtime -45m",
+                label = "Bedtime -45m",
+                icon = Icons.Default.NightlightRound,
                 isSelected = isBedtimeActive,
                 accent = accent,
                 onClick = { onToggleSimulatedLever(SimulationLeverType.BEDTIME) }
@@ -1372,12 +1497,23 @@ fun SimulationTray(
                         fontSize = 12.sp
                     )
                     if (outcome.netFocusMinutesSaved > 0) {
-                        Text(
-                            text = "💡 Saved ~${outcome.netFocusMinutesSaved}m of cognitive focus capacity.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeuroFlowPaletteV2.TextSecondary,
-                            fontSize = 11.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lightbulb,
+                                contentDescription = null,
+                                tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Saved ~${outcome.netFocusMinutesSaved}m of cognitive focus capacity.",
+                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                color = NeuroFlowPaletteV2.TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
@@ -1389,19 +1525,21 @@ fun SimulationTray(
             ) {
                 TextButton(
                     onClick = onResetSimulation,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Text("Reset", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary)
                 }
                 Spacer(modifier = Modifier.width(6.dp))
                 Button(
                     onClick = onApplySimulationToPlan,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accent,
-                        contentColor = Color.Black
+                        contentColor = NeuroFlowPaletteV2.onAccentColor(accent)
                     ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text("Apply to Plan", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
@@ -1415,7 +1553,8 @@ fun SimulationLeverChip(
     label: String,
     isSelected: Boolean,
     accent: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     Surface(
         onClick = onClick,
@@ -1427,13 +1566,26 @@ fun SimulationLeverChip(
             if (isSelected) accent else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.6f)
         )
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            color = if (isSelected) accent else NeuroFlowPaletteV2.TextSecondary,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isSelected) accent else NeuroFlowPaletteV2.TextSecondary,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) accent else NeuroFlowPaletteV2.TextSecondary
+            )
+        }
     }
 }
 

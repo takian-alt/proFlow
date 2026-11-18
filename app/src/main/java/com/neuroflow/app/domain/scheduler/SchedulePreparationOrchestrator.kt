@@ -239,7 +239,11 @@ class SchedulePreparationOrchestrator @Inject constructor(
         } else null
 
         val completedTasks = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
-        val observations = buildBehavioralObservations(completedTasks, closedSessions, zoneId)
+        val approvedFeedbackObs = SchedulingFeedbackStore.extractApprovedCircadianObservations(
+            json = prefs.schedulingRejectionsJson,
+            nowMillis = nowMillis
+        )
+        val observations = buildBehavioralObservations(completedTasks, closedSessions, zoneId) + approvedFeedbackObs
         val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
         val learnedProfile = if (observations.isNotEmpty()) {
             AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)

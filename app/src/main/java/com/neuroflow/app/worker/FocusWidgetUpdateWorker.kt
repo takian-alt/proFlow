@@ -96,12 +96,13 @@ class FocusWidgetUpdateWorker @AssistedInject constructor(
             )
             val sortedWithScores = candidateTasks.map { task ->
                 val schedulable = schedulableMap[task.id]!!
-                val breakdown = taskSchedulerService.evaluateTaskScoreWithWeights(
+                val breakdown = taskSchedulerService.evaluateTaskScoreWithFatigue(
                     task = schedulable,
                     snapshot = snapshot,
                     dependentCount = dependentCounts[task.id] ?: 0,
                     weights = priorityWeights,
-                    referenceNowMillis = nowMillis
+                    referenceNowMillis = nowMillis,
+                    cumulativeCognitiveLoadMinutes = 0.0
                 )
                 val frogBoost = if (task.isFrog) 8.0 * preferences.weightFrogBonus else 0.0
                 val personalBoost = if (schedulable.isPersonalTask) 6.0 else 0.0

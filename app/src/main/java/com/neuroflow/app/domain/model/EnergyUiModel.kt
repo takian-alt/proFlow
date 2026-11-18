@@ -464,7 +464,11 @@ fun computeEnergyUiState(
         zoneId = zoneId
     ) + quickPhysBlocks
 
-    val observations = buildBehavioralObservations(completedTasks, sessions, zoneId)
+    val approvedFeedbackObs = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.extractApprovedCircadianObservations(
+        json = prefs.schedulingRejectionsJson,
+        nowMillis = nowMillis
+    )
+    val observations = buildBehavioralObservations(completedTasks, sessions, zoneId) + approvedFeedbackObs
     val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
     val learnedProfile = if (observations.isNotEmpty()) {
         AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)

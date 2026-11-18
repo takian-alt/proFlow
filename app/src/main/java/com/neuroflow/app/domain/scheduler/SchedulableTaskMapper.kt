@@ -2,11 +2,13 @@ package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Priority
+import com.neuroflow.app.domain.model.Recurrence
 import com.neuroflow.app.domain.service.EnergyDemand
 import com.neuroflow.app.domain.service.PriorityWeightProfile
 import com.neuroflow.app.domain.service.SchedulableTask
@@ -61,7 +63,10 @@ object SchedulableTaskMapper {
         val inferredContext = task.contextTag.ifBlank {
             tagProfiles.firstNotNullOfOrNull { it.preferredContext }.orEmpty()
         }
-        val rawEnjoyment = enjoymentCalibration?.forecast(task.enjoymentScore) ?: task.enjoymentScore
+        val perTaskAdjustedEnjoyment = task.affectiveForecastError?.let { error ->
+            (task.enjoymentScore + error).roundToInt().coerceIn(0, 100)
+        } ?: task.enjoymentScore
+        val rawEnjoyment = enjoymentCalibration?.forecast(perTaskAdjustedEnjoyment) ?: perTaskAdjustedEnjoyment
         val calibratedEnjoyment = (rawEnjoyment / 10.0).roundToInt().coerceIn(0, 10)
 
         val isPart1 = task.id.contains(Regex("""[#_]part1(\D|$)""")) || task.title.contains("(Part 1/")
@@ -190,7 +195,18 @@ object SchedulableTaskMapper {
             distractionScore = task.distractionScore,
             isPersonalTask = isPersonal,
             userSchedulingRating = task.userSchedulingRating,
-            schedulingRejectedSlotHour = task.schedulingRejectedSlotHour
+            schedulingRejectedSlotHour = task.schedulingRejectedSlotHour,
+            quadrant = task.quadrant,
+            valueScore = task.valueScore,
+            effortScore = task.effortScore,
+            preferredDayStartMillis = task.effectiveScheduledDateMillis() ?: task.habitDate,
+            isWaitingFor = task.waitingFor.isNotBlank(),
+            goalRiskLevel = task.goalRiskLevel.coerceIn(0, 2),
+            hasGoalAlignment = !task.goalId.isNullOrBlank(),
+            isPublicCommitment = task.isPublicCommitment,
+            isHabitual = task.isHabitual || task.recurrence != Recurrence.NONE,
+            habitStreak = task.habitStreak.coerceAtLeast(0),
+            priorSessionCount = task.sessionCount.coerceAtLeast(0)
         )
     }
 

@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -148,6 +149,11 @@ object NeuroFlowPaletteV2 {
         val bottomShadow = BorderSubtle.copy(alpha = if (isDark) 0.16f else 0.35f)
         return Brush.verticalGradient(listOf(topHighlight, bottomShadow))
     }
+    /**
+     * Accessible foreground color for filled buttons/pills using saturated bio-accents.
+     */
+    fun onAccentColor(accent: Color): Color =
+        if (accent.luminance() > 0.52f) Color(0xFF0A0B0E) else Color.White
 }
 
 /**
@@ -166,8 +172,8 @@ fun PhaseAmbientScreenContainer(
         label = "phase_ambient_color"
     )
 
-    val topAlpha = if (isDark) 0.14f else 0.08f
-    val midAlpha = if (isDark) 0.04f else 0.02f
+    val topAlpha = if (isDark) 0.16f else 0.09f
+    val midAlpha = if (isDark) 0.05f else 0.025f
 
     Box(
         modifier = modifier
@@ -180,7 +186,7 @@ fun PhaseAmbientScreenContainer(
                         Color.Transparent
                     ),
                     startY = 0f,
-                    endY = 760f
+                    endY = 820f
                 )
             )
     ) {
