@@ -134,34 +134,11 @@ class DailyBlueprintOrchestrator(
 
         val prefs = preferencesDataStore.preferencesFlow.firstOrNull() ?: UserPreferences()
         val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.firstOrNull() ?: emptyList()
-        val recentSleep = sleepLogs.maxByOrNull { it.wakeTimeMillis }
 
         val dailyCapacityMinutes = prefs.dailyDeepWorkTargetMinutes.coerceIn(30, 720)
 
-        val wakeHour = prefs.wakeTimeHour.coerceIn(4, 12)
-        val wakeMinute = prefs.wakeTimeMinute.coerceIn(0, 59)
-        val sleepDurationMinutes = recentSleep?.let {
-            ((it.wakeTimeMillis - it.bedTimeMillis) / 60_000L).toInt().coerceIn(240, 660)
-        } ?: 480
-
-        val calculatedWakeEpoch = dayStart + (wakeHour * 3600_000L) + (wakeMinute * 60_000L)
-        val wakeTimeMillis = if (recentSleep != null && recentSleep.wakeTimeMillis in dayStart..dayEnd) {
-            recentSleep.wakeTimeMillis
-        } else {
-            calculatedWakeEpoch
-        }
-
         val allActiveTasks = taskRepository.getActiveTasks()
         val allKnownTasks = taskRepository.getAllTasks().ifEmpty { allActiveTasks }
-        val planningCalibration = AnalyticsEngine.PlanningCalibration.from(allKnownTasks)
-        val enjoymentCalibration = AnalyticsEngine.EnjoymentCalibration.from(allKnownTasks)
-        val globalCalibrationRatio = planningCalibration.globalFactor.toDouble().coerceIn(0.8, 1.6)
-        val rollingAvgSleep = computeRollingDailySleepAverage(sleepLogs, dayNowMillis, zoneId)
-        val socialJetlagLagHours = SocialJetlagCalculator.evaluateFromSleepWindows(
-            sleepWindows = sleepLogs.map { TimeSlotWindow(it.startAt, it.endAt) },
-            nowMillis = dayNowMillis,
-            zoneId = zoneId
-        ).mondayMorningPhaseLagHours
 
         val allSessions = runCatching {
             sessionRepository?.getAllSessions().orEmpty()
@@ -175,6 +152,25 @@ class DailyBlueprintOrchestrator(
             elapsedMs < 120 * 60_000L
         }.map { it.taskId }.toSet()
         val activeTaskId = focusedTaskIds.firstOrNull()
+
+        val horizonCtx = SchedulingContextFactory.buildHorizonContext(
+            allKnownTasks = allKnownTasks,
+            closedSessions = closedSessions,
+            sleepLogs = sleepLogs,
+            prefs = prefs,
+            referenceNowMillis = nowMillis,
+            zoneId = zoneId
+        )
+        val dayCtx = SchedulingContextFactory.buildDayContext(
+            horizon = horizonCtx,
+            dayDate = targetDate,
+            prefs = prefs,
+            referenceNowMillis = nowMillis,
+            zoneId = zoneId,
+            sleepTelemetryRepository = sleepTelemetryRepository
+        )
+        val wakeTimeMillis = dayCtx.wakeTimeMillis
+        val sleepDurationMinutes = dayCtx.lastSleepDurationMinutes
 
         val activeTaskIds = allActiveTasks.map { it.id }.toSet()
         fun isContinuationBlocked(task: TaskEntity): Boolean {
@@ -280,84 +276,7 @@ class DailyBlueprintOrchestrator(
         val precommittedMinutes = (completedMinutesToday + fixedCommittedMinutes).coerceAtLeast(0)
         val remainingCapacity = (dailyCapacityMinutes - precommittedMinutes).coerceAtLeast(0)
 
-        val protectedSlots = prefs.protectedTimeSlots
-            .filter { it.isEnabled && ProtectedSlotClock.occursOnDay(it, dayStart) }
-            .map {
-                ProtectedLocalSlot(
-                    startHour = (it.startMinuteOfDay / 60).coerceIn(0, 23),
-                    startMinute = (it.startMinuteOfDay % 60).coerceIn(0, 59),
-                    durationMinutes = (it.durationMinutes + it.recoveryBufferMinutes).coerceIn(15, 480)
-                )
-            }
-        val chronotype = ChronotypeProfile.fromString(prefs.quizChronotype ?: prefs.manualChronotype)
-        val manualPeakStartHour = if (prefs.manualPeakProfileEnabled) {
-            (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
-        } else null
-        val weights = SchedulableTaskMapper.toPriorityWeights(prefs)
         val activeUncompletedTaskIds = allActiveTasks.map { it.id }.toSet()
-
-        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
-            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
-        val quickPhysBlocks = physLogs.mapNotNull { log ->
-            val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
-            val minOfDay = logZdt.hour * 60 + logZdt.minute
-            val duration = log.durationMinutes.coerceIn(5, 240)
-            when (log.type) {
-                PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
-                    startMinuteOfDay = minOfDay,
-                    endMinuteOfDay = (minOfDay + duration) % 1440,
-                    category = CognitiveBlockCategory.MEAL,
-                    intensity = log.intensity,
-                    label = "Quick Logged Meal #${log.timestampMillis}",
-                    explicitStartMillis = log.timestampMillis,
-                    explicitEndMillis = log.timestampMillis + duration * 60_000L
-                )
-                PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
-                    startMinuteOfDay = minOfDay,
-                    endMinuteOfDay = (minOfDay + duration) % 1440,
-                    category = CognitiveBlockCategory.EXERCISE,
-                    intensity = log.intensity,
-                    label = "Quick Logged Workout #${log.timestampMillis}",
-                    explicitStartMillis = log.timestampMillis,
-                    explicitEndMillis = log.timestampMillis + duration * 60_000L
-                )
-                PhysiologicalEventType.NAP -> null
-            }
-        }
-        val quickPhysNaps = physLogs
-            .filter { it.type == PhysiologicalEventType.NAP }
-            .map { log ->
-                DaytimeNapBout(
-                    startMillis = log.timestampMillis,
-                    endMillis = log.timestampMillis + log.durationMinutes.coerceIn(5, 180) * 60_000L
-                )
-            }
-        val allNaps = quickPhysNaps.sortedBy { it.startMillis }
-
-        val stimulantDoses = (
-            parseStimulantLogs(prefs.stimulantLogsJson) +
-                extractStimulantDosesFromSlots(prefs.protectedTimeSlots, targetDate, zoneId)
-            ).distinctBy { it.timestampMillis to it.type }
-        val basePhysioBlocks = buildDailyCognitiveBlocks(
-            slots = prefs.protectedTimeSlots,
-            date = targetDate,
-            zoneId = zoneId
-        ).filter {
-            it.category == CognitiveBlockCategory.MEAL ||
-                it.category == CognitiveBlockCategory.EXERCISE
-        }
-        val physiologicalBlocks = basePhysioBlocks + quickPhysBlocks
-
-        val completedTasks = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
-        val approvedFeedbackObs = SchedulingFeedbackStore.extractApprovedCircadianObservations(
-            json = prefs.schedulingRejectionsJson,
-            nowMillis = nowMillis
-        )
-        val observations = buildBehavioralObservations(completedTasks, closedSessions, zoneId) + approvedFeedbackObs
-        val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
-        val learnedProfile = if (observations.isNotEmpty()) {
-            AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
-        } else null
 
         val microStepCounts = candidateTasks.associate { task ->
             val steps = runCatching { taskRepository.getMicroSteps(task.id) }.getOrDefault(emptyList())
@@ -369,7 +288,7 @@ class DailyBlueprintOrchestrator(
                 task = task,
                 allContextTasks = candidateTasks,
                 dayStartMillis = dayStart,
-                enjoymentCalibration = enjoymentCalibration,
+                enjoymentCalibration = horizonCtx.enjoymentCalibration,
                 activeTaskId = activeTaskId,
                 microStepCounts = microStepCounts
             )
@@ -384,24 +303,25 @@ class DailyBlueprintOrchestrator(
                 wakeTimeMillis = wakeTimeMillis,
                 lastSleepDurationMinutes = sleepDurationMinutes,
                 busyWindows = busyWindows,
-                protectedSlots = protectedSlots,
-                calibrationRatio = globalCalibrationRatio,
+                protectedSlots = dayCtx.protectedSlots,
+                calibrationRatio = horizonCtx.globalCalibrationRatio,
                 forceReplan = forceReplan,
                 zoneId = zoneId,
-                naps = allNaps,
-                chronotype = chronotype,
-                manualPeakStartHour = manualPeakStartHour,
-                priorityWeights = weights,
-                learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAvgSleep,
-                physiologicalBlocks = physiologicalBlocks,
-                stimulantDoses = stimulantDoses,
-                socialJetlagLagHours = socialJetlagLagHours,
+                naps = dayCtx.naps,
+                chronotype = horizonCtx.chronotype,
+                manualPeakStartHour = horizonCtx.manualPeakStartHour,
+                priorityWeights = horizonCtx.priorityWeights,
+                learnedProfile = horizonCtx.learnedProfile,
+                rollingAverageSleepMinutes = horizonCtx.rollingAverageSleepMinutes,
+                physiologicalBlocks = dayCtx.physiologicalBlocks,
+                stimulantDoses = dayCtx.stimulantDoses,
+                socialJetlagLagHours = horizonCtx.socialJetlagLagHours,
                 activeUncompletedTaskIds = activeUncompletedTaskIds,
                 workDayStartHour = prefs.workDayStart,
                 workDayEndHour = prefs.workDayEnd,
                 dailyCognitiveCapacityMinutes = remainingCapacity,
-                rejectionPatternsJson = prefs.schedulingRejectionsJson
+                rejectionPatternsJson = prefs.schedulingRejectionsJson,
+                categoryCalibrationRatios = horizonCtx.categoryCalibrationRatios
             )
         } else {
             SchedulingOutcome(emptyList(), emptyList())
@@ -413,14 +333,14 @@ class DailyBlueprintOrchestrator(
             lastSleepDurationMinutes = sleepDurationMinutes,
             continuousActiveFocusMinutes = 0,
             zoneId = zoneId,
-            naps = allNaps,
-            chronotype = chronotype,
-            manualPeakStartHour = manualPeakStartHour,
-            cognitiveBlocks = physiologicalBlocks,
-            learnedProfile = learnedProfile,
-            rollingAverageSleepMinutes = rollingAvgSleep,
-            stimulantDoses = stimulantDoses,
-            socialJetlagLagHours = socialJetlagLagHours
+            naps = dayCtx.naps,
+            chronotype = horizonCtx.chronotype,
+            manualPeakStartHour = horizonCtx.manualPeakStartHour,
+            cognitiveBlocks = dayCtx.physiologicalBlocks,
+            learnedProfile = horizonCtx.learnedProfile,
+            rollingAverageSleepMinutes = horizonCtx.rollingAverageSleepMinutes,
+            stimulantDoses = dayCtx.stimulantDoses,
+            socialJetlagLagHours = horizonCtx.socialJetlagLagHours
         )
 
         val includedItems = mutableListOf<BlueprintTaskItem>()
@@ -447,12 +367,14 @@ class DailyBlueprintOrchestrator(
             includedTaskIds.add(sourceTask.id)
             accumulatedMinutes += dur
 
-            val useBasicSnapshot = chronotype == ChronotypeProfile.INTERMEDIATE &&
-                manualPeakStartHour == null &&
-                stimulantDoses.isEmpty() &&
-                physiologicalBlocks.isEmpty() &&
-                allNaps.isEmpty() &&
-                learnedProfile == null
+            val useBasicSnapshot = horizonCtx.chronotype == ChronotypeProfile.INTERMEDIATE &&
+                horizonCtx.manualPeakStartHour == null &&
+                dayCtx.stimulantDoses.isEmpty() &&
+                dayCtx.physiologicalBlocks.isEmpty() &&
+                dayCtx.naps.isEmpty() &&
+                horizonCtx.learnedProfile == null &&
+                (horizonCtx.rollingAverageSleepMinutes == null || horizonCtx.rollingAverageSleepMinutes == 480.0) &&
+                horizonCtx.socialJetlagLagHours == 0.0
             val snapshot = if (useBasicSnapshot) {
                 circadianEnergyService.evaluateSnapshot(
                     timestampMillis = placement.window.startMillis,
@@ -468,14 +390,14 @@ class DailyBlueprintOrchestrator(
                     lastSleepDurationMinutes = sleepDurationMinutes,
                     continuousActiveFocusMinutes = 0,
                     zoneId = zoneId,
-                    naps = allNaps,
-                    chronotype = chronotype,
-                    manualPeakStartHour = manualPeakStartHour,
-                    learnedProfile = learnedProfile,
-                    rollingAverageSleepMinutes = rollingAvgSleep,
-                    cognitiveBlocks = physiologicalBlocks,
-                    stimulantDoses = stimulantDoses,
-                    socialJetlagLagHours = socialJetlagLagHours
+                    naps = dayCtx.naps,
+                    chronotype = horizonCtx.chronotype,
+                    manualPeakStartHour = horizonCtx.manualPeakStartHour,
+                    learnedProfile = horizonCtx.learnedProfile,
+                    rollingAverageSleepMinutes = horizonCtx.rollingAverageSleepMinutes,
+                    cognitiveBlocks = dayCtx.physiologicalBlocks,
+                    stimulantDoses = dayCtx.stimulantDoses,
+                    socialJetlagLagHours = horizonCtx.socialJetlagLagHours
                 )
             }
             val zdt = Instant.ofEpochMilli(placement.window.startMillis).atZone(zoneId)

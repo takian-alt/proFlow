@@ -889,9 +889,15 @@ class PlanViewModelV2 @Inject constructor(
 
                 val candidateTasks = allTasks.filter { task ->
                     val effectiveDate = task.effectiveScheduledDateMillis()
-                    val isDateEligible = effectiveDate == null ||
-                        effectiveDate in dayStart..dayEnd ||
-                        (isTargetingToday && effectiveDate <= dayEnd)
+                    val rawTime = task.scheduledTime
+                    val dualEpochOnTargetDay = rawTime != null && rawTime >= ONE_DAY_MILLIS &&
+                        (if (isTargetingToday) rawTime <= dayEnd else rawTime in dayStart..dayEnd)
+                    val dualEpochOtherDay = rawTime != null && rawTime >= ONE_DAY_MILLIS && !dualEpochOnTargetDay
+                    val isDateEligible = when {
+                        dualEpochOtherDay -> false
+                        effectiveDate != null -> if (isTargetingToday) effectiveDate <= dayEnd else effectiveDate in dayStart..dayEnd
+                        else -> true
+                    }
                     val isBlocked = isContinuationBlocked(task, activeTaskIds)
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
                         task.id !in focusedTaskIds &&
@@ -1121,6 +1127,11 @@ class PlanViewModelV2 @Inject constructor(
                         fresh.id in focusedTaskIds ||
                         fresh.isScheduleLocked
                     ) continue
+                    val freshDate = fresh.effectiveScheduledDateMillis()
+                    val freshStart = fresh.resolveScheduledEpochMillis()
+                    val isOutsideTargetDay = (freshDate != null && (freshDate > dayEnd || (!isTargetingToday && freshDate < dayStart))) ||
+                        (freshStart != null && (freshStart > dayEnd || (!isTargetingToday && freshStart < dayStart)))
+                    if (isOutsideTargetDay) continue
 
                     val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
                     val updatedDeferred = fresh.copy(
@@ -1298,10 +1309,33 @@ class PlanViewModelV2 @Inject constructor(
                     return isParentActive || isPart1Active || isPrecedingPartActive
                 }
 
-                val mutableEntities = allTasks.filter {
-                    AutoSchedulingContracts.isMutableByAutoScheduler(it, nowMillis) &&
-                        it.id !in focusedTaskIds &&
-                        !isContinuationBlocked(it)
+                val zoneId = ZoneId.systemDefault()
+                val todayDate = LocalDate.now(zoneId)
+                val selectedLocalDate = Instant.ofEpochMilli(_selectedDate.value).atZone(zoneId).toLocalDate()
+                val startDate = maxOf(todayDate, selectedLocalDate)
+                val horizonStartMillis = startDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                val horizonEndMillis = startDate.plusDays(safeHorizon.toLong()).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+                val isStartingToday = startDate == todayDate
+
+                val mutableEntities = allTasks.filter { task ->
+                    val effectiveDate = task.effectiveScheduledDateMillis()
+                    val rawTime = task.scheduledTime
+                    val dualEpochOutsideHorizon = rawTime != null && rawTime >= ONE_DAY_MILLIS && (
+                        rawTime > horizonEndMillis || (!isStartingToday && rawTime < horizonStartMillis)
+                    )
+                    val isDateEligible = when {
+                        dualEpochOutsideHorizon -> false
+                        effectiveDate != null -> if (isStartingToday) {
+                            effectiveDate <= horizonEndMillis
+                        } else {
+                            effectiveDate in horizonStartMillis..horizonEndMillis
+                        }
+                        else -> true
+                    }
+                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
+                        task.id !in focusedTaskIds &&
+                        !isContinuationBlocked(task) &&
+                        isDateEligible
                 }
                 val mutableIds = mutableEntities.map { it.id }.toSet()
                 val microStepCounts = mutableEntities.associate { task ->
@@ -1317,11 +1351,6 @@ class PlanViewModelV2 @Inject constructor(
                         microStepCounts = microStepCounts
                     )
                 }
-
-                val zoneId = ZoneId.systemDefault()
-                val todayDate = LocalDate.now(zoneId)
-                val selectedLocalDate = Instant.ofEpochMilli(_selectedDate.value).atZone(zoneId).toLocalDate()
-                val startDate = maxOf(todayDate, selectedLocalDate)
 
                 fun isCognitiveDemand(t: TaskEntity): Boolean =
                     t.energyLevel != EnergyLevel.LOW ||
@@ -1566,11 +1595,16 @@ class PlanViewModelV2 @Inject constructor(
                         fresh.id in focusedTaskIds ||
                         fresh.isScheduleLocked
                     ) continue
-                    if (fresh.scheduledDate != null || fresh.scheduledTime != null || fresh.isAutoScheduled) {
+                    val freshDate = fresh.effectiveScheduledDateMillis()
+                    val freshStart = fresh.resolveScheduledEpochMillis()
+                    val isOutsideHorizon = (freshDate != null && (freshDate > horizonEndMillis || (!isStartingToday && freshDate < horizonStartMillis))) ||
+                        (freshStart != null && (freshStart > horizonEndMillis || (!isStartingToday && freshStart < horizonStartMillis)))
+                    if (isOutsideHorizon) continue
+                    if (fresh.isAutoScheduled || fresh.scheduledTime != null) {
                         val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
                         val updatedDeferred = fresh.copy(
                             title = cleanTitle,
-                            scheduledDate = null,
+                            scheduledDate = if (fresh.isAutoScheduled) null else fresh.scheduledDate,
                             scheduledTime = null,
                             isAutoScheduled = false,
                             plannedBlockMinutes = 0,

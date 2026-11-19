@@ -912,16 +912,19 @@ class UserPreferencesDataStore @Inject constructor(
         hour: Int,
         isNegative: Boolean,
         timestampMillis: Long = System.currentTimeMillis(),
-        reasonTag: String? = null
+        reasonTag: String? = null,
+        isWeekend: Boolean? = null
     ) {
         updatePreferences { prefs ->
+            val effectiveIsWeekend = isWeekend ?: com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.isWeekendDay(timestampMillis)
             val updatedJson = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.recordFeedback(
                 currentJson = prefs.schedulingRejectionsJson,
                 category = category,
                 hour = hour,
                 isNegative = isNegative,
                 timestampMillis = timestampMillis,
-                reasonTag = reasonTag
+                reasonTag = reasonTag,
+                isWeekend = effectiveIsWeekend
             )
             prefs.copy(schedulingRejectionsJson = updatedJson)
         }

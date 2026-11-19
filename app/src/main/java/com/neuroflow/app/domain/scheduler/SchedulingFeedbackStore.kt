@@ -3,20 +3,29 @@ package com.neuroflow.app.domain.scheduler
 import com.neuroflow.app.domain.service.BehavioralObservation
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.exp
 
 /**
  * ADR-031: Local Bayesian Prior & Closed-Loop Rejection / Reinforcement Learning Store.
  *
- * Persists user 👍 / 👎 scheduling feedback by canonical task category and clock hour,
- * applying an exponential 7-day half-life decay, reason-specific spatial/directional
- * kernels (TOO_EARLY, TOO_LATE, TOO_LOW_ENERGY, NEEDS_LONGER_BLOCK, ROUTINE_CONFLICT,
- * WRONG_CONTEXT), and positive Bayesian hour reinforcement.
+ * Persists user 👍 / 👎 scheduling feedback by canonical task category, weekday/weekend
+ * day-type, and clock hour, applying an exponential 7-day half-life decay, reason-specific
+ * spatial/directional kernels (TOO_EARLY, TOO_LATE, TOO_LOW_ENERGY, NEEDS_LONGER_BLOCK,
+ * ROUTINE_CONFLICT, WRONG_CONTEXT), and positive Bayesian hour reinforcement.
  */
 object SchedulingFeedbackStore {
     private const val FOURTEEN_DAYS_MILLIS = 14 * 86_400_000L
     private const val SEVEN_DAYS_HALF_LIFE_MILLIS = 7 * 86_400_000.0
+    private const val OPPOSITE_DAY_TYPE_TRANSFER_WEIGHT = 0.35
+
+    fun isWeekendDay(epochMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): Boolean {
+        val dow = Instant.ofEpochMilli(epochMillis).atZone(zoneId).dayOfWeek
+        return dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY
+    }
 
     /**
      * Maps both domain TaskCategory names (HARD_WORK, ROUTINE, etc.) and service
@@ -38,7 +47,8 @@ object SchedulingFeedbackStore {
         hour: Int,
         isNegative: Boolean,
         timestampMillis: Long = System.currentTimeMillis(),
-        reasonTag: String? = null
+        reasonTag: String? = null,
+        isWeekend: Boolean? = null
     ): String {
         val root = try {
             JSONObject(if (currentJson.isBlank()) "{}" else currentJson)
@@ -82,6 +92,9 @@ object SchedulingFeedbackStore {
             if (!reasonTag.isNullOrBlank()) {
                 put("tag", reasonTag.trim().uppercase())
             }
+            if (isWeekend != null) {
+                put("wknd", isWeekend)
+            }
         }
         arr.put(newEntry)
         catObj.put(hourKey, arr)
@@ -91,15 +104,16 @@ object SchedulingFeedbackStore {
 
     /**
      * Calculates the non-negative rejection penalty [0.0..30.0] for a category and hour [0..23],
-     * bridging domain & service category aliases and applying reason-specific kernels.
+     * bridging domain & service category aliases, day-type (weekday vs. weekend), and reason kernels.
      */
     fun computePenalty(
         json: String,
         category: String,
         hour: Int,
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        targetIsWeekend: Boolean? = null
     ): Double {
-        return computeComponents(json, category, hour, nowMillis).penalty
+        return computeComponents(json, category, hour, nowMillis, targetIsWeekend).penalty
     }
 
     /**
@@ -111,10 +125,50 @@ object SchedulingFeedbackStore {
         json: String,
         category: String,
         hour: Int,
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        targetIsWeekend: Boolean? = null
     ): Double {
-        val components = computeComponents(json, category, hour, nowMillis)
+        val components = computeComponents(json, category, hour, nowMillis, targetIsWeekend)
         return (components.positiveAffinity - components.penalty).coerceIn(-30.0, 12.0)
+    }
+
+    /**
+     * Computes a structural preference strength [0.0..1.0] for longer unfragmented blocks
+     * based on recent NEEDS_LONGER_BLOCK feedback for this category family.
+     */
+    fun computeLongerBlockPreference(
+        json: String,
+        category: String,
+        nowMillis: Long = System.currentTimeMillis(),
+        targetIsWeekend: Boolean? = null
+    ): Double {
+        if (json.isBlank() || json == "{}") return 0.0
+        val root = try { JSONObject(json) } catch (_: Exception) { return 0.0 }
+        val aliases = categoryAliases(category).distinct().toSet()
+        var weightedSignals = 0.0
+
+        for (rawCatKey in root.keys()) {
+            val catKey = rawCatKey.trim().uppercase()
+            if (catKey !in aliases) continue
+            val catObj = root.optJSONObject(rawCatKey) ?: continue
+            for (hKey in catObj.keys()) {
+                val arr = catObj.optJSONArray(hKey) ?: continue
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    if (!item.optBoolean("neg", true)) continue
+                    val tag = item.optString("tag", "").trim().uppercase()
+                    if (tag != "NEEDS_LONGER_BLOCK") continue
+                    val ts = item.optLong("ts", 0L)
+                    val dt = (nowMillis - ts).coerceAtLeast(0L)
+                    if (dt > FOURTEEN_DAYS_MILLIS) continue
+                    val decay = exp(-dt / SEVEN_DAYS_HALF_LIFE_MILLIS)
+                    val dayTypeWeight = computeDayTypeWeight(item, targetIsWeekend)
+                    weightedSignals += decay * dayTypeWeight
+                }
+            }
+        }
+        if (weightedSignals <= 0.0) return 0.0
+        return (1.0 - exp(-weightedSignals * 0.85)).coerceIn(0.0, 1.0)
     }
 
     /**
@@ -162,11 +216,18 @@ object SchedulingFeedbackStore {
         val positiveAffinity: Double
     )
 
+    private fun computeDayTypeWeight(item: JSONObject, targetIsWeekend: Boolean?): Double {
+        if (targetIsWeekend == null || !item.has("wknd")) return 1.0
+        val recordedIsWeekend = item.optBoolean("wknd", targetIsWeekend)
+        return if (recordedIsWeekend == targetIsWeekend) 1.0 else OPPOSITE_DAY_TYPE_TRANSFER_WEIGHT
+    }
+
     private fun computeComponents(
         json: String,
         category: String,
         targetHour: Int,
-        nowMillis: Long
+        nowMillis: Long,
+        targetIsWeekend: Boolean? = null
     ): FeedbackComponents {
         if (json.isBlank() || json == "{}") return FeedbackComponents(0.0, 0.0)
         val root = try { JSONObject(json) } catch (_: Exception) { return FeedbackComponents(0.0, 0.0) }
@@ -202,6 +263,8 @@ object SchedulingFeedbackStore {
                         continue
                     }
 
+                    val dayTypeWeight = computeDayTypeWeight(item, targetIsWeekend)
+
                     if (isNeg) {
                         val kernelWeight = when {
                             safeTargetHour == recordedHour -> when (tag) {
@@ -209,7 +272,9 @@ object SchedulingFeedbackStore {
                                 "TOO_LOW_ENERGY", "TOO_LATE" -> 13.5
                                 "TOO_EARLY" -> 13.0
                                 "WRONG_CONTEXT" -> 12.0
-                                "NEEDS_LONGER_BLOCK" -> 9.5
+                                // NEEDS_LONGER_BLOCK primarily acts via structural headroom & split-resistance;
+                                // keep a modest hour nudge so cramped windows at that hour are gently disfavored.
+                                "NEEDS_LONGER_BLOCK" -> 5.5
                                 else -> 10.0
                             }
                             tag == "TOO_EARLY" && safeTargetHour < recordedHour && (recordedHour - safeTargetHour) <= 3 ->
@@ -223,19 +288,19 @@ object SchedulingFeedbackStore {
                             else -> 0.0
                         }
                         if (kernelWeight > 0.0) {
-                            netNegative += kernelWeight * decay * categoryTransferWeight
+                            netNegative += kernelWeight * decay * categoryTransferWeight * dayTypeWeight
                         }
                     } else if (isSameCategory) {
                         val posRelief = when (hourDiff) {
-                            0 -> 6.0 * decay
-                            1 -> 2.0 * decay
+                            0 -> 6.0 * decay * dayTypeWeight
+                            1 -> 2.0 * decay * dayTypeWeight
                             else -> 0.0
                         }
                         if (posRelief > 0.0) {
                             netNegative -= posRelief
                             netPositive += when (hourDiff) {
-                                0 -> 7.0 * decay
-                                1 -> 2.5 * decay
+                                0 -> 7.0 * decay * dayTypeWeight
+                                1 -> 2.5 * decay * dayTypeWeight
                                 else -> 0.0
                             }
                         }

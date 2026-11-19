@@ -149,6 +149,131 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 }
             }.map { it.id }.toSet()
         }
+
+        internal data class WorkerCandidateBuckets(
+            val unscheduledTasks: List<TaskEntity>,
+            val missedTasks: List<TaskEntity>,
+            val replanCandidates: List<TaskEntity>
+        )
+
+        /**
+         * Partitions active tasks for Today's single-day background scheduling pass.
+         * Strictly isolates future-dated tasks (including future auto-scheduled blocks,
+         * user-dated future tasks, and future recurring habits) so they are never pulled
+         * backward into Today or wiped during reconciliation.
+         */
+        internal fun selectCandidateBuckets(
+            allTasks: List<TaskEntity>,
+            dayStart: Long,
+            dayEnd: Long,
+            nowMillis: Long,
+            prefs: com.neuroflow.app.data.local.UserPreferences,
+            forceReplan: Boolean,
+            blockedTaskIds: Set<String> = emptySet(),
+            focusedTaskIds: Set<String> = emptySet(),
+            isPartBlocked: (TaskEntity) -> Boolean = { false }
+        ): WorkerCandidateBuckets {
+            val unscheduledTasks = allTasks.filter { task ->
+                val sDate = task.effectiveScheduledDateMillis()
+                val dDate = task.resolveDeadlineEpochMillis()
+                val scheduledStart = task.resolveScheduledEpochMillis()
+                val isScheduledInFuture = (sDate != null && sDate > dayEnd) ||
+                    (scheduledStart != null && scheduledStart > dayEnd) ||
+                    (task.habitDate != null && task.habitDate > dayEnd)
+                val isNotFuture = !isScheduledInFuture && (
+                    (sDate != null && sDate <= dayEnd) ||
+                    (sDate == null && (dDate == null || dDate <= dayEnd))
+                )
+                isNotFuture &&
+                    (sDate == null || task.scheduledTime == null) &&
+                    !AutoSchedulingContracts.hasManualScheduleData(task) &&
+                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis)
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) }
+
+            val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
+            val missedTasks = allTasks.filter { task ->
+                val scheduledStart = task.resolveScheduledEpochMillis()
+                val effectiveDate = task.effectiveScheduledDateMillis()
+                task.status == TaskStatus.ACTIVE &&
+                    !task.isScheduleLocked &&
+                    task.isAutoScheduled &&
+                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
+                    task.scheduledTime != null &&
+                    scheduledStart != null &&
+                    scheduledStart <= dayEnd &&
+                    (effectiveDate == null || effectiveDate <= dayEnd) &&
+                    let {
+                        TaskBlockPlan.blockHasExpired(
+                            task = task,
+                            startMillis = scheduledStart,
+                            nowMillis = nowMillis,
+                            gracePeriodMillis = gracePeriodMillis
+                        ) || (forceReplan && scheduledStart < nowMillis)
+                    }
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) }
+
+            val missedTaskIds = missedTasks.map { it.id }.toSet()
+            val replanCandidates = allTasks.filter { task ->
+                val scheduledMillis = task.resolveScheduledEpochMillis()
+                val effectiveDate = task.effectiveScheduledDateMillis()
+                val isScheduledForTodayOnly = scheduledMillis != null &&
+                    scheduledMillis in dayStart..dayEnd &&
+                    (effectiveDate == null || effectiveDate in dayStart..dayEnd)
+                task.status == TaskStatus.ACTIVE &&
+                    !task.isScheduleLocked &&
+                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
+                    isScheduledForTodayOnly &&
+                    PlacementStability.verdict(task, nowMillis, prefs, forceReplan).allowsReplan
+            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) || it.id in missedTaskIds }
+
+            return WorkerCandidateBuckets(
+                unscheduledTasks = unscheduledTasks,
+                missedTasks = missedTasks,
+                replanCandidates = replanCandidates
+            )
+        }
+
+        /**
+         * Identifies replan candidates whose previous slot [prevStart, prevEnd) is no longer safe to
+         * retain via hysteresis because it overlaps:
+         * 1. Any external/fixed busy window or protected slot,
+         * 2. Another task's newly proposed placement in [placements], or
+         * 3. Another replan candidate's previous window (defensive guard against stale overlaps).
+         *
+         * Marking such candidates as conflicting bypasses the utility-gain hysteresis hold so
+         * keeping a task in its old slot can never create a double-booked collision.
+         */
+        internal fun findConflictingPreviousSlotIds(
+            replanCandidates: List<TaskEntity>,
+            placements: List<ScheduledPlacement>,
+            busyWindows: List<TimeSlotWindow>,
+            nowMillis: Long
+        ): Set<String> {
+            val prevWindows = replanCandidates.mapNotNull { candidate ->
+                val prevStart = candidate.resolveScheduledEpochMillis(nowMillis) ?: return@mapNotNull null
+                val prevDuration = TaskBlockPlan.plannedMinutes(candidate).coerceAtLeast(5)
+                candidate.id to TimeSlotWindow(prevStart, prevStart + prevDuration * 60_000L)
+            }.toMap()
+
+            fun overlaps(a: TimeSlotWindow, b: TimeSlotWindow): Boolean =
+                maxOf(a.startMillis, b.startMillis) < minOf(a.endMillis, b.endMillis)
+
+            val conflicting = mutableSetOf<String>()
+            for ((candidateId, prevWin) in prevWindows) {
+                val overlapsBusy = busyWindows.any { b -> overlaps(b, prevWin) }
+                val overlapsOtherPlacement = placements.any { p ->
+                    val baseId = if (p.task.id.contains("#part")) p.task.id.substringBefore("#part") else p.task.id
+                    baseId != candidateId && overlaps(p.window, prevWin)
+                }
+                val overlapsOtherPrev = prevWindows.any { (otherId, otherWin) ->
+                    otherId != candidateId && overlaps(otherWin, prevWin)
+                }
+                if (overlapsBusy || overlapsOtherPlacement || overlapsOtherPrev) {
+                    conflicting.add(candidateId)
+                }
+            }
+            return conflicting
+        }
     }
 
     override suspend fun doWork(): Result {
@@ -261,55 +386,30 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 elapsedMs < maxDurationMs
             }.map { it.taskId }.toSet()
 
-            // Separate tasks into unscheduled, missed, and replan candidates
-            val unscheduledTasks = allTasks.filter { task ->
-                val sDate = task.effectiveScheduledDateMillis()
-                val dDate = task.resolveDeadlineEpochMillis()
-                val scheduledStart = task.resolveScheduledEpochMillis()
-                val isScheduledInFuture = scheduledStart != null && scheduledStart > dayEnd
-                val isNotFuture = !isScheduledInFuture && (
-                    (sDate != null && sDate <= dayEnd) ||
-                    (sDate == null && (dDate == null || dDate <= dayEnd))
+            // Separate tasks into unscheduled, missed, and replan candidates (strictly scoped to Today)
+            val buckets = selectCandidateBuckets(
+                allTasks = allTasks,
+                dayStart = dayStart,
+                dayEnd = dayEnd,
+                nowMillis = nowMillis,
+                prefs = prefs,
+                forceReplan = forceReplan,
+                blockedTaskIds = blockedTaskIds,
+                focusedTaskIds = focusedTaskIds,
+                isPartBlocked = isPartBlocked
+            )
+            val unscheduledTasks = buckets.unscheduledTasks
+            val missedTasks = buckets.missedTasks
+            val replanCandidates = buckets.replanCandidates
+            val replanVerdicts = replanCandidates.associate { candidate ->
+                candidate.id to PlacementStability.verdict(
+                    task = candidate,
+                    nowMillis = nowMillis,
+                    prefs = prefs,
+                    forceReplan = forceReplan,
+                    zoneId = zoneId
                 )
-                isNotFuture &&
-                    (sDate == null || task.scheduledTime == null) &&
-                    !AutoSchedulingContracts.hasManualScheduleData(task) &&
-                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis)
-            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) }
-
-            val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
-            val missedTasks = allTasks.filter { task ->
-                val scheduledStart = task.resolveScheduledEpochMillis()
-                task.status == TaskStatus.ACTIVE &&
-                    !task.isScheduleLocked &&
-                    task.isAutoScheduled &&
-                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
-                    task.scheduledTime != null &&
-                    scheduledStart != null &&
-                    scheduledStart <= dayEnd &&
-                    let {
-                        TaskBlockPlan.blockHasExpired(
-                            task = task,
-                            startMillis = scheduledStart,
-                            nowMillis = nowMillis,
-                            gracePeriodMillis = gracePeriodMillis
-                        ) || (forceReplan && scheduledStart < nowMillis)
-                    }
-            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) }
-
-            val missedTaskIds = missedTasks.map { it.id }.toSet()
-            val replanCandidates = allTasks.filter { task ->
-                val scheduledMillis = task.resolveScheduledEpochMillis()
-                val isTodayOrFutureAutoScheduled = scheduledMillis != null && (
-                    scheduledMillis in dayStart..dayEnd ||
-                    (task.isAutoScheduled && !task.isScheduleLocked && scheduledMillis > dayEnd)
-                )
-                task.status == TaskStatus.ACTIVE &&
-                    !task.isScheduleLocked &&
-                    AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
-                    isTodayOrFutureAutoScheduled &&
-                    PlacementStability.verdict(task, nowMillis, prefs, forceReplan).allowsReplan
-            }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) || it.id in missedTaskIds }
+            }
 
             val targetTasksMap = LinkedHashMap<String, TaskEntity>()
             unscheduledTasks.forEach { targetTasksMap[it.id] = it }
@@ -396,7 +496,80 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             val placements = outcome.placements
 
             if (placements.isNotEmpty()) {
-                applyPlacementsTransactionally(placements, prefs)
+                val horizonCtx = com.neuroflow.app.domain.scheduler.SchedulingContextFactory.buildHorizonContext(
+                    allKnownTasks = allKnownTasks,
+                    closedSessions = closedSessions,
+                    sleepLogs = sleepLogs,
+                    prefs = prefs,
+                    referenceNowMillis = nowMillis,
+                    zoneId = zoneId
+                )
+                val dayCtx = com.neuroflow.app.domain.scheduler.SchedulingContextFactory.buildDayContext(
+                    horizon = horizonCtx,
+                    dayDate = dayDate,
+                    prefs = prefs,
+                    referenceNowMillis = nowMillis,
+                    zoneId = zoneId,
+                    sleepTelemetryRepository = sleepTelemetryRepository
+                )
+                val protectedBusyWindows = dayCtx.protectedSlots.map { it.resolveForDate(dayDate, zoneId) }
+                val conflictingPreviousIds = findConflictingPreviousSlotIds(
+                    replanCandidates = replanCandidates,
+                    placements = placements,
+                    busyWindows = totalBusyWindows + protectedBusyWindows,
+                    nowMillis = nowMillis
+                )
+                val previousSlotUtilities = mutableMapOf<String, Double>()
+                for (candidate in replanCandidates) {
+                    if (candidate.id in conflictingPreviousIds) continue
+                    val prevStart = candidate.resolveScheduledEpochMillis(nowMillis) ?: continue
+                    val prevDuration = TaskBlockPlan.plannedMinutes(candidate).coerceAtLeast(5)
+                    val placementMatch = placements.firstOrNull { p ->
+                        val baseId = if (p.task.id.contains("#part")) p.task.id.substringBefore("#part") else p.task.id
+                        baseId == candidate.id
+                    } ?: continue
+                    val prevSnap = circadianEnergyService.evaluateSnapshotWithStimulants(
+                        timestampMillis = prevStart + (prevDuration * 30_000L),
+                        wakeTimeMillis = dayCtx.wakeTimeMillis,
+                        lastSleepDurationMinutes = dayCtx.lastSleepDurationMinutes,
+                        continuousActiveFocusMinutes = 0,
+                        zoneId = zoneId,
+                        naps = dayCtx.naps,
+                        chronotype = horizonCtx.chronotype,
+                        manualPeakStartHour = horizonCtx.manualPeakStartHour,
+                        learnedProfile = horizonCtx.learnedProfile,
+                        rollingAverageSleepMinutes = horizonCtx.rollingAverageSleepMinutes,
+                        cognitiveBlocks = dayCtx.physiologicalBlocks,
+                        stimulantDoses = dayCtx.stimulantDoses,
+                        socialJetlagLagHours = horizonCtx.socialJetlagLagHours
+                    )
+                    val prevScore = taskSchedulerService.evaluateTaskScoreWithFatigue(
+                        task = placementMatch.task,
+                        snapshot = prevSnap,
+                        calibrationRatio = horizonCtx.calibrationRatioFor(placementMatch.task.category),
+                        weights = horizonCtx.priorityWeights,
+                        referenceNowMillis = nowMillis
+                    ).totalScore
+                    val prevHour = Instant.ofEpochMilli(prevStart).atZone(zoneId).hour
+                    val prevIsWeekend = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.isWeekendDay(prevStart, zoneId)
+                    val prevFeedbackDelta = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.computeAffinityDelta(
+                        json = prefs.schedulingRejectionsJson,
+                        category = placementMatch.task.category.name,
+                        hour = prevHour,
+                        nowMillis = nowMillis,
+                        targetIsWeekend = prevIsWeekend
+                    )
+                    previousSlotUtilities[candidate.id] = prevScore + prevFeedbackDelta
+                }
+
+                applyPlacementsTransactionally(
+                    placements = placements,
+                    prefs = prefs,
+                    replanVerdicts = replanVerdicts,
+                    previousSlotUtilities = previousSlotUtilities,
+                    conflictingPreviousIds = conflictingPreviousIds,
+                    zoneId = zoneId
+                )
                 FocusWidgetUpdateWorker.enqueueImmediateUpdate(context)
             }
 
@@ -413,6 +586,13 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             for (taskToDefer in tasksToReconcile) {
                 val fresh = taskRepository.getById(taskToDefer.id) ?: taskToDefer
                 if (fresh.isScheduleLocked || !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)) continue
+                val freshEffectiveDate = fresh.effectiveScheduledDateMillis()
+                val freshScheduledStart = fresh.resolveScheduledEpochMillis()
+                if ((freshEffectiveDate != null && freshEffectiveDate > dayEnd) ||
+                    (freshScheduledStart != null && freshScheduledStart > dayEnd)
+                ) {
+                    continue
+                }
                 val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
                 if (fresh.isAutoScheduled && (fresh.scheduledDate != null || fresh.scheduledTime != null || fresh.title != cleanTitle)) {
                     taskRepository.update(
@@ -449,7 +629,11 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
     private suspend fun applyPlacementsTransactionally(
         placements: List<ScheduledPlacement>,
-        prefs: com.neuroflow.app.data.local.UserPreferences
+        prefs: com.neuroflow.app.data.local.UserPreferences,
+        replanVerdicts: Map<String, PlacementStability.ReplanVerdict> = emptyMap(),
+        previousSlotUtilities: Map<String, Double> = emptyMap(),
+        conflictingPreviousIds: Set<String> = emptySet(),
+        zoneId: ZoneId = ZoneId.systemDefault()
     ) {
         val nowMillis = System.currentTimeMillis()
         val focusedTaskIds = sessionRepository.getOpenSessions().filter { session ->
@@ -512,13 +696,36 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 existingPart2 != null && existingPart2.status != TaskStatus.COMPLETED
             }
 
+            val verdict = replanVerdicts[baseTaskId]
+            val isRoutineRefresh = verdict == PlacementStability.ReplanVerdict.PERIODIC_REFRESH &&
+                baseTaskId !in conflictingPreviousIds
+            val previousUtility = if (isRoutineRefresh) previousSlotUtilities[baseTaskId] else null
+            val nextUtility = if (previousUtility != null) {
+                val nextHour = Instant.ofEpochMilli(primaryPlacement.window.startMillis).atZone(zoneId).hour
+                val nextIsWeekend = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.isWeekendDay(
+                    primaryPlacement.window.startMillis,
+                    zoneId
+                )
+                val nextFeedbackDelta = com.neuroflow.app.domain.scheduler.SchedulingFeedbackStore.computeAffinityDelta(
+                    json = prefs.schedulingRejectionsJson,
+                    category = primaryPlacement.task.category.name,
+                    hour = nextHour,
+                    nowMillis = nowMillis,
+                    targetIsWeekend = nextIsWeekend
+                )
+                primaryPlacement.scoreBreakdown.totalScore + nextFeedbackDelta
+            } else null
+
             if (!part2NeedsUpdate &&
                 !titleChanged &&
                 !blockLengthChanged &&
                 !PlacementStability.isMoveWorthApplying(
                     previousStartMillis = previousStartMillis,
                     nextStartMillis = primaryPlacement.window.startMillis,
-                    nowMillis = nowMillis
+                    nowMillis = nowMillis,
+                    previousUtility = previousUtility,
+                    nextUtility = nextUtility,
+                    bypassUtilityThreshold = !isRoutineRefresh
                 )
             ) {
                 continue

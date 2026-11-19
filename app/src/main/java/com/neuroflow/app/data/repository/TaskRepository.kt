@@ -10,9 +10,11 @@ import com.neuroflow.app.data.local.dao.TaskDao
 import com.neuroflow.app.data.local.dao.TimeSessionDao
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.startOfLocalDay
+import com.neuroflow.app.data.local.entity.startOfNextLocalDay
 import com.neuroflow.app.domain.engine.AutonomyNudgeEngine
 import com.neuroflow.app.domain.model.Quadrant
 import com.neuroflow.app.domain.model.Recurrence
@@ -216,7 +218,14 @@ class TaskRepository @Inject constructor(
         }
         calendarSyncRepository?.handleTaskStateChanged(task)
         if (!AutoSchedulingContracts.hasManualScheduleData(task) && task.status != TaskStatus.COMPLETED && !task.isAutoScheduled) {
-            enqueueAutoSchedulingRecheck()
+            val todayEnd = startOfNextLocalDay(startOfLocalDay(System.currentTimeMillis())) - 1
+            val sDate = task.effectiveScheduledDateMillis()
+            val dDate = task.resolveDeadlineEpochMillis()
+            val isFutureOnly = (sDate != null && sDate > todayEnd) ||
+                (sDate == null && dDate != null && dDate > todayEnd)
+            if (!isFutureOnly) {
+                enqueueAutoSchedulingRecheck()
+            }
         }
     }
     suspend fun update(task: TaskEntity) {
@@ -238,8 +247,13 @@ class TaskRepository @Inject constructor(
 
         calendarSyncRepository?.handleTaskStateChanged(toWrite)
 
-        // Trigger rescheduling if relevant fields changed
-        if (old != null && shouldTriggerReschedule(old, toWrite)) {
+        // Trigger rescheduling if relevant fields changed, EXCEPT when this write itself was
+        // produced by the auto-scheduler / auto-balance / daily blueprint (which stamps lastAutoScheduledAt),
+        // preventing multi-day Balance or Blueprint commits from immediately triggering a single-day worker pass.
+        val isSchedulerWrite = toWrite.isAutoScheduled &&
+            toWrite.lastAutoScheduledAt != null &&
+            toWrite.lastAutoScheduledAt != old?.lastAutoScheduledAt
+        if (old != null && !isSchedulerWrite && shouldTriggerReschedule(old, toWrite)) {
             enqueueAutoSchedulingRecheck()
         }
     }

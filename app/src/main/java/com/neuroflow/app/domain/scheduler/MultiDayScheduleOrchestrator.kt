@@ -98,171 +98,127 @@ class MultiDayScheduleOrchestrator @Inject constructor(
 
         val prefs = preferencesDataStore?.preferencesFlow?.firstOrNull() ?: UserPreferences()
         val sleepLogs = sleepTelemetryRepository?.observeAllSleepLogs()?.firstOrNull() ?: emptyList()
-        val recentSleep = sleepLogs.maxByOrNull { it.wakeTimeMillis }
 
         val dailyCapacityMinutes = prefs.dailyDeepWorkTargetMinutes.coerceIn(30, 720)
-        val priorityWeights = SchedulableTaskMapper.toPriorityWeights(prefs)
-
-        val rawWakeHour = prefs.wakeTimeHour.coerceIn(4, 12)
-        val wakeHour = rawWakeHour
-        val wakeMinute = prefs.wakeTimeMinute.coerceIn(0, 59)
-
-        val sleepDurationMinutes = recentSleep?.let {
-            ((it.wakeTimeMillis - it.bedTimeMillis) / 60_000L).toInt().coerceIn(240, 660)
-        } ?: 480
-        val rollingAvgSleep = computeRollingDailySleepAverage(sleepLogs, referenceNowMillis, zoneId)
-        val socialJetlagLagHours = SocialJetlagCalculator.evaluateFromSleepWindows(
-            sleepWindows = sleepLogs.map { TimeSlotWindow(it.startAt, it.endAt) },
-            nowMillis = referenceNowMillis,
-            zoneId = zoneId
-        ).mondayMorningPhaseLagHours
-
-        val planningCalibration = if (allKnownTasks.isNotEmpty()) {
-            AnalyticsEngine.PlanningCalibration.from(allKnownTasks)
-        } else null
-        val calibrationRatio = planningCalibration?.globalFactor?.toDouble()?.coerceIn(0.8, 1.6) ?: 1.20
-
-        val completedTasks = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
-        val completionObs = if (completedTasks.isNotEmpty()) {
-            buildBehavioralObservations(completedTasks, closedSessions, zoneId)
-        } else emptyList()
-        val approvedFeedbackObs = SchedulingFeedbackStore.extractApprovedCircadianObservations(
-            json = prefs.schedulingRejectionsJson,
-            nowMillis = referenceNowMillis
-        )
-        val observations = completionObs + approvedFeedbackObs
-        val initialPeak = if (prefs.effectivePeakStart in 0..23) prefs.effectivePeakStart.toDouble() else 9.0
-        val learnedProfile = if (observations.isNotEmpty()) {
-            AdaptiveCircadianLearner.learnProfile(observations, initialPeakHour = initialPeak)
-        } else null
-
         val safeHorizon = horizonDays.coerceIn(1, 14)
 
-        for (dayOffset in 0 until safeHorizon) {
+        val horizonShared = SchedulingContextFactory.buildHorizonContext(
+            allKnownTasks = allKnownTasks,
+            closedSessions = closedSessions,
+            sleepLogs = sleepLogs,
+            prefs = prefs,
+            referenceNowMillis = referenceNowMillis,
+            zoneId = zoneId,
+            defaultGlobalCalibrationWhenEmpty = 1.20
+        )
+
+        data class DayHorizonContext(
+            val dayContext: SchedulingDayContext,
+            val busyWindows: List<TimeSlotWindow>,
+            val openCalendarMinutes: Int
+        )
+
+        fun computeOpenMinutesInWindow(
+            windowStart: Long,
+            windowEnd: Long,
+            blockedWindows: List<TimeSlotWindow>
+        ): Int {
+            if (windowEnd <= windowStart) return 0
+            var intervals = mutableListOf(TimeSlotWindow(windowStart, windowEnd))
+            for (blocked in blockedWindows) {
+                if (blocked.endMillis <= windowStart || blocked.startMillis >= windowEnd || blocked.startMillis >= blocked.endMillis) {
+                    continue
+                }
+                val next = mutableListOf<TimeSlotWindow>()
+                for (iv in intervals) {
+                    if (blocked.endMillis <= iv.startMillis || blocked.startMillis >= iv.endMillis) {
+                        next.add(iv)
+                    } else {
+                        if (blocked.startMillis > iv.startMillis) next.add(TimeSlotWindow(iv.startMillis, blocked.startMillis))
+                        if (blocked.endMillis < iv.endMillis) next.add(TimeSlotWindow(blocked.endMillis, iv.endMillis))
+                    }
+                }
+                intervals = next
+            }
+            return intervals.sumOf { iv ->
+                val mins = ((iv.endMillis - iv.startMillis) / 60_000L).toInt()
+                // Ignore tiny unusable slivers (< 20 min) when estimating true schedulable calendar capacity
+                if (mins >= 20) mins else 0
+            }
+        }
+
+        // Precompute full-horizon calendar, protected, and physiological context once so Day 0..N pacing
+        // accurately sees crowded upcoming meeting days before deciding Today's workload.
+        val horizonContexts = (0 until safeHorizon).map { dayOffset ->
             val currentDate = startDate.plusDays(dayOffset.toLong())
-            val dayStartEpoch = currentDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
-            val dayEndEpoch = currentDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
-
-            val dayNowMillis = if (dayOffset == 0 && referenceNowMillis in dayStartEpoch until dayEndEpoch) {
-                referenceNowMillis
-            } else {
-                dayStartEpoch
-            }
-
-            val calculatedWakeEpoch = dayStartEpoch + (wakeHour * 3600_000L) + (wakeMinute * 60_000L)
-            val wakeTimeMillis = if (dayOffset == 0 && recentSleep != null && recentSleep.wakeTimeMillis in dayStartEpoch..dayEndEpoch) {
-                recentSleep.wakeTimeMillis
-            } else {
-                calculatedWakeEpoch
-            }
-
-            val calendarBusy = calendarSyncRepository?.getBusyWindows(dayStartEpoch, dayEndEpoch) ?: emptyList()
+            val resolvedDay = SchedulingContextFactory.buildDayContext(
+                horizon = horizonShared,
+                dayDate = currentDate,
+                prefs = prefs,
+                referenceNowMillis = referenceNowMillis,
+                zoneId = zoneId,
+                sleepTelemetryRepository = sleepTelemetryRepository
+            )
+            val calendarBusy = calendarSyncRepository?.getBusyWindows(resolvedDay.dayStartMillis, resolvedDay.dayEndMillis) ?: emptyList()
             val externalBusy = externalAndFixedBusyWindowsByDate[currentDate].orEmpty()
             val busyWindows = (calendarBusy + externalBusy).distinctBy { it.startMillis to it.endMillis }
 
-            // Isolate locked tasks to their exact pinned date (or Day 0 for overdue locked tasks)
-            val todayCandidates = carriedOverTasks.filter { task ->
-                val lockedStart = task.scheduledStartMillis
-                if (task.isLocked && lockedStart != null) {
-                    val pinnedDate = Instant.ofEpochMilli(lockedStart).atZone(zoneId).toLocalDate()
-                    pinnedDate == currentDate || (dayOffset == 0 && pinnedDate.isBefore(currentDate))
-                } else {
-                    true
-                }
+            val startHour = prefs.workDayStart.coerceIn(0, 23)
+            val endHour = prefs.workDayEnd.coerceIn(0, 23)
+            val workStartMillis = currentDate.atTime(java.time.LocalTime.of(startHour, 0)).atZone(zoneId).toInstant().toEpochMilli()
+            val workEndMillis = when {
+                endHour == 0 -> resolvedDay.dayEndMillis - 1L
+                endHour <= startHour -> currentDate.plusDays(1).atTime(java.time.LocalTime.of(endHour, 0)).atZone(zoneId).toInstant().toEpochMilli()
+                else -> currentDate.atTime(java.time.LocalTime.of(endHour, 0)).atZone(zoneId).toInstant().toEpochMilli()
             }
-            if (todayCandidates.isEmpty()) {
-                dayOutcomes[currentDate] = SchedulingOutcome(emptyList(), emptyList())
-                continue
-            }
+            val effectiveStart = max(
+                max(workStartMillis, resolvedDay.wakeTimeMillis + 15 * 60_000L),
+                if (dayOffset == 0) resolvedDay.dayNowMillis + 5 * 60_000L else workStartMillis
+            )
+            val allBlockedForCapacity = busyWindows +
+                resolvedDay.protectedSlots.map { it.resolveForDate(currentDate, zoneId) } +
+                resolvedDay.naps.map { TimeSlotWindow(it.startMillis, it.endMillis) } +
+                resolvedDay.physiologicalBlocks.map { it.toTimeSlotWindow(currentDate, zoneId) }
+            val openCalendarMinutes = computeOpenMinutesInWindow(effectiveStart, workEndMillis, allBlockedForCapacity)
 
-            val candidateIds = todayCandidates.map { it.id }.toSet()
+            DayHorizonContext(
+                dayContext = resolvedDay,
+                busyWindows = busyWindows,
+                openCalendarMinutes = openCalendarMinutes
+            )
+        }
 
-            val protectedSlots = prefs.protectedTimeSlots
-                .filter { it.isEnabled && ProtectedSlotClock.occursOnDay(it, dayStartEpoch) }
-                .map {
-                    com.neuroflow.app.domain.service.ProtectedLocalSlot(
-                        startHour = (it.startMinuteOfDay / 60).coerceIn(0, 23),
-                        startMinute = (it.startMinuteOfDay % 60).coerceIn(0, 59),
-                        durationMinutes = (it.durationMinutes + it.recoveryBufferMinutes).coerceIn(15, 480)
-                    )
-                }
-            val chronotype = ChronotypeProfile.fromString(prefs.quizChronotype ?: prefs.manualChronotype)
-            val manualPeakStartHour = if (prefs.manualPeakProfileEnabled) {
-                (prefs.manualPeakAnchorMinuteOfDay / 60).coerceIn(0, 23)
-            } else null
+        for (dayOffset in 0 until safeHorizon) {
+            val horizonDay = horizonContexts[dayOffset]
+            val dayCtx = horizonDay.dayContext
+            val currentDate = dayCtx.date
+            val dayStartEpoch = dayCtx.dayStartMillis
+            val dayEndEpoch = dayCtx.dayEndMillis
+            val dayNowMillis = dayCtx.dayNowMillis
+            val wakeTimeMillis = dayCtx.wakeTimeMillis
+            val sleepDurationMinutes = dayCtx.lastSleepDurationMinutes
+            val busyWindows = horizonDay.busyWindows
+            val protectedSlots = dayCtx.protectedSlots
+            val dayNaps = dayCtx.naps
+            val physiologicalBlocks = dayCtx.physiologicalBlocks
+            val stimulantDoses = dayCtx.stimulantDoses
 
-            val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
-                .filter { it.timestampMillis in (dayStartEpoch - 8 * 3600_000L)..(dayStartEpoch + 26 * 3600_000L) }
-            val quickPhysBlocks = physLogs.mapNotNull { log ->
-                val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
-                val minOfDay = logZdt.hour * 60 + logZdt.minute
-                val duration = log.durationMinutes.coerceIn(5, 240)
-                when (log.type) {
-                    PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
-                        startMinuteOfDay = minOfDay,
-                        endMinuteOfDay = (minOfDay + duration) % 1440,
-                        category = CognitiveBlockCategory.MEAL,
-                        intensity = log.intensity,
-                        label = "Quick Logged Meal #${log.timestampMillis}",
-                        explicitStartMillis = log.timestampMillis,
-                        explicitEndMillis = log.timestampMillis + duration * 60_000L
-                    )
-                    PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
-                        startMinuteOfDay = minOfDay,
-                        endMinuteOfDay = (minOfDay + duration) % 1440,
-                        category = CognitiveBlockCategory.EXERCISE,
-                        intensity = log.intensity,
-                        label = "Quick Logged Workout #${log.timestampMillis}",
-                        explicitStartMillis = log.timestampMillis,
-                        explicitEndMillis = log.timestampMillis + duration * 60_000L
-                    )
-                    PhysiologicalEventType.NAP -> null
-                }
-            }
-            val quickPhysNaps = physLogs
-                .filter { it.type == PhysiologicalEventType.NAP }
-                .map { log ->
-                    DaytimeNapBout(
-                        startMillis = log.timestampMillis,
-                        endMillis = log.timestampMillis + log.durationMinutes.coerceIn(5, 180) * 60_000L
-                    )
-                }
-
-            val stimulantDoses = (
-                parseStimulantLogs(prefs.stimulantLogsJson) +
-                    extractStimulantDosesFromSlots(prefs.protectedTimeSlots, currentDate, zoneId)
-                ).distinctBy { it.timestampMillis to it.type }
-            val basePhysioBlocks = buildDailyCognitiveBlocks(
-                slots = prefs.protectedTimeSlots,
-                date = currentDate,
-                zoneId = zoneId
-            ).filter {
-                it.category == CognitiveBlockCategory.MEAL ||
-                    it.category == CognitiveBlockCategory.EXERCISE
-            }
-            val physiologicalBlocks = basePhysioBlocks + quickPhysBlocks
-
-            // Adaptive cross-day load balancing: distinguish true today commitments from horizon-wide pacing
-            // and measure all task durations in calibrated buffered minutes so the budget unit matches TaskSchedulerService
             fun bufferedMinutes(t: SchedulableTask): Int {
                 val raw = max(5, t.estimatedMinutes)
-                return if (t.isDurationExplicit) raw else (raw * calibrationRatio).roundToInt().coerceAtLeast(5)
+                val ratio = horizonShared.calibrationRatioFor(t.category)
+                return if (t.isDurationExplicit) raw else (raw * ratio).roundToInt().coerceAtLeast(5)
             }
-            val unlockedCandidates = todayCandidates.filterNot { it.isLocked }
-            val externalPrecommittedMinutes = (precommittedCognitiveMinutesByDate[currentDate] ?: 0).coerceAtLeast(0)
-            val availableDayCapacity = (dailyCapacityMinutes - externalPrecommittedMinutes).coerceAtLeast(0)
-            val lockedCandidatesMinutesToday = todayCandidates
-                .filter { it.isLocked && it.scheduledStartMillis != null }
-                .sumOf { bufferedMinutes(it) }
-            val remainingBaseCapacity = (availableDayCapacity - lockedCandidatesMinutesToday).coerceAtLeast(0)
-            val totalRemainingUnlockedMinutes = unlockedCandidates.sumOf { bufferedMinutes(it) }
 
-            val effectiveDeadlineMap = unlockedCandidates
+            // Compute propagated effective deadlines across all remaining unlocked tasks BEFORE
+            // filtering todayCandidates so future-anchored tasks stay on their intended day
+            // unless a hard deadline (or urgent dependent chain) strictly requires execution today.
+            val allUnlockedCarriedOver = carriedOverTasks.filterNot { it.isLocked }
+            val effectiveDeadlineMap = allUnlockedCarriedOver
                 .associate { it.id to (it.deadlineMillis ?: Long.MAX_VALUE) }
                 .toMutableMap()
-            repeat(unlockedCandidates.size) {
+            repeat(allUnlockedCarriedOver.size) {
                 var changed = false
-                for (child in unlockedCandidates) {
+                for (child in allUnlockedCarriedOver) {
                     val childDl = effectiveDeadlineMap[child.id] ?: Long.MAX_VALUE
                     if (childDl == Long.MAX_VALUE) continue
                     val childNeedMillis = (bufferedMinutes(child) + 10) * 60_000L
@@ -278,6 +234,49 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 if (!changed) return@repeat
             }
 
+            // Isolate locked tasks to their exact pinned date (or Day 0 for overdue locked tasks)
+            // and never pull future-anchored unlocked tasks (tomorrow/future auto-scheduled blocks,
+            // user-dated future tasks, or future recurring habits) backward onto an earlier day
+            // unless a hard deadline strictly requires completion before dayEndEpoch.
+            val todayCandidates = carriedOverTasks.filter { task ->
+                val lockedStart = task.scheduledStartMillis
+                if (task.isLocked && lockedStart != null) {
+                    val pinnedDate = Instant.ofEpochMilli(lockedStart).atZone(zoneId).toLocalDate()
+                    pinnedDate == currentDate || (dayOffset == 0 && pinnedDate.isBefore(currentDate))
+                } else {
+                    val anchorMillis = task.preferredDayStartMillis ?: task.scheduledStartMillis
+                    if (anchorMillis != null) {
+                        val anchorDate = Instant.ofEpochMilli(anchorMillis).atZone(zoneId).toLocalDate()
+                        if (anchorDate.isAfter(currentDate)) {
+                            val effDl = effectiveDeadlineMap[task.id] ?: Long.MAX_VALUE
+                            effDl < dayEndEpoch
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                }
+            }
+            if (todayCandidates.isEmpty()) {
+                dayOutcomes[currentDate] = SchedulingOutcome(emptyList(), emptyList())
+                continue
+            }
+
+            val candidateIds = todayCandidates.map { it.id }.toSet()
+
+            // Calendar-aware adaptive cross-day load balancing: measure both cognitive budget AND
+            // true open calendar time across every remaining day in the horizon so crowded upcoming
+            // meeting days automatically shift flexible share to open days.
+            val unlockedCandidates = todayCandidates.filterNot { it.isLocked }
+            val externalPrecommittedMinutes = (precommittedCognitiveMinutesByDate[currentDate] ?: 0).coerceAtLeast(0)
+            val availableDayCapacity = (dailyCapacityMinutes - externalPrecommittedMinutes).coerceAtLeast(0)
+            val lockedCandidatesMinutesToday = todayCandidates
+                .filter { it.isLocked && it.scheduledStartMillis != null }
+                .sumOf { bufferedMinutes(it) }
+            val remainingBaseCapacity = (availableDayCapacity - lockedCandidatesMinutesToday).coerceAtLeast(0)
+            val totalRemainingUnlockedMinutes = unlockedCandidates.sumOf { bufferedMinutes(it) }
+
             val strictlyDueTodayMinutes = unlockedCandidates
                 .filter { (effectiveDeadlineMap[it.id] ?: Long.MAX_VALUE) <= dayEndEpoch }
                 .sumOf { bufferedMinutes(it) }
@@ -289,15 +288,30 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 .sumOf { bufferedMinutes(it) }
             val urgentTodayMinutes = max(strictlyDueTodayMinutes, preferredTodayMinutes)
 
-            val activeRemainingDays = (dayOffset until safeHorizon).count { offset ->
-                val futureDate = startDate.plusDays(offset.toLong())
+            val remainingDayEffectiveCapacities = (dayOffset until safeHorizon).map { offset ->
+                val futureCtx = horizonContexts[offset]
+                val futureDate = futureCtx.dayContext.date
                 val futurePre = (precommittedCognitiveMinutesByDate[futureDate] ?: 0).coerceAtLeast(0)
                 val futureLocked = carriedOverTasks.filter { t ->
                     val ls = t.scheduledStartMillis
                     t.isLocked && ls != null && Instant.ofEpochMilli(ls).atZone(zoneId).toLocalDate() == futureDate
                 }.sumOf { bufferedMinutes(it) }
-                (dailyCapacityMinutes - futurePre - futureLocked) >= 30
-            }.coerceAtLeast(1)
+                val futureAnchored = if (offset > dayOffset) {
+                    carriedOverTasks.filter { t ->
+                        val anchor = t.preferredDayStartMillis ?: t.scheduledStartMillis
+                        !t.isLocked && anchor != null &&
+                            Instant.ofEpochMilli(anchor).atZone(zoneId).toLocalDate() == futureDate
+                    }.sumOf { bufferedMinutes(it) }
+                } else {
+                    0
+                }
+                val cognitiveFree = (dailyCapacityMinutes - futurePre - futureLocked - futureAnchored).coerceAtLeast(0)
+                val calendarFree = (futureCtx.openCalendarMinutes - futureLocked - futureAnchored).coerceAtLeast(0)
+                min(cognitiveFree, calendarFree)
+            }
+            val todayEffectiveOpenCap = remainingDayEffectiveCapacities.firstOrNull() ?: remainingBaseCapacity
+            val totalHorizonOpenCap = remainingDayEffectiveCapacities.sum().coerceAtLeast(1)
+            val activeRemainingDays = remainingDayEffectiveCapacities.count { it >= 30 }.coerceAtLeast(1)
 
             val daySnapshot = circadianEnergyService.evaluateSnapshotWithStimulants(
                 timestampMillis = dayNowMillis,
@@ -305,14 +319,14 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 lastSleepDurationMinutes = sleepDurationMinutes,
                 continuousActiveFocusMinutes = externalPrecommittedMinutes.coerceAtLeast(0),
                 zoneId = zoneId,
-                naps = quickPhysNaps.sortedBy { it.startMillis },
-                chronotype = chronotype,
-                manualPeakStartHour = manualPeakStartHour,
-                learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAvgSleep,
+                naps = dayNaps,
+                chronotype = horizonShared.chronotype,
+                manualPeakStartHour = horizonShared.manualPeakStartHour,
+                learnedProfile = horizonShared.learnedProfile,
+                rollingAverageSleepMinutes = horizonShared.rollingAverageSleepMinutes,
                 cognitiveBlocks = physiologicalBlocks,
                 stimulantDoses = stimulantDoses,
-                socialJetlagLagHours = socialJetlagLagHours
+                socialJetlagLagHours = horizonShared.socialJetlagLagHours
             )
             val dependentCounts = SchedulableTaskMapper.computeDependentCounts(unlockedCandidates)
             val topPriorityTaskMinutes = unlockedCandidates
@@ -321,8 +335,8 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                         task = task,
                         snapshot = daySnapshot,
                         dependentCount = dependentCounts[task.id] ?: 0,
-                        calibrationRatio = calibrationRatio,
-                        weights = priorityWeights,
+                        calibrationRatio = horizonShared.calibrationRatioFor(task.category),
+                        weights = horizonShared.priorityWeights,
                         referenceNowMillis = dayNowMillis,
                         cumulativeCognitiveLoadMinutes = externalPrecommittedMinutes.toDouble()
                     ).totalScore
@@ -337,7 +351,20 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 val neededDaysAtPace = ceil(totalRemainingUnlockedMinutes.toDouble() / sustainableDailyPace).toInt()
                 min(activeRemainingDays, max(2, neededDaysAtPace)).coerceAtLeast(1)
             }
-            val smoothedShare = ceil((totalRemainingUnlockedMinutes.toDouble() / effectivePacingDays) * 1.05).toInt()
+            val equalSmoothedShare = ceil((totalRemainingUnlockedMinutes.toDouble() / effectivePacingDays) * 1.05).toInt()
+            // Capacity-weighted share automatically pulls more flexible work onto open days when future days are meeting-heavy
+            val calendarWeightedShare = if (activeRemainingDays > 1 && totalRemainingUnlockedMinutes > 0) {
+                val proportion = todayEffectiveOpenCap.toDouble() / totalHorizonOpenCap.toDouble()
+                ceil(totalRemainingUnlockedMinutes * proportion * 1.08).toInt()
+            } else {
+                equalSmoothedShare
+            }
+            val futureHorizonTight = remainingDayEffectiveCapacities.drop(1).any { it < sustainableDailyPace / 2 }
+            val smoothedShare = if (futureHorizonTight) {
+                max(equalSmoothedShare, calendarWeightedShare)
+            } else {
+                equalSmoothedShare
+            }
             val targetUnlockedBudget = maxOf(smoothedShare, urgentTodayMinutes, minUnlockedFloor)
                 .coerceIn(0, remainingBaseCapacity)
             val dayCognitiveBudget = (lockedCandidatesMinutesToday + targetUnlockedBudget)
@@ -354,22 +381,23 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 zoneId = zoneId,
                 busyWindows = busyWindows,
                 protectedSlots = protectedSlots,
-                calibrationRatio = calibrationRatio,
+                calibrationRatio = horizonShared.globalCalibrationRatio,
                 forceReplan = forceReplan,
-                naps = quickPhysNaps.sortedBy { it.startMillis },
-                chronotype = chronotype,
-                manualPeakStartHour = manualPeakStartHour,
-                priorityWeights = priorityWeights,
-                learnedProfile = learnedProfile,
-                rollingAverageSleepMinutes = rollingAvgSleep,
+                naps = dayNaps,
+                chronotype = horizonShared.chronotype,
+                manualPeakStartHour = horizonShared.manualPeakStartHour,
+                priorityWeights = horizonShared.priorityWeights,
+                learnedProfile = horizonShared.learnedProfile,
+                rollingAverageSleepMinutes = horizonShared.rollingAverageSleepMinutes,
                 physiologicalBlocks = physiologicalBlocks,
                 stimulantDoses = stimulantDoses,
-                socialJetlagLagHours = socialJetlagLagHours,
+                socialJetlagLagHours = horizonShared.socialJetlagLagHours,
                 activeUncompletedTaskIds = activeUncompletedIds,
                 workDayStartHour = prefs.workDayStart,
                 workDayEndHour = prefs.workDayEnd,
                 dailyCognitiveCapacityMinutes = dayCognitiveBudget,
-                rejectionPatternsJson = rejectionPatternsJson
+                rejectionPatternsJson = rejectionPatternsJson,
+                categoryCalibrationRatios = horizonShared.categoryCalibrationRatios
             )
 
             // Enforce cognitive capacity boundary in priority order while grouping dynamic splits atomically
@@ -466,7 +494,8 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                 .toSet()
             carriedOverTasks.removeAll { it.id in placedIds || it.id in placedDynamicBaseIds }
 
-            // Detect cross-day splits: Part i placed today without Part i+1 fitting today
+            // Detect cross-day splits: Part i placed today without Part i+1 fitting today,
+            // and anchor Part i+1 onto nextDay with warm-up continuity so it resumes smoothly.
             for (p in effectivePlacements) {
                 val partMatch = Regex("""^(.*?)(?:[#_]part(\d+)|\s*\(Part\s*(\d+)/\d+\))$""").find(p.task.id)
                     ?: Regex("""^(.*?)\s*\(Part\s*(\d+)/\d+\)""").find(p.task.title)
@@ -480,7 +509,7 @@ class MultiDayScheduleOrchestrator @Inject constructor(
 
                 if (partNum != null) {
                     val nextPartNum = partNum + 1
-                    val hasNextPart = tasks.any { t ->
+                    val isMatchingNextPart: (SchedulableTask) -> Boolean = { t ->
                         (t.id.startsWith(baseId) || t.parentTaskId == baseId) && (
                             t.id.endsWith("_part$nextPartNum") ||
                             t.id.endsWith("#part$nextPartNum") ||
@@ -488,14 +517,8 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                             t.title.contains("(Part $nextPartNum/")
                         )
                     }
-                    val nextPartPlaced = effectivePlacements.any {
-                        it.task.id.startsWith(baseId) && (
-                            it.task.id.endsWith("_part$nextPartNum") ||
-                            it.task.id.endsWith("#part$nextPartNum") ||
-                            it.task.id.contains(Regex("""[#_]part$nextPartNum(\D|$)""")) ||
-                            it.task.title.contains("(Part $nextPartNum/")
-                        )
-                    }
+                    val hasNextPart = tasks.any(isMatchingNextPart)
+                    val nextPartPlaced = effectivePlacements.any { isMatchingNextPart(it.task) }
                     if (hasNextPart && !nextPartPlaced && dayOffset + 1 < safeHorizon) {
                         val part2Date = currentDate.plusDays(1)
                         val warmupMins = 15
@@ -507,6 +530,17 @@ class MultiDayScheduleOrchestrator @Inject constructor(
                                 part2WarmupMinutes = warmupMins
                             )
                         )
+                        // Anchor Part i+1 in carriedOverTasks to next day for immediate continuity
+                        val nextDayStartEpoch = part2Date.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                        for (idx in carriedOverTasks.indices) {
+                            val candidate = carriedOverTasks[idx]
+                            if (isMatchingNextPart(candidate) && !candidate.isLocked && candidate.preferredDayStartMillis == null) {
+                                carriedOverTasks[idx] = candidate.copy(
+                                    preferredDayStartMillis = nextDayStartEpoch,
+                                    priorSessionCount = max(1, candidate.priorSessionCount)
+                                )
+                            }
+                        }
                     }
                 }
             }

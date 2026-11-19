@@ -21,6 +21,9 @@ object PlacementStability {
     /** Smallest shift that justifies rewriting a placement the user can already see. */
     private const val MIN_MOVE_MILLIS = 30 * 60 * 1000L
 
+    /** Minimum utility improvement required before a routine refresh disturbs an existing future block. */
+    const val MIN_UTILITY_GAIN = 6.0
+
     enum class ReplanVerdict(val allowsReplan: Boolean) {
         NEAR_TERM_FREEZE(false),
         COOLDOWN(false),
@@ -42,7 +45,8 @@ object PlacementStability {
         task: TaskEntity,
         nowMillis: Long,
         prefs: UserPreferences,
-        forceReplan: Boolean
+        forceReplan: Boolean,
+        zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()
     ): ReplanVerdict {
         if (task.isScheduleLocked) return ReplanVerdict.KEEP
 
@@ -54,7 +58,7 @@ object PlacementStability {
         // ADR-031: Immediate replan if user marked this placement with thumbs down (-1)
         val currentSlotHour = task.scheduledTime?.let {
             val minuteOfDay = if (it in 0 until com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS) (it / 60_000L).toInt() else {
-                java.time.Instant.ofEpochMilli(scheduledMillis).atZone(java.time.ZoneId.systemDefault()).hour * 60
+                java.time.Instant.ofEpochMilli(scheduledMillis).atZone(zoneId).hour * 60
             }
             minuteOfDay / 60
         }
@@ -101,7 +105,9 @@ object PlacementStability {
 
         if (hoursUntilScheduled > 24f && !task.isScheduleLocked) {
             val isImportant = task.priority == Priority.HIGH || task.impactScore >= 80 || task.isFrog
-            if (isImportant) return ReplanVerdict.FAR_FUTURE_PULL_IN
+            if (isImportant && deadlineMillis != null && deadlineMillis < scheduledMillis) {
+                return ReplanVerdict.FAR_FUTURE_PULL_IN
+            }
         }
 
         if (prefs.autoSchedulingEnabled) {
@@ -119,21 +125,29 @@ object PlacementStability {
     }
 
     /**
-     * A write is only worth it when the user sees a different plan afterwards. An identical start
-     * touches the database and the update timestamp for nothing, and a future block that shifts by
-     * minutes is churn dressed as an improvement — unless the old slot is already behind us, in
-     * which case staying put would leave the task stranded in the past.
+     * A write is only worth it when the user sees a meaningfully better plan afterwards. An identical
+     * start touches the database for nothing, a tiny shift of minutes is churn, and routine periodic
+     * refreshes on a future block must clear a minimum utility gain before disturbing the schedule —
+     * unless the old slot is already in the past or an urgent/forced rescue explicitly overrides it.
      */
     fun isMoveWorthApplying(
         previousStartMillis: Long?,
         nextStartMillis: Long,
-        nowMillis: Long
+        nowMillis: Long,
+        previousUtility: Double? = null,
+        nextUtility: Double? = null,
+        minUtilityGain: Double = MIN_UTILITY_GAIN,
+        bypassUtilityThreshold: Boolean = false
     ): Boolean {
         // BUG-AUDIT-008 Fix: Do not apply moves to slots in the past (allowing 60s clock skew)
         if (nextStartMillis < nowMillis - 60_000L) return false
         val previous = previousStartMillis ?: return true
         if (nextStartMillis == previous) return false
         if (previous <= nowMillis) return true
-        return kotlin.math.abs(nextStartMillis - previous) >= MIN_MOVE_MILLIS
+        if (kotlin.math.abs(nextStartMillis - previous) < MIN_MOVE_MILLIS) return false
+        if (!bypassUtilityThreshold && previousUtility != null && nextUtility != null) {
+            if ((nextUtility - previousUtility) < minUtilityGain) return false
+        }
+        return true
     }
 }
