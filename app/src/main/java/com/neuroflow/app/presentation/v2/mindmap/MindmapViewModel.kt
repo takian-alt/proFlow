@@ -3,20 +3,30 @@ package com.neuroflow.app.presentation.v2.mindmap
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.MindmapEdgeEntity
 import com.neuroflow.app.data.local.entity.MindmapNodePositionEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.repository.MindmapRepository
 import com.neuroflow.app.data.repository.NodeConnection
+import com.neuroflow.app.domain.assistant.GoalBreakdownEngine
+import com.neuroflow.app.domain.assistant.GoalBreakdownMilestone
+import com.neuroflow.app.domain.assistant.TaskSlotRecommender
 import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.TaskStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -25,7 +35,8 @@ import kotlin.math.sqrt
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class MindmapViewModel @Inject constructor(
-    private val repository: MindmapRepository
+    private val repository: MindmapRepository,
+    private val preferencesDataStore: UserPreferencesDataStore? = null
 ) : ViewModel() {
 
     private val _showCompleted = MutableStateFlow(false)
@@ -42,9 +53,18 @@ class MindmapViewModel @Inject constructor(
     private val _disconnectConnections = MutableStateFlow<List<NodeConnection>>(emptyList())
     private val _isGoalCreateOpen = MutableStateFlow(false)
     private val _editingGoalNode = MutableStateFlow<MindmapGoalNode?>(null)
+    private val _selectedGoalId = MutableStateFlow<String?>(null)
+    private val _workspaceMode = MutableStateFlow(GoalWorkspaceMode.OUTLINE)
+    private val _showAllGoalsInMap = MutableStateFlow(false)
+    private val _breakdownPreview = MutableStateFlow<List<GoalBreakdownMilestone>?>(null)
+    private val _actionMessage = MutableStateFlow<String?>(null)
 
     private val _uiState = MutableStateFlow(MindmapUiState())
     val uiState: StateFlow<MindmapUiState> = _uiState.asStateFlow()
+
+    val userPreferences: StateFlow<UserPreferences> =
+        (preferencesDataStore?.preferencesFlow ?: kotlinx.coroutines.flow.flowOf(UserPreferences()))
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), UserPreferences())
 
     // Local volatile cache of dragging offsets
     private val temporaryPositions = mutableMapOf<String, Offset>()
@@ -78,13 +98,29 @@ class MindmapViewModel @Inject constructor(
                     }
                 }
 
+            val workspaceStateFlow = combine(
+                _selectedGoalId,
+                _workspaceMode,
+                _showAllGoalsInMap,
+                _breakdownPreview,
+                _actionMessage
+            ) { selectedGoalId, workspaceMode, showAll, breakdown, msg ->
+                WorkspacePrefs(selectedGoalId, workspaceMode, showAll, breakdown, msg)
+            }
+
             combine(
-                repositoryDataFlow,
-                _collapsedNodeIds,
-                _layoutMode,
-                _searchQuery,
-                _inlineSproutMode
-            ) { repo, collapsed, mode, query, sproutMode ->
+                combine(
+                    repositoryDataFlow,
+                    _collapsedNodeIds,
+                    _layoutMode,
+                    _searchQuery,
+                    _inlineSproutMode
+                ) { repo, collapsed, mode, query, sproutMode ->
+                    CanvasInputs(repo, collapsed, mode, query, sproutMode)
+                },
+                workspaceStateFlow
+            ) { canvas, workspace ->
+                val repo = canvas.repo
                 cachedGoals = repo.goals
                 cachedTasks = repo.tasks
                 cachedPositions = repo.positions
@@ -96,7 +132,7 @@ class MindmapViewModel @Inject constructor(
                     _collapsedNodeIds.value = defaults
                     defaults
                 } else {
-                    collapsed
+                    canvas.collapsed
                 }
 
                 computeUiState(
@@ -106,9 +142,14 @@ class MindmapViewModel @Inject constructor(
                     edges = repo.edges,
                     showCompleted = repo.showCompleted,
                     collapsedNodeIds = effectiveCollapsed,
-                    layoutMode = mode,
-                    searchQuery = query,
-                    inlineSproutMode = sproutMode
+                    layoutMode = canvas.mode,
+                    searchQuery = canvas.query,
+                    inlineSproutMode = canvas.sproutMode,
+                    selectedGoalId = workspace.selectedGoalId,
+                    workspaceMode = workspace.workspaceMode,
+                    showAllGoalsInMap = workspace.showAllGoalsInMap,
+                    breakdownPreview = workspace.breakdownPreview,
+                    actionMessage = workspace.actionMessage
                 )
             }.collect { state ->
                 _uiState.value = state
@@ -116,24 +157,40 @@ class MindmapViewModel @Inject constructor(
         }
     }
 
+    private data class WorkspacePrefs(
+        val selectedGoalId: String?,
+        val workspaceMode: GoalWorkspaceMode,
+        val showAllGoalsInMap: Boolean,
+        val breakdownPreview: List<GoalBreakdownMilestone>?,
+        val actionMessage: String?
+    )
+
+    private data class CanvasInputs(
+        val repo: RepoData,
+        val collapsed: Set<String>,
+        val mode: MindmapLayoutMode,
+        val query: String,
+        val sproutMode: SproutMode
+    )
+
     internal fun computeDefaultCollapsedNodeIds(goals: List<GoalEntity>, tasks: List<TaskEntity>): Set<String> {
         val collapsed = mutableSetOf<String>()
-        // 1. Stage goals: Collapse all stages except Stage 1
+        // 1. Only auto-collapse legacy curriculum boilerplate stages (Stage 2..4); never auto-collapse user-created goals!
         goals.forEach { goal ->
-            val isStage1 = goal.id.equals("goal_stage_1", ignoreCase = true) ||
-                goal.title.contains("Stage 1", ignoreCase = true)
-            if (!isStage1) {
+            val isLegacyLaterStage = goal.id.startsWith("goal_stage_", ignoreCase = true) &&
+                !goal.id.equals("goal_stage_1", ignoreCase = true)
+            if (isLegacyLaterStage) {
                 collapsed.add(goal.id)
             }
         }
 
-        // 2. Subtrees: For tasks with children, collapse all month subtrees except Month 1
+        // 2. Subtrees: Only auto-collapse legacy curriculum month subtrees beyond Month 1
         val parentIds = tasks.mapNotNull { it.parentTaskId }.toSet()
         tasks.forEach { task ->
             if (task.id in parentIds) {
-                val isMonth1 = task.id.equals("task_s1_m1", ignoreCase = true) ||
-                    task.title.contains("Month 1", ignoreCase = true)
-                if (!isMonth1) {
+                val isLegacyLaterMonth = task.id.startsWith("task_s", ignoreCase = true) &&
+                    !task.id.equals("task_s1_m1", ignoreCase = true)
+                if (isLegacyLaterMonth) {
                     collapsed.add(task.id)
                 }
             }
@@ -373,8 +430,152 @@ class MindmapViewModel @Inject constructor(
             repository.deleteGoal(goalId)
             temporaryPositions.clear()
             _collapsedNodeIds.update { it - goalId }
+            if (_selectedGoalId.value == goalId) {
+                _selectedGoalId.value = null
+            }
             dismissGoalEditDialog()
             recomputeAndPersistLayout()
+        }
+    }
+
+    // ─── Paper-Fast Goals & Outline Workspace Actions ─────────────────────
+
+    fun selectGoal(goalId: String) {
+        _selectedGoalId.value = goalId
+        _workspaceMode.value = GoalWorkspaceMode.OUTLINE
+        _collapsedNodeIds.update { it - goalId }
+    }
+
+    fun clearSelectedGoal() {
+        _selectedGoalId.value = null
+        _breakdownPreview.value = null
+    }
+
+    fun setWorkspaceMode(mode: GoalWorkspaceMode) {
+        _workspaceMode.value = mode
+    }
+
+    fun toggleShowAllGoalsInMap() {
+        _showAllGoalsInMap.value = !_showAllGoalsInMap.value
+    }
+
+    fun clearActionMessage() {
+        _actionMessage.value = null
+    }
+
+    fun quickCreateGoalAndOpen(title: String) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            val goal = repository.createGoal(cleanTitle)
+            _collapsedNodeIds.update { it - goal.id }
+            _selectedGoalId.value = goal.id
+            _workspaceMode.value = GoalWorkspaceMode.OUTLINE
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun quickAddOutlineStep(goalId: String, title: String, parentTaskId: String? = null) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        viewModelScope.launch {
+            val targetParent = parentTaskId ?: goalId
+            _collapsedNodeIds.update { it - goalId - targetParent }
+            repository.spawnChildTask(targetParent, cleanTitle, Priority.MEDIUM)
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun indentOutlineTask(taskId: String, newParentTaskId: String) {
+        if (taskId == newParentTaskId) return
+        viewModelScope.launch {
+            repository.reparentTask(taskId, newParentTaskId)
+            _collapsedNodeIds.update { it - newParentTaskId }
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun outdentOutlineTask(taskId: String) {
+        viewModelScope.launch {
+            val task = repository.getTaskById(taskId) ?: return@launch
+            val parentId = task.parentTaskId ?: return@launch
+            val parent = repository.getTaskById(parentId)
+            val newParentId = parent?.parentTaskId ?: task.goalId ?: return@launch
+            repository.reparentTask(taskId, newParentId)
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+        }
+    }
+
+    fun requestSmartBreakdown(goalId: String) {
+        val goal = cachedGoals.firstOrNull { it.id == goalId } ?: return
+        _breakdownPreview.value = GoalBreakdownEngine.generateLocalBreakdown(
+            goalTitle = goal.title,
+            goalDescription = goal.description
+        )
+    }
+
+    fun dismissSmartBreakdown() {
+        _breakdownPreview.value = null
+    }
+
+    fun applySmartBreakdown(goalId: String, milestones: List<GoalBreakdownMilestone>) {
+        if (milestones.isEmpty()) {
+            _breakdownPreview.value = null
+            return
+        }
+        viewModelScope.launch {
+            var createdCount = 0
+            milestones.forEach { milestone ->
+                val parentTask = repository.spawnChildTask(goalId, milestone.title, Priority.HIGH)
+                createdCount++
+                milestone.subtasks.forEach { sub ->
+                    repository.spawnChildTask(parentTask.id, sub, Priority.MEDIUM)
+                    createdCount++
+                }
+            }
+            _collapsedNodeIds.update { it - goalId }
+            _breakdownPreview.value = null
+            temporaryPositions.clear()
+            recomputeAndPersistLayout()
+            _actionMessage.value = "Added $createdCount structured steps to goal"
+        }
+    }
+
+    fun pushTaskToToday(taskId: String) {
+        viewModelScope.launch {
+            val task = repository.getTaskById(taskId) ?: return@launch
+            val now = System.currentTimeMillis()
+            val prefs = runCatching { preferencesDataStore?.preferencesFlow?.first() }.getOrNull() ?: UserPreferences()
+            val slots = TaskSlotRecommender.recommendSlots(
+                durationMinutes = task.estimatedDurationMinutes.coerceAtLeast(15),
+                energyLevel = task.energyLevel,
+                targetDateMillis = null,
+                deadlineMillis = task.deadlineDate,
+                existingTasks = cachedTasks,
+                energyTimeline = emptyList(),
+                prefs = prefs,
+                nowMillis = now
+            )
+            val chosen = slots.firstOrNull()
+            val updated = if (chosen != null) {
+                task.copy(
+                    scheduledDate = chosen.dayStartMillis,
+                    scheduledTime = chosen.timeOfDayOffsetMillis,
+                    updatedAt = now
+                )
+            } else {
+                task.copy(
+                    scheduledDate = startOfLocalDay(now),
+                    updatedAt = now
+                )
+            }
+            repository.updateTask(updated)
+            val slotLabel = chosen?.let { "${it.dayLabel} ${it.timeRangeLabel}" } ?: "Today"
+            _actionMessage.value = "Scheduled '${task.title}' → $slotLabel"
         }
     }
 
@@ -601,34 +802,73 @@ class MindmapViewModel @Inject constructor(
         collapsedNodeIds: Set<String>,
         layoutMode: MindmapLayoutMode,
         searchQuery: String = "",
-        inlineSproutMode: SproutMode = SproutMode.CHILD
+        inlineSproutMode: SproutMode = SproutMode.CHILD,
+        selectedGoalId: String? = null,
+        workspaceMode: GoalWorkspaceMode = GoalWorkspaceMode.OUTLINE,
+        showAllGoalsInMap: Boolean = false,
+        breakdownPreview: List<GoalBreakdownMilestone>? = null,
+        actionMessage: String? = null
     ): MindmapUiState {
+        // Compute goal summaries across ALL goals for the Goals Overview screen
+        val parentTaskIdsAll = tasks.mapNotNull { it.parentTaskId }.toSet()
+        val goalSummaries = goals.map { goal ->
+            val goalTasks = tasks.filter { it.goalId == goal.id }
+            val completedCount = goalTasks.count { it.status == TaskStatus.COMPLETED }
+            val activeGoalTasks = goalTasks.filter { it.status != TaskStatus.COMPLETED }
+            val leafActive = activeGoalTasks.filter { it.id !in parentTaskIdsAll }
+            val nextAction = (leafActive.ifEmpty { activeGoalTasks })
+                .sortedWith(
+                    compareBy<TaskEntity> { it.scheduledDate == null }
+                        .thenBy { it.scheduledDate ?: Long.MAX_VALUE }
+                        .thenBy { it.createdAt }
+                )
+                .firstOrNull()
+            GoalSummaryUi(
+                goal = goal,
+                totalTasks = goalTasks.size,
+                completedTasks = completedCount,
+                nextActionableTask = nextAction
+            )
+        }
+
+        // Scope Mindmap Canvas to the active selected goal unless user explicitly toggled "All Goals"
+        val scopedGoals = if (selectedGoalId != null && !showAllGoalsInMap) {
+            goals.filter { it.id == selectedGoalId }
+        } else {
+            goals
+        }
+        val scopedTasks = if (selectedGoalId != null && !showAllGoalsInMap) {
+            tasks.filter { it.goalId == selectedGoalId }
+        } else {
+            tasks
+        }
+
         val posMap = positions.associateBy { it.entityId }
-        val taskMap = tasks.associateBy { it.id }
-        val goalMap = goals.associateBy { it.id }
+        val taskMap = scopedTasks.associateBy { it.id }
+        val goalMap = scopedGoals.associateBy { it.id }
 
         // Find hidden descendants from collapsed nodes
         val hiddenTaskIds = mutableSetOf<String>()
         fun hideSubtree(taskId: String) {
             if (hiddenTaskIds.add(taskId)) {
-                tasks.filter { it.parentTaskId == taskId }.forEach { hideSubtree(it.id) }
+                scopedTasks.filter { it.parentTaskId == taskId }.forEach { hideSubtree(it.id) }
             }
         }
 
         collapsedNodeIds.forEach { collapsedId ->
             if (goalMap.containsKey(collapsedId)) {
-                tasks.filter { it.goalId == collapsedId && (it.parentTaskId == null || !taskMap.containsKey(it.parentTaskId)) }
+                scopedTasks.filter { it.goalId == collapsedId && (it.parentTaskId == null || !taskMap.containsKey(it.parentTaskId)) }
                     .forEach { hideSubtree(it.id) }
             } else if (taskMap.containsKey(collapsedId)) {
-                tasks.filter { it.parentTaskId == collapsedId }.forEach { hideSubtree(it.id) }
+                scopedTasks.filter { it.parentTaskId == collapsedId }.forEach { hideSubtree(it.id) }
             }
         }
 
-        val visibleTasks = tasks.filter { it.id !in hiddenTaskIds }
+        val visibleTasks = scopedTasks.filter { it.id !in hiddenTaskIds }
 
         // Compute auto layout coordinates as fallback/default
         val autoPositions = MindmapTreeLayoutEngine.computeLayout(
-            goals = goals,
+            goals = scopedGoals,
             tasks = visibleTasks,
             collapsedNodeIds = collapsedNodeIds,
             layoutMode = layoutMode
@@ -637,7 +877,7 @@ class MindmapViewModel @Inject constructor(
         // Compute search matches
         val trimmedQuery = searchQuery.trim()
         val highlightedIds = if (trimmedQuery.isNotBlank()) {
-            val matchingGoals = goals.filter { it.title.contains(trimmedQuery, ignoreCase = true) }.map { it.id }.toSet()
+            val matchingGoals = scopedGoals.filter { it.title.contains(trimmedQuery, ignoreCase = true) }.map { it.id }.toSet()
             val matchingTasks = visibleTasks.filter {
                 it.title.contains(trimmedQuery, ignoreCase = true) || it.tags.contains(trimmedQuery, ignoreCase = true)
             }.map { it.id }.toSet()
@@ -647,13 +887,13 @@ class MindmapViewModel @Inject constructor(
         }
 
         // 1. Build Goal Nodes
-        val goalNodes = goals.mapIndexed { index, goal ->
+        val goalNodes = scopedGoals.mapIndexed { index, goal ->
             val savedPos = temporaryPositions[goal.id] ?: posMap[goal.id]?.let { Offset(it.x, it.y) } ?: autoPositions[goal.id]
             val x = savedPos?.x ?: (index * 420f)
             val y = savedPos?.y ?: (index * 200f)
 
-            val associatedTasks = tasks.filter { it.goalId == goal.id }
-            val directTasks = tasks.filter { it.goalId == goal.id && (it.parentTaskId == null || !taskMap.containsKey(it.parentTaskId)) }
+            val associatedTasks = scopedTasks.filter { it.goalId == goal.id }
+            val directTasks = scopedTasks.filter { it.goalId == goal.id && (it.parentTaskId == null || !taskMap.containsKey(it.parentTaskId)) }
 
             MindmapGoalNode(
                 id = goal.id,
@@ -828,7 +1068,14 @@ class MindmapViewModel @Inject constructor(
             disconnectTargetNode = _disconnectTargetNode.value,
             disconnectConnections = _disconnectConnections.value,
             isGoalCreateOpen = _isGoalCreateOpen.value,
-            editingGoalNode = _editingGoalNode.value
+            editingGoalNode = _editingGoalNode.value,
+            selectedGoalId = selectedGoalId,
+            workspaceMode = workspaceMode,
+            showAllGoalsInMap = showAllGoalsInMap,
+            goalSummaries = goalSummaries,
+            allRawTasks = tasks,
+            breakdownPreview = breakdownPreview,
+            actionMessage = actionMessage
         )
     }
 

@@ -66,6 +66,9 @@ fun EnergyTimelineStream(
     timeline: List<CircadianSnapshot> = emptyList(),
     fatigueScores: Map<String, TaskFatigueScoreUi> = emptyMap(),
     nowMillis: Long = System.currentTimeMillis(),
+    groupingMode: FlowGroupingMode = FlowGroupingMode.PRIORITY_SCORE,
+    priorityScoresByTaskId: Map<String, Int> = emptyMap(),
+    currentEnergyLevel: EnergyLevel = EnergyLevel.MEDIUM,
     modifier: Modifier = Modifier,
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
@@ -82,7 +85,7 @@ fun EnergyTimelineStream(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Today's Energy Stream",
+                text = if (groupingMode == FlowGroupingMode.PRIORITY_SCORE) "Ranked by Priority Score" else "Grouped by Energy Demand",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = NeuroFlowThemeV2Colors.TextPrimary
@@ -93,7 +96,7 @@ fun EnergyTimelineStream(
                 border = BorderStroke(0.5.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.55f))
             ) {
                 Text(
-                    text = "${scheduledTasks.size} blocks",
+                    text = "${scheduledTasks.size} tasks",
                     style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                     fontWeight = FontWeight.SemiBold,
                     color = NeuroFlowThemeV2Colors.TextSecondary,
@@ -134,128 +137,204 @@ fun EnergyTimelineStream(
                 }
             }
         } else {
-            val activeOrNextIndex = scheduledTasks.indexOfFirst { task ->
-                if (task.scheduledTime != null) {
-                    val start = task.resolveScheduledEpochMillis() ?: (task.effectiveScheduledDateMillis() ?: 0L)
-                    val end = start + TaskBlockPlan.plannedMinutes(task) * 60_000L
-                    end >= nowMillis
-                } else {
-                    false
+            data class StreamSection(
+                val title: String,
+                val subtitle: String,
+                val accent: Color,
+                val isBestMatchNow: Boolean,
+                val tasks: List<TaskEntity>
+            )
+
+            fun fallbackPriorityScore(task: TaskEntity): Int {
+                return priorityScoresByTaskId[task.id] ?: when {
+                    task.isFrog -> 88
+                    task.priority == com.neuroflow.app.domain.model.Priority.HIGH -> 74
+                    task.priority == com.neuroflow.app.domain.model.Priority.MEDIUM -> 52
+                    else -> 32
                 }
             }
 
-            scheduledTasks.forEachIndexed { index, task ->
-                val scheduledMillis = if (task.scheduledTime != null) {
-                    task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
-                } else null
-                val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
-                    val timelineStart = timeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
-                        ?: com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
-                    val alignedMillis = timelineStart + task.timelineStartMinuteOfDay() * 60_000L
-                    timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - alignedMillis) }?.phase ?: EnergyPhase.PEAK
-                } else EnergyPhase.PEAK
-                val phaseColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
-                val isCurrentOrNext = index == activeOrNextIndex
+            val sections: List<StreamSection> = if (groupingMode == FlowGroupingMode.PRIORITY_SCORE) {
+                val sorted = scheduledTasks.sortedWith(
+                    compareByDescending<TaskEntity> { fallbackPriorityScore(it) }
+                        .thenByDescending { it.isFrog }
+                        .thenBy { it.resolveScheduledEpochMillis() ?: Long.MAX_VALUE }
+                )
+                listOf(
+                    StreamSection(
+                        title = "Critical Focus",
+                        subtitle = "Priority 80–100",
+                        accent = NeuroFlowPaletteV2.RecoveryRose,
+                        isBestMatchNow = false,
+                        tasks = sorted.filter { fallbackPriorityScore(it) >= 80 }
+                    ),
+                    StreamSection(
+                        title = "High Leverage",
+                        subtitle = "Priority 55–79",
+                        accent = NeuroFlowPaletteV2.PeakAmber,
+                        isBestMatchNow = false,
+                        tasks = sorted.filter { fallbackPriorityScore(it) in 55..79 }
+                    ),
+                    StreamSection(
+                        title = "Steady Queue",
+                        subtitle = "Priority < 55",
+                        accent = NeuroFlowPaletteV2.ReboundCyan,
+                        isBestMatchNow = false,
+                        tasks = sorted.filter { fallbackPriorityScore(it) < 55 }
+                    )
+                ).filter { it.tasks.isNotEmpty() }
+            } else {
+                val sorted = scheduledTasks.sortedByDescending { fallbackPriorityScore(it) }
+                listOf(
+                    StreamSection(
+                        title = "High Focus",
+                        subtitle = "Deep analytical demand",
+                        accent = NeuroFlowThemeV2Colors.WarmAmber,
+                        isBestMatchNow = currentEnergyLevel == EnergyLevel.HIGH,
+                        tasks = sorted.filter { it.energyLevel == EnergyLevel.HIGH }
+                    ),
+                    StreamSection(
+                        title = "Moderate Energy",
+                        subtitle = "Steady execution",
+                        accent = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                        isBestMatchNow = currentEnergyLevel == EnergyLevel.MEDIUM,
+                        tasks = sorted.filter { it.energyLevel == EnergyLevel.MEDIUM }
+                    ),
+                    StreamSection(
+                        title = "Low Energy / Easy Wins",
+                        subtitle = "Light admin & quick momentum",
+                        accent = NeuroFlowThemeV2Colors.SageGreen,
+                        isBestMatchNow = currentEnergyLevel == EnergyLevel.LOW,
+                        tasks = sorted.filter { it.energyLevel == EnergyLevel.LOW }
+                    )
+                ).filter { it.tasks.isNotEmpty() }
+            }
 
-                if (isCurrentOrNext) {
-                    // Pulsing "NOW" playhead indicator
+            sections.forEach { section ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(14.dp)
-                                .background(NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.22f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .background(NeuroFlowPaletteV2.ReboundCyan, CircleShape)
-                            )
+                                .size(8.dp)
+                                .background(section.accent, CircleShape)
+                        )
+                        Text(
+                            text = section.title,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
+                        Text(
+                            text = "· ${section.subtitle}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.TextTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (section.isBestMatchNow) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = section.accent.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, section.accent.copy(alpha = 0.55f))
+                            ) {
+                                Text(
+                                    text = "Best Match Now",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = section.accent,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                         Text(
-                            text = "NOW",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                            color = NeuroFlowPaletteV2.ReboundCyan,
-                            letterSpacing = 1.sp
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(1.5.dp)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(NeuroFlowPaletteV2.ReboundCyan, Color.Transparent)
-                                    )
-                                )
+                            text = "${section.tasks.size}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextSecondary
                         )
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Phase-colored vertical time-rail node & track
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.width(18.dp)
+                section.tasks.forEachIndexed { index, task ->
+                    val scheduledMillis = if (task.scheduledTime != null) {
+                        task.resolveScheduledEpochMillis() ?: task.effectiveScheduledDateMillis()
+                    } else null
+                    val taskPhase = if (scheduledMillis != null && timeline.isNotEmpty()) {
+                        val timelineStart = timeline.firstOrNull()?.timestampMillis?.let { com.neuroflow.app.data.local.entity.startOfLocalDay(it) }
+                            ?: com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
+                        val alignedMillis = timelineStart + task.timelineStartMinuteOfDay() * 60_000L
+                        timeline.minByOrNull { kotlin.math.abs(it.timestampMillis - alignedMillis) }?.phase ?: EnergyPhase.PEAK
+                    } else EnergyPhase.PEAK
+                    val phaseColor = NeuroFlowPaletteV2.accentForPhase(taskPhase)
+                    val scoreValue = fallbackPriorityScore(task)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 18.dp)
-                                .size(if (isCurrentOrNext) 16.dp else 10.dp)
-                                .background(
-                                    if (isCurrentOrNext) phaseColor.copy(alpha = 0.22f) else Color.Transparent,
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
+                        // Phase-colored vertical rail node
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(14.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(if (isCurrentOrNext) 9.dp else 8.dp)
-                                    .background(phaseColor, CircleShape)
+                                    .padding(top = 20.dp)
+                                    .size(9.dp)
+                                    .background(section.accent, CircleShape)
                             )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .weight(1f, fill = false)
-                                .heightIn(min = 40.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(phaseColor.copy(alpha = 0.55f), phaseColor.copy(alpha = 0.12f))
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .weight(1f, fill = false)
+                                    .heightIn(min = 36.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(phaseColor.copy(alpha = 0.45f), phaseColor.copy(alpha = 0.1f))
+                                        )
                                     )
-                                )
-                        )
-                    }
-
-                    Box(modifier = Modifier.weight(1f)) {
-                        key(task.id) {
-                            val currentTask by rememberUpdatedState(task)
-                            TimelineTaskCard(
-                                task = task,
-                                onTaskClick = { onTaskClick(currentTask) },
-                                onComplete = { onCompleteTask(currentTask) },
-                                onDefer = { onDeferTask(currentTask) },
-                                onBreakDown = { onBreakDownTask(currentTask) },
-                                onEdit = { onEditTask(currentTask) },
-                                onShiftToPeak = onShiftToPeak?.let { shift -> { shift(currentTask) } },
-                                onLogPastTime = { taskToLogTime = currentTask },
-                                timeline = timeline,
-                                fatigueScore = fatigueScores[task.id]
                             )
                         }
-                    }
-                }
 
-                if (shouldShowUltradianBufferAfter(scheduledTasks, index)) {
-                    UltradianRecoveryDivider()
+                        Box(modifier = Modifier.weight(1f)) {
+                            key(task.id) {
+                                val currentTask by rememberUpdatedState(task)
+                                TimelineTaskCard(
+                                    task = task,
+                                    onTaskClick = { onTaskClick(currentTask) },
+                                    onComplete = { onCompleteTask(currentTask) },
+                                    onDefer = { onDeferTask(currentTask) },
+                                    onBreakDown = { onBreakDownTask(currentTask) },
+                                    onEdit = { onEditTask(currentTask) },
+                                    onShiftToPeak = onShiftToPeak?.let { shift -> { shift(currentTask) } },
+                                    onLogPastTime = { taskToLogTime = currentTask },
+                                    timeline = timeline,
+                                    fatigueScore = fatigueScores[task.id],
+                                    priorityScore = scoreValue
+                                )
+                            }
+                        }
+                    }
+
+                    if (shouldShowUltradianBufferAfter(section.tasks, index)) {
+                        UltradianRecoveryDivider()
+                    }
                 }
             }
         }
@@ -286,7 +365,8 @@ fun TimelineTaskCard(
     onShiftToPeak: (() -> Unit)? = null,
     onLogPastTime: () -> Unit = {},
     timeline: List<CircadianSnapshot> = emptyList(),
-    fatigueScore: TaskFatigueScoreUi? = null
+    fatigueScore: TaskFatigueScoreUi? = null,
+    priorityScore: Int? = null
 ) {
     val energyBadgeColor = when (task.energyLevel) {
         EnergyLevel.HIGH -> NeuroFlowThemeV2Colors.WarmAmber
@@ -500,13 +580,41 @@ fun TimelineTaskCard(
                             }
                         }
 
+                        // Priority Score Pill (always visible alongside Energy Demand)
+                        if (priorityScore != null) {
+                            val scoreColor = when {
+                                priorityScore >= 80 -> NeuroFlowPaletteV2.RecoveryRose
+                                priorityScore >= 55 -> NeuroFlowPaletteV2.PeakAmber
+                                else -> NeuroFlowPaletteV2.ReboundCyan
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = scoreColor.copy(alpha = 0.15f),
+                                border = BorderStroke(0.75.dp, scoreColor.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "P $priorityScore",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    color = scoreColor,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        // Energy Demand Pill
                         Box(
                             modifier = Modifier
                                 .background(energyBadgeColor.copy(alpha = 0.14f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
+                            val energyLabel = when (task.energyLevel) {
+                                EnergyLevel.HIGH -> "High"
+                                EnergyLevel.MEDIUM -> "Mod"
+                                EnergyLevel.LOW -> "Low"
+                            }
                             Text(
-                                text = task.energyLevel.name,
+                                text = energyLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = energyBadgeColor,
                                 fontWeight = FontWeight.SemiBold

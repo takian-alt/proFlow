@@ -192,7 +192,20 @@ data class UserPreferences(
     val calendarSyncTargetId: Long? = null,
     val lastCalendarInboundSyncAt: Long = 0L,
     val wakeTimeHour: Int = wakeUpHour,
-    val wakeTimeMinute: Int = 0
+    val wakeTimeMinute: Int = 0,
+    // Smart Assistant: Overtime mode, proactive check-in popups, hydration & wellness nudges
+    val overtimeEnabledEpochDay: Long = 0L,
+    val checkInsMasterEnabled: Boolean = true,
+    val checkInConfigJson: String = "",
+    val dailyCheckInStateJson: String = "",
+    val lastCheckInPromptAtMillis: Long = 0L,
+    val wellnessNudgesEnabled: Boolean = true,
+    val hydrationIntervalMinutes: Int = 90,
+    val focusBreakThresholdMinutes: Int = 50,
+    val todayHydrationCount: Int = 0,
+    val todayHydrationEpochDay: Long = 0L,
+    val lastHydrationLoggedAtMillis: Long = 0L,
+    val lastWellnessNudgeDismissedAtMillis: Long = 0L
 )
 
 @Singleton
@@ -339,6 +352,18 @@ class UserPreferencesDataStore @Inject constructor(
         val AMOLED_DARK_ENABLED = booleanPreferencesKey("amoled_dark_enabled")
         val DND_ENABLED = booleanPreferencesKey("dnd_enabled")
         val USE_V2_UI = booleanPreferencesKey("use_v2_ui")
+        val OVERTIME_ENABLED_EPOCH_DAY = longPreferencesKey("overtime_enabled_epoch_day")
+        val CHECK_INS_MASTER_ENABLED = booleanPreferencesKey("check_ins_master_enabled")
+        val CHECK_IN_CONFIG_JSON = stringPreferencesKey("check_in_config_json")
+        val DAILY_CHECK_IN_STATE_JSON = stringPreferencesKey("daily_check_in_state_json")
+        val LAST_CHECK_IN_PROMPT_AT_MILLIS = longPreferencesKey("last_check_in_prompt_at_millis")
+        val WELLNESS_NUDGES_ENABLED = booleanPreferencesKey("wellness_nudges_enabled")
+        val HYDRATION_INTERVAL_MINUTES = intPreferencesKey("hydration_interval_minutes")
+        val FOCUS_BREAK_THRESHOLD_MINUTES = intPreferencesKey("focus_break_threshold_minutes")
+        val TODAY_HYDRATION_COUNT = intPreferencesKey("today_hydration_count")
+        val TODAY_HYDRATION_EPOCH_DAY = longPreferencesKey("today_hydration_epoch_day")
+        val LAST_HYDRATION_LOGGED_AT_MILLIS = longPreferencesKey("last_hydration_logged_at_millis")
+        val LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS = longPreferencesKey("last_wellness_nudge_dismissed_at_millis")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -488,7 +513,19 @@ class UserPreferencesDataStore @Inject constructor(
             schedulingRejectionsJson = prefs[Keys.SCHEDULING_REJECTIONS_JSON] ?: "{}",
             calendarSyncScope = prefs[Keys.CALENDAR_SYNC_SCOPE] ?: "FROGS_AND_LOCKED",
             calendarSyncTargetId = prefs[Keys.CALENDAR_SYNC_TARGET_ID]?.takeIf { it != -1L },
-            lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L
+            lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L,
+            overtimeEnabledEpochDay = prefs[Keys.OVERTIME_ENABLED_EPOCH_DAY] ?: 0L,
+            checkInsMasterEnabled = prefs[Keys.CHECK_INS_MASTER_ENABLED] ?: true,
+            checkInConfigJson = prefs[Keys.CHECK_IN_CONFIG_JSON] ?: "",
+            dailyCheckInStateJson = prefs[Keys.DAILY_CHECK_IN_STATE_JSON] ?: "",
+            lastCheckInPromptAtMillis = prefs[Keys.LAST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
+            wellnessNudgesEnabled = prefs[Keys.WELLNESS_NUDGES_ENABLED] ?: true,
+            hydrationIntervalMinutes = (prefs[Keys.HYDRATION_INTERVAL_MINUTES] ?: 90).coerceIn(30, 180),
+            focusBreakThresholdMinutes = (prefs[Keys.FOCUS_BREAK_THRESHOLD_MINUTES] ?: 50).coerceIn(25, 120),
+            todayHydrationCount = (prefs[Keys.TODAY_HYDRATION_COUNT] ?: 0).coerceAtLeast(0),
+            todayHydrationEpochDay = prefs[Keys.TODAY_HYDRATION_EPOCH_DAY] ?: 0L,
+            lastHydrationLoggedAtMillis = prefs[Keys.LAST_HYDRATION_LOGGED_AT_MILLIS] ?: 0L,
+            lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L
         )
     }
 
@@ -713,7 +750,19 @@ class UserPreferencesDataStore @Inject constructor(
                 schedulingRejectionsJson = prefs[Keys.SCHEDULING_REJECTIONS_JSON] ?: "{}",
                 calendarSyncScope = prefs[Keys.CALENDAR_SYNC_SCOPE] ?: "FROGS_AND_LOCKED",
                 calendarSyncTargetId = prefs[Keys.CALENDAR_SYNC_TARGET_ID]?.takeIf { it != -1L },
-                lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L
+                lastCalendarInboundSyncAt = prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] ?: 0L,
+                overtimeEnabledEpochDay = prefs[Keys.OVERTIME_ENABLED_EPOCH_DAY] ?: 0L,
+                checkInsMasterEnabled = prefs[Keys.CHECK_INS_MASTER_ENABLED] ?: true,
+                checkInConfigJson = prefs[Keys.CHECK_IN_CONFIG_JSON] ?: "",
+                dailyCheckInStateJson = prefs[Keys.DAILY_CHECK_IN_STATE_JSON] ?: "",
+                lastCheckInPromptAtMillis = prefs[Keys.LAST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
+                wellnessNudgesEnabled = prefs[Keys.WELLNESS_NUDGES_ENABLED] ?: true,
+                hydrationIntervalMinutes = (prefs[Keys.HYDRATION_INTERVAL_MINUTES] ?: 90).coerceIn(30, 180),
+                focusBreakThresholdMinutes = (prefs[Keys.FOCUS_BREAK_THRESHOLD_MINUTES] ?: 50).coerceIn(25, 120),
+                todayHydrationCount = (prefs[Keys.TODAY_HYDRATION_COUNT] ?: 0).coerceAtLeast(0),
+                todayHydrationEpochDay = prefs[Keys.TODAY_HYDRATION_EPOCH_DAY] ?: 0L,
+                lastHydrationLoggedAtMillis = prefs[Keys.LAST_HYDRATION_LOGGED_AT_MILLIS] ?: 0L,
+                lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L
             )
             val updated = update(current)
             val nextWakeHour = if (updated.wakeTimeHour != current.wakeTimeHour && updated.wakeUpHour == current.wakeUpHour) {
@@ -871,6 +920,18 @@ class UserPreferencesDataStore @Inject constructor(
                 prefs.remove(Keys.CALENDAR_SYNC_TARGET_ID)
             }
             prefs[Keys.LAST_CALENDAR_INBOUND_SYNC_AT] = updated.lastCalendarInboundSyncAt
+            prefs[Keys.OVERTIME_ENABLED_EPOCH_DAY] = updated.overtimeEnabledEpochDay
+            prefs[Keys.CHECK_INS_MASTER_ENABLED] = updated.checkInsMasterEnabled
+            prefs[Keys.CHECK_IN_CONFIG_JSON] = updated.checkInConfigJson
+            prefs[Keys.DAILY_CHECK_IN_STATE_JSON] = updated.dailyCheckInStateJson
+            prefs[Keys.LAST_CHECK_IN_PROMPT_AT_MILLIS] = updated.lastCheckInPromptAtMillis
+            prefs[Keys.WELLNESS_NUDGES_ENABLED] = updated.wellnessNudgesEnabled
+            prefs[Keys.HYDRATION_INTERVAL_MINUTES] = updated.hydrationIntervalMinutes.coerceIn(30, 180)
+            prefs[Keys.FOCUS_BREAK_THRESHOLD_MINUTES] = updated.focusBreakThresholdMinutes.coerceIn(25, 120)
+            prefs[Keys.TODAY_HYDRATION_COUNT] = updated.todayHydrationCount.coerceAtLeast(0)
+            prefs[Keys.TODAY_HYDRATION_EPOCH_DAY] = updated.todayHydrationEpochDay
+            prefs[Keys.LAST_HYDRATION_LOGGED_AT_MILLIS] = updated.lastHydrationLoggedAtMillis
+            prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] = updated.lastWellnessNudgeDismissedAtMillis
         }
     }
 
@@ -1244,6 +1305,61 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun clearPhysiologicalLogs() {
         updatePreferences { prefs ->
             prefs.copy(quickPhysiologicalLogsJson = "[]")
+        }
+    }
+
+    suspend fun setOvertimeForEpochDay(enabled: Boolean, epochDay: Long) {
+        updatePreferences { prefs ->
+            prefs.copy(overtimeEnabledEpochDay = if (enabled) epochDay else 0L)
+        }
+    }
+
+    suspend fun updateCheckInConfig(
+        configs: List<com.neuroflow.app.domain.assistant.CheckInConfigEntry>
+    ) {
+        updatePreferences { prefs ->
+            prefs.copy(
+                checkInConfigJson = com.neuroflow.app.domain.assistant.SmartAssistantCodecs.encodeCheckInConfigs(configs)
+            )
+        }
+    }
+
+    suspend fun updateDailyCheckInRecord(
+        epochDay: Long,
+        record: com.neuroflow.app.domain.assistant.CheckInDailyRecord,
+        promptHandledAtMillis: Long = System.currentTimeMillis()
+    ) {
+        updatePreferences { prefs ->
+            val current = com.neuroflow.app.domain.assistant.SmartAssistantCodecs
+                .parseDailyCheckInState(prefs.dailyCheckInStateJson, epochDay)
+                .toMutableMap()
+            current[record.type] = record
+            prefs.copy(
+                dailyCheckInStateJson = com.neuroflow.app.domain.assistant.SmartAssistantCodecs
+                    .encodeDailyCheckInState(epochDay, current),
+                lastCheckInPromptAtMillis = promptHandledAtMillis
+            )
+        }
+    }
+
+    suspend fun recordHydrationDrink(
+        nowMillis: Long = System.currentTimeMillis(),
+        epochDay: Long = com.neuroflow.app.domain.assistant.SmartAssistantCodecs.currentEpochDay(nowMillis)
+    ) {
+        updatePreferences { prefs ->
+            val nextCount = if (prefs.todayHydrationEpochDay == epochDay) prefs.todayHydrationCount + 1 else 1
+            prefs.copy(
+                todayHydrationCount = nextCount,
+                todayHydrationEpochDay = epochDay,
+                lastHydrationLoggedAtMillis = nowMillis,
+                lastWellnessNudgeDismissedAtMillis = nowMillis
+            )
+        }
+    }
+
+    suspend fun dismissWellnessNudge(nowMillis: Long = System.currentTimeMillis()) {
+        updatePreferences { prefs ->
+            prefs.copy(lastWellnessNudgeDismissedAtMillis = nowMillis)
         }
     }
 

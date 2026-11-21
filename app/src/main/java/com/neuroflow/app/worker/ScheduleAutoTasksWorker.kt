@@ -21,6 +21,7 @@ import com.neuroflow.app.domain.model.TaskStatus
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.domain.scheduler.PlacementStability
 import com.neuroflow.app.domain.scheduler.SchedulePreparationOrchestrator
+import com.neuroflow.app.domain.scheduler.SchedulingDateSanityValidator
 import com.neuroflow.app.domain.scheduler.TaskBlockPlan
 import com.neuroflow.app.domain.service.BehavioralSupportService
 import com.neuroflow.app.domain.service.CircadianEnergyService
@@ -171,20 +172,20 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             forceReplan: Boolean,
             blockedTaskIds: Set<String> = emptySet(),
             focusedTaskIds: Set<String> = emptySet(),
-            isPartBlocked: (TaskEntity) -> Boolean = { false }
+            isPartBlocked: (TaskEntity) -> Boolean = { false },
+            zoneId: ZoneId = ZoneId.systemDefault()
         ): WorkerCandidateBuckets {
+            val dayDate = Instant.ofEpochMilli(dayStart).atZone(zoneId).toLocalDate()
+
             val unscheduledTasks = allTasks.filter { task ->
                 val sDate = task.effectiveScheduledDateMillis()
-                val dDate = task.resolveDeadlineEpochMillis()
-                val scheduledStart = task.resolveScheduledEpochMillis()
-                val isScheduledInFuture = (sDate != null && sDate > dayEnd) ||
-                    (scheduledStart != null && scheduledStart > dayEnd) ||
-                    (task.habitDate != null && task.habitDate > dayEnd)
-                val isNotFuture = !isScheduledInFuture && (
-                    (sDate != null && sDate <= dayEnd) ||
-                    (sDate == null && (dDate == null || dDate <= dayEnd))
-                )
-                isNotFuture &&
+                SchedulingDateSanityValidator.isEntityEligibleForDay(
+                    task = task,
+                    targetDate = dayDate,
+                    nowMillis = nowMillis,
+                    zoneId = zoneId,
+                    allowFutureDeadlinedBacklog = false
+                ) &&
                     (sDate == null || task.scheduledTime == null) &&
                     !AutoSchedulingContracts.hasManualScheduleData(task) &&
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis)
@@ -192,16 +193,21 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             val gracePeriodMillis = if (prefs.isAutoScheduleToggleOn) 5 * 60_000L else 30 * 60_000L
             val missedTasks = allTasks.filter { task ->
-                val scheduledStart = task.resolveScheduledEpochMillis()
-                val effectiveDate = task.effectiveScheduledDateMillis()
+                val scheduledStart = task.resolveScheduledEpochMillis(dayStart)
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
                     task.isAutoScheduled &&
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
+                    SchedulingDateSanityValidator.isEntityEligibleForDay(
+                        task = task,
+                        targetDate = dayDate,
+                        nowMillis = nowMillis,
+                        zoneId = zoneId,
+                        allowFutureDeadlinedBacklog = false
+                    ) &&
                     task.scheduledTime != null &&
                     scheduledStart != null &&
                     scheduledStart <= dayEnd &&
-                    (effectiveDate == null || effectiveDate <= dayEnd) &&
                     let {
                         TaskBlockPlan.blockHasExpired(
                             task = task,
@@ -214,7 +220,7 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
 
             val missedTaskIds = missedTasks.map { it.id }.toSet()
             val replanCandidates = allTasks.filter { task ->
-                val scheduledMillis = task.resolveScheduledEpochMillis()
+                val scheduledMillis = task.resolveScheduledEpochMillis(dayStart)
                 val effectiveDate = task.effectiveScheduledDateMillis()
                 val isScheduledForTodayOnly = scheduledMillis != null &&
                     scheduledMillis in dayStart..dayEnd &&
@@ -222,8 +228,15 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
+                    SchedulingDateSanityValidator.isEntityEligibleForDay(
+                        task = task,
+                        targetDate = dayDate,
+                        nowMillis = nowMillis,
+                        zoneId = zoneId,
+                        allowFutureDeadlinedBacklog = false
+                    ) &&
                     isScheduledForTodayOnly &&
-                    PlacementStability.verdict(task, nowMillis, prefs, forceReplan).allowsReplan
+                    PlacementStability.verdict(task, nowMillis, prefs, forceReplan, zoneId).allowsReplan
             }.filterNot { it.id in blockedTaskIds || it.id in focusedTaskIds || isPartBlocked(it) || it.id in missedTaskIds }
 
             return WorkerCandidateBuckets(
@@ -396,7 +409,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 forceReplan = forceReplan,
                 blockedTaskIds = blockedTaskIds,
                 focusedTaskIds = focusedTaskIds,
-                isPartBlocked = isPartBlocked
+                isPartBlocked = isPartBlocked,
+                zoneId = zoneId
             )
             val unscheduledTasks = buckets.unscheduledTasks
             val missedTasks = buckets.missedTasks
@@ -491,7 +505,8 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 zoneId = zoneId,
                 activeTaskId = activeTaskId,
                 microStepCounts = microStepCounts,
-                dailyCognitiveCapacityMinutes = effectiveRemainingCapacity
+                dailyCognitiveCapacityMinutes = effectiveRemainingCapacity,
+                allowFutureDeadlinedBacklog = false
             )
             val placements = outcome.placements
 
@@ -586,10 +601,13 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             for (taskToDefer in tasksToReconcile) {
                 val fresh = taskRepository.getById(taskToDefer.id) ?: taskToDefer
                 if (fresh.isScheduleLocked || !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)) continue
-                val freshEffectiveDate = fresh.effectiveScheduledDateMillis()
-                val freshScheduledStart = fresh.resolveScheduledEpochMillis()
-                if ((freshEffectiveDate != null && freshEffectiveDate > dayEnd) ||
-                    (freshScheduledStart != null && freshScheduledStart > dayEnd)
+                if (!SchedulingDateSanityValidator.isEntityEligibleForDay(
+                        task = fresh,
+                        targetDate = dayDate,
+                        nowMillis = nowMillis,
+                        zoneId = zoneId,
+                        allowFutureDeadlinedBacklog = false
+                    )
                 ) {
                     continue
                 }
@@ -663,7 +681,14 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
             if (baseTaskId in focusedTaskIds) continue
 
             if (freshTask.status != TaskStatus.ACTIVE ||
-                !AutoSchedulingContracts.isMutableByAutoScheduler(freshTask, nowMillis)
+                !AutoSchedulingContracts.isMutableByAutoScheduler(freshTask, nowMillis) ||
+                !SchedulingDateSanityValidator.canApplyPlacementToEntity(
+                    existingTask = freshTask,
+                    proposedStartMillis = primaryPlacement.window.startMillis,
+                    nowMillis = nowMillis,
+                    zoneId = zoneId,
+                    allowFutureDeadlinedBacklog = false
+                )
             ) {
                 continue
             }

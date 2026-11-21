@@ -79,7 +79,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
         zoneId: ZoneId = ZoneId.systemDefault(),
         activeTaskId: String? = null,
         microStepCounts: Map<String, Pair<Int, Int>> = emptyMap(),
-        dailyCognitiveCapacityMinutes: Int? = null
+        dailyCognitiveCapacityMinutes: Int? = null,
+        allowFutureDeadlinedBacklog: Boolean = true
     ): List<ScheduledPlacement> = orchestrateDayScheduleWithOutcome(
         candidateTasks = candidateTasks,
         allKnownTasks = allKnownTasks,
@@ -93,7 +94,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
         zoneId = zoneId,
         activeTaskId = activeTaskId,
         microStepCounts = microStepCounts,
-        dailyCognitiveCapacityMinutes = dailyCognitiveCapacityMinutes
+        dailyCognitiveCapacityMinutes = dailyCognitiveCapacityMinutes,
+        allowFutureDeadlinedBacklog = allowFutureDeadlinedBacklog
     ).placements
 
     fun orchestrateDayScheduleWithOutcome(
@@ -109,9 +111,19 @@ class SchedulePreparationOrchestrator @Inject constructor(
         zoneId: ZoneId = ZoneId.systemDefault(),
         activeTaskId: String? = null,
         microStepCounts: Map<String, Pair<Int, Int>> = emptyMap(),
-        dailyCognitiveCapacityMinutes: Int? = null
+        dailyCognitiveCapacityMinutes: Int? = null,
+        allowFutureDeadlinedBacklog: Boolean = true
     ): OrchestrationOutcome {
         if (candidateTasks.isEmpty()) return OrchestrationOutcome(emptyList())
+
+        val eligibleCandidates = SchedulingDateSanityValidator.validateEntitiesForDay(
+            tasks = candidateTasks,
+            targetDate = dayDate,
+            nowMillis = nowMillis,
+            zoneId = zoneId,
+            allowFutureDeadlinedBacklog = allowFutureDeadlinedBacklog
+        ).eligibleTasks
+        if (eligibleCandidates.isEmpty()) return OrchestrationOutcome(emptyList())
 
         val horizonCtx = SchedulingContextFactory.buildHorizonContext(
             allKnownTasks = allKnownTasks,
@@ -130,10 +142,10 @@ class SchedulePreparationOrchestrator @Inject constructor(
             sleepTelemetryRepository = sleepTelemetryRepository
         )
 
-        val rawSchedulable = candidateTasks.map { task ->
+        val rawSchedulable = eligibleCandidates.map { task ->
             SchedulableTaskMapper.toSchedulableTask(
                 task = task,
-                allContextTasks = candidateTasks,
+                allContextTasks = eligibleCandidates,
                 dayStartMillis = dayCtx.dayStartMillis,
                 enjoymentCalibration = horizonCtx.enjoymentCalibration,
                 activeTaskId = activeTaskId,
@@ -148,8 +160,29 @@ class SchedulePreparationOrchestrator @Inject constructor(
             sanitizedDag
         }
 
-        val effectiveDailyCapacity = dailyCognitiveCapacityMinutes
+        val todayLocalDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+        val isOvertimeToday = dayDate == todayLocalDate && prefs.overtimeEnabledEpochDay == todayLocalDate.toEpochDay()
+        val tomorrowWorkStartMillis = todayLocalDate.plusDays(1)
+            .atTime(java.time.LocalTime.of(prefs.workDayStart.coerceIn(5, 12), 0))
+            .atZone(zoneId).toInstant().toEpochMilli()
+        val hasUrgentTomorrowMorningTask = dayDate == todayLocalDate && preparedTasks.any { t ->
+            t.deadlineMillis != null && t.deadlineMillis in nowMillis..tomorrowWorkStartMillis
+        }
+
+        val effectiveWorkDayEndHour = if (isOvertimeToday || hasUrgentTomorrowMorningTask) {
+            maxOf(prefs.workDayEnd, prefs.sleepHour.coerceIn(21, 23))
+        } else {
+            prefs.workDayEnd
+        }
+
+        val baseDailyCapacity = dailyCognitiveCapacityMinutes
             ?: prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 }
+        val effectiveDailyCapacity = if (isOvertimeToday) {
+            // Soften hard 240m cap in Overtime Mode so user can keep scheduling late tasks
+            maxOf((baseDailyCapacity ?: 240) + 120, 120)
+        } else {
+            baseDailyCapacity
+        }
 
         val outcome = taskSchedulerService.scheduleDayWithOutcome(
             tasks = preparedTasks,
@@ -173,7 +206,7 @@ class SchedulePreparationOrchestrator @Inject constructor(
             socialJetlagLagHours = horizonCtx.socialJetlagLagHours,
             activeUncompletedTaskIds = horizonCtx.activeUncompletedTaskIds,
             workDayStartHour = prefs.workDayStart,
-            workDayEndHour = prefs.workDayEnd,
+            workDayEndHour = effectiveWorkDayEndHour,
             dailyCognitiveCapacityMinutes = effectiveDailyCapacity,
             rejectionPatternsJson = prefs.schedulingRejectionsJson,
             categoryCalibrationRatios = horizonCtx.categoryCalibrationRatios

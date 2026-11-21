@@ -53,6 +53,8 @@ data class InsightsUiStateV2(
     val totalTasksCompletedToday: Int = 0,
     val activeContractsCount: Int = 0,
     val neuroscienceInterventions: List<String> = emptyList(),
+    val plainEnglishTakeaways: List<String> = emptyList(),
+    val plainEnglishEstimationNote: String = "",
     val isLoading: Boolean = true
 )
 
@@ -244,6 +246,56 @@ class InsightsViewModelV2 @Inject constructor(
             interventions.add("🐸 Frogs conquered today: $frogsToday! Dopamine pathways are primed for sustained momentum.")
         }
 
+        fun formatHour12(hour: Int): String {
+            val h = hour.coerceIn(0, 23)
+            val amPm = if (h < 12) "AM" else "PM"
+            val h12 = when {
+                h == 0 -> 12
+                h > 12 -> h - 12
+                else -> h
+            }
+            return "$h12 $amPm"
+        }
+
+        val takeaways = mutableListOf<String>()
+        val directive = prefs.adaptiveSystemDirective.trim()
+        if (directive.isNotBlank()) {
+            takeaways.add(directive)
+        } else {
+            takeaways.add(
+                "Your strongest focus window is ${formatHour12(peakStart)}–${formatHour12(peakEnd)}. Save demanding work for then and batch quick admin tasks outside it."
+            )
+        }
+        when (zone) {
+            FatigueZone.CRITICAL, FatigueZone.HIGH -> {
+                takeaways.add("Energy is running low right now — switch to quick Easy Wins or take a 15-minute recharge break.")
+            }
+            FatigueZone.MODERATE -> {
+                takeaways.add("Steady energy right now — ideal for medium-focus tasks, follow-ups, or clearing small blockers.")
+            }
+            FatigueZone.RESTED -> {
+                takeaways.add("You're in a high-clarity zone — a great moment to knock out your most important task.")
+            }
+        }
+        if (frogsToday > 0) {
+            takeaways.add("Nice momentum: you already finished $frogsToday top-priority Frog${if (frogsToday == 1) "" else "s"} today.")
+        } else if (appSwitches > 5) {
+            takeaways.add("Lots of app switching today ($appSwitches switches) — try a short 15-minute distraction-free sprint.")
+        }
+
+        val estimationNote = when {
+            planningCalibrationFactor >= 1.12f -> {
+                val extraPct = ((planningCalibrationFactor - 1f) * 100f).toInt().coerceIn(10, 120)
+                "Your tasks usually take ~$extraPct% longer than planned — Smart Plan adds buffer automatically."
+            }
+            planningCalibrationFactor <= 0.88f -> {
+                "You usually finish faster than your estimates — you have healthy breathing room built in."
+            }
+            else -> {
+                "Your time estimates are well-calibrated with how long tasks actually take."
+            }
+        }
+
         InsightsUiStateV2(
             energyUi = energyUi,
             analyticsSummary = analyticsSummary,
@@ -261,6 +313,8 @@ class InsightsViewModelV2 @Inject constructor(
             totalTasksCompletedToday = completedToday.size,
             activeContractsCount = activeContracts.size,
             neuroscienceInterventions = interventions,
+            plainEnglishTakeaways = takeaways.take(3),
+            plainEnglishEstimationNote = estimationNote,
             isLoading = false
         )
     }

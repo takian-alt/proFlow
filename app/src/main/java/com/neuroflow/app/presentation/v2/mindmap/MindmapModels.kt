@@ -86,6 +86,21 @@ enum class SproutMode {
     SIBLING
 }
 
+enum class GoalWorkspaceMode {
+    OUTLINE,
+    MINDMAP
+}
+
+data class GoalSummaryUi(
+    val goal: com.neuroflow.app.data.local.entity.GoalEntity,
+    val totalTasks: Int,
+    val completedTasks: Int,
+    val nextActionableTask: com.neuroflow.app.data.local.entity.TaskEntity?
+) {
+    val progress: Float
+        get() = if (totalTasks > 0) completedTasks.toFloat() / totalTasks.toFloat() else 0f
+}
+
 data class MindmapUiState(
     val isLoading: Boolean = true,
     val showCompleted: Boolean = false,
@@ -106,5 +121,12 @@ data class MindmapUiState(
     val disconnectTargetNode: MindmapTaskNode? = null,
     val disconnectConnections: List<NodeConnection> = emptyList(),
     val isGoalCreateOpen: Boolean = false,
-    val editingGoalNode: MindmapGoalNode? = null
+    val editingGoalNode: MindmapGoalNode? = null,
+    val selectedGoalId: String? = null,
+    val workspaceMode: GoalWorkspaceMode = GoalWorkspaceMode.OUTLINE,
+    val showAllGoalsInMap: Boolean = false,
+    val goalSummaries: List<GoalSummaryUi> = emptyList(),
+    val allRawTasks: List<com.neuroflow.app.data.local.entity.TaskEntity> = emptyList(),
+    val breakdownPreview: List<com.neuroflow.app.domain.assistant.GoalBreakdownMilestone>? = null,
+    val actionMessage: String? = null
 )

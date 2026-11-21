@@ -206,16 +206,13 @@ class DailyBlueprintOrchestrator(
         }
 
         val candidateTasks = allActiveTasks.filter { task ->
-            val effectiveDate = task.effectiveScheduledDateMillis()
-            val rawTime = task.scheduledTime
-            val dualEpochOnTargetDay = rawTime != null && rawTime >= ONE_DAY_MILLIS &&
-                (if (isToday) rawTime <= dayEnd else rawTime in dayStart..dayEnd)
-            val dualEpochOtherDay = rawTime != null && rawTime >= ONE_DAY_MILLIS && !dualEpochOnTargetDay
-            val isDateEligible = when {
-                dualEpochOtherDay -> false
-                effectiveDate != null -> if (isToday) effectiveDate <= dayEnd else effectiveDate in dayStart..dayEnd
-                else -> true // Unscheduled backlog is eligible for both Today and future daily blueprints
-            }
+            val isDateEligible = SchedulingDateSanityValidator.isEntityEligibleForDay(
+                task = task,
+                targetDate = targetDate,
+                nowMillis = dayNowMillis,
+                zoneId = zoneId,
+                allowFutureDeadlinedBacklog = true
+            )
             isDateEligible &&
                 AutoSchedulingContracts.isMutableByAutoScheduler(task, dayNowMillis) &&
                 task.id !in focusedTaskIds &&
@@ -295,7 +292,25 @@ class DailyBlueprintOrchestrator(
         }
         val schedulableTasks = DependencyGraphValidator.sanitizeDag(rawSchedulableTasks).tasks
 
-        val outcome = if (schedulableTasks.isNotEmpty() && remainingCapacity > 0) {
+        val isOvertimeToday = isToday && prefs.overtimeEnabledEpochDay == today.toEpochDay()
+        val tomorrowWorkStartMillis = today.plusDays(1)
+            .atTime(java.time.LocalTime.of(prefs.workDayStart.coerceIn(5, 12), 0))
+            .atZone(zoneId).toInstant().toEpochMilli()
+        val hasUrgentTomorrowMorningTask = isToday && schedulableTasks.any { t ->
+            t.deadlineMillis != null && t.deadlineMillis in dayNowMillis..tomorrowWorkStartMillis
+        }
+        val effectiveWorkDayEnd = if (isOvertimeToday || hasUrgentTomorrowMorningTask) {
+            maxOf(prefs.workDayEnd, prefs.sleepHour.coerceIn(21, 23))
+        } else {
+            prefs.workDayEnd
+        }
+        val effectiveRemainingCapacity = if (isOvertimeToday) {
+            maxOf(remainingCapacity, 120)
+        } else {
+            remainingCapacity
+        }
+
+        val outcome = if (schedulableTasks.isNotEmpty() && effectiveRemainingCapacity > 0) {
             schedulerService.scheduleDayWithOutcome(
                 tasks = schedulableTasks,
                 dayDate = targetDate,
@@ -318,8 +333,8 @@ class DailyBlueprintOrchestrator(
                 socialJetlagLagHours = horizonCtx.socialJetlagLagHours,
                 activeUncompletedTaskIds = activeUncompletedTaskIds,
                 workDayStartHour = prefs.workDayStart,
-                workDayEndHour = prefs.workDayEnd,
-                dailyCognitiveCapacityMinutes = remainingCapacity,
+                workDayEndHour = effectiveWorkDayEnd,
+                dailyCognitiveCapacityMinutes = effectiveRemainingCapacity,
                 rejectionPatternsJson = prefs.schedulingRejectionsJson,
                 categoryCalibrationRatios = horizonCtx.categoryCalibrationRatios
             )

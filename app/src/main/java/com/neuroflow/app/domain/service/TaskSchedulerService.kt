@@ -3,6 +3,7 @@ package com.neuroflow.app.domain.service
 import com.neuroflow.app.domain.scheduler.DeferralRationale
 import com.neuroflow.app.domain.scheduler.DeferralReasonCode
 import com.neuroflow.app.domain.scheduler.DependencyGraphValidator
+import com.neuroflow.app.domain.scheduler.SchedulingDateSanityValidator
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -586,8 +587,16 @@ class DefaultTaskSchedulerService @Inject constructor(
         fun calibrationFor(task: SchedulableTask): Double =
             (categoryCalibrationRatios[task.category] ?: calibrationRatio).coerceIn(0.8, 1.6)
 
-        // 0. Cycle-Safe DAG Sanitization (ADR-020): guarantees circular dependencies never starve Kahn's queue
-        val sanitizedTasks = DependencyGraphValidator.sanitizeDag(tasks).tasks
+        // 0a. Date-Eligibility Sanity Check: prevent future-anchored tasks from ever being pulled onto an earlier day
+        val dateEligibleTasks = SchedulingDateSanityValidator.validateSchedulableTasksForDay(
+            tasks = tasks,
+            targetDate = dayDate,
+            zoneId = zoneId
+        ).eligibleTasks
+        if (dateEligibleTasks.isEmpty()) return SchedulingOutcome(emptyList())
+
+        // 0b. Cycle-Safe DAG Sanitization (ADR-020): guarantees circular dependencies never starve Kahn's queue
+        val sanitizedTasks = DependencyGraphValidator.sanitizeDag(dateEligibleTasks).tasks
 
         // 1. Construct DST-safe day horizon respecting user's workDayStart and workDayEnd preferences
         val nowLocalDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
@@ -628,7 +637,7 @@ class DefaultTaskSchedulerService @Inject constructor(
         if (dayStartMillis >= dayEndMillis) {
             return SchedulingOutcome(
                 placements = emptyList(),
-                deferrals = tasks.map {
+                deferrals = sanitizedTasks.map {
                     DeferralRationale(
                         taskId = it.id,
                         reasonCode = DeferralReasonCode.INSUFFICIENT_TIME,

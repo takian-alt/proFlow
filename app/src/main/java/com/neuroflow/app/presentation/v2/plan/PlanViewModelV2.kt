@@ -47,6 +47,7 @@ import com.neuroflow.app.domain.model.computeEnergyUiState
 import com.neuroflow.app.domain.scheduler.AutoSchedulingContracts
 import com.neuroflow.app.domain.scheduler.DailyBlueprint
 import com.neuroflow.app.domain.scheduler.DailyBlueprintOrchestrator
+import com.neuroflow.app.domain.scheduler.SchedulingDateSanityValidator
 import com.neuroflow.app.domain.scheduler.determineCategory
 import com.neuroflow.app.domain.scheduler.ConflictResolver
 import com.neuroflow.app.domain.scheduler.DeferralRationale
@@ -888,16 +889,13 @@ class PlanViewModelV2 @Inject constructor(
                 }
 
                 val candidateTasks = allTasks.filter { task ->
-                    val effectiveDate = task.effectiveScheduledDateMillis()
-                    val rawTime = task.scheduledTime
-                    val dualEpochOnTargetDay = rawTime != null && rawTime >= ONE_DAY_MILLIS &&
-                        (if (isTargetingToday) rawTime <= dayEnd else rawTime in dayStart..dayEnd)
-                    val dualEpochOtherDay = rawTime != null && rawTime >= ONE_DAY_MILLIS && !dualEpochOnTargetDay
-                    val isDateEligible = when {
-                        dualEpochOtherDay -> false
-                        effectiveDate != null -> if (isTargetingToday) effectiveDate <= dayEnd else effectiveDate in dayStart..dayEnd
-                        else -> true
-                    }
+                    val isDateEligible = SchedulingDateSanityValidator.isEntityEligibleForDay(
+                        task = task,
+                        targetDate = dayDate,
+                        nowMillis = nowMillis,
+                        zoneId = zoneId,
+                        allowFutureDeadlinedBacklog = true
+                    )
                     val isBlocked = isContinuationBlocked(task, activeTaskIds)
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
                         task.id !in focusedTaskIds &&
@@ -999,7 +997,14 @@ class PlanViewModelV2 @Inject constructor(
                     val fresh = taskRepository.getById(targetTaskId) ?: continue
                     if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
                         fresh.id in focusedTaskIds ||
-                        !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)
+                        !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis) ||
+                        !SchedulingDateSanityValidator.canApplyPlacementToEntity(
+                            existingTask = fresh,
+                            proposedStartMillis = primaryPlacement.window.startMillis,
+                            nowMillis = nowMillis,
+                            zoneId = zoneId,
+                            allowFutureDeadlinedBacklog = true
+                        )
                     ) continue
                     val startOfDay = startOfLocalDay(primaryPlacement.window.startMillis)
                     val timeOffset = primaryPlacement.window.startMillis - startOfDay
@@ -1127,11 +1132,14 @@ class PlanViewModelV2 @Inject constructor(
                         fresh.id in focusedTaskIds ||
                         fresh.isScheduleLocked
                     ) continue
-                    val freshDate = fresh.effectiveScheduledDateMillis()
-                    val freshStart = fresh.resolveScheduledEpochMillis()
-                    val isOutsideTargetDay = (freshDate != null && (freshDate > dayEnd || (!isTargetingToday && freshDate < dayStart))) ||
-                        (freshStart != null && (freshStart > dayEnd || (!isTargetingToday && freshStart < dayStart)))
-                    if (isOutsideTargetDay) continue
+                    if (!SchedulingDateSanityValidator.isEntityEligibleForDay(
+                            task = fresh,
+                            targetDate = dayDate,
+                            nowMillis = nowMillis,
+                            zoneId = zoneId,
+                            allowFutureDeadlinedBacklog = true
+                        )
+                    ) continue
 
                     val cleanTitle = fresh.title.replace(Regex("""\s*\(Part \d+/\d+\)"""), "").trim()
                     val updatedDeferred = fresh.copy(
@@ -1456,7 +1464,15 @@ class PlanViewModelV2 @Inject constructor(
                         } ?: continue
                         if (fresh.status != com.neuroflow.app.domain.model.TaskStatus.ACTIVE ||
                             fresh.id in focusedTaskIds ||
-                            !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis)
+                            !AutoSchedulingContracts.isMutableByAutoScheduler(fresh, nowMillis) ||
+                            (!isStandalonePart2 && !SchedulingDateSanityValidator.canApplyPlacementToEntity(
+                                existingTask = fresh,
+                                proposedStartMillis = primary.window.startMillis,
+                                nowMillis = nowMillis,
+                                zoneId = zoneId,
+                                allowFutureDeadlinedBacklog = true,
+                                allowHardDeadlineRescue = true
+                            ))
                         ) continue
 
                         placedBaseIds.add(baseId)

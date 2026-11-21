@@ -300,7 +300,12 @@ fun CircadianHeroBarometer(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            val budgetHeader = when {
+                                summary.isOvertimeActive -> "OVERTIME"
+                                summary.isStretchMode -> "STRETCH"
+                                else -> "BUDGET"
+                            }
+                            Text(budgetHeader, style = MaterialTheme.typography.labelSmall, color = NeuroFlowPaletteV2.TextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text("${summary.cognitiveBudgetMinutesRemaining}m", style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                         }
@@ -333,6 +338,8 @@ fun CircadianHeroBarometer(
                 dipStart = summary.dipStart,
                 dipEnd = summary.dipEnd,
                 colors = colors,
+                isOvertimeActive = summary.isOvertimeActive,
+                isStretchMode = summary.isStretchMode
             )
 
             if (isCrashWindow) {
@@ -669,9 +676,15 @@ fun PhaseGuidanceRow(
     dipStart: LocalTime,
     dipEnd: LocalTime,
     colors: NeuroFlowExtendedColors,
+    isOvertimeActive: Boolean = false,
+    isStretchMode: Boolean = false
 ) {
-    val guidance = PhaseRecommendation(phase, peakStart, peakEnd, dipStart, dipEnd)
-    val accent = phaseAccentColor(phase, colors)
+    val guidance = if (isOvertimeActive) {
+        "Overtime Mode active — light-to-moderate tasks unlocked for tonight. Hydrate and pace yourself."
+    } else {
+        PhaseRecommendation(phase, peakStart, peakEnd, dipStart, dipEnd)
+    }
+    val accent = if (isOvertimeActive) NeuroFlowPaletteV2.PeakAmber else phaseAccentColor(phase, colors)
 
     Row(
         modifier = Modifier
@@ -720,8 +733,13 @@ fun PhaseGuidanceRow(
             color = accent.copy(alpha = 0.14f),
             shape = RoundedCornerShape(8.dp)
         ) {
+            val pillLabel = when {
+                isOvertimeActive -> "${cognitiveBudget}m OT"
+                isStretchMode -> "${cognitiveBudget}m stretch"
+                else -> "${cognitiveBudget}m left"
+            }
             Text(
-                text = "${cognitiveBudget}m left",
+                text = pillLabel,
                 style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                 fontWeight = FontWeight.ExtraBold,
                 color = accent,
@@ -763,8 +781,8 @@ fun PhaseRecommendation(
         EnergyPhase.CRASH -> "Metabolic drop or stimulant crash. Recharge with hydration or a 15-min power nap."
         EnergyPhase.RECOVERY -> "Active restoration in progress. Recharging cognitive energy."
         EnergyPhase.RECOVERY_NEEDED -> "Synaptic fatigue detected. Take a 15m NSDR or walk before resuming."
-        EnergyPhase.WIND_DOWN -> "Melatonin rising. Close open loops and transition to shutdown mode."
-        EnergyPhase.TROUGH -> "Core biological nadir. Cognitive demand discouraged; prioritize sleep."
+        EnergyPhase.WIND_DOWN -> "Evening wind-down window. Great for light wrap-up, or turn on Overtime if you have an urgent deadline."
+        EnergyPhase.TROUGH -> "Late-night low alertness. Keep sessions short if working on something urgent, and protect your sleep."
     }
 }
 

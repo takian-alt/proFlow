@@ -458,8 +458,8 @@ class AuditBugsAndFeaturesTest {
     }
 
     @Test
-    fun testCognitiveBudgetClampsToZeroDuringWindDownOrPastWindDownStart() {
-        // Case 1: Phase is WIND_DOWN even in early evening / afternoon with usable energy and zero completed work
+    fun testCognitiveBudgetStaysPositiveWithStretchModeDuringWindDownOrPastWindDownStart() {
+        // Case 1: Phase is WIND_DOWN -> enters stretch mode with realistic non-zero reserve (never 0m)
         val windDownSnapshot = CircadianSnapshot(
             timestampMillis = System.currentTimeMillis(),
             usableEnergy = 60,
@@ -476,9 +476,10 @@ class AuditBugsAndFeaturesTest {
             completedDeepWorkMinutes = 0,
             currentTime = LocalTime.of(19, 15)
         )
-        assertEquals("Budget must clamp to 0 during WIND_DOWN phase", 0, summaryWindDownPhase.cognitiveBudgetMinutesRemaining)
+        assertTrue("Budget must stay non-zero during WIND_DOWN phase", summaryWindDownPhase.cognitiveBudgetMinutesRemaining in 25..90)
+        assertTrue("WIND_DOWN phase should flag stretch mode", summaryWindDownPhase.isStretchMode)
 
-        // Case 2: Phase is RECOVERY_NEEDED
+        // Case 2: Phase is RECOVERY_NEEDED -> non-zero light stretch capacity
         val recoverySnapshot = CircadianSnapshot(
             timestampMillis = System.currentTimeMillis(),
             usableEnergy = 70,
@@ -495,7 +496,8 @@ class AuditBugsAndFeaturesTest {
             completedDeepWorkMinutes = 0,
             currentTime = LocalTime.of(10, 0)
         )
-        assertEquals("Budget must clamp to 0 during RECOVERY_NEEDED phase", 0, summaryRecoveryPhase.cognitiveBudgetMinutesRemaining)
+        assertTrue("Budget must stay non-zero during RECOVERY_NEEDED phase", summaryRecoveryPhase.cognitiveBudgetMinutesRemaining in 25..90)
+        assertTrue(summaryRecoveryPhase.isStretchMode)
 
         // Case 3: Current time has reached windDownStart (21:00) with PEAK phase
         val peakSnapshot = CircadianSnapshot(
@@ -514,7 +516,8 @@ class AuditBugsAndFeaturesTest {
             completedDeepWorkMinutes = 0,
             currentTime = LocalTime.of(21, 0)
         )
-        assertEquals("Budget must clamp to 0 when currentTime == windDownStart", 0, summaryAtWindDownStart.cognitiveBudgetMinutesRemaining)
+        assertTrue("Budget must stay non-zero when currentTime == windDownStart", summaryAtWindDownStart.cognitiveBudgetMinutesRemaining in 25..90)
+        assertTrue(summaryAtWindDownStart.isStretchMode)
 
         // Case 4: Current time is past windDownStart (21:30 > 21:00)
         val summaryPastWindDownStart = buildCircadianEnergySummary(
@@ -525,7 +528,8 @@ class AuditBugsAndFeaturesTest {
             completedDeepWorkMinutes = 0,
             currentTime = LocalTime.of(21, 30)
         )
-        assertEquals("Budget must clamp to 0 when currentTime > windDownStart", 0, summaryPastWindDownStart.cognitiveBudgetMinutesRemaining)
+        assertTrue("Budget must stay non-zero when currentTime > windDownStart", summaryPastWindDownStart.cognitiveBudgetMinutesRemaining in 25..90)
+        assertTrue(summaryPastWindDownStart.isStretchMode)
     }
 
     @Test
@@ -560,7 +564,7 @@ class AuditBugsAndFeaturesTest {
         )
         assertEquals("25% usable energy scales 240m budget down to 60m", 60, summary25.cognitiveBudgetMinutesRemaining)
 
-        // usableEnergy = 0% -> physiologicalBudget = 0
+        // usableEnergy = 0% -> floors to minimum realistic stretch capacity (25m) rather than 0m
         val summary0 = buildCircadianEnergySummary(
             dailySummary = null,
             snapshot = baseSnapshot.copy(usableEnergy = 0),
@@ -569,7 +573,7 @@ class AuditBugsAndFeaturesTest {
             completedDeepWorkMinutes = 0,
             currentTime = LocalTime.of(10, 0)
         )
-        assertEquals("0% usable energy scales budget down to 0m", 0, summary0.cognitiveBudgetMinutesRemaining)
+        assertEquals("0% usable energy floors to minimum non-zero capacity", 25, summary0.cognitiveBudgetMinutesRemaining)
 
         // Temporal ceiling narrower than physiological budget:
         // currentTime = 20:30, windDownStart = 21:00 -> temporalBudget = 30m, usableEnergy = 100%

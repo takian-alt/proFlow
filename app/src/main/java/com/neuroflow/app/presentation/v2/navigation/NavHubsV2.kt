@@ -1,6 +1,7 @@
 package com.neuroflow.app.presentation.v2.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.TrendingUp
@@ -9,10 +10,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 sealed class NavHubsV2(val route: String, val title: String, val icon: ImageVector) {
     data object Flow : NavHubsV2("flow_v2", "Flow", Icons.Default.Today)
     data object Plan : NavHubsV2("plan_v2", "Plan", Icons.Default.CalendarMonth)
+    data object Goals : NavHubsV2("goals_v2", "Goals", Icons.Default.AccountTree)
     data object Insights : NavHubsV2("insights_v2", "Vault", Icons.Default.TrendingUp)
 
     companion object {
-        val items = listOf(Flow, Plan, Insights)
+        val items = listOf(Flow, Plan, Goals, Insights)
 
         fun fromRoute(route: String?): NavHubsV2? = items.firstOrNull { it.route == route }
         fun isHubRoute(route: String?): Boolean = items.any { it.route == route }

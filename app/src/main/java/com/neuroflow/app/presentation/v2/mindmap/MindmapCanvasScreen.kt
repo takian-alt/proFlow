@@ -961,11 +961,15 @@ fun MindmapCanvasScreen(
             )
         }
 
+        val composerPrefs by viewModel.userPreferences.collectAsState()
+
         // 12. Smart Task Composer (Create Mode)
         if (showComposerForCreate) {
             SmartTaskComposerSheetV2(
                 onDismiss = { showComposerForCreate = false },
                 mode = SheetMode.Create,
+                activeTasks = state.allRawTasks,
+                preferences = composerPrefs,
                 onSave = { newTask ->
                     showComposerForCreate = false
                     val spawnX = -panOffset.x / (zoomScale * density) + (screenWidth / 2f) / (zoomScale * density) - 105f
@@ -980,6 +984,8 @@ fun MindmapCanvasScreen(
             SmartTaskComposerSheetV2(
                 onDismiss = { editingTaskEntity = null },
                 mode = SheetMode.Edit(entity),
+                activeTasks = state.allRawTasks,
+                preferences = composerPrefs,
                 onSave = { updated ->
                     editingTaskEntity = null
                     viewModel.updateTask(updated)

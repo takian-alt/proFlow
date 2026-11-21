@@ -301,6 +301,14 @@ fun SettingsScreen(
                 }
             }
 
+            // Smart Assistant, Proactive Check-Ins & Wellness Nudges
+            SettingsSection("Smart Assistant & Check-Ins") {
+                SmartAssistantCheckInSettingsSection(
+                    prefs = prefs,
+                    onUpdatePreferences = { transform -> viewModel.updatePreferences(transform) }
+                )
+            }
+
             // Profile & Identity
             SettingsSection("Profile & Identity") {
 

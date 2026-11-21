@@ -75,11 +75,16 @@ import com.neuroflow.app.presentation.settings.PrivacyPermissionsScreen
 import com.neuroflow.app.presentation.settings.PriorityWeightsScreen
 import com.neuroflow.app.presentation.settings.SettingsScreen
 import com.neuroflow.app.presentation.settings.SleepLogsScreen
+import android.widget.Toast
+import com.neuroflow.app.presentation.v2.assistant.SmartAssistantOverlayHost
+import com.neuroflow.app.presentation.v2.assistant.SmartAssistantViewModel
+import com.neuroflow.app.presentation.v2.flow.FlowGroupingMode
 import com.neuroflow.app.presentation.v2.flow.FlowScreenV2
 import com.neuroflow.app.presentation.v2.flow.FlowViewModelV2
 import com.neuroflow.app.presentation.v2.focus.FocusScreenV2
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import com.neuroflow.app.presentation.v2.insights.InsightsScreenV2
+import com.neuroflow.app.presentation.v2.mindmap.GoalsHubScreenV2
 import com.neuroflow.app.presentation.v2.mindmap.MindmapCanvasScreen
 import com.neuroflow.app.presentation.v2.mindmap.MindmapViewModel
 import com.neuroflow.app.presentation.v2.plan.PlanScreenV2
@@ -217,7 +222,18 @@ fun NeuroFlowAppV2(
     NeuroFlowThemeV2(darkTheme = darkTheme, amoledDark = isAmoled, dynamicColor = dynamicColor) {
         val flowViewModel: FlowViewModelV2 = hiltViewModel()
         val planViewModel: PlanViewModelV2 = hiltViewModel()
+        val smartAssistantViewModel: SmartAssistantViewModel = hiltViewModel()
         val flowState by flowViewModel.uiState.collectAsState()
+        val assistantState by smartAssistantViewModel.uiState.collectAsState()
+
+        LaunchedEffect(assistantState.toastMessage) {
+            val msg = assistantState.toastMessage
+            if (!msg.isNullOrBlank()) {
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                smartAssistantViewModel.clearToastMessage()
+            }
+        }
+
         val nowMinute by produceState(System.currentTimeMillis() / 60_000L) {
             while (true) {
                 kotlinx.coroutines.delay(60_000L)
@@ -310,65 +326,97 @@ fun NeuroFlowAppV2(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                NavHost(
-                    navController = navController,
-                    startDestination = NavHubsV2.Flow.route,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                composable(NavHubsV2.Flow.route) {
-                    FlowScreenV2(
-                        initialOpenComposer = initialOpenComposer,
-                        onInitialComposerConsumed = onInitialComposerConsumed,
-                        onNavigateToSettings = { navController.navigate("settings") { launchSingleTop = true } },
-                        onNavigateToMindmap = { navController.navigate("mindmap_canvas") { launchSingleTop = true } },
-                        onStartFocus = { taskId ->
-                            if (taskId.isNotBlank()) {
-                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        },
-                        onNavigateToMEQ = { navController.navigate("meq_quiz") { launchSingleTop = true } },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
-                        onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
-                        onOpenToolsSheet = { showToolsSheet = true },
-                        onStartDoorwayFocus = { taskId ->
-                            if (taskId.isNotBlank()) {
-                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}?mode=JUST_5_MIN") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        },
-                        viewModel = flowViewModel
-                    )
-                }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    NavHost(
+                        navController = navController,
+                        startDestination = NavHubsV2.Flow.route,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        composable(NavHubsV2.Flow.route) {
+                            FlowScreenV2(
+                                initialOpenComposer = initialOpenComposer,
+                                onInitialComposerConsumed = onInitialComposerConsumed,
+                                onNavigateToSettings = { navController.navigate("settings") { launchSingleTop = true } },
+                                onNavigateToMindmap = {
+                                    navController.navigate(NavHubsV2.Goals.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onStartFocus = { taskId ->
+                                    if (taskId.isNotBlank()) {
+                                        navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                },
+                                onNavigateToMEQ = { navController.navigate("meq_quiz") { launchSingleTop = true } },
+                                onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
+                                onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
+                                onOpenToolsSheet = { showToolsSheet = true },
+                                onStartDoorwayFocus = { taskId ->
+                                    if (taskId.isNotBlank()) {
+                                        navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}?mode=JUST_5_MIN") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                },
+                                viewModel = flowViewModel
+                            )
+                        }
 
-                composable(NavHubsV2.Plan.route) {
-                    PlanScreenV2(
-                        onNavigateToFocus = { taskId ->
-                            if (taskId.isNotBlank()) {
-                                navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        },
-                        onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") { launchSingleTop = true } },
-                        onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
-                        onNavigateToMindmap = { navController.navigate("mindmap_canvas") { launchSingleTop = true } },
-                        onOpenToolsSheet = { showToolsSheet = true },
-                        viewModel = planViewModel
-                    )
-                }
+                        composable(NavHubsV2.Plan.route) {
+                            PlanScreenV2(
+                                onNavigateToFocus = { taskId ->
+                                    if (taskId.isNotBlank()) {
+                                        navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                },
+                                onNavigateToWeeklySchedule = { navController.navigate("weekly_schedule") { launchSingleTop = true } },
+                                onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
+                                onNavigateToMindmap = {
+                                    navController.navigate(NavHubsV2.Goals.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onOpenToolsSheet = { showToolsSheet = true },
+                                viewModel = planViewModel
+                            )
+                        }
 
-                composable(NavHubsV2.Insights.route) {
-                    InsightsScreenV2(
-                        onNavigateToMEQ = { navController.navigate("meq_quiz") { launchSingleTop = true } },
-                        onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
-                        onNavigateToAnalytics = { navController.navigate("analytics") { launchSingleTop = true } },
-                        onNavigateToHistory = { navController.navigate("history") { launchSingleTop = true } },
-                        onNavigateToIdentity = { navController.navigate("identity") { launchSingleTop = true } }
-                    )
-                }
+                        composable(NavHubsV2.Goals.route) {
+                            GoalsHubScreenV2(
+                                onStartFocus = { taskId ->
+                                    if (taskId.isNotBlank()) {
+                                        navController.navigate("focus_v2/${android.net.Uri.encode(taskId)}") {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(NavHubsV2.Insights.route) {
+                            InsightsScreenV2(
+                                onNavigateToMEQ = { navController.navigate("meq_quiz") { launchSingleTop = true } },
+                                onNavigateToSleepLogs = { navController.navigate("sleep_logs") { launchSingleTop = true } },
+                                onNavigateToAnalytics = { navController.navigate("analytics") { launchSingleTop = true } },
+                                onNavigateToHistory = { navController.navigate("history") { launchSingleTop = true } },
+                                onNavigateToIdentity = { navController.navigate("identity") { launchSingleTop = true } },
+                                onNavigateToNotes = { navController.navigate("notes") { launchSingleTop = true } },
+                                onNavigateToSettings = { navController.navigate("settings") { launchSingleTop = true } },
+                                smartAssistantViewModel = smartAssistantViewModel
+                            )
+                        }
 
                 composable("settings") {
                     SettingsScreen(
@@ -600,8 +648,48 @@ fun NeuroFlowAppV2(
                     )
                 }
             }
+
+                    // Global Proactive Check-In & Energy Wellness Nudge Overlay (Hub screens only)
+                    SmartAssistantOverlayHost(
+                        state = assistantState,
+                        visible = showBottomBar && !showToolsSheet,
+                        onLogCheckIn = { type, ts, detail, hrs ->
+                            smartAssistantViewModel.logCheckInAtTime(type, ts, detail, hrs)
+                        },
+                        onSnoozeCheckIn = { type, target ->
+                            smartAssistantViewModel.snoozeCheckInUntil(type, target)
+                        },
+                        onSkipCheckIn = { type ->
+                            smartAssistantViewModel.skipCheckInToday(type)
+                        },
+                        onDismissCheckIn = { type ->
+                            smartAssistantViewModel.dismissCheckInTemporarily(type)
+                        },
+                        onDrinkWater = {
+                            smartAssistantViewModel.logHydrationDrink()
+                        },
+                        onOpenEasyWins = {
+                            flowViewModel.setGroupingMode(FlowGroupingMode.ENERGY_DEMAND)
+                            if (currentRoute != NavHubsV2.Flow.route) {
+                                navController.navigate(NavHubsV2.Flow.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        },
+                        onDismissWellnessNudge = {
+                            smartAssistantViewModel.dismissWellnessNudge()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 8.dp)
+                    )
+                }
+            }
         }
-    }
 
     if (showToolsSheet) {
         ToolsSheet(

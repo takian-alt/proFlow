@@ -102,6 +102,11 @@ enum class SimulationLeverType {
     BEDTIME
 }
 
+enum class FlowGroupingMode {
+    PRIORITY_SCORE,
+    ENERGY_DEMAND
+}
+
 data class SimulationState(
     val isActive: Boolean = false,
     val simulatedNaps: List<DaytimeNapBout> = emptyList(),
@@ -148,7 +153,12 @@ data class FlowUiStateV2(
     val blueprintIncludedTaskIds: Set<String> = emptySet(),
     val simulationState: SimulationState = SimulationState(),
     val normalizedSleepDurationMinutes: Int = 480,
-    val fatigueScoresByTaskId: Map<String, TaskFatigueScoreUi> = emptyMap()
+    val fatigueScoresByTaskId: Map<String, TaskFatigueScoreUi> = emptyMap(),
+    val groupingMode: FlowGroupingMode = FlowGroupingMode.PRIORITY_SCORE,
+    val priorityScoresByTaskId: Map<String, Int> = emptyMap(),
+    val isOvertimeActive: Boolean = false,
+    val dailyTargetReached: Boolean = false,
+    val hasUrgentTomorrowMorningTask: Boolean = false
 )
 
 @HiltViewModel
@@ -183,6 +193,7 @@ class FlowViewModelV2 @Inject constructor(
     private val _isBlueprintLoading = MutableStateFlow(false)
     private val _blueprintIncludedTaskIds = MutableStateFlow<Set<String>>(emptySet())
     private val _simulationState = MutableStateFlow(SimulationState())
+    private val _groupingMode = MutableStateFlow(FlowGroupingMode.PRIORITY_SCORE)
     private var lastPredictionRecordedAt: Long = 0L
 
     internal var nowProvider: () -> Long = { System.currentTimeMillis() }
@@ -264,7 +275,8 @@ class FlowViewModelV2 @Inject constructor(
                     old.weightDuration == new.weightDuration &&
                     old.weightFocusMode == new.weightFocusMode &&
                     old.weightPlanBoost == new.weightPlanBoost &&
-                    old.weightEnjoyment == new.weightEnjoyment
+                    old.weightEnjoyment == new.weightEnjoyment &&
+                    old.overtimeEnabledEpochDay == new.overtimeEnabledEpochDay
             },
             (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) }
         ) { active, completed, prefs, sleepLogs ->
@@ -288,7 +300,8 @@ class FlowViewModelV2 @Inject constructor(
             (sessionRepository?.observeAll() ?: flowOf(emptyList<TimeSessionEntity>())).onEmpty {
                 emit(runCatching { sessionRepository?.getAllSessions() }.getOrNull() ?: emptyList())
             },
-            (clockTicker?.currentMinuteTick ?: flowOf(0L)).onEmpty { emit(0L) }
+            (clockTicker?.currentMinuteTick ?: flowOf(0L)).onEmpty { emit(0L) },
+            _groupingMode
         ) { args ->
             args.toList()
         }
@@ -303,6 +316,7 @@ class FlowViewModelV2 @Inject constructor(
         val simState = thirdList[5] as SimulationState
         @Suppress("UNCHECKED_CAST")
         val allSessions = thirdList[6] as List<TimeSessionEntity>
+        val groupingMode = thirdList[8] as FlowGroupingMode
         val activeTasks = rawActiveTasks.filterNot { it.id == com.neuroflow.app.data.local.entity.TaskEntity.TASK_UNTRACKED_FOCUS }
         val now = nowProvider()
         val currentHour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
@@ -572,6 +586,7 @@ class FlowViewModelV2 @Inject constructor(
             .sumOf { com.neuroflow.app.domain.scheduler.TaskBlockPlan.plannedMinutes(it) }
             .toDouble()
 
+        val rawPriorityScoresByTaskId = mutableMapOf<String, Int>()
         val recommended = candidatePool.maxByOrNull { task: TaskEntity ->
             val schedulable = candidateSchedulables[task.id]!!
             val breakdown = taskSchedulerService.evaluateTaskScoreWithFatigue(
@@ -583,6 +598,7 @@ class FlowViewModelV2 @Inject constructor(
                 referenceNowMillis = now,
                 cumulativeCognitiveLoadMinutes = cognitiveLoadDoneToday
             )
+            rawPriorityScoresByTaskId[task.id] = breakdown.totalScore.roundToInt().coerceIn(1, 100)
             val energyDiff = kotlin.math.abs(task.energyLevel.ordinal - currentEnergyZone.ordinal)
             val zoneAffinity = when (energyDiff) {
                 0 -> 6.0
@@ -708,6 +724,43 @@ class FlowViewModelV2 @Inject constructor(
             .sumOf { (it.durationMinutes.takeIf { d -> d > 0f } ?: it.trackedMinutes(it.endedAt ?: now)).roundToInt() }
         val totalCompletedDeepWorkMinutes = todayCompletedDeepWorkMinutes + untrackedTodayMinutes
 
+        val todayEpochDay = zonedDateTime.toLocalDate().toEpochDay()
+        val isOvertimeActive = prefs.overtimeEnabledEpochDay == todayEpochDay
+        val dailyTargetReached = totalCompletedDeepWorkMinutes >= prefs.dailyDeepWorkTargetMinutes.coerceAtLeast(60)
+        val tomorrowWorkStartMillis = zonedDateTime.toLocalDate().plusDays(1)
+            .atTime(prefs.workDayStart.coerceIn(5, 12), 0)
+            .atZone(systemZone)
+            .toInstant()
+            .toEpochMilli()
+        val hasUrgentTomorrowMorningTask = activeTasks.any { task ->
+            val deadline = task.resolveDeadlineEpochMillis()
+            deadline != null && deadline in now..tomorrowWorkStartMillis
+        }
+
+        // Ensure every visible today task has a computed Priority Score (1..100)
+        todayActiveTasks.forEach { task ->
+            if (!rawPriorityScoresByTaskId.containsKey(task.id)) {
+                val schedulable = candidateSchedulables[task.id]
+                    ?: com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
+                        task = task,
+                        allContextTasks = activeTasks,
+                        dayStartMillis = dayStart,
+                        enjoymentCalibration = enjoymentCalibration,
+                        usePlannedBlockForScoring = true
+                    )
+                val breakdown = taskSchedulerService.evaluateTaskScoreWithFatigue(
+                    task = schedulable,
+                    snapshot = effectiveSnapshot,
+                    dependentCount = dependentCounts[task.id] ?: 0,
+                    calibrationRatio = calibrationRatio,
+                    weights = priorityWeights,
+                    referenceNowMillis = now,
+                    cumulativeCognitiveLoadMinutes = cognitiveLoadDoneToday
+                )
+                rawPriorityScoresByTaskId[task.id] = breakdown.totalScore.roundToInt().coerceIn(1, 100)
+            }
+        }
+
         val circadianEnergySummary = buildCircadianEnergySummary(
             dailySummary = circadianSummary,
             snapshot = effectiveSnapshot,
@@ -715,7 +768,8 @@ class FlowViewModelV2 @Inject constructor(
             dailyDeepWorkTargetMinutes = prefs.dailyDeepWorkTargetMinutes,
             sleepHour = prefs.sleepHour,
             completedDeepWorkMinutes = totalCompletedDeepWorkMinutes,
-            currentTime = zonedDateTime.toLocalTime()
+            currentTime = zonedDateTime.toLocalTime(),
+            isOvertimeActive = isOvertimeActive
         )
 
         val fatigueScoresByTaskId = FatigueScoreEvaluator.evaluateTasks(
@@ -770,7 +824,12 @@ class FlowViewModelV2 @Inject constructor(
             blueprintIncludedTaskIds = blueprintIncludedTaskIds,
             simulationState = simState,
             normalizedSleepDurationMinutes = sleepDurationMinutes,
-            fatigueScoresByTaskId = fatigueScoresByTaskId
+            fatigueScoresByTaskId = fatigueScoresByTaskId,
+            groupingMode = groupingMode,
+            priorityScoresByTaskId = rawPriorityScoresByTaskId.toMap(),
+            isOvertimeActive = isOvertimeActive,
+            dailyTargetReached = dailyTargetReached,
+            hasUrgentTomorrowMorningTask = hasUrgentTomorrowMorningTask
         )
     }.stateIn(
         viewModelScope,
@@ -1619,9 +1678,30 @@ class FlowViewModelV2 @Inject constructor(
         _selectedTag.value = tag
     }
 
+    fun setGroupingMode(mode: FlowGroupingMode) {
+        _groupingMode.value = mode
+    }
+
+    fun toggleOvertimeTonight() {
+        viewModelScope.launch {
+            val todayEpochDay = Instant.ofEpochMilli(nowProvider()).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay()
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val currentlyActive = prefs.overtimeEnabledEpochDay == todayEpochDay
+            preferencesDataStore.setOvertimeForEpochDay(
+                enabled = !currentlyActive,
+                epochDay = todayEpochDay
+            )
+            _lastActionMessage.value = if (currentlyActive) {
+                "Overtime Mode turned off. Evening wind-down pacing restored."
+            } else {
+                "Overtime Mode enabled for tonight. Extra slots & stretch capacity unlocked."
+            }
+        }
+    }
+
     fun completeEveningShutdown() {
         _eveningShutdownDismissed.value = true
-        _lastActionMessage.value = "Evening shutdown complete. Time to rest and restore 🌙"
+        _lastActionMessage.value = "Wrapped up for today. Rest well and recharge 🌙"
     }
 
     fun saveQuickNote(content: String, title: String = "") {

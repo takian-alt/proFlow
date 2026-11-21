@@ -78,16 +78,19 @@ class Phase4TriptychViewModelIntegrationTest : StringSpec({
         updatedAt = System.currentTimeMillis()
     )
 
-    "NavHubsV2 defines the exact 3-hub Triptych: Flow, Plan, Vault" {
-        NavHubsV2.items shouldHaveSize 3
+    "NavHubsV2 defines the 4 primary hubs: Flow, Plan, Goals, Vault" {
+        NavHubsV2.items shouldHaveSize 4
         NavHubsV2.items[0].title shouldBe "Flow"
         NavHubsV2.items[0].route shouldBe "flow_v2"
 
         NavHubsV2.items[1].title shouldBe "Plan"
         NavHubsV2.items[1].route shouldBe "plan_v2"
 
-        NavHubsV2.items[2].title shouldBe "Vault"
-        NavHubsV2.items[2].route shouldBe "insights_v2"
+        NavHubsV2.items[2].title shouldBe "Goals"
+        NavHubsV2.items[2].route shouldBe "goals_v2"
+
+        NavHubsV2.items[3].title shouldBe "Vault"
+        NavHubsV2.items[3].route shouldBe "insights_v2"
     }
 
     "FlowViewModelV2 breakDownTask persists normalized micro-steps to task_micro_steps table" {

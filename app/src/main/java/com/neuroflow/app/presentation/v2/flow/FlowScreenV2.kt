@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShieldMoon
@@ -449,7 +450,9 @@ fun FlowScreenV2(
                             { showEasyWinSheet = true }
                         } else null,
                         isLowBatterySuggested = battery < 45,
-                        topTaskFatigueScore = topTask?.let { state.fatigueScoresByTaskId[it.id] }
+                        topTaskFatigueScore = topTask?.let { state.fatigueScoresByTaskId[it.id] },
+                        isOvertimeActive = state.isOvertimeActive,
+                        onEnableOvertimeClick = { viewModel.toggleOvertimeTonight() }
                     )
                 }
             } else {
@@ -491,18 +494,22 @@ fun FlowScreenV2(
                 }
             }
 
-            // Evening Shutdown Ritual Card
-            if (state.isEveningShutdownTime && !state.eveningShutdownDismissed) {
+            // Soft Evening & Overtime Assistant Card (replaces rigid shutdown — never hides tasks)
+            val showOvertimeAssistantCard = (state.isEveningShutdownTime || state.dailyTargetReached || state.hasUrgentTomorrowMorningTask || state.isOvertimeActive) &&
+                !state.eveningShutdownDismissed
+            if (showOvertimeAssistantCard) {
                 Spacer(modifier = Modifier.height(10.dp))
+                val cardAccent = if (state.isOvertimeActive) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.PeakAmber
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 16.dp)
+                        .testTag("evening_overtime_assistant_card"),
                     shape = RoundedCornerShape(18.dp),
                     color = NeuroFlowThemeV2Colors.SlateSurface,
                     border = BorderStroke(
                         1.dp,
-                        NeuroFlowPaletteV2.specularBorderBrush(NeuroFlowThemeV2Colors.ElectricIndigoGlow, 0.85f)
+                        NeuroFlowPaletteV2.specularBorderBrush(cardAccent, 0.85f)
                     )
                 ) {
                     Column(
@@ -510,48 +517,96 @@ fun FlowScreenV2(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.ShieldMoon,
-                                contentDescription = null,
-                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = "Evening Shutdown Ritual",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (state.isOvertimeActive) Icons.Default.AutoAwesome else Icons.Default.ShieldMoon,
+                                    contentDescription = null,
+                                    tint = cardAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = if (state.isOvertimeActive) "Overtime Mode Active" else "Evening & Overtime Assistant",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = cardAccent
+                                )
+                            }
+                            if (state.hasUrgentTomorrowMorningTask) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.16f)
+                                ) {
+                                    Text(
+                                        text = "Due AM",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = NeuroFlowPaletteV2.RecoveryRose,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
                         }
                         val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(nowMillis)
                         val todayCompletedCount = state.completedTasks.count {
                             val comp = it.completedAt ?: it.updatedAt
                             comp >= todayStart
                         }
-                        val endHour = state.preferences.workDayEnd.coerceIn(12, 23)
-                        val endHourLabel = when {
-                            endHour == 12 -> "12:00 PM"
-                            endHour > 12 -> "${endHour - 12}:00 PM"
-                            else -> "$endHour:00 AM"
+                        val message = when {
+                            state.isOvertimeActive -> "Extra evening capacity & tonight's slots are unlocked. Pace yourself with short hydration breaks."
+                            state.hasUrgentTomorrowMorningTask -> "You have an urgent task due before tomorrow morning. Turn on Overtime to schedule it tonight or jump right in."
+                            state.dailyTargetReached -> "You hit your ${state.preferences.dailyDeepWorkTargetMinutes}m focus goal ($todayCompletedCount done). Rest up, or enable Overtime to keep pushing."
+                            else -> "It's evening wind-down ($todayCompletedCount done today). Keep working with one-tap Overtime, or wrap up cleanly."
                         }
                         Text(
-                            text = "It's past $endHourLabel. Protect your circadian melatonin surge by closing cognitive loops. You conquered $todayCompletedCount task${if (todayCompletedCount == 1) "" else "s"} today. Time to wind down.",
+                            text = message,
                             style = MaterialTheme.typography.bodySmall,
                             color = NeuroFlowThemeV2Colors.TextSecondary
                         )
-                        Button(
-                            onClick = { viewModel.completeEveningShutdown() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.heightIn(min = 48.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("Complete Shutdown", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Button(
+                                onClick = { viewModel.toggleOvertimeTonight() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = cardAccent,
+                                    contentColor = NeuroFlowPaletteV2.onAccentColor(cardAccent)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("toggle_overtime_button")
+                            ) {
+                                Text(
+                                    text = if (state.isOvertimeActive) "Overtime On ✓" else "Enable Overtime",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.completeEveningShutdown() },
+                                border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("wrap_up_evening_button")
+                            ) {
+                                Text(
+                                    text = "Wrap Up",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    color = NeuroFlowThemeV2Colors.TextSecondary
+                                )
+                            }
                         }
                     }
                 }
@@ -601,13 +656,64 @@ fun FlowScreenV2(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Dual Categorization Segmented Toggle: Priority Score | Energy Demand
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .testTag("flow_grouping_segmented_toggle")
+            ) {
+                SegmentedButton(
+                    selected = state.groupingMode == FlowGroupingMode.PRIORITY_SCORE,
+                    onClick = { viewModel.setGroupingMode(FlowGroupingMode.PRIORITY_SCORE) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f),
+                        activeContentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                        inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
+                    ),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("flow_toggle_priority")
+                ) {
+                    Text(
+                        text = "Priority Score",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                SegmentedButton(
+                    selected = state.groupingMode == FlowGroupingMode.ENERGY_DEMAND,
+                    onClick = { viewModel.setGroupingMode(FlowGroupingMode.ENERGY_DEMAND) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f),
+                        activeContentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                        inactiveContainerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                        inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
+                    ),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("flow_toggle_energy")
+                ) {
+                    Text(
+                        text = "Energy Demand",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             val visibleStreamTasks = remember(state.filteredTasks, locallyCompletedIds) {
                 state.filteredTasks.filterNot { it.id in locallyCompletedIds }
             }
 
-            // Energy-Mapped Day Stream
+            // Dual-Categorized Flow Stream
             EnergyTimelineStream(
                 scheduledTasks = visibleStreamTasks,
                 onTaskClick = { task -> onStartFocus(task.id) },
@@ -622,7 +728,14 @@ fun FlowScreenV2(
                 onShiftToPeak = { task -> viewModel.shiftTaskToPeak(task) },
                 timeline = state.energyTimeline,
                 fatigueScores = state.fatigueScoresByTaskId,
-                nowMillis = nowMillis
+                nowMillis = nowMillis,
+                groupingMode = state.groupingMode,
+                priorityScoresByTaskId = state.priorityScoresByTaskId,
+                currentEnergyLevel = when {
+                    battery >= 65 -> EnergyLevel.HIGH
+                    battery >= 35 -> EnergyLevel.MEDIUM
+                    else -> EnergyLevel.LOW
+                }
             )
 
             Spacer(modifier = Modifier.height(80.dp))
@@ -639,7 +752,10 @@ fun FlowScreenV2(
                 showComposer = false
                 viewModel.addTask(task)
             },
-            completedTasks = state.completedTasks
+            completedTasks = state.completedTasks,
+            activeTasks = state.activeTasks,
+            energyTimeline = state.energyTimeline,
+            preferences = state.preferences
         )
     }
 
@@ -652,7 +768,10 @@ fun FlowScreenV2(
                 editingTask = null
                 viewModel.updateTask(updated)
             },
-            completedTasks = state.completedTasks
+            completedTasks = state.completedTasks,
+            activeTasks = state.activeTasks,
+            energyTimeline = state.energyTimeline,
+            preferences = state.preferences
         )
     }
 

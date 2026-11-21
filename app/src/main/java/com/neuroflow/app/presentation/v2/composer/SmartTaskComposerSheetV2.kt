@@ -56,6 +56,9 @@ import com.neuroflow.app.data.local.entity.localStartOfDayToUtcDateMillis
 import com.neuroflow.app.data.local.entity.localTimeOfDayOffset
 import com.neuroflow.app.data.local.entity.startOfLocalDay
 import com.neuroflow.app.data.local.entity.utcDateMillisToLocalStartOfDay
+import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.domain.assistant.TaskSlotRecommender
+import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.DailyCircadianSummary
 import com.neuroflow.app.domain.inference.TaskInferenceEngine
 import com.neuroflow.app.domain.model.EnergyLevel
@@ -117,7 +120,11 @@ fun SmartTaskComposerSheetV2(
     mode: SheetMode = SheetMode.Create,
     circadianSummary: DailyCircadianSummary? = null,
     completedTasks: List<TaskEntity> = emptyList(),
-    initialDate: Long? = null
+    initialDate: Long? = null,
+    initialScheduledTimeOffset: Long? = null,
+    activeTasks: List<TaskEntity> = emptyList(),
+    energyTimeline: List<CircadianSnapshot> = emptyList(),
+    preferences: UserPreferences = UserPreferences()
 ) {
     val existingTask = (mode as? SheetMode.Edit)?.task
     var rawInput by remember(existingTask) { mutableStateOf(existingTask?.title ?: "") }
@@ -203,6 +210,7 @@ fun SmartTaskComposerSheetV2(
         scheduledTimeCleared -> null
         userScheduledTimeOverride != null -> userScheduledTimeOverride
         inferred.scheduledTime != null -> inferred.scheduledTime
+        mode is SheetMode.Create && initialScheduledTimeOffset != null -> initialScheduledTimeOffset
         else -> existingTask?.scheduledTime
     }
 
@@ -395,11 +403,18 @@ fun SmartTaskComposerSheetV2(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
-                .nestedScroll(nestedScrollInterop)
-                .verticalScroll(rememberScrollState())
                 .imePadding()
+                .navigationBarsPadding()
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 8.dp, bottom = 12.dp)
+                    .nestedScroll(nestedScrollInterop)
+                    .verticalScroll(rememberScrollState())
+            ) {
             // Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1516,38 +1531,289 @@ fun SmartTaskComposerSheetV2(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            }
 
-            // Save Button
-            Button(
-                onClick = {
-                    if (!isSaving) {
-                        handleSave()
-                    }
-                },
-                enabled = rawInput.isNotBlank() && !isSaving,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("composer_save_button"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+            // Pinned Bottom Footer Dock: Recommended Slot Card + Save Action
+            val editingTaskId = (mode as? SheetMode.Edit)?.task?.id
+            val resolvedDeadlineMillis = remember(effectiveDeadlineDate, effectiveDeadlineTime) {
+                if (effectiveDeadlineDate != null) {
+                    val timeOffset = effectiveDeadlineTime?.let { if (it >= ONE_DAY_MILLIS) localTimeOfDayOffset(it) else it }
+                        ?: (23 * 3_600_000L + 59 * 60_000L)
+                    startOfLocalDay(effectiveDeadlineDate) + timeOffset
+                } else null
+            }
+            val recommendedSlots = remember(
+                effectiveDuration,
+                effectiveEnergy,
+                effectiveScheduledDate,
+                effectiveFrog,
+                effectivePriority,
+                resolvedDeadlineMillis,
+                activeTasks,
+                energyTimeline,
+                preferences,
+                editingTaskId
             ) {
-                Icon(if (mode is SheetMode.Edit) Icons.Default.Check else Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                val saveLabel = when {
-                    mode is SheetMode.Edit -> "Save Changes"
-                    effectiveScheduledDate != null -> "Add to Day"
-                    else -> "Save to Inbox"
-                }
-                Text(
-                    text = saveLabel,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                TaskSlotRecommender.recommendSlots(
+                    durationMinutes = effectiveDuration.coerceAtLeast(10),
+                    energyLevel = effectiveEnergy,
+                    targetDateMillis = effectiveScheduledDate,
+                    deadlineMillis = resolvedDeadlineMillis,
+                    existingTasks = activeTasks,
+                    energyTimeline = energyTimeline,
+                    prefs = preferences,
+                    nowMillis = System.currentTimeMillis(),
+                    excludeTaskId = editingTaskId,
+                    isFrog = effectiveFrog,
+                    priority = effectivePriority
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Surface(
+                color = NeuroFlowThemeV2Colors.SlateSurface,
+                tonalElevation = 3.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("composer_pinned_footer_dock")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 8.dp, bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    HorizontalDivider(
+                        color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.55f),
+                        thickness = 0.75.dp
+                    )
+
+                    if (recommendedSlots.isNotEmpty()) {
+                        val topSlot = recommendedSlots.first()
+                        val alternates = recommendedSlots.drop(1)
+                        val normalizedScheduledTime = effectiveScheduledTime?.let {
+                            if (it >= ONE_DAY_MILLIS) localTimeOfDayOffset(it) else it
+                        }
+                        val isSlotApplied: (com.neuroflow.app.domain.assistant.RecommendedSlotProposal) -> Boolean = { slot ->
+                            effectiveScheduledDate != null &&
+                                startOfLocalDay(effectiveScheduledDate) == slot.dayStartMillis &&
+                                normalizedScheduledTime != null &&
+                                kotlin.math.abs(normalizedScheduledTime - slot.timeOfDayOffsetMillis) <= 60_000L
+                        }
+                        val isTopApplied = isSlotApplied(topSlot)
+                        val matchAccent = when {
+                            topSlot.isOvertimeSlot -> NeuroFlowThemeV2Colors.WarmAmber
+                            topSlot.predictedEnergyPercent >= 70 -> NeuroFlowThemeV2Colors.SageGreen
+                            topSlot.predictedEnergyPercent >= 45 -> NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            else -> NeuroFlowThemeV2Colors.WarmAmber
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.09f),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (isTopApplied) {
+                                    NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.55f)
+                                } else {
+                                    NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.42f)
+                                }
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("composer_recommended_slot_card")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = if (topSlot.isTodayFullFallback) {
+                                                    "Today Full · ${topSlot.dayLabel}"
+                                                } else {
+                                                    "Recommended · ${topSlot.dayLabel}"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = matchAccent.copy(alpha = 0.16f),
+                                                border = BorderStroke(0.75.dp, matchAccent.copy(alpha = 0.4f))
+                                            ) {
+                                                Text(
+                                                    text = topSlot.energyMatchLabel,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = matchAccent,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            text = topSlot.timeRangeLabel,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeuroFlowThemeV2Colors.TextPrimary
+                                        )
+
+                                        Text(
+                                            text = topSlot.gapContextLabel.ifBlank { topSlot.reason },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowThemeV2Colors.TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    FilledTonalButton(
+                                        onClick = {
+                                            if (isTopApplied) {
+                                                userScheduledDateOverride = null
+                                                scheduledDateCleared = true
+                                                userScheduledTimeOverride = null
+                                                scheduledTimeCleared = true
+                                            } else {
+                                                userScheduledDateOverride = topSlot.dayStartMillis
+                                                scheduledDateCleared = false
+                                                userScheduledTimeOverride = topSlot.timeOfDayOffsetMillis
+                                                scheduledTimeCleared = false
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = if (isTopApplied) {
+                                                NeuroFlowThemeV2Colors.SageGreen.copy(alpha = 0.22f)
+                                            } else {
+                                                NeuroFlowThemeV2Colors.ElectricIndigo
+                                            },
+                                            contentColor = if (isTopApplied) {
+                                                NeuroFlowThemeV2Colors.SageGreen
+                                            } else {
+                                                Color.White
+                                            }
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier
+                                            .heightIn(min = 48.dp)
+                                            .testTag("composer_use_recommended_slot")
+                                    ) {
+                                        Text(
+                                            text = if (isTopApplied) "Applied ✓" else "Use Slot",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                if (alternates.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Other:",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeuroFlowThemeV2Colors.TextTertiary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        alternates.forEachIndexed { idx, alt ->
+                                            val isAltApplied = isSlotApplied(alt)
+                                            val chipText = if (alt.dayLabel == topSlot.dayLabel) {
+                                                "${alt.shortStartTimeLabel} · ${alt.predictedEnergyPercent}%"
+                                            } else {
+                                                "${alt.dayLabel} ${alt.shortStartTimeLabel} · ${alt.predictedEnergyPercent}%"
+                                            }
+                                            FilterChip(
+                                                selected = isAltApplied,
+                                                onClick = {
+                                                    if (isAltApplied) {
+                                                        userScheduledDateOverride = null
+                                                        scheduledDateCleared = true
+                                                        userScheduledTimeOverride = null
+                                                        scheduledTimeCleared = true
+                                                    } else {
+                                                        userScheduledDateOverride = alt.dayStartMillis
+                                                        scheduledDateCleared = false
+                                                        userScheduledTimeOverride = alt.timeOfDayOffsetMillis
+                                                        scheduledTimeCleared = false
+                                                    }
+                                                },
+                                                label = {
+                                                    Text(
+                                                        text = chipText,
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                        fontWeight = if (isAltApplied) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                },
+                                                modifier = Modifier
+                                                    .heightIn(min = 48.dp)
+                                                    .testTag("composer_alt_slot_$idx")
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Save Button
+                    Button(
+                        onClick = {
+                            if (!isSaving) {
+                                handleSave()
+                            }
+                        },
+                        enabled = rawInput.isNotBlank() && !isSaving,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("composer_save_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeuroFlowThemeV2Colors.ElectricIndigo)
+                    ) {
+                        Icon(if (mode is SheetMode.Edit) Icons.Default.Check else Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val saveLabel = when {
+                            mode is SheetMode.Edit -> "Save Changes"
+                            effectiveScheduledDate != null -> "Add to Day"
+                            else -> "Save to Inbox"
+                        }
+                        Text(
+                            text = saveLabel,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
         }
 
         // DatePickerDialog

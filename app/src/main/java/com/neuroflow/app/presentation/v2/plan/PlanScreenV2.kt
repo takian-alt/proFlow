@@ -129,14 +129,16 @@ fun PlanScreenV2(
 
     var showNotesSheet by remember { mutableStateOf(false) }
     var showComposer by remember { mutableStateOf(false) }
+    var composerInitialTimeOffset by remember { mutableStateOf<Long?>(null) }
     var taskToLogTime by remember { mutableStateOf<TaskEntity?>(null) }
     var taskToScheduleTime by remember { mutableStateOf<TaskEntity?>(null) }
     var editingTask by remember { mutableStateOf<TaskEntity?>(null) }
-    var isObjectivesExpanded by remember { mutableStateOf(false) }
-    var newGoalTitle by remember { mutableStateOf("") }
     var showFrogConfetti by remember { mutableStateOf(false) }
     var showProtectedSlotSheet by remember { mutableStateOf(false) }
     var showInboxSweepSheet by remember { mutableStateOf(false) }
+    var showSmartPlanSheet by remember { mutableStateOf(false) }
+    var showUnscheduledSheet by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     var inspectingFatigueScore by remember { mutableStateOf<TaskFatigueScoreUi?>(null) }
 
     val handleCompleteTask: (TaskEntity) -> Unit = { task ->
@@ -192,7 +194,10 @@ fun PlanScreenV2(
                     .clip(CircleShape)
                     .background(NeuroFlowThemeV2Colors.ElectricIndigo)
                     .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                    .clickable { showComposer = true },
+                    .clickable {
+                        composerInitialTimeOffset = null
+                        showComposer = true
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -215,7 +220,19 @@ fun PlanScreenV2(
                 .fillMaxSize()
                 .widthIn(max = 680.dp)
         ) {
-            // 1. Anchored Top Header Bar
+            // 1. Calm Slim Header: Selected Date + Search + Single "Smart Plan" + Overflow Menu
+            val headerDateLabel = remember(state.selectedDateMillis) {
+                val nowStart = com.neuroflow.app.data.local.entity.startOfLocalDay(System.currentTimeMillis())
+                val tmrwStart = com.neuroflow.app.data.local.entity.startOfNextLocalDay(nowStart)
+                val cal = Calendar.getInstance().apply { timeInMillis = state.selectedDateMillis }
+                val formatted = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(cal.time)
+                when {
+                    isSameDay(state.selectedDateMillis, nowStart) -> "Today · $formatted"
+                    isSameDay(state.selectedDateMillis, tmrwStart) -> "Tomorrow · $formatted"
+                    else -> formatted
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -225,69 +242,49 @@ fun PlanScreenV2(
             ) {
                 Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
-                        text = "Executive Plan",
+                        text = when (state.viewMode) {
+                            PlanViewModeV2.TIMELINE -> headerDateLabel
+                            PlanViewModeV2.MATRIX -> "Priority Matrix"
+                            PlanViewModeV2.AUTOPILOT -> "Autopilot Rules"
+                        },
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = NeuroFlowThemeV2Colors.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = "Circadian Time-Blocking",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (state.viewMode != PlanViewModeV2.TIMELINE) {
+                        Text(
+                            text = "Tap to return to Day Agenda",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
+                            modifier = Modifier.clickable { viewModel.setViewMode(PlanViewModeV2.TIMELINE) }
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Surface(
-                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                        shape = CircleShape,
-                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
+                    IconButton(
+                        onClick = { viewModel.toggleSearchVisible() },
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        IconButton(
-                            onClick = { viewModel.toggleSearchVisible() },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = if (state.isSearchVisible || state.searchQuery.isNotBlank()) {
-                                    NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                } else {
-                                    NeuroFlowThemeV2Colors.TextSecondary
-                                }
-                            )
-                        }
-                    }
-
-                    Surface(
-                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                        shape = CircleShape,
-                        border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush())
-                    ) {
-                        IconButton(
-                            onClick = onOpenToolsSheet,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("tools_sheet_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.GridView,
-                                contentDescription = "Tools and Subsystems",
-                                tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search tasks",
+                            tint = if (state.isSearchVisible || state.searchQuery.isNotBlank()) {
+                                NeuroFlowThemeV2Colors.ElectricIndigoGlow
+                            } else {
+                                NeuroFlowThemeV2Colors.TextSecondary
+                            }
+                        )
                     }
 
                     Button(
-                        onClick = { viewModel.openDailyBlueprint() },
+                        onClick = { showSmartPlanSheet = true },
                         enabled = !state.isAutoScheduling && !state.isBlueprintLoading,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
@@ -299,7 +296,6 @@ fun PlanScreenV2(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .heightIn(min = 48.dp)
-                            .shadow(elevation = 4.dp, shape = RoundedCornerShape(12.dp))
                             .testTag("auto_plan_day_button")
                     ) {
                         if (state.isAutoScheduling || state.isBlueprintLoading) {
@@ -316,66 +312,90 @@ fun PlanScreenV2(
                             )
                         }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Auto-Plan", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                        Text("Smart Plan", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                     }
-                }
-            }
 
-            HorizontalDivider(
-                color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.18f),
-                thickness = 0.75.dp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-            )
-
-            // 2. Anchored Mode Selector Segmented Tabs (Never jumps vertically)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                border = BorderStroke(0.75.dp, NeuroFlowPaletteV2.specularBorderBrush()),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    PlanViewModeV2.entries.forEachIndexed { index, mode ->
-                        SegmentedButton(
-                            selected = state.viewMode == mode,
-                            onClick = { viewModel.setViewMode(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = PlanViewModeV2.entries.size
-                            ),
-                            colors = SegmentedButtonDefaults.colors(
-                                activeContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.25f),
-                                activeContentColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                inactiveContainerColor = Color.Transparent,
-                                inactiveContentColor = NeuroFlowThemeV2Colors.TextSecondary
-                            ),
-                            modifier = Modifier.heightIn(min = 48.dp)
+                    Box {
+                        IconButton(
+                            onClick = { showOverflowMenu = true },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("plan_overflow_menu_button")
                         ) {
-                            Text(mode.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More planning views",
+                                tint = NeuroFlowThemeV2Colors.TextSecondary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            if (state.viewMode != PlanViewModeV2.TIMELINE) {
+                                DropdownMenuItem(
+                                    text = { Text("Day Agenda") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.setViewMode(PlanViewModeV2.TIMELINE)
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Priority Matrix") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    viewModel.setViewMode(PlanViewModeV2.MATRIX)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Autopilot Rules") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    viewModel.setViewMode(PlanViewModeV2.AUTOPILOT)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Protected Blocks") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showProtectedSlotSheet = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Weekly Overview") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onNavigateToWeeklySchedule()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Tools & Subsystems") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onOpenToolsSheet()
+                                }
+                            )
                         }
                     }
                 }
             }
 
-            // 3. Collapsible Search Input Bar
+            // 2. Collapsible Search Input Bar (Hidden until tapped)
             AnimatedVisibility(visible = state.isSearchVisible) {
                 OutlinedTextField(
                     value = state.searchQuery,
                     onValueChange = { viewModel.setSearchQuery(it) },
                     placeholder = {
                         Text(
-                            "Search tasks, descriptions, or #tags...",
+                            "Search tasks or #tags...",
                             fontSize = 13.sp,
                             color = NeuroFlowThemeV2Colors.TextSecondary
                         )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
@@ -396,7 +416,7 @@ fun PlanScreenV2(
                             IconButton(onClick = { viewModel.setSearchQuery("") }) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "Clear",
+                                    contentDescription = "Clear search",
                                     tint = NeuroFlowThemeV2Colors.TextSecondary
                                 )
                             }
@@ -405,367 +425,92 @@ fun PlanScreenV2(
                 )
             }
 
-            // 4. Shared Tag Filter Strip (Shown in Timeline & Matrix modes only)
-            if (state.viewMode != PlanViewModeV2.AUTOPILOT) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Compact inline pills for Unscheduled Tray, Inbox Sweep & Active Objectives
+            // 3. Mode-Scoped Calm Content
+            when (state.viewMode) {
+                PlanViewModeV2.TIMELINE -> {
+                    // Slim 1-Row 7-Day Date Strip with tiny load dots
+                    DateCarouselStrip(
+                        selectedDateMillis = state.selectedDateMillis,
+                        onSelectDate = { viewModel.selectDate(it) },
+                        loadDistribution = effectiveState.sevenDayLoadDistribution
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Single 1-Line Collapsible Plain-English Daily Pulse
+                    CollapsibleDailyPulseCard(
+                        state = effectiveState,
+                        onAutoBalanceWeek = { viewModel.autoBalance(horizonDays = 7) }
+                    )
+
+                    // Slim 1-Line Unscheduled Pill (only if unscheduled tasks exist)
                     if (state.unscheduledTasks.isNotEmpty()) {
-                        item(key = "staging_pill") {
-                            FilterChip(
-                                selected = state.isStagingDrawerExpanded,
-                                onClick = { viewModel.toggleStagingDrawer() },
-                                leadingIcon = {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            onClick = { showUnscheduledSheet = true },
+                            shape = RoundedCornerShape(12.dp),
+                            color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.12f),
+                            border = BorderStroke(0.75.dp, NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .heightIn(min = 48.dp)
+                                .testTag("plan_unscheduled_pill")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     Icon(
                                         imageVector = Icons.Default.Inbox,
                                         contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = NeuroFlowThemeV2Colors.WarmAmber
+                                        tint = NeuroFlowThemeV2Colors.WarmAmber,
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                },
-                                label = {
                                     Text(
-                                        text = "Unscheduled (${state.unscheduledTasks.size})",
-                                        style = MaterialTheme.typography.labelMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontFeatureSettings = "tnum"
-                                        )
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.22f),
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.WarmAmber,
-                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    labelColor = NeuroFlowThemeV2Colors.WarmAmber
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    enabled = true,
-                                    selected = state.isStagingDrawerExpanded,
-                                    borderColor = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.4f),
-                                    selectedBorderColor = NeuroFlowThemeV2Colors.WarmAmber
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            )
-                        }
-
-                        item(key = "inbox_sweep_pill") {
-                            FilterChip(
-                                selected = showInboxSweepSheet,
-                                onClick = { showInboxSweepSheet = true },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.CleaningServices,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = "1-Min Sweep",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f),
-                                    selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                    containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                    labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("inbox_sweep_button")
-                            )
-                        }
-                    }
-
-                    item(key = "objectives_pill") {
-                        FilterChip(
-                            selected = isObjectivesExpanded,
-                            onClick = { isObjectivesExpanded = !isObjectivesExpanded },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Flag,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = if (state.activeGoals.isNotEmpty()) "Objectives (${state.activeGoals.size})" else "Objectives",
-                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        text = "${state.unscheduledTasks.size} unscheduled task${if (state.unscheduledTasks.size == 1) "" else "s"} waiting",
+                                        style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
-                                        fontFeatureSettings = "tnum"
+                                        color = NeuroFlowThemeV2Colors.WarmAmber
                                     )
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo.copy(alpha = 0.22f),
-                                selectedLabelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                labelColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        )
-                    }
-
-                    items(state.availableTags, key = { it }) { tag ->
-                        val isSelected = if (tag == "All") {
-                            state.selectedTag == null || state.selectedTag == "All"
-                        } else {
-                            state.selectedTag == tag
-                        }
-
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.selectTag(if (tag == "All" || tag == state.selectedTag) null else tag) },
-                            label = {
+                                }
                                 Text(
-                                    tag,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    text = "Place →",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowThemeV2Colors.WarmAmber
                                 )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeuroFlowThemeV2Colors.ElectricIndigo,
-                                selectedLabelColor = Color.White,
-                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                                labelColor = NeuroFlowThemeV2Colors.TextSecondary
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        )
-                    }
-                }
-
-                // Expandable Unscheduled Tray Drawer
-                AnimatedVisibility(visible = state.isStagingDrawerExpanded && state.unscheduledTasks.isNotEmpty()) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(state.unscheduledTasks, key = { it.id }) { unscheduled ->
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = NeuroFlowThemeV2Colors.SlateSurface,
-                                border = BorderStroke(1.dp, NeuroFlowPaletteV2.specularBorderBrush()),
-                                modifier = Modifier
-                                    .width(214.dp)
-                                    .clickable { editingTask = unscheduled }
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = unscheduled.title,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = NeuroFlowThemeV2Colors.TextPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "${unscheduled.estimatedDurationMinutes}m",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                                            color = NeuroFlowThemeV2Colors.TextSecondary
-                                        )
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "${unscheduled.priority.name} • Tap to schedule",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = NeuroFlowThemeV2Colors.WarmAmber,
-                                            fontSize = 10.sp,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        val unscheduledFatigue = state.fatigueScoresByTaskId[unscheduled.id]
-                                        if (unscheduledFatigue != null) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            FatigueAwareScoreBadge(
-                                                score = unscheduledFatigue,
-                                                compact = true,
-                                                onClick = { inspectingFatigueScore = unscheduledFatigue }
-                                            )
-                                        }
-                                    }
-                                    val deferral = state.deferrals.firstOrNull { it.taskId == unscheduled.id }
-                                    if (deferral != null) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = NeuroFlowThemeV2Colors.WarmAmber.copy(alpha = 0.15f)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Schedule,
-                                                    contentDescription = null,
-                                                    tint = NeuroFlowThemeV2Colors.WarmAmber,
-                                                    modifier = Modifier.size(10.dp)
-                                                )
-                                                Text(
-                                                    text = deferral.reasonCode.name.replace('_', ' '),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = NeuroFlowThemeV2Colors.WarmAmber,
-                                                    fontSize = 9.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
+
+                    // Calm Visual Day Agenda with Open Slot Gaps
+                    CalmDayAgendaView(
+                        state = effectiveState,
+                        onResolveConflict = { viewModel.resolveConflict(it) },
+                        onStartFocus = onNavigateToFocus,
+                        onCompleteTask = handleCompleteTask,
+                        onDeleteTask = { viewModel.requestDeleteTask(it) },
+                        onBreakDownTask = { viewModel.breakDownTask(it) },
+                        onAssignTaskTime = { task -> taskToScheduleTime = task },
+                        onLogPastTime = { taskToLogTime = it },
+                        onEditTask = { task -> editingTask = task },
+                        onTapOpenSlot = { startMinuteOfDay ->
+                            composerInitialTimeOffset = startMinuteOfDay * 60_000L
+                            showComposer = true
+                        },
+                        onOpenSmartPlan = { showSmartPlanSheet = true },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
-                // Expandable Objectives Drawer
-                AnimatedVisibility(visible = isObjectivesExpanded) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
-                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.ElectricIndigoGlow.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (state.activeGoals.isEmpty()) {
-                                Text(
-                                    text = "No active objectives yet. Set a north-star goal below:",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = NeuroFlowThemeV2Colors.TextSecondary
-                                )
-                            } else {
-                                state.activeGoals.forEach { goal ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        IconButton(
-                                            onClick = { viewModel.completeGoal(goal) },
-                                            modifier = Modifier.size(48.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.CheckCircle,
-                                                contentDescription = "Complete Objective",
-                                                tint = NeuroFlowThemeV2Colors.BioMint,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                        Text(
-                                            text = goal.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = NeuroFlowThemeV2Colors.TextPrimary,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        IconButton(
-                                            onClick = { viewModel.deleteGoal(goal) },
-                                            modifier = Modifier.size(48.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Delete Objective",
-                                                tint = NeuroFlowThemeV2Colors.TextTertiary,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Inline Add Goal
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = newGoalTitle,
-                                    onValueChange = { newGoalTitle = it },
-                                    placeholder = { Text("New Objective...", fontSize = 12.sp, color = NeuroFlowThemeV2Colors.TextTertiary) },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    textStyle = MaterialTheme.typography.bodySmall.copy(color = NeuroFlowThemeV2Colors.TextPrimary),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = NeuroFlowThemeV2Colors.ElectricIndigoGlow,
-                                        unfocusedBorderColor = NeuroFlowThemeV2Colors.SlateBorder
-                                    )
-                                )
-                                IconButton(
-                                    onClick = {
-                                        if (newGoalTitle.isNotBlank()) {
-                                            viewModel.addGoal(newGoalTitle)
-                                            newGoalTitle = ""
-                                        }
-                                    },
-                                    enabled = newGoalTitle.isNotBlank(),
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "Add Objective",
-                                        tint = if (newGoalTitle.isNotBlank()) NeuroFlowThemeV2Colors.ElectricIndigoGlow else NeuroFlowThemeV2Colors.TextTertiary
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 5. Mode-Scoped Content View
-            when (state.viewMode) {
-                PlanViewModeV2.TIMELINE -> TimelineScheduleView(
-                    state = effectiveState,
-                    onSelectDate = { viewModel.selectDate(it) },
-                    onResolveConflict = { viewModel.resolveConflict(it) },
-                    onAutoBalanceClick = { viewModel.autoBalance(horizonDays = 7) },
-                    onAutoPlanClick = { viewModel.openDailyBlueprint() },
-                    onStartFocus = onNavigateToFocus,
-                    onCompleteTask = handleCompleteTask,
-                    onDeleteTask = { viewModel.requestDeleteTask(it) },
-                    onBreakDownTask = { viewModel.breakDownTask(it) },
-                    onShiftToPeak = { viewModel.shiftTaskToPeak(it) },
-                    onAssignTaskTime = { task -> taskToScheduleTime = task },
-                    onLogPastTime = { taskToLogTime = it },
-                    onEditTask = { task -> editingTask = task },
-                    onRatePlacement = { task, rating -> viewModel.ratePlacement(task, rating) },
-                    onInspectFatigueScore = { score -> inspectingFatigueScore = score }
-                )
                 PlanViewModeV2.MATRIX -> MatrixPlanView(
                     state = state,
                     onSelectQuadrant = { viewModel.selectQuadrant(it) },
@@ -776,6 +521,7 @@ fun PlanScreenV2(
                     onEditTask = { task -> editingTask = task },
                     onInspectFatigueScore = { score -> inspectingFatigueScore = score }
                 )
+
                 PlanViewModeV2.AUTOPILOT -> AutopilotConfigView(
                     state = state,
                     onToggleAutoSchedule = { viewModel.toggleAutoSchedule() },
@@ -787,6 +533,25 @@ fun PlanScreenV2(
             }
         }
         }
+    }
+
+    if (showSmartPlanSheet) {
+        UnifiedSmartPlanSheet(
+            unscheduledCount = state.unscheduledTasks.size,
+            onFitToday = { viewModel.openDailyBlueprint() },
+            onQuickSweep = { showInboxSweepSheet = true },
+            onBalanceWeek = { viewModel.autoBalance(horizonDays = 7) },
+            onDismiss = { showSmartPlanSheet = false }
+        )
+    }
+
+    if (showUnscheduledSheet) {
+        UnscheduledInboxBottomSheet(
+            unscheduledTasks = state.unscheduledTasks,
+            onScheduleToday = { task -> viewModel.scheduleTaskForToday(task) },
+            onEditTask = { task -> editingTask = task },
+            onDismiss = { showUnscheduledSheet = false }
+        )
     }
 
     if (showProtectedSlotSheet) {
@@ -830,15 +595,23 @@ fun PlanScreenV2(
 
     if (showComposer) {
         SmartTaskComposerSheetV2(
-            onDismiss = { showComposer = false },
+            onDismiss = {
+                showComposer = false
+                composerInitialTimeOffset = null
+            },
             mode = SheetMode.Create,
             circadianSummary = state.circadianSummary,
             initialDate = state.selectedDateMillis,
+            initialScheduledTimeOffset = composerInitialTimeOffset,
             onSave = { task ->
                 showComposer = false
+                composerInitialTimeOffset = null
                 viewModel.addTask(task)
             },
-            completedTasks = completedTasks
+            completedTasks = completedTasks,
+            activeTasks = state.tasksForDay + state.unscheduledTasks,
+            energyTimeline = state.energyTimeline,
+            preferences = state.preferences
         )
     }
 
@@ -852,7 +625,10 @@ fun PlanScreenV2(
                 editingTask = null
                 viewModel.updateTask(updated)
             },
-            completedTasks = completedTasks
+            completedTasks = completedTasks,
+            activeTasks = state.tasksForDay + state.unscheduledTasks,
+            energyTimeline = state.energyTimeline,
+            preferences = state.preferences
         )
     }
 

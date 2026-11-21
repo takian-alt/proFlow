@@ -94,7 +94,9 @@ fun FlowSpotlightHeroCard(
     onDoorway2mStart: ((String) -> Unit)? = null,
     onEasyWinClick: (() -> Unit)? = null,
     isLowBatterySuggested: Boolean = false,
-    topTaskFatigueScore: TaskFatigueScoreUi? = null
+    topTaskFatigueScore: TaskFatigueScoreUi? = null,
+    isOvertimeActive: Boolean = false,
+    onEnableOvertimeClick: (() -> Unit)? = null
 ) {
     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
     val cardShape = RoundedCornerShape(24.dp)
@@ -217,45 +219,65 @@ fun FlowSpotlightHeroCard(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Melatonin rising · Close open loops & transition to shutdown",
+                        text = if (isOvertimeActive) {
+                            "Overtime Mode is active — add or pick any urgent task for tonight"
+                        } else {
+                            "Evening wind-down · Rest now, or unlock Overtime for urgent work"
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         color = NeuroFlowPaletteV2.TextSecondary
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Evening Shutdown Mode",
+                        text = if (isOvertimeActive) "Overtime Ready" else "Evening Assistant",
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
                         color = NeuroFlowPaletteV2.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "No open high-stress tasks. Protect your sleep window and let neural recovery begin.",
+                        text = "No queued tasks remaining right now. Wrap up for tomorrow or turn on Overtime if something urgent came up.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = NeuroFlowPaletteV2.TextSecondary
                     )
-                    if (onShutdownClick != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = { onShutdownClick() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = phaseAccent,
-                                contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ShieldMoon,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Plan Tomorrow / Shutdown",
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
-                            )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (onEnableOvertimeClick != null) {
+                            OutlinedButton(
+                                onClick = onEnableOvertimeClick,
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, NeuroFlowPaletteV2.PeakAmber.copy(alpha = 0.7f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = NeuroFlowPaletteV2.PeakAmber),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                            ) {
+                                Text(
+                                    text = if (isOvertimeActive) "Overtime On ✓" else "Overtime Mode",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        if (onShutdownClick != null) {
+                            Button(
+                                onClick = { onShutdownClick() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = phaseAccent,
+                                    contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
+                                ),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                            ) {
+                                Text(
+                                    text = "Wrap Up",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                                )
+                            }
                         }
                     }
                 }
