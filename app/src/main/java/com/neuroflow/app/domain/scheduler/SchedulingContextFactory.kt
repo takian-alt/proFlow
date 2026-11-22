@@ -232,32 +232,11 @@ object SchedulingContextFactory {
 
         val physLogs = horizon.allQuickPhysLogs
             .filter { it.timestampMillis in (dayStartMillis - 8 * 3600_000L)..(dayStartMillis + 26 * 3600_000L) }
-        val quickPhysBlocks = physLogs.mapNotNull { log ->
-            val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
-            val minOfDay = logZdt.hour * 60 + logZdt.minute
-            val duration = log.durationMinutes.coerceIn(5, 240)
-            when (log.type) {
-                PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
-                    startMinuteOfDay = minOfDay,
-                    endMinuteOfDay = (minOfDay + duration) % 1440,
-                    category = CognitiveBlockCategory.MEAL,
-                    intensity = log.intensity,
-                    label = "Quick Logged Meal #${log.timestampMillis}",
-                    explicitStartMillis = log.timestampMillis,
-                    explicitEndMillis = log.timestampMillis + duration * 60_000L
-                )
-                PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
-                    startMinuteOfDay = minOfDay,
-                    endMinuteOfDay = (minOfDay + duration) % 1440,
-                    category = CognitiveBlockCategory.EXERCISE,
-                    intensity = log.intensity,
-                    label = "Quick Logged Workout #${log.timestampMillis}",
-                    explicitStartMillis = log.timestampMillis,
-                    explicitEndMillis = log.timestampMillis + duration * 60_000L
-                )
-                PhysiologicalEventType.NAP -> null
-            }
-        }
+        val quickPhysBlocks = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.buildBoosterCognitiveBlocks(
+            prefs = prefs,
+            dayStartMillis = dayStartMillis,
+            zoneId = zoneId
+        )
         val quickPhysNaps = physLogs
             .filter { it.type == PhysiologicalEventType.NAP }
             .map { log ->

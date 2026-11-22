@@ -155,34 +155,11 @@ class EnergyRecoveryNotificationWorker @AssistedInject constructor(
             date = localDate,
             zoneId = zoneId
         )
-        val physBlocks = physLogs
-            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayEnd + 2 * 3600_000L) }
-            .mapNotNull { log ->
-                val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
-                val minOfDay = logZdt.hour * 60 + logZdt.minute
-                val duration = log.durationMinutes.coerceIn(5, 240)
-                when (log.type) {
-                    PhysiologicalEventType.MEAL -> CognitiveBlockWindow(
-                        startMinuteOfDay = minOfDay,
-                        endMinuteOfDay = (minOfDay + duration) % 1440,
-                        category = CognitiveBlockCategory.MEAL,
-                        intensity = log.intensity,
-                        label = "Meal #${log.timestampMillis}",
-                        explicitStartMillis = log.timestampMillis,
-                        explicitEndMillis = log.timestampMillis + duration * 60_000L
-                    )
-                    PhysiologicalEventType.WORKOUT -> CognitiveBlockWindow(
-                        startMinuteOfDay = minOfDay,
-                        endMinuteOfDay = (minOfDay + duration) % 1440,
-                        category = CognitiveBlockCategory.EXERCISE,
-                        intensity = log.intensity,
-                        label = "Workout #${log.timestampMillis}",
-                        explicitStartMillis = log.timestampMillis,
-                        explicitEndMillis = log.timestampMillis + duration * 60_000L
-                    )
-                    PhysiologicalEventType.NAP -> null
-                }
-            }
+        val physBlocks = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.buildBoosterCognitiveBlocks(
+            prefs = prefs,
+            dayStartMillis = dayStart,
+            zoneId = zoneId
+        )
         val dailyBlocks = slotBlocks + physBlocks
 
         val rollingAverageSleepMinutes = computeRollingDailySleepAverage(

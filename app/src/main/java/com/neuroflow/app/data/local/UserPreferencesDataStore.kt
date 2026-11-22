@@ -208,7 +208,9 @@ data class UserPreferences(
     val lastWellnessNudgeDismissedAtMillis: Long = 0L,
     val restBreakLogsJson: String = "[]",
     val lastRestCheckInPromptAtMillis: Long = 0L,
-    val nextRestCheckInAllowedAtMillis: Long = 0L
+    val nextRestCheckInAllowedAtMillis: Long = 0L,
+    val lastEnergyBoosterNudgeAtMillis: Long = 0L,
+    val snoozedEnergyBoosterUntilMillis: Long = 0L
 )
 
 @Singleton
@@ -370,6 +372,8 @@ class UserPreferencesDataStore @Inject constructor(
         val REST_BREAK_LOGS_JSON = stringPreferencesKey("rest_break_logs_json")
         val LAST_REST_CHECK_IN_PROMPT_AT_MILLIS = longPreferencesKey("last_rest_check_in_prompt_at_millis")
         val NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS = longPreferencesKey("next_rest_check_in_allowed_at_millis")
+        val LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS = longPreferencesKey("last_energy_booster_nudge_at_millis")
+        val SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS = longPreferencesKey("snoozed_energy_booster_until_millis")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -534,7 +538,9 @@ class UserPreferencesDataStore @Inject constructor(
             lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L,
             restBreakLogsJson = prefs[Keys.REST_BREAK_LOGS_JSON] ?: "[]",
             lastRestCheckInPromptAtMillis = prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
-            nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L
+            nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L,
+            lastEnergyBoosterNudgeAtMillis = prefs[Keys.LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS] ?: 0L,
+            snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L
         )
     }
 
@@ -774,7 +780,9 @@ class UserPreferencesDataStore @Inject constructor(
                 lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L,
                 restBreakLogsJson = prefs[Keys.REST_BREAK_LOGS_JSON] ?: "[]",
                 lastRestCheckInPromptAtMillis = prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
-                nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L
+                nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L,
+                lastEnergyBoosterNudgeAtMillis = prefs[Keys.LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS] ?: 0L,
+                snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L
             )
             val updated = update(current)
             val nextWakeHour = if (updated.wakeTimeHour != current.wakeTimeHour && updated.wakeUpHour == current.wakeUpHour) {
@@ -947,6 +955,8 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.REST_BREAK_LOGS_JSON] = updated.restBreakLogsJson
             prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] = updated.lastRestCheckInPromptAtMillis
             prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] = updated.nextRestCheckInAllowedAtMillis
+            prefs[Keys.LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS] = updated.lastEnergyBoosterNudgeAtMillis
+            prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] = updated.snoozedEnergyBoosterUntilMillis
         }
     }
 
@@ -1267,6 +1277,11 @@ class UserPreferencesDataStore @Inject constructor(
             PhysiologicalEventType.MEAL -> 30
             PhysiologicalEventType.WORKOUT -> 45
             PhysiologicalEventType.NAP -> 20
+            PhysiologicalEventType.SNACK -> 10
+            PhysiologicalEventType.HYDRATION -> 5
+            PhysiologicalEventType.SUNLIGHT_WALK -> 15
+            PhysiologicalEventType.REST_BREAK -> 10
+            PhysiologicalEventType.WIND_DOWN -> 20
         },
         intensity: Double = 1.0
     ) {
@@ -1286,10 +1301,26 @@ class UserPreferencesDataStore @Inject constructor(
                 put("intensity", intensity)
             }
             list.add(0, newItem)
-            val trimmedList = list.take(30)
+            val trimmedList = list.take(40)
             val jsonArr = JSONArray()
             trimmedList.forEach { jsonArr.put(it) }
-            prefs.copy(quickPhysiologicalLogsJson = jsonArr.toString())
+            val updatedEpochDay = com.neuroflow.app.domain.assistant.SmartAssistantCodecs.currentEpochDay(timestampMillis)
+            if (type == PhysiologicalEventType.HYDRATION) {
+                val nextCount = if (prefs.todayHydrationEpochDay == updatedEpochDay) prefs.todayHydrationCount + 1 else 1
+                prefs.copy(
+                    quickPhysiologicalLogsJson = jsonArr.toString(),
+                    todayHydrationCount = nextCount,
+                    todayHydrationEpochDay = updatedEpochDay,
+                    lastHydrationLoggedAtMillis = timestampMillis,
+                    lastWellnessNudgeDismissedAtMillis = timestampMillis,
+                    lastEnergyBoosterNudgeAtMillis = timestampMillis
+                )
+            } else {
+                prefs.copy(
+                    quickPhysiologicalLogsJson = jsonArr.toString(),
+                    lastEnergyBoosterNudgeAtMillis = timestampMillis
+                )
+            }
         }
     }
 
@@ -1363,11 +1394,43 @@ class UserPreferencesDataStore @Inject constructor(
     ) {
         updatePreferences { prefs ->
             val nextCount = if (prefs.todayHydrationEpochDay == epochDay) prefs.todayHydrationCount + 1 else 1
+            val list = try {
+                val arr = JSONArray(prefs.quickPhysiologicalLogsJson.ifBlank { "[]" })
+                val items = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) items.add(arr.getJSONObject(i))
+                items
+            } catch (_: Exception) {
+                mutableListOf<JSONObject>()
+            }
+            val newItem = JSONObject().apply {
+                put("type", PhysiologicalEventType.HYDRATION.name)
+                put("timestampMillis", nowMillis)
+                put("durationMinutes", 5)
+                put("intensity", 1.0)
+            }
+            list.add(0, newItem)
+            val jsonArr = JSONArray()
+            list.take(40).forEach { jsonArr.put(it) }
             prefs.copy(
                 todayHydrationCount = nextCount,
                 todayHydrationEpochDay = epochDay,
                 lastHydrationLoggedAtMillis = nowMillis,
-                lastWellnessNudgeDismissedAtMillis = nowMillis
+                lastWellnessNudgeDismissedAtMillis = nowMillis,
+                lastEnergyBoosterNudgeAtMillis = nowMillis,
+                quickPhysiologicalLogsJson = jsonArr.toString()
+            )
+        }
+    }
+
+    suspend fun snoozeEnergyBoosterNudge(
+        snoozeMinutes: Int = 45,
+        nowMillis: Long = System.currentTimeMillis()
+    ) {
+        val safeMinutes = snoozeMinutes.coerceIn(15, 240)
+        updatePreferences { prefs ->
+            prefs.copy(
+                lastEnergyBoosterNudgeAtMillis = nowMillis,
+                snoozedEnergyBoosterUntilMillis = nowMillis + safeMinutes * 60_000L
             )
         }
     }
@@ -1425,7 +1488,14 @@ class UserPreferencesDataStore @Inject constructor(
 }
 
 enum class PhysiologicalEventType {
-    MEAL, WORKOUT, NAP
+    MEAL,
+    WORKOUT,
+    NAP,
+    SNACK,
+    HYDRATION,
+    SUNLIGHT_WALK,
+    REST_BREAK,
+    WIND_DOWN
 }
 
 data class PhysiologicalEventLog(

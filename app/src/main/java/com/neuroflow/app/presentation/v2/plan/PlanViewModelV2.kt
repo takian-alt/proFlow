@@ -546,34 +546,11 @@ class PlanViewModelV2 @Inject constructor(
             date = targetLocalDate,
             zoneId = zoneId
         )
-        val physBlocks = physLogs
-            .filter { it.timestampMillis in (dayStart - 8 * 3600_000L)..(dayStart + 26 * 3600_000L) }
-            .mapNotNull { log ->
-                val logZdt = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
-                val minOfDay = logZdt.hour * 60 + logZdt.minute
-                val duration = log.durationMinutes.coerceIn(5, 240)
-                when (log.type) {
-                    com.neuroflow.app.data.local.PhysiologicalEventType.MEAL -> com.neuroflow.app.domain.service.CognitiveBlockWindow(
-                        startMinuteOfDay = minOfDay,
-                        endMinuteOfDay = (minOfDay + duration) % 1440,
-                        category = com.neuroflow.app.domain.service.CognitiveBlockCategory.MEAL,
-                        intensity = log.intensity,
-                        label = "Quick Logged Meal #${log.timestampMillis}",
-                        explicitStartMillis = log.timestampMillis,
-                        explicitEndMillis = log.timestampMillis + duration * 60_000L
-                    )
-                    com.neuroflow.app.data.local.PhysiologicalEventType.WORKOUT -> com.neuroflow.app.domain.service.CognitiveBlockWindow(
-                        startMinuteOfDay = minOfDay,
-                        endMinuteOfDay = (minOfDay + duration) % 1440,
-                        category = com.neuroflow.app.domain.service.CognitiveBlockCategory.EXERCISE,
-                        intensity = log.intensity,
-                        label = "Quick Logged Workout #${log.timestampMillis}",
-                        explicitStartMillis = log.timestampMillis,
-                        explicitEndMillis = log.timestampMillis + duration * 60_000L
-                    )
-                    com.neuroflow.app.data.local.PhysiologicalEventType.NAP -> null
-                }
-            }
+        val physBlocks = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.buildBoosterCognitiveBlocks(
+            prefs = prefs,
+            dayStartMillis = dayStart,
+            zoneId = zoneId
+        )
         val dailyBlocks = slotBlocks + physBlocks
 
         val rollingAverageSleepMinutes = com.neuroflow.app.domain.model.computeRollingDailySleepAverage(

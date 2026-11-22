@@ -235,7 +235,15 @@ fun applyLearnedVonMisesModulation(
 }
 
 enum class CognitiveBlockCategory {
-    MEAL, EXERCISE, FOCUS_WORK, WIND_DOWN, SLEEP
+    MEAL,
+    EXERCISE,
+    FOCUS_WORK,
+    WIND_DOWN,
+    SLEEP,
+    SNACK,
+    HYDRATION,
+    SUNLIGHT_WALK,
+    REST_BREAK
 }
 
 typealias CognitiveBlockType = CognitiveBlockCategory
@@ -725,7 +733,129 @@ object PhysiologicalImpulseCalculator {
     }
 
     /**
-     * Uses C1-continuous meal smoothing + exercise impulse for live circadian timeline evaluation.
+     * Computes acute hydration alertness recovery impulse (+6.0 peak at completion, 5m ramp, tau=55m, cap +7.5).
+     */
+    fun computeHydrationImpulse(
+        minuteOfDay: Int,
+        hydrationBlocks: List<CognitiveBlockWindow>,
+        timestampMillis: Long? = null
+    ): Double {
+        if (hydrationBlocks.isEmpty()) return 0.0
+        var total = 0.0
+        for (block in hydrationBlocks) {
+            val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
+            val intensity = block.intensity.coerceIn(0.4, 1.5)
+            val boost = when {
+                dt in -5 until 0 -> 6.0 * sin(PI * 0.5 * ((dt + 5.0) / 5.0)) * intensity
+                dt in 0..150 -> 6.0 * exp(-dt / 55.0) * intensity
+                else -> 0.0
+            }
+            total += boost
+        }
+        return total.coerceAtMost(7.5)
+    }
+
+    /**
+     * Computes balanced snack glucose-stabilization impulse (+8.0 peak at completion, 10m ramp, tau=75m, cap +9.5).
+     */
+    fun computeSnackImpulse(
+        minuteOfDay: Int,
+        snackBlocks: List<CognitiveBlockWindow>,
+        timestampMillis: Long? = null
+    ): Double {
+        if (snackBlocks.isEmpty()) return 0.0
+        var total = 0.0
+        for (block in snackBlocks) {
+            val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
+            val intensity = block.intensity.coerceIn(0.4, 1.5)
+            val boost = when {
+                dt in -10 until 0 -> 8.0 * sin(PI * 0.5 * ((dt + 10.0) / 10.0)) * intensity
+                dt in 0..180 -> 8.0 * exp(-dt / 75.0) * intensity
+                else -> 0.0
+            }
+            total += boost
+        }
+        return total.coerceAtMost(9.5)
+    }
+
+    /**
+     * Computes sunlight + brisk walk circadian & vascular boost (+9.5 peak at completion, 10m ramp, tau=75m, cap +11.0).
+     */
+    fun computeSunlightWalkImpulse(
+        minuteOfDay: Int,
+        walkBlocks: List<CognitiveBlockWindow>,
+        timestampMillis: Long? = null
+    ): Double {
+        if (walkBlocks.isEmpty()) return 0.0
+        var total = 0.0
+        for (block in walkBlocks) {
+            val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
+            val intensity = block.intensity.coerceIn(0.4, 1.5)
+            val boost = when {
+                dt in -10 until 0 -> 9.5 * sin(PI * 0.5 * ((dt + 10.0) / 10.0)) * intensity
+                dt in 0..180 -> 9.5 * exp(-dt / 75.0) * intensity
+                else -> 0.0
+            }
+            total += boost
+        }
+        return total.coerceAtMost(11.0)
+    }
+
+    /**
+     * Computes restorative break / NSDR parasympathetic recovery boost (+8.0..+12.0 scaled by duration,
+     * 10m smooth ramp, tau=70m, cap +12.5).
+     */
+    fun computeRestBreakImpulse(
+        minuteOfDay: Int,
+        restBlocks: List<CognitiveBlockWindow>,
+        timestampMillis: Long? = null
+    ): Double {
+        if (restBlocks.isEmpty()) return 0.0
+        var total = 0.0
+        for (block in restBlocks) {
+            val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
+            val durationMinutes = if (block.explicitStartMillis != null && block.explicitEndMillis != null) {
+                ((block.explicitEndMillis - block.explicitStartMillis) / 60_000L).toInt().coerceIn(5, 60)
+            } else {
+                ((block.endMinuteOfDay - block.startMinuteOfDay + 1440) % 1440).coerceIn(5, 60)
+            }
+            val basePeak = when {
+                durationMinutes >= 20 -> 12.0
+                durationMinutes >= 15 -> 11.0
+                durationMinutes >= 10 -> 9.5
+                else -> 8.0
+            }
+            val intensity = block.intensity.coerceIn(0.4, 1.5)
+            val boost = when {
+                dt in -10 until 0 -> basePeak * sin(PI * 0.5 * ((dt + 10.0) / 10.0)) * intensity
+                dt in 0..165 -> basePeak * exp(-dt / 70.0) * intensity
+                else -> 0.0
+            }
+            total += boost
+        }
+        return total.coerceAtMost(12.5)
+    }
+
+    private fun signedMinutesSinceBlockStart(
+        minuteOfDay: Int,
+        block: CognitiveBlockWindow,
+        timestampMillis: Long?
+    ): Int {
+        return if (timestampMillis != null && block.explicitStartMillis != null) {
+            ((timestampMillis - block.explicitStartMillis) / 60_000L).toInt()
+        } else {
+            val raw = minuteOfDay - block.startMinuteOfDay
+            when {
+                raw < -720 -> raw + 1440
+                raw > 720 -> raw - 1440
+                else -> raw
+            }
+        }
+    }
+
+    /**
+     * Uses C1-continuous meal smoothing + exercise impulse + positive energy-booster impulses
+     * (soft-capped at +22.0 pts so stacked real-life boosters stay physiologically realistic).
      */
     fun computeCombinedImpulse(
         minuteOfDay: Int,
@@ -734,8 +864,20 @@ object PhysiologicalImpulseCalculator {
     ): Double {
         val mealBlocks = blocks.filter { it.category == CognitiveBlockCategory.MEAL }
         val workoutBlocks = blocks.filter { it.category == CognitiveBlockCategory.EXERCISE }
-        return computeSmoothMealImpulse(minuteOfDay, mealBlocks, timestampMillis) +
+        val hydrationBlocks = blocks.filter { it.category == CognitiveBlockCategory.HYDRATION }
+        val snackBlocks = blocks.filter { it.category == CognitiveBlockCategory.SNACK }
+        val walkBlocks = blocks.filter { it.category == CognitiveBlockCategory.SUNLIGHT_WALK }
+        val restBlocks = blocks.filter { it.category == CognitiveBlockCategory.REST_BREAK }
+
+        val baseImpulse = computeSmoothMealImpulse(minuteOfDay, mealBlocks, timestampMillis) +
             computeExerciseImpulse(minuteOfDay, workoutBlocks, timestampMillis)
+        val positiveBoost = (
+            computeHydrationImpulse(minuteOfDay, hydrationBlocks, timestampMillis) +
+                computeSnackImpulse(minuteOfDay, snackBlocks, timestampMillis) +
+                computeSunlightWalkImpulse(minuteOfDay, walkBlocks, timestampMillis) +
+                computeRestBreakImpulse(minuteOfDay, restBlocks, timestampMillis)
+            ).coerceAtMost(22.0)
+        return baseImpulse + positiveBoost
     }
 }
 

@@ -310,7 +310,20 @@ fun FlowScreenV2(
                 onRemoveStimulantDose = { dose -> viewModel.removeStimulantDose(dose.timestampMillis, dose.type) },
                 onLogStimulant = { type -> viewModel.logStimulant(type) },
                 onLogPhysiologicalEvent = { type -> viewModel.logPhysiologicalEvent(type) },
-                onClearPhysiologicalEvents = { viewModel.clearAllPhysiologicalEvents() }
+                onClearPhysiologicalEvents = { viewModel.clearAllPhysiologicalEvents() },
+                unboostedDayTimeline = state.unboostedDayTimeline,
+                currentEnergyBoostPoints = state.currentEnergyBoostPoints,
+                energyBoosterRecommendations = state.energyBoosterRecommendations,
+                graphBoosterMarkers = state.graphBoosterMarkers,
+                previewedBoosterId = state.previewedBoosterId,
+                previewedBoosterTimeline = state.previewedBoosterTimeline,
+                previewedBoosterSummary = state.previewedBoosterSummary,
+                energyBoostDeltaBanner = state.energyBoostDeltaBanner,
+                onTogglePreviewBooster = { rec -> viewModel.togglePreviewEnergyBooster(rec) },
+                onCompleteBooster = { rec -> viewModel.completeEnergyBooster(rec) },
+                onStartBoosterTimer = onStartBreakTimer,
+                onRefreshUnlockedSchedule = { viewModel.refreshUnlockedScheduleAfterBoost() },
+                onDismissEnergyBoostDeltaBanner = { viewModel.dismissEnergyBoostDeltaBanner() }
             )
 
             // Active Biophysical Impulse Strip (Meal, Workout, Nap, Stimulant PK ticker)

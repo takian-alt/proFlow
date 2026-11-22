@@ -51,6 +51,7 @@ data class SmartAssistantUiState(
     val activeRestCheckIn: RestCheckInProposal? = null,
     val burnoutRiskState: BurnoutRiskState = BurnoutRiskState(),
     val breakTimer: ActiveBreakTimerState = ActiveBreakTimerState(),
+    val activeEnergyBoosterNudge: com.neuroflow.app.domain.assistant.EnergyBoosterNudgeProposal? = null,
     val activeWellnessNudge: WellnessNudgeProposal? = null,
     val todayLogbook: List<DailyLogbookEntry> = emptyList(),
     val todayHydrationCount: Int = 0,
@@ -153,7 +154,46 @@ class SmartAssistantViewModel @Inject constructor(
             .filter { (it.endedAt ?: nowMillis) >= twoHoursAgo }
             .sumOf { it.trackedMinutes(nowMillis).toInt() }
 
-        val wellnessNudge = if (dueCheckIn == null && activeRestCheckIn == null && !breakTimer.isActive) {
+        val dayStartMillis = java.time.Instant.ofEpochMilli(nowMillis)
+            .atZone(zoneId)
+            .toLocalDate()
+            .atStartOfDay(zoneId)
+            .toInstant()
+            .toEpochMilli()
+        val todayStimulants = com.neuroflow.app.data.local.parseStimulantLogs(prefs.stimulantLogsJson)
+            .filter { it.timestampMillis in (dayStartMillis - 8 * 3_600_000L)..(dayStartMillis + 26 * 3_600_000L) }
+        val todayNaps = com.neuroflow.app.data.local.parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+            .filter { it.type == PhysiologicalEventType.NAP && it.timestampMillis >= dayStartMillis }
+            .map { log ->
+                com.neuroflow.app.domain.service.DaytimeNapBout(
+                    startMillis = log.timestampMillis,
+                    endMillis = log.timestampMillis + log.durationMinutes.coerceIn(5, 180) * 60_000L
+                )
+            }
+
+        val activeEnergyBoosterNudge = if (dueCheckIn == null && activeRestCheckIn == null && !breakTimer.isActive) {
+            val recs = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.recommendBoosters(
+                prefs = prefs,
+                snapshot = snapshot,
+                burnoutRiskState = burnoutRiskState,
+                stimulants = todayStimulants,
+                naps = todayNaps,
+                nowMillis = nowMillis,
+                zoneId = zoneId
+            )
+            com.neuroflow.app.domain.assistant.EnergyBoosterEngine.evaluateAssistantNudge(
+                prefs = prefs,
+                snapshot = snapshot,
+                recommendations = recs,
+                nowMillis = nowMillis,
+                isFocusSessionActive = isFocusRunning,
+                isBreakTimerActive = breakTimer.isActive
+            )
+        } else {
+            null
+        }
+
+        val wellnessNudge = if (dueCheckIn == null && activeRestCheckIn == null && activeEnergyBoosterNudge == null && !breakTimer.isActive) {
             WellnessNudgeEvaluator.evaluateWellnessNudge(
                 prefs = prefs,
                 usableEnergy = snapshot.usableEnergy,
@@ -174,6 +214,7 @@ class SmartAssistantViewModel @Inject constructor(
             activeRestCheckIn = activeRestCheckIn,
             burnoutRiskState = burnoutRiskState,
             breakTimer = breakTimer,
+            activeEnergyBoosterNudge = activeEnergyBoosterNudge,
             activeWellnessNudge = wellnessNudge,
             todayLogbook = todayLogbook,
             todayHydrationCount = hydrationCount,
@@ -488,6 +529,81 @@ class SmartAssistantViewModel @Inject constructor(
         breakTimerJob?.cancel()
         breakTimerJob = null
         _breakTimer.value = ActiveBreakTimerState()
+    }
+
+    fun completeEnergyBoosterFromNudge(rec: com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            when (rec.type) {
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.HYDRATION -> {
+                    preferencesDataStore.recordHydrationDrink(nowMillis = now)
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.BALANCED_SNACK -> {
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.SNACK,
+                        timestampMillis = now,
+                        durationMinutes = rec.durationMinutes
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.MEAL_REFUEL -> {
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.MEAL,
+                        timestampMillis = now,
+                        durationMinutes = rec.durationMinutes
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.SUNLIGHT_WALK -> {
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.SUNLIGHT_WALK,
+                        timestampMillis = now,
+                        durationMinutes = rec.durationMinutes
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.REST_BREAK -> {
+                    preferencesDataStore.recordRestBreak(
+                        durationMinutes = rec.durationMinutes,
+                        source = RestBreakSource.MANUAL_CONFIRM,
+                        completedAtMillis = now
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.POWER_NAP -> {
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.NAP,
+                        timestampMillis = now,
+                        durationMinutes = rec.durationMinutes
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.SHORT_WORKOUT -> {
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.WORKOUT,
+                        timestampMillis = now - rec.durationMinutes * 60_000L,
+                        durationMinutes = rec.durationMinutes,
+                        intensity = 0.85
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.SMART_CAFFEINE -> {
+                    preferencesDataStore.recordStimulantDose(
+                        type = StimulantType.CAFFEINE,
+                        doseMg = 95.0,
+                        timestampMillis = now
+                    )
+                }
+                com.neuroflow.app.domain.assistant.EnergyBoosterType.SLEEP_WIND_DOWN -> {
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.WIND_DOWN,
+                        timestampMillis = now,
+                        durationMinutes = rec.durationMinutes
+                    )
+                }
+            }
+            _toastMessage.value = "${rec.emoji} ${rec.title} logged — energy curve updated!"
+        }
+    }
+
+    fun snoozeEnergyBoosterNudge(snoozeMinutes: Int = 45) {
+        viewModelScope.launch {
+            preferencesDataStore.snoozeEnergyBoosterNudge(snoozeMinutes = snoozeMinutes)
+        }
     }
 
     fun clearToastMessage() {

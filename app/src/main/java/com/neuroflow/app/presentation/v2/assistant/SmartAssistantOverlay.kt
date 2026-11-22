@@ -1162,6 +1162,170 @@ fun ActiveBreakTimerPill(
 }
 
 @Composable
+fun EnergyBoosterNudgeCard(
+    proposal: com.neuroflow.app.domain.assistant.EnergyBoosterNudgeProposal,
+    onCompleteBooster: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit,
+    onStartTimer: (Int) -> Unit,
+    onSnoozeLater: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val rec = proposal.recommendation
+    val emerald = NeuroFlowPaletteV2.OptimalEmerald
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .testTag("energy_booster_nudge_card"),
+        shape = RoundedCornerShape(22.dp),
+        color = NeuroFlowPaletteV2.SurfaceCard,
+        tonalElevation = 8.dp,
+        shadowElevation = 12.dp,
+        border = BorderStroke(1.25.dp, emerald.copy(alpha = 0.55f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(text = rec.emoji, fontSize = 22.sp)
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "ENERGY COACH",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = emerald,
+                                letterSpacing = 0.8.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = emerald.copy(alpha = 0.16f)
+                            ) {
+                                Text(
+                                    text = rec.boostBadgeLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    fontWeight = FontWeight.Bold,
+                                    color = emerald,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = proposal.headline,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onSnoozeLater,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("energy_booster_nudge_dismiss_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Snooze energy suggestion",
+                        tint = NeuroFlowThemeV2Colors.TextTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = proposal.body,
+                style = MaterialTheme.typography.bodySmall,
+                color = NeuroFlowThemeV2Colors.TextSecondary
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { onCompleteBooster(rec) },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = emerald,
+                        contentColor = Color(0xFF042F2E)
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("energy_booster_nudge_done_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Log ${rec.title}",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        maxLines = 1
+                    )
+                }
+
+                if (rec.supportsTimer) {
+                    FilledTonalButton(
+                        onClick = { onStartTimer(rec.durationMinutes) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = emerald.copy(alpha = 0.16f),
+                            contentColor = emerald
+                        ),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("energy_booster_nudge_timer_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("${rec.durationMinutes}m", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onSnoozeLater,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("energy_booster_nudge_later_btn")
+                    ) {
+                        Text(
+                            text = "Later",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = NeuroFlowThemeV2Colors.TextPrimary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SmartAssistantOverlayHost(
     state: SmartAssistantUiState,
     visible: Boolean,
@@ -1179,13 +1343,16 @@ fun SmartAssistantOverlayHost(
     onSnoozeRestCheckIn: () -> Unit = {},
     onTogglePauseBreakTimer: () -> Unit = {},
     onFinishBreakTimerEarly: () -> Unit = {},
-    onCancelBreakTimer: () -> Unit = {}
+    onCancelBreakTimer: () -> Unit = {},
+    onCompleteEnergyBoosterNudge: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit = {},
+    onSnoozeEnergyBoosterNudge: () -> Unit = {}
 ) {
     val due = state.dueCheckIn
     val restCheckIn = state.activeRestCheckIn
+    val boosterNudge = state.activeEnergyBoosterNudge
     val nudge = state.activeWellnessNudge
     val hasBreakTimer = state.breakTimer.isActive
-    val hasCard = visible && (hasBreakTimer || due != null || restCheckIn != null || nudge != null)
+    val hasCard = visible && (hasBreakTimer || due != null || restCheckIn != null || boosterNudge != null || nudge != null)
 
     AnimatedVisibility(
         visible = hasCard,
@@ -1219,6 +1386,13 @@ fun SmartAssistantOverlayHost(
                     onLogRestBreak = onLogRestBreak,
                     onStartBreakTimer = onStartBreakTimer,
                     onNotYet = onSnoozeRestCheckIn
+                )
+            } else if (boosterNudge != null && !hasBreakTimer) {
+                EnergyBoosterNudgeCard(
+                    proposal = boosterNudge,
+                    onCompleteBooster = onCompleteEnergyBoosterNudge,
+                    onStartTimer = onStartBreakTimer,
+                    onSnoozeLater = onSnoozeEnergyBoosterNudge
                 )
             } else if (nudge != null && !hasBreakTimer) {
                 WellnessNudgePopupCard(

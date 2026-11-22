@@ -92,7 +92,20 @@ fun CircadianHeroBarometer(
     onLogPhysiologicalEvent: (PhysiologicalEventType) -> Unit = {},
     onClearPhysiologicalEvents: () -> Unit = {},
     onNavigateToMEQ: () -> Unit = {},
-    onNavigateToSleepLogs: () -> Unit = {}
+    onNavigateToSleepLogs: () -> Unit = {},
+    unboostedDayTimeline: List<CircadianSnapshot> = emptyList(),
+    currentEnergyBoostPoints: Int = 0,
+    energyBoosterRecommendations: List<com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation> = emptyList(),
+    graphBoosterMarkers: List<com.neuroflow.app.domain.assistant.EnergyGraphBoosterMarker> = emptyList(),
+    previewedBoosterId: String? = null,
+    previewedBoosterTimeline: List<CircadianSnapshot>? = null,
+    previewedBoosterSummary: String? = null,
+    energyBoostDeltaBanner: com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner? = null,
+    onTogglePreviewBooster: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit = {},
+    onCompleteBooster: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit = {},
+    onStartBoosterTimer: ((Int) -> Unit)? = null,
+    onRefreshUnlockedSchedule: () -> Unit = {},
+    onDismissEnergyBoostDeltaBanner: () -> Unit = {}
 ) {
     val colors = LocalNeuroFlowColors.current
     val activeSnapshot = dayTimeline.minByOrNull {
@@ -103,6 +116,7 @@ fun CircadianHeroBarometer(
     val cardShape = RoundedCornerShape(24.dp)
     var isGraphExpanded by remember { mutableStateOf(false) }
     var isBioInspectorExpanded by remember { mutableStateOf(false) }
+    val showExpandedGraph = (isGraphExpanded || simulationState.isActive || previewedBoosterTimeline != null) && dayTimeline.size >= 2
 
     Surface(
         modifier = modifier
@@ -138,18 +152,39 @@ fun CircadianHeroBarometer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PhaseBadge(phase = activePhase, accent = accent)
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = accent.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "${summary.currentEnergyScore}% Battery",
-                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                            fontWeight = FontWeight.ExtraBold,
-                            color = accent,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
+                        if (currentEnergyBoostPoints > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.45f)),
+                                modifier = Modifier.testTag("energy_live_boost_badge")
+                            ) {
+                                Text(
+                                    text = "+${currentEnergyBoostPoints}% Boost",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = NeuroFlowPaletteV2.OptimalEmerald,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = accent.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, accent.copy(alpha = 0.35f))
+                        ) {
+                            Text(
+                                text = "${summary.currentEnergyScore}% Battery",
+                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                fontWeight = FontWeight.ExtraBold,
+                                color = accent,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
                     }
                 }
 
@@ -244,7 +279,7 @@ fun CircadianHeroBarometer(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if ((isGraphExpanded || simulationState.isActive) && dayTimeline.size >= 2) {
+            if (showExpandedGraph) {
                 EnhancedCircadianEnergyGraph(
                     timeline = dayTimeline,
                     currentMillis = System.currentTimeMillis(),
@@ -253,8 +288,11 @@ fun CircadianHeroBarometer(
                     isFallbackSleep = isFallbackSleep,
                     learnedSampleCount = learnedSampleCount,
                     embeddedInHeroCard = true,
-                    simulatedTimeline = simulationState.outcome?.simulatedTimeline,
+                    simulatedTimeline = previewedBoosterTimeline ?: simulationState.outcome?.simulatedTimeline,
                     showSleepPressure = true,
+                    unboostedBaselineTimeline = unboostedDayTimeline.takeIf { it.size >= 2 },
+                    boosterMarkers = graphBoosterMarkers,
+                    previewBoostSummary = previewedBoosterSummary,
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -375,6 +413,32 @@ fun CircadianHeroBarometer(
                         )
                     }
                 }
+            }
+
+            if (energyBoostDeltaBanner != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                EnergyBoostRefreshBanner(
+                    banner = energyBoostDeltaBanner,
+                    onRefreshSchedule = onRefreshUnlockedSchedule,
+                    onDismiss = onDismissEnergyBoostDeltaBanner
+                )
+            }
+
+            if (energyBoosterRecommendations.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                EnergyBoosterCoachingStrip(
+                    recommendations = energyBoosterRecommendations,
+                    previewedBoosterId = previewedBoosterId,
+                    onTogglePreview = { rec ->
+                        isGraphExpanded = true
+                        onTogglePreviewBooster(rec)
+                    },
+                    onComplete = { rec ->
+                        isGraphExpanded = true
+                        onCompleteBooster(rec)
+                    },
+                    onStartTimer = onStartBoosterTimer
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -555,6 +619,19 @@ fun CircadianHeroBarometer(
     onLogPhysiologicalEvent: (PhysiologicalEventType) -> Unit = {},
     onClearPhysiologicalEvents: () -> Unit = {},
     summary: CircadianEnergySummary? = null,
+    unboostedDayTimeline: List<CircadianSnapshot> = emptyList(),
+    currentEnergyBoostPoints: Int = 0,
+    energyBoosterRecommendations: List<com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation> = emptyList(),
+    graphBoosterMarkers: List<com.neuroflow.app.domain.assistant.EnergyGraphBoosterMarker> = emptyList(),
+    previewedBoosterId: String? = null,
+    previewedBoosterTimeline: List<CircadianSnapshot>? = null,
+    previewedBoosterSummary: String? = null,
+    energyBoostDeltaBanner: com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner? = null,
+    onTogglePreviewBooster: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit = {},
+    onCompleteBooster: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit = {},
+    onStartBoosterTimer: ((Int) -> Unit)? = null,
+    onRefreshUnlockedSchedule: () -> Unit = {},
+    onDismissEnergyBoostDeltaBanner: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val phase = when {
@@ -635,7 +712,20 @@ fun CircadianHeroBarometer(
         onLogPhysiologicalEvent = onLogPhysiologicalEvent,
         onClearPhysiologicalEvents = onClearPhysiologicalEvents,
         onNavigateToMEQ = onNavigateToMEQ,
-        onNavigateToSleepLogs = onNavigateToSleepLogs
+        onNavigateToSleepLogs = onNavigateToSleepLogs,
+        unboostedDayTimeline = unboostedDayTimeline,
+        currentEnergyBoostPoints = currentEnergyBoostPoints,
+        energyBoosterRecommendations = energyBoosterRecommendations,
+        graphBoosterMarkers = graphBoosterMarkers,
+        previewedBoosterId = previewedBoosterId,
+        previewedBoosterTimeline = previewedBoosterTimeline,
+        previewedBoosterSummary = previewedBoosterSummary,
+        energyBoostDeltaBanner = energyBoostDeltaBanner,
+        onTogglePreviewBooster = onTogglePreviewBooster,
+        onCompleteBooster = onCompleteBooster,
+        onStartBoosterTimer = onStartBoosterTimer,
+        onRefreshUnlockedSchedule = onRefreshUnlockedSchedule,
+        onDismissEnergyBoostDeltaBanner = onDismissEnergyBoostDeltaBanner
     )
 }
 
@@ -1606,4 +1696,280 @@ fun SimulationLeverChip(
         }
     }
 }
+
+@Composable
+private fun EnergyBoostRefreshBanner(
+    banner: com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner,
+    onRefreshSchedule: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val emerald = NeuroFlowPaletteV2.OptimalEmerald
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("energy_boost_refresh_banner"),
+        shape = RoundedCornerShape(14.dp),
+        color = emerald.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, emerald.copy(alpha = 0.45f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${banner.boosterEmoji} ${banner.boosterTitle} logged (+${banner.deltaPoints}%)",
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = emerald
+                    )
+                    Text(
+                        text = "Energy ${banner.previousEnergyPercent}% → ${banner.newEnergyPercent}%. Flow task updated — refresh unlocked schedule?",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeuroFlowPaletteV2.TextSecondary
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("energy_boost_banner_dismiss_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Dismiss energy boost banner",
+                        tint = NeuroFlowPaletteV2.TextTertiary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                FilledTonalButton(
+                    onClick = onRefreshSchedule,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = emerald.copy(alpha = 0.22f),
+                        contentColor = emerald
+                    ),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("energy_boost_refresh_schedule_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TrendingUp,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Refresh Plan",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnergyBoosterCoachingStrip(
+    recommendations: List<com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation>,
+    previewedBoosterId: String?,
+    onTogglePreview: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit,
+    onComplete: (com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) -> Unit,
+    onStartTimer: ((Int) -> Unit)?
+) {
+    val emerald = NeuroFlowPaletteV2.OptimalEmerald
+    val cyan = Color(0xFF06B6D4)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("energy_booster_strip"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.TrendingUp,
+                    contentDescription = null,
+                    tint = emerald,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    text = "BOOST YOUR ENERGY",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = emerald,
+                    letterSpacing = 0.7.sp
+                )
+            }
+            Text(
+                text = "Preview or log done",
+                style = MaterialTheme.typography.labelSmall,
+                color = NeuroFlowPaletteV2.TextTertiary,
+                fontSize = 11.sp
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            recommendations.forEach { rec ->
+                val isPreviewing = previewedBoosterId == rec.id
+                Surface(
+                    modifier = Modifier
+                        .width(228.dp)
+                        .testTag("energy_booster_card_${rec.type.name.lowercase()}"),
+                    shape = RoundedCornerShape(16.dp),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(
+                        width = if (isPreviewing) 1.25.dp else 0.75.dp,
+                        color = if (isPreviewing) cyan else NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.65f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text = rec.emoji, fontSize = 17.sp)
+                                Text(
+                                    text = rec.title,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeuroFlowPaletteV2.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = emerald.copy(alpha = 0.16f)
+                            ) {
+                                Text(
+                                    text = rec.boostBadgeLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    fontWeight = FontWeight.Bold,
+                                    color = emerald,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = rec.reason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 15.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { onTogglePreview(rec) },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isPreviewing) cyan else NeuroFlowPaletteV2.BorderSubtle
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("booster_preview_${rec.type.name.lowercase()}")
+                            ) {
+                                Text(
+                                    text = if (isPreviewing) "Hide" else "Preview",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isPreviewing) cyan else NeuroFlowPaletteV2.TextSecondary,
+                                    maxLines = 1
+                                )
+                            }
+
+                            if (rec.supportsTimer && onStartTimer != null) {
+                                FilledTonalIconButton(
+                                    onClick = { onStartTimer(rec.durationMinutes) },
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                        containerColor = emerald.copy(alpha = 0.14f),
+                                        contentColor = emerald
+                                    ),
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .testTag("booster_timer_${rec.type.name.lowercase()}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Schedule,
+                                        contentDescription = "Start ${rec.durationMinutes}m timer",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { onComplete(rec) },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = emerald,
+                                    contentColor = Color(0xFF042F2E)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("booster_done_${rec.type.name.lowercase()}")
+                            ) {
+                                Text(
+                                    text = "Done ✓",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 

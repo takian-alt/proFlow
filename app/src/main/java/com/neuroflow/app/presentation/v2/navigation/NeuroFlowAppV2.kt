@@ -708,6 +708,12 @@ fun NeuroFlowAppV2(
                         onCancelBreakTimer = {
                             smartAssistantViewModel.cancelBreakTimer()
                         },
+                        onCompleteEnergyBoosterNudge = { rec ->
+                            smartAssistantViewModel.completeEnergyBoosterFromNudge(rec)
+                        },
+                        onSnoozeEnergyBoosterNudge = {
+                            smartAssistantViewModel.snoozeEnergyBoosterNudge()
+                        },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 8.dp)

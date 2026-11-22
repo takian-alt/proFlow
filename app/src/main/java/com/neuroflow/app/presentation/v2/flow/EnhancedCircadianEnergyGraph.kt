@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -71,6 +72,9 @@ fun EnhancedCircadianEnergyGraph(
     embeddedInHeroCard: Boolean = false,
     simulatedTimeline: List<CircadianSnapshot>? = null,
     showSleepPressure: Boolean = true,
+    unboostedBaselineTimeline: List<CircadianSnapshot>? = null,
+    boosterMarkers: List<com.neuroflow.app.domain.assistant.EnergyGraphBoosterMarker> = emptyList(),
+    previewBoostSummary: String? = null,
     modifier: Modifier = Modifier
 ) {
     if (timeline.size < 2) return
@@ -189,6 +193,38 @@ fun EnhancedCircadianEnergyGraph(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        val nearestScrubbedMarker = remember(scrubbedIndex, boosterMarkers, activeSnapshot.timestampMillis) {
+            if (scrubbedIndex == null || boosterMarkers.isEmpty()) {
+                null
+            } else {
+                boosterMarkers
+                    .minByOrNull { abs(it.timestampMillis - activeSnapshot.timestampMillis) }
+                    ?.takeIf { abs(it.timestampMillis - activeSnapshot.timestampMillis) <= 30 * 60_000L }
+            }
+        }
+
+        if (!previewBoostSummary.isNullOrBlank()) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = SurgeCyan.copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, SurgeCyan.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .testTag("graph_booster_preview_pill")
+            ) {
+                Text(
+                    text = previewBoostSummary,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    color = SurgeCyan,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+
         AnimatedVisibility(
             visible = scrubbedIndex != null || activeSnapshot.focusDepletionPenalty > 0.01 || abs(activeSnapshot.learnedAdjustmentPoints) >= 1.5,
             enter = fadeIn(),
@@ -199,7 +235,8 @@ fun EnhancedCircadianEnergyGraph(
                 zoneId = zoneId,
                 textPrimary = TextPrimary,
                 textSecondary = TextSecondary,
-                surfaceSubtle = palette.surfaceElevated
+                surfaceSubtle = palette.surfaceElevated,
+                nearbyBooster = nearestScrubbedMarker
             )
         }
 
@@ -342,13 +379,50 @@ fun EnhancedCircadianEnergyGraph(
                 val baselinePath = buildMonotoneCubicPath(baselinePoints)
                 drawPath(
                     path = baselinePath,
-                    color = TextSecondary.copy(alpha = 0.35f),
+                    color = TextSecondary.copy(alpha = 0.30f),
                     style = Stroke(
-                        width = 1.5.dp.toPx(),
+                        width = 1.4.dp.toPx(),
                         cap = StrokeCap.Round,
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f))
                     )
                 )
+
+                // Unboosted "before boost" ghost baseline + emerald uplift fill ribbon
+                if (unboostedBaselineTimeline != null && unboostedBaselineTimeline.size == timeline.size) {
+                    val unboostedPoints = unboostedBaselineTimeline.mapIndexed { i, snap ->
+                        val x = (i.toFloat() / (unboostedBaselineTimeline.size - 1)) * chartWidth
+                        val y = energyToY(snap.usableEnergy.toFloat())
+                        Offset(x, y)
+                    }
+                    val hasUplift = timeline.indices.any { i ->
+                        timeline[i].usableEnergy > unboostedBaselineTimeline[i].usableEnergy + 1
+                    }
+                    if (hasUplift) {
+                        val upliftPath = Path().apply {
+                            val topCurve = usablePoints.mapIndexed { i, pt ->
+                                Offset(pt.x, minOf(pt.y, unboostedPoints[i].y))
+                            }
+                            moveTo(topCurve.first().x, topCurve.first().y)
+                            topCurve.drop(1).forEach { lineTo(it.x, it.y) }
+                            unboostedPoints.reversed().forEach { lineTo(it.x, it.y) }
+                            close()
+                        }
+                        drawPath(
+                            path = upliftPath,
+                            color = PeakEmerald.copy(alpha = if (isDark) 0.22f else 0.16f)
+                        )
+                    }
+                    val unboostedPath = buildMonotoneCubicPath(unboostedPoints)
+                    drawPath(
+                        path = unboostedPath,
+                        color = TextSecondary.copy(alpha = 0.62f),
+                        style = Stroke(
+                            width = 1.75.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 6f))
+                        )
+                    )
+                }
 
                 val usablePath = buildMonotoneCubicPath(usablePoints)
                 val fillPath = Path().apply {
@@ -431,6 +505,37 @@ fun EnhancedCircadianEnergyGraph(
                     )
                 }
 
+                // On-curve completed booster event badges
+                if (boosterMarkers.isNotEmpty()) {
+                    val badgeStyle = TextStyle(fontSize = 11.sp)
+                    boosterMarkers.forEach { marker ->
+                        if (marker.timestampMillis in startMillis..endMillis) {
+                            val mx = timeToX(marker.timestampMillis)
+                            val snapAtMarker = timeline.minByOrNull { abs(it.timestampMillis - marker.timestampMillis) }
+                            if (snapAtMarker != null) {
+                                val my = energyToY(snapAtMarker.usableEnergy.toFloat())
+                                drawCircle(
+                                    color = PeakEmerald.copy(alpha = 0.25f),
+                                    radius = 8.dp.toPx(),
+                                    center = Offset(mx, my)
+                                )
+                                drawCircle(
+                                    color = PeakEmerald,
+                                    radius = 3.8.dp.toPx(),
+                                    center = Offset(mx, my)
+                                )
+                                val measured = textMeasurer.measure(marker.emoji, style = badgeStyle)
+                                val bx = (mx - measured.size.width / 2f).coerceIn(2f, chartWidth - measured.size.width - 2f)
+                                val by = (my - measured.size.height - 6.dp.toPx()).coerceAtLeast(2f)
+                                drawText(
+                                    textLayoutResult = measured,
+                                    topLeft = Offset(bx, by)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 val targetMillis = activeSnapshot.timestampMillis
                 val markerX = timeToX(targetMillis)
                 val markerY = energyToY(activeSnapshot.usableEnergy.toFloat())
@@ -483,7 +588,9 @@ fun EnhancedCircadianEnergyGraph(
                 LegendItem(color = InertiaLavender, label = "Sleep Pressure (S)", isDashed = true, textColor = TextSecondary)
             }
             if (simulatedTimeline != null) {
-                LegendItem(color = SurgeCyan, label = "Simulated Delta", isDashed = true, textColor = TextSecondary)
+                LegendItem(color = SurgeCyan, label = "Preview Lift", isDashed = true, textColor = TextSecondary)
+            } else if (unboostedBaselineTimeline != null && unboostedBaselineTimeline.size == timeline.size) {
+                LegendItem(color = TextSecondary.copy(alpha = 0.65f), label = "Before Boost", isDashed = true, textColor = TextSecondary)
             } else {
                 LegendItem(color = TextSecondary.copy(alpha = 0.5f), label = "Bio Potential", isDashed = true, textColor = TextSecondary)
             }
@@ -497,7 +604,8 @@ private fun FactorDecompositionStrip(
     zoneId: ZoneId,
     textPrimary: Color,
     textSecondary: Color,
-    surfaceSubtle: Color
+    surfaceSubtle: Color,
+    nearbyBooster: com.neuroflow.app.domain.assistant.EnergyGraphBoosterMarker? = null
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()) }
     val timeText = Instant.ofEpochMilli(snapshot.timestampMillis).atZone(zoneId).format(timeFormatter)
@@ -521,6 +629,14 @@ private fun FactorDecompositionStrip(
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
             color = textPrimary
         )
+        if (nearbyBooster != null) {
+            FactorChip(
+                label = "${nearbyBooster.emoji} ${nearbyBooster.label}",
+                value = nearbyBooster.boostSummary,
+                color = NeuroFlowPaletteV2.OptimalEmerald,
+                labelColor = textPrimary
+            )
+        }
         FactorChip(label = "Drive", value = "+$cPoints", color = NeuroFlowPaletteV2.OptimalEmerald, labelColor = textSecondary)
         FactorChip(label = "Sleep Debt", value = "$sDebtPenalty", color = NeuroFlowPaletteV2.PeakAmber, labelColor = textSecondary)
         if (focusPenalty < 0) {
