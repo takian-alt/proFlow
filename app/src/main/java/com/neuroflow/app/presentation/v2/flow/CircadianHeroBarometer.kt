@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WbSunny
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.domain.model.CircadianEnergySummary
@@ -461,13 +462,15 @@ fun CircadianHeroBarometer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val inspectorSummary = buildString {
-                        append("Bio Inspector")
+                        append("Bio Log & Stimulants")
                         if (activePlasmaMg >= 1.0) {
                             append(" · ~${activePlasmaMg.roundToInt()}mg active")
                         } else if (stimulantDoses.isNotEmpty()) {
                             append(" · ${stimulantDoses.size} dose(s)")
+                        } else if (graphBoosterMarkers.isNotEmpty()) {
+                            append(" · ${graphBoosterMarkers.size} logged today")
                         } else {
-                            append(" · Caffeine, Meals & Naps")
+                            append(" · Manual Log & Clear")
                         }
                     }
                     Text(
@@ -1388,13 +1391,115 @@ fun StimulantQuickLogRow(
             }
 
             if (onLogPhysiologicalEvent != null) {
+                // + Water
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.HYDRATION) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_water")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.WaterDrop, contentDescription = null, tint = NeuroFlowPaletteV2.ReboundCyan, modifier = Modifier.size(13.dp))
+                        Text(
+                            text = "+ Water",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // + Snack
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.SNACK) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_snack")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.Restaurant, contentDescription = null, tint = NeuroFlowPaletteV2.OptimalEmerald, modifier = Modifier.size(13.dp))
+                        Text(
+                            text = "+ Snack",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // + Walk
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.SUNLIGHT_WALK) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_walk")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.DirectionsWalk, contentDescription = null, tint = NeuroFlowPaletteV2.PeakAmber, modifier = Modifier.size(13.dp))
+                        Text(
+                            text = "+ Walk",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // + 10m Rest
+                Surface(
+                    onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.REST_BREAK) },
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.SurfaceElevated,
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_rest")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.SelfImprovement, contentDescription = null, tint = NeuroFlowPaletteV2.OptimalEmerald, modifier = Modifier.size(13.dp))
+                        Text(
+                            text = "+ 10m Rest",
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                            color = NeuroFlowPaletteV2.TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
                 // + Meal Dip
                 Surface(
                     onClick = { onLogPhysiologicalEvent(PhysiologicalEventType.MEAL) },
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
                     border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
-                    modifier = Modifier.minimumInteractiveComponentSize()
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_meal")
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1417,7 +1522,9 @@ fun StimulantQuickLogRow(
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
                     border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
-                    modifier = Modifier.minimumInteractiveComponentSize()
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_workout")
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1440,7 +1547,9 @@ fun StimulantQuickLogRow(
                     shape = RoundedCornerShape(50),
                     color = NeuroFlowPaletteV2.SurfaceElevated,
                     border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
-                    modifier = Modifier.minimumInteractiveComponentSize()
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("bio_quick_log_nap")
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),

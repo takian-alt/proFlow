@@ -298,4 +298,111 @@ class EnergyBoosterEngineTest {
             )
         )
     }
+
+    @Test
+    fun loggingBalancedSnack_coversSnacksCheckInAndAppearsInVaultLogbook() {
+        val snackTs = epochMillis(16, 10)
+        val now = epochMillis(16, 30)
+        val snacksOnlyConfig = SmartAssistantCodecs.encodeCheckInConfigs(
+            CheckInLogType.entries.map { type ->
+                CheckInConfigEntry(
+                    type = type,
+                    enabled = type == CheckInLogType.SNACKS,
+                    defaultMinuteOfDay = if (type == CheckInLogType.SNACKS) 16 * 60 else type.defaultMinuteOfDay
+                )
+            }
+        )
+        val snackPhysJson = """
+            [{"type":"${PhysiologicalEventType.SNACK.name}","timestampMillis":$snackTs,"durationMinutes":10,"intensity":1.0}]
+        """.trimIndent()
+
+        // Without snack log, SNACKS check-in is due
+        val pendingPrefs = UserPreferences(
+            checkInsMasterEnabled = true,
+            checkInConfigJson = snacksOnlyConfig
+        )
+        val dueBefore = ProactiveCheckInCoordinator.evaluateNextDueCheckIn(
+            prefs = pendingPrefs,
+            nowMillis = now,
+            isFocusSessionActive = false,
+            zoneId = zoneId
+        )
+        assertEquals(CheckInLogType.SNACKS, dueBefore?.type)
+
+        // After logging Balanced Snack booster (PhysiologicalEventType.SNACK), SNACKS check-in is covered & LOGGED
+        val loggedPrefs = pendingPrefs.copy(quickPhysiologicalLogsJson = snackPhysJson)
+        val dueAfter = ProactiveCheckInCoordinator.evaluateNextDueCheckIn(
+            prefs = loggedPrefs,
+            nowMillis = now,
+            isFocusSessionActive = false,
+            zoneId = zoneId
+        )
+        assertNull("Snacks check-in should be suppressed once a SNACK event is logged", dueAfter)
+
+        val logbook = ProactiveCheckInCoordinator.buildTodayLogbookEntries(
+            prefs = loggedPrefs,
+            nowMillis = now,
+            zoneId = zoneId
+        )
+        val snackEntry = logbook.first { it.type == CheckInLogType.SNACKS }
+        assertEquals(CheckInDailyStatus.LOGGED, snackEntry.status)
+        assertEquals(snackTs, snackEntry.loggedAtMillis)
+    }
+
+    @Test
+    fun energyCoachAndWellnessNudge_shareUnifiedDismissalAndSnoozeCooldown() {
+        val now = epochMillis(14, 30)
+        val dipSnap = CircadianSnapshot(
+            timestampMillis = now,
+            usableEnergy = 30,
+            homeostaticPressureS = 0.65,
+            circadianAlertnessC = 0.38,
+            focusDepletionPenalty = 0.10,
+            phase = EnergyPhase.CRASH
+        )
+        val basePrefs = UserPreferences(wakeUpHour = 7, sleepHour = 23, wellnessNudgesEnabled = true)
+        val recs = EnergyBoosterEngine.recommendBoosters(
+            prefs = basePrefs,
+            snapshot = dipSnap,
+            burnoutRiskState = BurnoutRiskState(),
+            stimulants = emptyList(),
+            naps = emptyList(),
+            nowMillis = now,
+            zoneId = zoneId
+        )
+
+        // 1. Snoozing Energy Coach also suppresses Wellness Nudge immediately
+        val snoozedBoosterPrefs = basePrefs.copy(
+            snoozedEnergyBoosterUntilMillis = now + 45 * 60_000L,
+            lastEnergyBoosterNudgeAtMillis = now - 5 * 60_000L
+        )
+        assertNull(
+            "Wellness Nudge must stay suppressed while Energy Coach is snoozed",
+            WellnessNudgeEvaluator.evaluateWellnessNudge(
+                prefs = snoozedBoosterPrefs,
+                usableEnergy = 30,
+                phase = EnergyPhase.CRASH,
+                isCrashWindow = true,
+                continuousFocusMinutes = 60,
+                nowMillis = now,
+                isFocusSessionActive = false
+            )
+        )
+
+        // 2. Dismissing Wellness Nudge also suppresses Energy Coach within the shared cooldown
+        val dismissedWellnessPrefs = basePrefs.copy(
+            lastWellnessNudgeDismissedAtMillis = now - 10 * 60_000L
+        )
+        assertNull(
+            "Energy Coach must stay suppressed after dismissing Wellness Nudge",
+            EnergyBoosterEngine.evaluateAssistantNudge(
+                prefs = dismissedWellnessPrefs,
+                snapshot = dipSnap,
+                recommendations = recs,
+                nowMillis = now,
+                isFocusSessionActive = false,
+                isBreakTimerActive = false
+            )
+        )
+    }
 }

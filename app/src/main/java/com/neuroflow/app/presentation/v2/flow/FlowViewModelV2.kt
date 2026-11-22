@@ -975,7 +975,11 @@ class FlowViewModelV2 @Inject constructor(
     }
 
     fun togglePreviewEnergyBooster(rec: com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) {
-        _previewedBooster.value = if (_previewedBooster.value?.id == rec.id) null else rec
+        val next = if (_previewedBooster.value?.id == rec.id) null else rec
+        _previewedBooster.value = next
+        if (next != null && _simulationState.value.isActive) {
+            _simulationState.value = SimulationState(isActive = false)
+        }
     }
 
     fun clearBoosterPreview() {
@@ -1130,6 +1134,7 @@ class FlowViewModelV2 @Inject constructor(
         if (!newActive) {
             _simulationState.value = SimulationState(isActive = false)
         } else {
+            _previewedBooster.value = null
             _simulationState.value = current.copy(isActive = true)
         }
     }
@@ -1390,7 +1395,22 @@ class FlowViewModelV2 @Inject constructor(
 
     fun logPhysiologicalEvent(type: PhysiologicalEventType) {
         viewModelScope.launch {
-            preferencesDataStore.recordPhysiologicalEvent(type)
+            val now = nowProvider()
+            when (type) {
+                PhysiologicalEventType.HYDRATION -> {
+                    preferencesDataStore.recordHydrationDrink(nowMillis = now)
+                }
+                PhysiologicalEventType.REST_BREAK -> {
+                    preferencesDataStore.recordRestBreak(
+                        durationMinutes = 10,
+                        source = com.neuroflow.app.domain.assistant.RestBreakSource.MANUAL_CONFIRM,
+                        completedAtMillis = now
+                    )
+                }
+                else -> {
+                    preferencesDataStore.recordPhysiologicalEvent(type, timestampMillis = now)
+                }
+            }
             val label = when (type) {
                 PhysiologicalEventType.MEAL -> "Meal Dip 🍽️ (-12.0 pt nadir)"
                 PhysiologicalEventType.WORKOUT -> "Workout 🏃 (+10 pt endorphin window)"
@@ -1398,7 +1418,7 @@ class FlowViewModelV2 @Inject constructor(
                 PhysiologicalEventType.SNACK -> "Balanced Snack 🥜 (+8% steady energy)"
                 PhysiologicalEventType.HYDRATION -> "Hydration 💧 (+6% alertness)"
                 PhysiologicalEventType.SUNLIGHT_WALK -> "Sunlight Walk ☀️ (+9% boost)"
-                PhysiologicalEventType.REST_BREAK -> "Rest Break 🌿 (+10% recovery)"
+                PhysiologicalEventType.REST_BREAK -> "10m Rest Break 🌿 (+9% recovery)"
                 PhysiologicalEventType.WIND_DOWN -> "Sleep Wind-Down 🌙 (protecting deep sleep)"
             }
             _lastActionMessage.value = "Bio-event logged: $label — Curve updated"

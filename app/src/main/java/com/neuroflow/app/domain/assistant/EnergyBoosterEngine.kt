@@ -639,8 +639,12 @@ object EnergyBoosterEngine {
         if (!prefs.wellnessNudgesEnabled) return null
         if (isFocusSessionActive || isBreakTimerActive) return null
         if (nowMillis < prefs.snoozedEnergyBoosterUntilMillis) return null
-        if (prefs.lastEnergyBoosterNudgeAtMillis > 0L &&
-            (nowMillis - prefs.lastEnergyBoosterNudgeAtMillis) < BOOSTER_NUDGE_COOLDOWN_MILLIS
+        val lastNudgeInteraction = maxOf(
+            prefs.lastEnergyBoosterNudgeAtMillis,
+            prefs.lastWellnessNudgeDismissedAtMillis
+        )
+        if (lastNudgeInteraction > 0L &&
+            (nowMillis - lastNudgeInteraction) < BOOSTER_NUDGE_COOLDOWN_MILLIS
         ) {
             return null
         }

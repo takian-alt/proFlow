@@ -1430,14 +1430,18 @@ class UserPreferencesDataStore @Inject constructor(
         updatePreferences { prefs ->
             prefs.copy(
                 lastEnergyBoosterNudgeAtMillis = nowMillis,
-                snoozedEnergyBoosterUntilMillis = nowMillis + safeMinutes * 60_000L
+                snoozedEnergyBoosterUntilMillis = nowMillis + safeMinutes * 60_000L,
+                lastWellnessNudgeDismissedAtMillis = nowMillis
             )
         }
     }
 
     suspend fun dismissWellnessNudge(nowMillis: Long = System.currentTimeMillis()) {
         updatePreferences { prefs ->
-            prefs.copy(lastWellnessNudgeDismissedAtMillis = nowMillis)
+            prefs.copy(
+                lastWellnessNudgeDismissedAtMillis = nowMillis,
+                lastEnergyBoosterNudgeAtMillis = nowMillis
+            )
         }
     }
 

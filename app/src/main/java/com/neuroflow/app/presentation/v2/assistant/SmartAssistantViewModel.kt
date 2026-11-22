@@ -304,13 +304,27 @@ class SmartAssistantViewModel @Inject constructor(
             val clampedTs = occurredAtMillis.coerceAtMost(now)
 
             when (type) {
-                CheckInLogType.BREAKFAST, CheckInLogType.LUNCH, CheckInLogType.SNACKS, CheckInLogType.DINNER -> {
+                CheckInLogType.SNACKS -> {
+                    val intensity = when (intensityOrSubtype.lowercase()) {
+                        "light" -> 0.75
+                        "heavy" -> 1.25
+                        else -> 1.0
+                    }
+                    val duration = durationMinutesOverride ?: 10
+                    preferencesDataStore.recordPhysiologicalEvent(
+                        type = PhysiologicalEventType.SNACK,
+                        timestampMillis = clampedTs,
+                        durationMinutes = duration,
+                        intensity = intensity
+                    )
+                }
+                CheckInLogType.BREAKFAST, CheckInLogType.LUNCH, CheckInLogType.DINNER -> {
                     val intensity = when (intensityOrSubtype.lowercase()) {
                         "light" -> 0.65
                         "heavy" -> 1.35
                         else -> 1.0
                     }
-                    val duration = durationMinutesOverride ?: if (type == CheckInLogType.SNACKS) 15 else 30
+                    val duration = durationMinutesOverride ?: 30
                     preferencesDataStore.recordPhysiologicalEvent(
                         type = PhysiologicalEventType.MEAL,
                         timestampMillis = clampedTs,

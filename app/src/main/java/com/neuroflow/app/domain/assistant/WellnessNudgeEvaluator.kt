@@ -17,9 +17,14 @@ object WellnessNudgeEvaluator {
         isFocusSessionActive: Boolean
     ): WellnessNudgeProposal? {
         if (!prefs.wellnessNudgesEnabled || isFocusSessionActive) return null
+        if (nowMillis < prefs.snoozedEnergyBoosterUntilMillis) return null
 
-        val inDismissCooldown = prefs.lastWellnessNudgeDismissedAtMillis > 0L &&
-            (nowMillis - prefs.lastWellnessNudgeDismissedAtMillis) in 0 until DISMISSAL_COOLDOWN_MS
+        val lastDismissOrBoost = maxOf(
+            prefs.lastWellnessNudgeDismissedAtMillis,
+            prefs.lastEnergyBoosterNudgeAtMillis
+        )
+        val inDismissCooldown = lastDismissOrBoost > 0L &&
+            (nowMillis - lastDismissOrBoost) in 0 until DISMISSAL_COOLDOWN_MS
         if (inDismissCooldown) return null
 
         // 1. Long unbroken focus stretch -> suggest water & 5-min reset

@@ -172,7 +172,18 @@ object ProactiveCheckInCoordinator {
             CheckInLogType.CAFFEINE -> stimLogsToday.isNotEmpty()
             CheckInLogType.WORKOUT -> physLogsToday.any { it.type == PhysiologicalEventType.WORKOUT }
             CheckInLogType.NAP -> physLogsToday.any { it.type == PhysiologicalEventType.NAP }
-            CheckInLogType.BREAKFAST, CheckInLogType.LUNCH, CheckInLogType.SNACKS, CheckInLogType.DINNER -> {
+            CheckInLogType.SNACKS -> {
+                physLogsToday.any { log ->
+                    log.type == PhysiologicalEventType.SNACK || (
+                        log.type == PhysiologicalEventType.MEAL && run {
+                            val z = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
+                            val m = z.hour * 60 + z.minute
+                            kotlin.math.abs(m - defaultMinuteOfDay) <= 135
+                        }
+                    )
+                }
+            }
+            CheckInLogType.BREAKFAST, CheckInLogType.LUNCH, CheckInLogType.DINNER -> {
                 physLogsToday.any { log ->
                     if (log.type != PhysiologicalEventType.MEAL) return@any false
                     val z = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
@@ -198,7 +209,17 @@ object ProactiveCheckInCoordinator {
                 .maxByOrNull { it.timestampMillis }?.timestampMillis
             CheckInLogType.NAP -> physLogsToday.filter { it.type == PhysiologicalEventType.NAP }
                 .maxByOrNull { it.timestampMillis }?.timestampMillis
-            CheckInLogType.BREAKFAST, CheckInLogType.LUNCH, CheckInLogType.SNACKS, CheckInLogType.DINNER -> {
+            CheckInLogType.SNACKS -> {
+                physLogsToday.filter { it.type == PhysiologicalEventType.SNACK }
+                    .maxByOrNull { it.timestampMillis }?.timestampMillis
+                    ?: physLogsToday.filter { it.type == PhysiologicalEventType.MEAL }
+                        .firstOrNull { log ->
+                            val z = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
+                            val m = z.hour * 60 + z.minute
+                            kotlin.math.abs(m - defaultMinuteOfDay) <= 135
+                        }?.timestampMillis
+            }
+            CheckInLogType.BREAKFAST, CheckInLogType.LUNCH, CheckInLogType.DINNER -> {
                 physLogsToday.filter { it.type == PhysiologicalEventType.MEAL }
                     .firstOrNull { log ->
                         val z = Instant.ofEpochMilli(log.timestampMillis).atZone(zoneId)
