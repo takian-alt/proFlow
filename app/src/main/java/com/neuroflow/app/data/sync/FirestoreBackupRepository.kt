@@ -574,6 +574,8 @@ private fun GoalEntity.toMap(): Map<String, Any?> = mapOf(
     "description" to description,
     "targetDate" to targetDate,
     "identityStatement" to identityStatement,
+    "priority" to priority.name,
+    "tags" to tags,
     "completedTaskCount" to completedTaskCount,
     "isActive" to isActive,
     "createdAt" to createdAt
@@ -586,6 +588,8 @@ private fun Map<String, Any?>.toGoalEntity(): GoalEntity? = runCatching {
         description = str("description") ?: "",
         targetDate = long("targetDate"),
         identityStatement = str("identityStatement") ?: "",
+        priority = str("priority")?.let { runCatching { Priority.valueOf(it) }.getOrNull() } ?: Priority.MEDIUM,
+        tags = str("tags") ?: "",
         completedTaskCount = int("completedTaskCount") ?: 0,
         isActive = bool("isActive") ?: true,
         createdAt = long("createdAt") ?: System.currentTimeMillis()

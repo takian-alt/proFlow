@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
@@ -61,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.scheduler.BlueprintRecoveryBuffer
 import com.neuroflow.app.domain.scheduler.BlueprintTaskItem
 import com.neuroflow.app.domain.scheduler.DailyBlueprint
 import com.neuroflow.app.domain.scheduler.SchedulableTaskMapper
@@ -200,6 +202,13 @@ fun DailyBlueprintBottomSheet(
         val progressFraction = if (capacityTarget > 0) {
             (totalCommittedMinutes.toFloat() / capacityTarget).coerceIn(0f, 1f)
         } else 0f
+
+        val timelineEntries = remember(blueprint.items, blueprint.recoveryBuffers) {
+            val combined = mutableListOf<Pair<Long, Any>>()
+            blueprint.items.forEach { combined.add(it.proposedStartMillis to it) }
+            blueprint.recoveryBuffers.forEach { combined.add(it.startMillis to it) }
+            combined.sortedBy { it.first }
+        }
 
         Column(
             modifier = Modifier
@@ -345,6 +354,26 @@ fun DailyBlueprintBottomSheet(
                                 color = if (utilizationPercent > 100) NeuroFlowPaletteV2.RecoveryRose else NeuroFlowPaletteV2.PeakAmber,
                                 trackColor = NeuroFlowThemeV2Colors.SlateBorder
                             )
+                            if (blueprint.burnoutPacingSummary.isNotBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.testTag("blueprint_burnout_pacing_summary")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SelfImprovement,
+                                        contentDescription = null,
+                                        tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        text = blueprint.burnoutPacingSummary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = NeuroFlowPaletteV2.OptimalEmerald
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -446,7 +475,68 @@ fun DailyBlueprintBottomSheet(
                     }
                 }
 
-                items(blueprint.items, key = { it.task.id }) { item ->
+                items(
+                    items = timelineEntries,
+                    key = { (_, entry) ->
+                        when (entry) {
+                            is BlueprintTaskItem -> "task_${entry.task.id}"
+                            is BlueprintRecoveryBuffer -> "buf_${entry.id}"
+                            else -> entry.hashCode().toString()
+                        }
+                    }
+                ) { (_, entry) ->
+                    if (entry is BlueprintRecoveryBuffer) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.11f),
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("blueprint_recovery_buffer_card")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SelfImprovement,
+                                    contentDescription = "Recovery buffer",
+                                    tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = formatStartEndTime(entry.startMillis, entry.endMillis),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeuroFlowPaletteV2.OptimalEmerald
+                                        )
+                                        Text(
+                                            text = "· ${entry.label}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = NeuroFlowPaletteV2.TextPrimary
+                                        )
+                                    }
+                                    Text(
+                                        text = entry.reason,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeuroFlowPaletteV2.TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                        return@items
+                    }
+
+                    val item = entry as BlueprintTaskItem
                     val isIncluded = item.task.id in includedTaskIds
                     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(item.energyPhase)
                     val splitBadge = parseSplitBadge(item.task)

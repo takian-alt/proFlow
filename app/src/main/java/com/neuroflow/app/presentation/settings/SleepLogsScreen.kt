@@ -359,6 +359,19 @@ private fun SleepLogRow(
     onDelete: () -> Unit
 ) {
     val recovery = FatigueZone.recoveryForSleepMinutes(log.durationMinutes)
+    val hrs = log.durationMinutes / 60
+    val mins = log.durationMinutes % 60
+    val durationLabel = when {
+        hrs > 0 && mins > 0 -> "${hrs}h ${mins}m"
+        hrs > 0 -> "${hrs}h"
+        else -> "${mins}m"
+    }
+    val wakeTimeLabel = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(log.endAt))
+    val sourceTag = when (log.source) {
+        "AUTO_DEFAULT" -> " · Estimated"
+        "HEALTH_CONNECT" -> " · Health Connect"
+        else -> ""
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -368,14 +381,14 @@ private fun SleepLogRow(
     ) {
         Column(modifier = Modifier.weight(1f, fill = false)) {
             Text(
-                text = "${formatDateTime(log.startAt)} (${log.durationMinutes}m)",
+                text = "${formatDateTime(log.startAt)} → $wakeTimeLabel ($durationLabel)",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "Recovery: $recovery pts",
+                text = "Recovery: $recovery pts$sourceTag",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

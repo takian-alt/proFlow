@@ -969,6 +969,10 @@ class PlanViewModelV2 @Inject constructor(
                 val capacityMinutes = prefs.dailyDeepWorkTargetMinutes.takeIf { it > 0 } ?: 240
                 val effectiveRemainingCapacity = (capacityMinutes - totalPrecommittedMinutes).coerceAtLeast(0)
 
+                val goalsById = runCatching {
+                    goalRepository?.getActiveGoals().orEmpty().associateBy { it.id }
+                }.getOrDefault(emptyMap())
+
                 val outcome = scheduleOrchestrator.orchestrateDayScheduleWithOutcome(
                     candidateTasks = candidateTasks,
                     allKnownTasks = allKnownTasks,
@@ -982,7 +986,8 @@ class PlanViewModelV2 @Inject constructor(
                     zoneId = zoneId,
                     activeTaskId = activeTaskId,
                     microStepCounts = microStepCounts,
-                    dailyCognitiveCapacityMinutes = effectiveRemainingCapacity
+                    dailyCognitiveCapacityMinutes = effectiveRemainingCapacity,
+                    goalsById = goalsById
                 )
                 val placements = outcome.placements
                 _deferrals.value = outcome.deferrals
@@ -1350,13 +1355,17 @@ class PlanViewModelV2 @Inject constructor(
                     val steps = runCatching { taskRepository.getMicroSteps(task.id) }.getOrDefault(emptyList())
                     task.id to Pair(steps.count { it.isCompleted }, steps.size)
                 }
+                val goalsById = runCatching {
+                    goalRepository?.getActiveGoals().orEmpty().associateBy { it.id }
+                }.getOrDefault(emptyMap())
                 val candidateTasks = mutableEntities.map { task ->
                     com.neuroflow.app.domain.scheduler.SchedulableTaskMapper.toSchedulableTask(
                         task = task,
                         allContextTasks = mutableEntities,
                         enjoymentCalibration = enjoymentCalibration,
                         activeTaskId = activeTaskId,
-                        microStepCounts = microStepCounts
+                        microStepCounts = microStepCounts,
+                        goalsById = goalsById
                     )
                 }
 

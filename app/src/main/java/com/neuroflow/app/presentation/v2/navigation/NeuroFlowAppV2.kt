@@ -364,6 +364,9 @@ fun NeuroFlowAppV2(
                                         }
                                     }
                                 },
+                                activeBreakTimer = assistantState.breakTimer,
+                                onStartBreakTimer = { mins -> smartAssistantViewModel.startBreakTimer(mins) },
+                                onLogRestBreak = { mins -> smartAssistantViewModel.logRestBreak(mins) },
                                 viewModel = flowViewModel
                             )
                         }
@@ -389,6 +392,7 @@ fun NeuroFlowAppV2(
                                     }
                                 },
                                 onOpenToolsSheet = { showToolsSheet = true },
+                                burnoutRiskState = assistantState.burnoutRiskState,
                                 viewModel = planViewModel
                             )
                         }
@@ -653,8 +657,11 @@ fun NeuroFlowAppV2(
                     SmartAssistantOverlayHost(
                         state = assistantState,
                         visible = showBottomBar && !showToolsSheet,
-                        onLogCheckIn = { type, ts, detail, hrs ->
-                            smartAssistantViewModel.logCheckInAtTime(type, ts, detail, hrs)
+                        onLogCheckIn = { type, ts, detail, dur ->
+                            smartAssistantViewModel.logCheckInAtTime(type, ts, detail, dur)
+                        },
+                        onLogSleep = { bed, wake ->
+                            smartAssistantViewModel.logSleepInterval(bed, wake)
                         },
                         onSnoozeCheckIn = { type, target ->
                             smartAssistantViewModel.snoozeCheckInUntil(type, target)
@@ -682,6 +689,24 @@ fun NeuroFlowAppV2(
                         },
                         onDismissWellnessNudge = {
                             smartAssistantViewModel.dismissWellnessNudge()
+                        },
+                        onLogRestBreak = { mins ->
+                            smartAssistantViewModel.logRestBreak(mins)
+                        },
+                        onStartBreakTimer = { mins ->
+                            smartAssistantViewModel.startBreakTimer(mins)
+                        },
+                        onSnoozeRestCheckIn = {
+                            smartAssistantViewModel.snoozeRestCheckInNotYet()
+                        },
+                        onTogglePauseBreakTimer = {
+                            smartAssistantViewModel.togglePauseBreakTimer()
+                        },
+                        onFinishBreakTimerEarly = {
+                            smartAssistantViewModel.finishBreakTimerEarly()
+                        },
+                        onCancelBreakTimer = {
+                            smartAssistantViewModel.cancelBreakTimer()
                         },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)

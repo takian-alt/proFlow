@@ -1190,17 +1190,29 @@ class SchedulerAuditTest {
 
     @Test
     fun testDualEpochScheduledTimeTreatedAsManualSchedule() {
-        // BUG-452: Tasks with absolute epoch scheduledTime (>= ONE_DAY_MILLIS) and scheduledDate = null
-        // must be recognized as having manual schedule data and be immutable by auto-scheduler when !isAutoScheduled.
+        // BUG-452 + Schedule Lock contract:
+        // Tasks with absolute epoch scheduledTime (>= ONE_DAY_MILLIS) and scheduledDate = null
+        // must be recognized by hasManualScheduleData when !isAutoScheduled.
+        // Locked manual tasks (isScheduleLocked = true) are immutable by the auto-scheduler,
+        // while unlocked tasks (isScheduleLocked = false) remain mutable so incomplete/flexible tasks are auto-scheduled.
         val today = LocalDate.of(2026, 10, 28)
         val targetEpoch = today.atTime(LocalTime.of(14, 0)).atZone(zoneId).toInstant().toEpochMilli()
 
-        val manualEpochTask = TaskEntity(
-            id = "manual_epoch_task",
+        val lockedManualEpochTask = TaskEntity(
+            id = "locked_manual_epoch_task",
             title = "Client Presentation",
             scheduledDate = null,
             scheduledTime = targetEpoch,
-            isAutoScheduled = false
+            isAutoScheduled = false,
+            isScheduleLocked = true
+        )
+        val unlockedManualEpochTask = TaskEntity(
+            id = "unlocked_manual_epoch_task",
+            title = "Flexible Review",
+            scheduledDate = null,
+            scheduledTime = targetEpoch,
+            isAutoScheduled = false,
+            isScheduleLocked = false
         )
         val autoScheduledEpochTask = TaskEntity(
             id = "auto_epoch_task",
@@ -1212,11 +1224,19 @@ class SchedulerAuditTest {
 
         assertTrue(
             "Manual epoch task must be recognized as hasManualScheduleData",
-            com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.hasManualScheduleData(manualEpochTask)
+            com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.hasManualScheduleData(lockedManualEpochTask)
+        )
+        assertTrue(
+            "Unlocked manual epoch task must still be recognized as hasManualScheduleData",
+            com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.hasManualScheduleData(unlockedManualEpochTask)
         )
         assertFalse(
-            "Manual epoch task must NOT be mutable by auto-scheduler",
-            com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.isMutableByAutoScheduler(manualEpochTask)
+            "Locked manual epoch task must NOT be mutable by auto-scheduler",
+            com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.isMutableByAutoScheduler(lockedManualEpochTask)
+        )
+        assertTrue(
+            "Unlocked scheduled task MUST be mutable by auto-scheduler",
+            com.neuroflow.app.domain.scheduler.AutoSchedulingContracts.isMutableByAutoScheduler(unlockedManualEpochTask)
         )
         assertTrue(
             "Auto-scheduled epoch task MUST be mutable by auto-scheduler",

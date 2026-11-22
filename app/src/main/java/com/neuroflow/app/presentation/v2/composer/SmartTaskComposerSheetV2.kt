@@ -124,7 +124,8 @@ fun SmartTaskComposerSheetV2(
     initialScheduledTimeOffset: Long? = null,
     activeTasks: List<TaskEntity> = emptyList(),
     energyTimeline: List<CircadianSnapshot> = emptyList(),
-    preferences: UserPreferences = UserPreferences()
+    preferences: UserPreferences = UserPreferences(),
+    burnoutRiskState: com.neuroflow.app.domain.assistant.BurnoutRiskState? = null
 ) {
     val existingTask = (mode as? SheetMode.Edit)?.task
     var rawInput by remember(existingTask) { mutableStateOf(existingTask?.title ?: "") }
@@ -350,10 +351,12 @@ fun SmartTaskComposerSheetV2(
                 deadlineTime = finalSavedDeadlineTime,
                 scheduledDate = finalScheduledDate,
                 scheduledTime = finalSavedScheduledTime,
-                isAutoScheduled = if (finalScheduledDate != existingTask.scheduledDate || finalSavedScheduledTime != existingTask.scheduledTime) {
-                    false
-                } else {
-                    existingTask.isAutoScheduled
+                isAutoScheduled = when {
+                    existingTask.isScheduleLocked && !isScheduleLocked &&
+                        finalScheduledDate == existingTask.scheduledDate &&
+                        finalSavedScheduledTime == existingTask.scheduledTime -> true
+                    finalScheduledDate != existingTask.scheduledDate || finalSavedScheduledTime != existingTask.scheduledTime -> false
+                    else -> existingTask.isAutoScheduled
                 },
                 isScheduleLocked = isScheduleLocked,
                 recurrence = recurrence,
@@ -405,16 +408,11 @@ fun SmartTaskComposerSheetV2(
                 .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 20.dp)
+                .nestedScroll(nestedScrollInterop)
+                .verticalScroll(rememberScrollState())
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 8.dp, bottom = 12.dp)
-                    .nestedScroll(nestedScrollInterop)
-                    .verticalScroll(rememberScrollState())
-            ) {
             // Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1531,9 +1529,9 @@ fun SmartTaskComposerSheetV2(
                 }
             }
 
-            }
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Pinned Bottom Footer Dock: Recommended Slot Card + Save Action
+            // End-of-Form Section: Recommended Slot Card + Save Action (scrolls naturally at the bottom)
             val editingTaskId = (mode as? SheetMode.Edit)?.task?.id
             val resolvedDeadlineMillis = remember(effectiveDeadlineDate, effectiveDeadlineTime) {
                 if (effectiveDeadlineDate != null) {
@@ -1552,7 +1550,8 @@ fun SmartTaskComposerSheetV2(
                 activeTasks,
                 energyTimeline,
                 preferences,
-                editingTaskId
+                editingTaskId,
+                burnoutRiskState
             ) {
                 TaskSlotRecommender.recommendSlots(
                     durationMinutes = effectiveDuration.coerceAtLeast(10),
@@ -1565,28 +1564,21 @@ fun SmartTaskComposerSheetV2(
                     nowMillis = System.currentTimeMillis(),
                     excludeTaskId = editingTaskId,
                     isFrog = effectiveFrog,
-                    priority = effectivePriority
+                    priority = effectivePriority,
+                    burnoutRiskState = burnoutRiskState
                 )
             }
 
-            Surface(
-                color = NeuroFlowThemeV2Colors.SlateSurface,
-                tonalElevation = 3.dp,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("composer_pinned_footer_dock")
+                    .testTag("composer_footer_section"),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .padding(top = 8.dp, bottom = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    HorizontalDivider(
-                        color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.55f),
-                        thickness = 0.75.dp
-                    )
+                HorizontalDivider(
+                    color = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.55f),
+                    thickness = 0.75.dp
+                )
 
                     if (recommendedSlots.isNotEmpty()) {
                         val topSlot = recommendedSlots.first()
@@ -1683,9 +1675,33 @@ fun SmartTaskComposerSheetV2(
                                             text = topSlot.gapContextLabel.ifBlank { topSlot.reason },
                                             style = MaterialTheme.typography.labelSmall,
                                             color = NeuroFlowThemeV2Colors.TextSecondary,
-                                            maxLines = 1,
+                                            maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
+
+                                        topSlot.burnoutSafetyBadge?.let { safetyBadge ->
+                                            val isPositiveBuffer = topSlot.includesRecoveryBuffer
+                                            val badgeColor = if (isPositiveBuffer) {
+                                                NeuroFlowThemeV2Colors.SageGreen
+                                            } else {
+                                                NeuroFlowThemeV2Colors.WarmAmber
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = badgeColor.copy(alpha = 0.14f),
+                                                border = BorderStroke(0.75.dp, badgeColor.copy(alpha = 0.4f)),
+                                                modifier = Modifier.testTag("composer_slot_burnout_badge")
+                                            ) {
+                                                Text(
+                                                    text = if (isPositiveBuffer) "🌿 $safetyBadge" else "⚠️ $safetyBadge",
+                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = badgeColor,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
                                     }
 
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -1812,7 +1828,6 @@ fun SmartTaskComposerSheetV2(
                             fontSize = 16.sp
                         )
                     }
-                }
             }
         }
 

@@ -2,6 +2,7 @@ package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.calendar.ExternalCalendarDelta
 import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.ONE_DAY_MILLIS
 import com.neuroflow.app.data.local.entity.SleepLogEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
@@ -80,7 +81,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
         activeTaskId: String? = null,
         microStepCounts: Map<String, Pair<Int, Int>> = emptyMap(),
         dailyCognitiveCapacityMinutes: Int? = null,
-        allowFutureDeadlinedBacklog: Boolean = true
+        allowFutureDeadlinedBacklog: Boolean = true,
+        goalsById: Map<String, GoalEntity> = emptyMap()
     ): List<ScheduledPlacement> = orchestrateDayScheduleWithOutcome(
         candidateTasks = candidateTasks,
         allKnownTasks = allKnownTasks,
@@ -95,7 +97,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
         activeTaskId = activeTaskId,
         microStepCounts = microStepCounts,
         dailyCognitiveCapacityMinutes = dailyCognitiveCapacityMinutes,
-        allowFutureDeadlinedBacklog = allowFutureDeadlinedBacklog
+        allowFutureDeadlinedBacklog = allowFutureDeadlinedBacklog,
+        goalsById = goalsById
     ).placements
 
     fun orchestrateDayScheduleWithOutcome(
@@ -112,7 +115,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
         activeTaskId: String? = null,
         microStepCounts: Map<String, Pair<Int, Int>> = emptyMap(),
         dailyCognitiveCapacityMinutes: Int? = null,
-        allowFutureDeadlinedBacklog: Boolean = true
+        allowFutureDeadlinedBacklog: Boolean = true,
+        goalsById: Map<String, GoalEntity> = emptyMap()
     ): OrchestrationOutcome {
         if (candidateTasks.isEmpty()) return OrchestrationOutcome(emptyList())
 
@@ -149,7 +153,8 @@ class SchedulePreparationOrchestrator @Inject constructor(
                 dayStartMillis = dayCtx.dayStartMillis,
                 enjoymentCalibration = horizonCtx.enjoymentCalibration,
                 activeTaskId = activeTaskId,
-                microStepCounts = microStepCounts
+                microStepCounts = microStepCounts,
+                goalsById = goalsById
             )
         }
 

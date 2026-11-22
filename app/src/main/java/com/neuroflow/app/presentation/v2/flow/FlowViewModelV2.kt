@@ -158,7 +158,10 @@ data class FlowUiStateV2(
     val priorityScoresByTaskId: Map<String, Int> = emptyMap(),
     val isOvertimeActive: Boolean = false,
     val dailyTargetReached: Boolean = false,
-    val hasUrgentTomorrowMorningTask: Boolean = false
+    val hasUrgentTonightTask: Boolean = false,
+    val hasUrgentTomorrowMorningTask: Boolean = false,
+    val burnoutRiskState: com.neuroflow.app.domain.assistant.BurnoutRiskState =
+        com.neuroflow.app.domain.assistant.BurnoutRiskState()
 )
 
 @HiltViewModel
@@ -732,9 +735,13 @@ class FlowViewModelV2 @Inject constructor(
             .atZone(systemZone)
             .toInstant()
             .toEpochMilli()
+        val hasUrgentTonightTask = activeTasks.any { task ->
+            val deadline = task.resolveDeadlineEpochMillis()
+            deadline != null && deadline in now..dayEnd
+        }
         val hasUrgentTomorrowMorningTask = activeTasks.any { task ->
             val deadline = task.resolveDeadlineEpochMillis()
-            deadline != null && deadline in now..tomorrowWorkStartMillis
+            deadline != null && deadline > dayEnd && deadline <= tomorrowWorkStartMillis
         }
 
         // Ensure every visible today task has a computed Priority Score (1..100)
@@ -787,6 +794,16 @@ class FlowViewModelV2 @Inject constructor(
             zoneId = systemZone
         )
 
+        val burnoutRiskState = com.neuroflow.app.domain.assistant.BurnoutGuardEngine.evaluateBurnoutRisk(
+            prefs = prefs,
+            sessions = allSessions,
+            completedTasks = completedTasks,
+            activeTasks = activeTasks,
+            snapshot = effectiveSnapshot,
+            nowMillis = now,
+            zoneId = systemZone
+        )
+
         FlowUiStateV2(
             activeTasks = activeTasks,
             filteredTasks = filtered,
@@ -829,13 +846,26 @@ class FlowViewModelV2 @Inject constructor(
             priorityScoresByTaskId = rawPriorityScoresByTaskId.toMap(),
             isOvertimeActive = isOvertimeActive,
             dailyTargetReached = dailyTargetReached,
-            hasUrgentTomorrowMorningTask = hasUrgentTomorrowMorningTask
+            hasUrgentTonightTask = hasUrgentTonightTask,
+            hasUrgentTomorrowMorningTask = hasUrgentTomorrowMorningTask,
+            burnoutRiskState = burnoutRiskState
         )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         FlowUiStateV2(isLoading = true)
     )
+
+    fun logRestBreak(durationMinutes: Int) {
+        viewModelScope.launch {
+            val safe = durationMinutes.coerceIn(1, 240)
+            preferencesDataStore.recordRestBreak(
+                durationMinutes = safe,
+                source = com.neuroflow.app.domain.assistant.RestBreakSource.MANUAL_CONFIRM
+            )
+            _lastActionMessage.value = "🌿 ${safe}m rest logged — burnout pressure eased"
+        }
+    }
 
     fun openDailyBlueprint(dateMillis: Long = nowProvider()) {
         viewModelScope.launch {

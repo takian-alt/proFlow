@@ -57,6 +57,7 @@ class MindmapViewModel @Inject constructor(
     private val _workspaceMode = MutableStateFlow(GoalWorkspaceMode.OUTLINE)
     private val _showAllGoalsInMap = MutableStateFlow(false)
     private val _breakdownPreview = MutableStateFlow<List<GoalBreakdownMilestone>?>(null)
+    private val _selectedTagFilter = MutableStateFlow<String?>(null)
     private val _actionMessage = MutableStateFlow<String?>(null)
 
     private val _uiState = MutableStateFlow(MindmapUiState())
@@ -99,13 +100,10 @@ class MindmapViewModel @Inject constructor(
                 }
 
             val workspaceStateFlow = combine(
-                _selectedGoalId,
-                _workspaceMode,
-                _showAllGoalsInMap,
-                _breakdownPreview,
-                _actionMessage
-            ) { selectedGoalId, workspaceMode, showAll, breakdown, msg ->
-                WorkspacePrefs(selectedGoalId, workspaceMode, showAll, breakdown, msg)
+                combine(_selectedGoalId, _workspaceMode, _showAllGoalsInMap) { id, mode, all -> Triple(id, mode, all) },
+                combine(_breakdownPreview, _selectedTagFilter, _actionMessage) { bp, tag, msg -> Triple(bp, tag, msg) }
+            ) { (selectedGoalId, workspaceMode, showAll), (breakdown, tagFilter, msg) ->
+                WorkspacePrefs(selectedGoalId, workspaceMode, showAll, breakdown, tagFilter, msg)
             }
 
             combine(
@@ -149,6 +147,7 @@ class MindmapViewModel @Inject constructor(
                     workspaceMode = workspace.workspaceMode,
                     showAllGoalsInMap = workspace.showAllGoalsInMap,
                     breakdownPreview = workspace.breakdownPreview,
+                    selectedTagFilter = workspace.selectedTagFilter,
                     actionMessage = workspace.actionMessage
                 )
             }.collect { state ->
@@ -162,6 +161,7 @@ class MindmapViewModel @Inject constructor(
         val workspaceMode: GoalWorkspaceMode,
         val showAllGoalsInMap: Boolean,
         val breakdownPreview: List<GoalBreakdownMilestone>?,
+        val selectedTagFilter: String?,
         val actionMessage: String?
     )
 
@@ -396,18 +396,38 @@ class MindmapViewModel @Inject constructor(
         _uiState.update { it.copy(editingGoalNode = null) }
     }
 
-    fun createGoal(title: String, description: String = "", targetDate: Long? = null) {
+    fun createGoal(
+        title: String,
+        description: String = "",
+        targetDate: Long? = null,
+        priority: Priority = Priority.MEDIUM,
+        tags: String = ""
+    ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isBlank()) return
         viewModelScope.launch {
-            repository.createGoal(cleanTitle, description, targetDate)
+            repository.createGoal(
+                title = cleanTitle,
+                description = description,
+                targetDate = targetDate,
+                priority = priority,
+                tags = tags
+            )
             dismissGoalCreateDialog()
             temporaryPositions.clear()
             recomputeAndPersistLayout()
         }
     }
 
-    fun updateGoal(goalId: String, title: String, description: String = "", targetDate: Long? = null) {
+    fun updateGoal(
+        goalId: String,
+        title: String,
+        description: String = "",
+        targetDate: Long? = null,
+        priority: Priority = Priority.MEDIUM,
+        tags: String = "",
+        syncTagsToExistingTasks: Boolean = false
+    ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isBlank()) return
         viewModelScope.launch {
@@ -416,12 +436,18 @@ class MindmapViewModel @Inject constructor(
                 existing.copy(
                     title = cleanTitle,
                     description = description,
-                    targetDate = targetDate
+                    targetDate = targetDate,
+                    priority = priority,
+                    tags = tags
                 )
             )
+            if (syncTagsToExistingTasks && tags.isNotBlank()) {
+                repository.syncGoalTagsToTasks(goalId, tags)
+            }
             dismissGoalEditDialog()
             temporaryPositions.clear()
             recomputeAndPersistLayout()
+            _actionMessage.value = "Updated goal '$cleanTitle'"
         }
     }
 
@@ -459,15 +485,27 @@ class MindmapViewModel @Inject constructor(
         _showAllGoalsInMap.value = !_showAllGoalsInMap.value
     }
 
+    fun setGoalTagFilter(tag: String?) {
+        _selectedTagFilter.value = tag?.takeIf { it.isNotBlank() }
+    }
+
     fun clearActionMessage() {
         _actionMessage.value = null
     }
 
-    fun quickCreateGoalAndOpen(title: String) {
+    fun quickCreateGoalAndOpen(
+        title: String,
+        priority: Priority = Priority.MEDIUM,
+        tags: String = ""
+    ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isBlank()) return
         viewModelScope.launch {
-            val goal = repository.createGoal(cleanTitle)
+            val goal = repository.createGoal(
+                title = cleanTitle,
+                priority = priority,
+                tags = tags
+            )
             _collapsedNodeIds.update { it - goal.id }
             _selectedGoalId.value = goal.id
             _workspaceMode.value = GoalWorkspaceMode.OUTLINE
@@ -476,15 +514,45 @@ class MindmapViewModel @Inject constructor(
         }
     }
 
-    fun quickAddOutlineStep(goalId: String, title: String, parentTaskId: String? = null) {
+    fun quickAddOutlineStep(
+        goalId: String,
+        title: String,
+        parentTaskId: String? = null,
+        priority: Priority? = null,
+        tags: String = ""
+    ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isBlank()) return
         viewModelScope.launch {
             val targetParent = parentTaskId ?: goalId
             _collapsedNodeIds.update { it - goalId - targetParent }
-            repository.spawnChildTask(targetParent, cleanTitle, Priority.MEDIUM)
+            repository.spawnChildTask(targetParent, cleanTitle, priority, tags)
             temporaryPositions.clear()
             recomputeAndPersistLayout()
+        }
+    }
+
+    fun cycleTaskPriority(taskId: String) {
+        viewModelScope.launch {
+            val task = repository.getTaskById(taskId) ?: return@launch
+            val next = when (task.priority) {
+                Priority.LOW -> Priority.MEDIUM
+                Priority.MEDIUM -> Priority.HIGH
+                Priority.HIGH -> Priority.LOW
+            }
+            repository.updateTaskPriority(taskId, next)
+        }
+    }
+
+    fun setTaskPriority(taskId: String, priority: Priority) {
+        viewModelScope.launch {
+            repository.updateTaskPriority(taskId, priority)
+        }
+    }
+
+    fun setTaskTags(taskId: String, tags: String) {
+        viewModelScope.launch {
+            repository.updateTaskTags(taskId, tags)
         }
     }
 
@@ -577,6 +645,78 @@ class MindmapViewModel @Inject constructor(
             val slotLabel = chosen?.let { "${it.dayLabel} ${it.timeRangeLabel}" } ?: "Today"
             _actionMessage.value = "Scheduled '${task.title}' → $slotLabel"
         }
+    }
+
+    /**
+     * Auto-schedules up to [maxSteps] unscheduled actionable steps under a goal into open
+     * energy-matched slots, ordered by step priority (HIGH -> MEDIUM -> LOW) and respecting
+     * existing schedule commitments without overlap.
+     */
+    fun autoScheduleGoalNextSteps(goalId: String, maxSteps: Int = 3) {
+        viewModelScope.launch {
+            val goal = repository.getGoalById(goalId)
+            val allActive = cachedTasks.filter { it.status != TaskStatus.COMPLETED }
+            val parentIds = allActive.mapNotNull { it.parentTaskId }.toSet()
+            val goalCandidates = allActive
+                .filter { it.goalId == goalId && it.scheduledDate == null }
+                .let { list ->
+                    val leaves = list.filter { it.id !in parentIds }
+                    leaves.ifEmpty { list }
+                }
+                .sortedWith(
+                    compareBy<TaskEntity> { priorityRank(it.priority) }
+                        .thenBy { it.createdAt }
+                )
+                .take(maxSteps)
+
+            if (goalCandidates.isEmpty()) {
+                _actionMessage.value = "All active steps under this goal are already scheduled"
+                return@launch
+            }
+
+            val now = System.currentTimeMillis()
+            val prefs = runCatching { preferencesDataStore?.preferencesFlow?.first() }.getOrNull() ?: UserPreferences()
+            val workingTasks = cachedTasks.toMutableList()
+            var scheduledCount = 0
+
+            for (task in goalCandidates) {
+                val slots = TaskSlotRecommender.recommendSlots(
+                    durationMinutes = task.estimatedDurationMinutes.coerceAtLeast(25),
+                    energyLevel = task.energyLevel,
+                    targetDateMillis = null,
+                    deadlineMillis = task.deadlineDate ?: goal?.targetDate,
+                    existingTasks = workingTasks,
+                    energyTimeline = emptyList(),
+                    prefs = prefs,
+                    nowMillis = now,
+                    excludeTaskId = task.id
+                )
+                val chosen = slots.firstOrNull() ?: continue
+                val updated = task.copy(
+                    scheduledDate = chosen.dayStartMillis,
+                    scheduledTime = chosen.timeOfDayOffsetMillis,
+                    isAutoScheduled = true,
+                    lastAutoScheduledAt = now,
+                    updatedAt = now
+                )
+                repository.updateTask(updated)
+                val idx = workingTasks.indexOfFirst { it.id == task.id }
+                if (idx >= 0) workingTasks[idx] = updated else workingTasks.add(updated)
+                scheduledCount++
+            }
+
+            _actionMessage.value = if (scheduledCount > 0) {
+                "Auto-scheduled $scheduledCount prioritized step${if (scheduledCount == 1) "" else "s"} into open slots"
+            } else {
+                "No open energy slots found — adjust work hours or enable Overtime"
+            }
+        }
+    }
+
+    private fun priorityRank(priority: Priority): Int = when (priority) {
+        Priority.HIGH -> 0
+        Priority.MEDIUM -> 1
+        Priority.LOW -> 2
     }
 
     fun applyAutoLayout(mode: MindmapLayoutMode? = null) {
@@ -807,29 +947,36 @@ class MindmapViewModel @Inject constructor(
         workspaceMode: GoalWorkspaceMode = GoalWorkspaceMode.OUTLINE,
         showAllGoalsInMap: Boolean = false,
         breakdownPreview: List<GoalBreakdownMilestone>? = null,
+        selectedTagFilter: String? = null,
         actionMessage: String? = null
     ): MindmapUiState {
-        // Compute goal summaries across ALL goals for the Goals Overview screen
+        // Compute goal summaries across ALL goals for the Goals Overview screen (sorted by Goal Priority first)
         val parentTaskIdsAll = tasks.mapNotNull { it.parentTaskId }.toSet()
-        val goalSummaries = goals.map { goal ->
-            val goalTasks = tasks.filter { it.goalId == goal.id }
-            val completedCount = goalTasks.count { it.status == TaskStatus.COMPLETED }
-            val activeGoalTasks = goalTasks.filter { it.status != TaskStatus.COMPLETED }
-            val leafActive = activeGoalTasks.filter { it.id !in parentTaskIdsAll }
-            val nextAction = (leafActive.ifEmpty { activeGoalTasks })
-                .sortedWith(
-                    compareBy<TaskEntity> { it.scheduledDate == null }
-                        .thenBy { it.scheduledDate ?: Long.MAX_VALUE }
-                        .thenBy { it.createdAt }
-                )
-                .firstOrNull()
-            GoalSummaryUi(
-                goal = goal,
-                totalTasks = goalTasks.size,
-                completedTasks = completedCount,
-                nextActionableTask = nextAction
+        val goalSummaries = goals
+            .sortedWith(
+                compareBy<GoalEntity> { priorityRank(it.priority) }
+                    .thenByDescending { it.createdAt }
             )
-        }
+            .map { goal ->
+                val goalTasks = tasks.filter { it.goalId == goal.id }
+                val completedCount = goalTasks.count { it.status == TaskStatus.COMPLETED }
+                val activeGoalTasks = goalTasks.filter { it.status != TaskStatus.COMPLETED }
+                val leafActive = activeGoalTasks.filter { it.id !in parentTaskIdsAll }
+                val nextAction = (leafActive.ifEmpty { activeGoalTasks })
+                    .sortedWith(
+                        compareBy<TaskEntity> { priorityRank(it.priority) }
+                            .thenBy { it.scheduledDate == null }
+                            .thenBy { it.scheduledDate ?: Long.MAX_VALUE }
+                            .thenBy { it.createdAt }
+                    )
+                    .firstOrNull()
+                GoalSummaryUi(
+                    goal = goal,
+                    totalTasks = goalTasks.size,
+                    completedTasks = completedCount,
+                    nextActionableTask = nextAction
+                )
+            }
 
         // Scope Mindmap Canvas to the active selected goal unless user explicitly toggled "All Goals"
         val scopedGoals = if (selectedGoalId != null && !showAllGoalsInMap) {
@@ -877,7 +1024,10 @@ class MindmapViewModel @Inject constructor(
         // Compute search matches
         val trimmedQuery = searchQuery.trim()
         val highlightedIds = if (trimmedQuery.isNotBlank()) {
-            val matchingGoals = scopedGoals.filter { it.title.contains(trimmedQuery, ignoreCase = true) }.map { it.id }.toSet()
+            val matchingGoals = scopedGoals.filter {
+                it.title.contains(trimmedQuery, ignoreCase = true) ||
+                    it.tags.contains(trimmedQuery, ignoreCase = true)
+            }.map { it.id }.toSet()
             val matchingTasks = visibleTasks.filter {
                 it.title.contains(trimmedQuery, ignoreCase = true) || it.tags.contains(trimmedQuery, ignoreCase = true)
             }.map { it.id }.toSet()
@@ -902,6 +1052,10 @@ class MindmapViewModel @Inject constructor(
                 y = y,
                 width = MindmapTreeLayoutEngine.GOAL_WIDTH,
                 height = MindmapTreeLayoutEngine.estimateGoalHeight(goal),
+                description = goal.description,
+                targetDate = goal.targetDate,
+                priority = goal.priority,
+                tags = goal.tags,
                 totalTasks = associatedTasks.size,
                 completedTasks = associatedTasks.count { it.status == TaskStatus.COMPLETED },
                 isCollapsed = collapsedNodeIds.contains(goal.id),
@@ -1075,6 +1229,7 @@ class MindmapViewModel @Inject constructor(
             goalSummaries = goalSummaries,
             allRawTasks = tasks,
             breakdownPreview = breakdownPreview,
+            selectedTagFilter = selectedTagFilter,
             actionMessage = actionMessage
         )
     }

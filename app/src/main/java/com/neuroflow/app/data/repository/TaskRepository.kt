@@ -217,8 +217,18 @@ class TaskRepository @Inject constructor(
             AutonomyNudgeEngine.scheduleNudge(workManager, task)
         }
         calendarSyncRepository?.handleTaskStateChanged(task)
-        if (!AutoSchedulingContracts.hasManualScheduleData(task) && task.status != TaskStatus.COMPLETED && !task.isAutoScheduled) {
-            val todayEnd = startOfNextLocalDay(startOfLocalDay(System.currentTimeMillis())) - 1
+        val nowMillis = System.currentTimeMillis()
+        val resolvedStart = task.resolveScheduledEpochMillis()
+        val isExpiredUnlocked = !task.isScheduleLocked &&
+            resolvedStart != null &&
+            com.neuroflow.app.domain.scheduler.TaskBlockPlan.blockHasExpired(
+                task = task,
+                startMillis = resolvedStart,
+                nowMillis = nowMillis,
+                gracePeriodMillis = 0L
+            )
+        if ((!AutoSchedulingContracts.hasManualScheduleData(task) || isExpiredUnlocked) && task.status != TaskStatus.COMPLETED && !task.isAutoScheduled) {
+            val todayEnd = startOfNextLocalDay(startOfLocalDay(nowMillis)) - 1
             val sDate = task.effectiveScheduledDateMillis()
             val dDate = task.resolveDeadlineEpochMillis()
             val isFutureOnly = (sDate != null && sDate > todayEnd) ||
@@ -253,8 +263,9 @@ class TaskRepository @Inject constructor(
         val isSchedulerWrite = toWrite.isAutoScheduled &&
             toWrite.lastAutoScheduledAt != null &&
             toWrite.lastAutoScheduledAt != old?.lastAutoScheduledAt
+        val justUnlocked = old != null && old.isScheduleLocked && !toWrite.isScheduleLocked && toWrite.status == TaskStatus.ACTIVE
         if (old != null && !isSchedulerWrite && shouldTriggerReschedule(old, toWrite)) {
-            enqueueAutoSchedulingRecheck()
+            enqueueAutoSchedulingRecheck(forceReplan = justUnlocked)
         }
     }
 
@@ -549,8 +560,12 @@ class TaskRepository @Inject constructor(
         return createdSessions
     }
 
-    private fun enqueueAutoSchedulingRecheck() {
-        val request = OneTimeWorkRequestBuilder<ScheduleAutoTasksWorker>().build()
+    private fun enqueueAutoSchedulingRecheck(forceReplan: Boolean = false) {
+        val request = if (forceReplan) {
+            ScheduleAutoTasksWorker.buildOneTimeWorkRequest(forceReplan = true)
+        } else {
+            OneTimeWorkRequestBuilder<ScheduleAutoTasksWorker>().build()
+        }
         workManager.enqueueUniqueWork(
             "${ScheduleAutoTasksWorker.WORK_NAME}_trigger",
             ExistingWorkPolicy.REPLACE,

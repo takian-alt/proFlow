@@ -322,8 +322,14 @@ fun InsightsScreenV2(
                 SmartCheckInPopupCard(
                     type = logType,
                     initialStep = 1,
-                    onLogAtTime = { ts, detail, hrs ->
-                        smartAssistantViewModel.logCheckInAtTime(logType, ts, detail, hrs)
+                    defaultBedHour = assistantState.preferences.sleepHour,
+                    defaultWakeHour = assistantState.preferences.wakeUpHour,
+                    onLogAtTime = { ts, detail, dur ->
+                        smartAssistantViewModel.logCheckInAtTime(logType, ts, detail, dur)
+                        editingLogType = null
+                    },
+                    onLogSleep = { bed, wake ->
+                        smartAssistantViewModel.logSleepInterval(bed, wake)
                         editingLogType = null
                     },
                     onSnoozeUntil = { target ->
@@ -536,10 +542,15 @@ private fun VaultTodayLogbookCard(
                     pair.forEach { entry ->
                         val (statusText, statusColor) = when (entry.status) {
                             CheckInDailyStatus.LOGGED -> {
-                                val t = entry.loggedAtMillis?.let {
-                                    SmartAssistantCodecs.formatTimestampShort(it, zoneId)
-                                } ?: "Logged"
-                                "✓ $t" to NeuroFlowThemeV2Colors.SageGreen
+                                val text = if (entry.type == CheckInLogType.SLEEP_RECAP && entry.detailLabel.isNotBlank()) {
+                                    "✓ ${entry.detailLabel}"
+                                } else {
+                                    val t = entry.loggedAtMillis?.let {
+                                        SmartAssistantCodecs.formatTimestampShort(it, zoneId)
+                                    } ?: "Logged"
+                                    "✓ $t"
+                                }
+                                text to NeuroFlowThemeV2Colors.SageGreen
                             }
                             CheckInDailyStatus.SNOOZED -> {
                                 val t = entry.snoozedUntilMillis?.let {

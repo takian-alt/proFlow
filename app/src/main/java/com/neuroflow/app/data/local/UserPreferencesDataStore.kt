@@ -205,7 +205,10 @@ data class UserPreferences(
     val todayHydrationCount: Int = 0,
     val todayHydrationEpochDay: Long = 0L,
     val lastHydrationLoggedAtMillis: Long = 0L,
-    val lastWellnessNudgeDismissedAtMillis: Long = 0L
+    val lastWellnessNudgeDismissedAtMillis: Long = 0L,
+    val restBreakLogsJson: String = "[]",
+    val lastRestCheckInPromptAtMillis: Long = 0L,
+    val nextRestCheckInAllowedAtMillis: Long = 0L
 )
 
 @Singleton
@@ -364,6 +367,9 @@ class UserPreferencesDataStore @Inject constructor(
         val TODAY_HYDRATION_EPOCH_DAY = longPreferencesKey("today_hydration_epoch_day")
         val LAST_HYDRATION_LOGGED_AT_MILLIS = longPreferencesKey("last_hydration_logged_at_millis")
         val LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS = longPreferencesKey("last_wellness_nudge_dismissed_at_millis")
+        val REST_BREAK_LOGS_JSON = stringPreferencesKey("rest_break_logs_json")
+        val LAST_REST_CHECK_IN_PROMPT_AT_MILLIS = longPreferencesKey("last_rest_check_in_prompt_at_millis")
+        val NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS = longPreferencesKey("next_rest_check_in_allowed_at_millis")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -525,7 +531,10 @@ class UserPreferencesDataStore @Inject constructor(
             todayHydrationCount = (prefs[Keys.TODAY_HYDRATION_COUNT] ?: 0).coerceAtLeast(0),
             todayHydrationEpochDay = prefs[Keys.TODAY_HYDRATION_EPOCH_DAY] ?: 0L,
             lastHydrationLoggedAtMillis = prefs[Keys.LAST_HYDRATION_LOGGED_AT_MILLIS] ?: 0L,
-            lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L
+            lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L,
+            restBreakLogsJson = prefs[Keys.REST_BREAK_LOGS_JSON] ?: "[]",
+            lastRestCheckInPromptAtMillis = prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
+            nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L
         )
     }
 
@@ -762,7 +771,10 @@ class UserPreferencesDataStore @Inject constructor(
                 todayHydrationCount = (prefs[Keys.TODAY_HYDRATION_COUNT] ?: 0).coerceAtLeast(0),
                 todayHydrationEpochDay = prefs[Keys.TODAY_HYDRATION_EPOCH_DAY] ?: 0L,
                 lastHydrationLoggedAtMillis = prefs[Keys.LAST_HYDRATION_LOGGED_AT_MILLIS] ?: 0L,
-                lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L
+                lastWellnessNudgeDismissedAtMillis = prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] ?: 0L,
+                restBreakLogsJson = prefs[Keys.REST_BREAK_LOGS_JSON] ?: "[]",
+                lastRestCheckInPromptAtMillis = prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
+                nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L
             )
             val updated = update(current)
             val nextWakeHour = if (updated.wakeTimeHour != current.wakeTimeHour && updated.wakeUpHour == current.wakeUpHour) {
@@ -932,6 +944,9 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.TODAY_HYDRATION_EPOCH_DAY] = updated.todayHydrationEpochDay
             prefs[Keys.LAST_HYDRATION_LOGGED_AT_MILLIS] = updated.lastHydrationLoggedAtMillis
             prefs[Keys.LAST_WELLNESS_NUDGE_DISMISSED_AT_MILLIS] = updated.lastWellnessNudgeDismissedAtMillis
+            prefs[Keys.REST_BREAK_LOGS_JSON] = updated.restBreakLogsJson
+            prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] = updated.lastRestCheckInPromptAtMillis
+            prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] = updated.nextRestCheckInAllowedAtMillis
         }
     }
 
@@ -1360,6 +1375,47 @@ class UserPreferencesDataStore @Inject constructor(
     suspend fun dismissWellnessNudge(nowMillis: Long = System.currentTimeMillis()) {
         updatePreferences { prefs ->
             prefs.copy(lastWellnessNudgeDismissedAtMillis = nowMillis)
+        }
+    }
+
+    suspend fun recordRestBreak(
+        durationMinutes: Int,
+        source: com.neuroflow.app.domain.assistant.RestBreakSource = com.neuroflow.app.domain.assistant.RestBreakSource.MANUAL_CONFIRM,
+        completedAtMillis: Long = System.currentTimeMillis()
+    ) {
+        val safeDuration = durationMinutes.coerceIn(1, 240)
+        val cutoffMillis = completedAtMillis - 48L * 3_600_000L
+        updatePreferences { prefs ->
+            val existing = com.neuroflow.app.domain.assistant.SmartAssistantCodecs
+                .parseRestBreakLogs(prefs.restBreakLogsJson)
+                .filter { it.completedAtMillis >= cutoffMillis }
+            val newLog = com.neuroflow.app.domain.assistant.RestBreakLog(
+                id = "rest_${completedAtMillis}_${safeDuration}",
+                completedAtMillis = completedAtMillis,
+                durationMinutes = safeDuration,
+                source = source
+            )
+            val encoded = com.neuroflow.app.domain.assistant.SmartAssistantCodecs
+                .encodeRestBreakLogs(listOf(newLog) + existing)
+            prefs.copy(
+                restBreakLogsJson = encoded,
+                lastRestCheckInPromptAtMillis = completedAtMillis,
+                nextRestCheckInAllowedAtMillis = 0L,
+                lastWellnessNudgeDismissedAtMillis = completedAtMillis
+            )
+        }
+    }
+
+    suspend fun snoozeRestCheckIn(
+        nowMillis: Long = System.currentTimeMillis(),
+        followUpMinutes: Int = 25
+    ) {
+        val safeFollowUp = followUpMinutes.coerceIn(15, 45)
+        updatePreferences { prefs ->
+            prefs.copy(
+                lastRestCheckInPromptAtMillis = nowMillis,
+                nextRestCheckInAllowedAtMillis = nowMillis + safeFollowUp * 60_000L
+            )
         }
     }
 

@@ -1017,24 +1017,35 @@ fun MindmapCanvasScreen(
             )
         }
 
-        // 16. Goal Creation Dialog
+        // 16. Goal Creation Sheet (Priority, Tags, Target Horizon)
         if (state.isGoalCreateOpen) {
-            GoalCreationDialog(
+            GoalEditorSheet(
+                existingGoal = null,
                 onDismiss = { viewModel.dismissGoalCreateDialog() },
-                onConfirm = { title, desc, targetDate ->
-                    viewModel.createGoal(title, desc, targetDate)
+                onSave = { title, desc, targetDate, priority, tagsCsv, _ ->
+                    viewModel.createGoal(title, desc, targetDate, priority, tagsCsv)
                 }
             )
         }
 
-        // 17. Goal Edit Dialog
+        // 17. Goal Edit Sheet (Priority, Tags, Tag Sync, Target Horizon, Delete)
         state.editingGoalNode?.let { goalNode ->
-            GoalEditDialog(
-                goal = goalNode,
+            val liveGoal = state.goalSummaries.firstOrNull { it.goal.id == goalNode.id }?.goal
+                ?: com.neuroflow.app.data.local.entity.GoalEntity(
+                    id = goalNode.id,
+                    title = goalNode.title,
+                    description = goalNode.description,
+                    targetDate = goalNode.targetDate,
+                    priority = goalNode.priority,
+                    tags = goalNode.tags
+                )
+            GoalEditorSheet(
+                existingGoal = liveGoal,
                 onDismiss = { viewModel.dismissGoalEditDialog() },
-                onConfirm = { title, desc, targetDate ->
-                    viewModel.updateGoal(goalNode.id, title, desc, targetDate)
-                }
+                onSave = { title, desc, targetDate, priority, tagsCsv, syncToSteps ->
+                    viewModel.updateGoal(goalNode.id, title, desc, targetDate, priority, tagsCsv, syncToSteps)
+                },
+                onDelete = { viewModel.deleteGoal(goalNode.id) }
             )
         }
     }
@@ -1131,12 +1142,40 @@ private fun GoalHubNodeView(
                         }
                 )
 
-                Text(
-                    text = "GOAL",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF818CF8)
-                )
+                val goalPrioColor = when (goal.priority) {
+                    Priority.HIGH -> Color(0xFFF43F5E)
+                    Priority.MEDIUM -> Color(0xFFF59E0B)
+                    Priority.LOW -> Color(0xFF38BDF8)
+                }
+                val goalPrioLabel = when (goal.priority) {
+                    Priority.HIGH -> "HIGH"
+                    Priority.MEDIUM -> "MED"
+                    Priority.LOW -> "LOW"
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = "GOAL",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF818CF8)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(goalPrioColor.copy(alpha = 0.2f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = goalPrioLabel,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = goalPrioColor
+                        )
+                    }
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1188,6 +1227,34 @@ private fun GoalHubNodeView(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            val parsedGoalTags = remember(goal.tags) {
+                goal.tags.split(",")
+                    .map { it.trim().trimStart('#', '@') }
+                    .filter { it.isNotBlank() }
+                    .take(2)
+            }
+            if (parsedGoalTags.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    parsedGoalTags.forEach { tag ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF6366F1).copy(alpha = 0.2f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "#$tag",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFA5B4FC),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(
                 progress = { goal.progress },
@@ -2084,295 +2151,6 @@ private fun DisconnectPickerBottomSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Disconnect All Connections", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoalCreationDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (title: String, description: String, targetDate: Long?) -> Unit
-) {
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var targetDate by remember { mutableStateOf<Long?>(null) }
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xFF141720),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF10B981)),
-            shadowElevation = 12.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF10B981).copy(alpha = 0.2f),
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Flag, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                            }
-                        }
-                        Text(
-                            text = "New Goal Hub",
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    placeholder = { Text("Goal Title (e.g. Launch Product, Master System)...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF10B981),
-                        unfocusedBorderColor = Color(0xFF2A2E3B),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    placeholder = { Text("Description / Objective (optional)...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                    singleLine = false,
-                    maxLines = 3,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF10B981),
-                        unfocusedBorderColor = Color(0xFF2A2E3B),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text("Target Horizon:", color = Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val horizons = listOf(
-                        "1 Mo" to (30L * 24 * 3600 * 1000),
-                        "3 Mo" to (90L * 24 * 3600 * 1000),
-                        "6 Mo" to (180L * 24 * 3600 * 1000),
-                        "1 Yr" to (365L * 24 * 3600 * 1000)
-                    )
-                    horizons.forEach { (label, duration) ->
-                        val isSelected = targetDate != null && kotlin.math.abs(targetDate!! - (System.currentTimeMillis() + duration)) < 100000L
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFF1E2230),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color(0xFF10B981) else Color(0xFF2A2E3B)),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    targetDate = if (isSelected) null else System.currentTimeMillis() + duration
-                                }
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 10.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color(0xFF34D399) else Color(0xFF94A3B8),
-                                modifier = Modifier
-                                    .padding(vertical = 6.dp)
-                                    .fillMaxWidth(),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2A2E3B)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Cancel", fontSize = 13.sp)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (title.isNotBlank()) {
-                                onConfirm(title.trim(), description.trim(), targetDate)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Create Goal", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoalEditDialog(
-    goal: MindmapGoalNode,
-    onDismiss: () -> Unit,
-    onConfirm: (title: String, description: String, targetDate: Long?) -> Unit
-) {
-    var title by remember(goal.id) { mutableStateOf(goal.title) }
-    var description by remember(goal.id) { mutableStateOf("") }
-    var targetDate by remember(goal.id) { mutableStateOf<Long?>(null) }
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xFF141720),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF818CF8)),
-            shadowElevation = 12.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF818CF8).copy(alpha = 0.2f),
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Edit, contentDescription = null, tint = Color(0xFF818CF8), modifier = Modifier.size(18.dp))
-                            }
-                        }
-                        Text(
-                            text = "Edit Goal Details",
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    placeholder = { Text("Goal Title...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF818CF8),
-                        unfocusedBorderColor = Color(0xFF2A2E3B),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    placeholder = { Text("Description / Objective (optional)...", color = Color(0xFF64748B), fontSize = 13.sp) },
-                    singleLine = false,
-                    maxLines = 3,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF818CF8),
-                        unfocusedBorderColor = Color(0xFF2A2E3B),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2A2E3B)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Cancel", fontSize = 13.sp)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (title.isNotBlank()) {
-                                onConfirm(title.trim(), description.trim(), targetDate)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Save Changes", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                    }
                 }
             }
         }

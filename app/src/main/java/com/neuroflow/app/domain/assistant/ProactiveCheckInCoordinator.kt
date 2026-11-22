@@ -44,7 +44,9 @@ object ProactiveCheckInCoordinator {
             .filter { it.timestampMillis >= dayStartMillis }
         val stimLogsToday = parseStimulantLogs(prefs.stimulantLogsJson)
             .filter { it.timestampMillis >= dayStartMillis }
-        val hasSleepLogToday = sleepLogs.any { it.endAt >= dayStartMillis - 4 * 3600_000L }
+        val hasSleepLogToday = sleepLogs.any {
+            it.source != "AUTO_DEFAULT" && it.endAt >= dayStartMillis - 4 * 3600_000L
+        }
 
         val inCooldown = prefs.lastCheckInPromptAtMillis > 0L &&
             (nowMillis - prefs.lastCheckInPromptAtMillis) in 0 until PROMPT_SPACING_COOLDOWN_MS
@@ -107,7 +109,7 @@ object ProactiveCheckInCoordinator {
         val stimLogsToday = parseStimulantLogs(prefs.stimulantLogsJson)
             .filter { it.timestampMillis >= dayStartMillis }
         val latestSleep = sleepLogs
-            .filter { it.endAt >= dayStartMillis - 4 * 3600_000L }
+            .filter { it.source != "AUTO_DEFAULT" && it.endAt >= dayStartMillis - 4 * 3600_000L }
             .maxByOrNull { it.endAt }
 
         return configs.map { cfg ->
@@ -131,10 +133,19 @@ object ProactiveCheckInCoordinator {
                     zoneId = zoneId
                 )
                 if (inferredTs != null) {
+                    val inferredDetail = if (cfg.type == CheckInLogType.SLEEP_RECAP && latestSleep != null) {
+                        val bed = SmartAssistantCodecs.formatTimestampShort(latestSleep.startAt, zoneId)
+                        val wake = SmartAssistantCodecs.formatTimestampShort(latestSleep.endAt, zoneId)
+                        val dur = SmartAssistantCodecs.formatDurationCompact(latestSleep.durationMinutes)
+                        "$bed → $wake ($dur)"
+                    } else {
+                        ""
+                    }
                     DailyLogbookEntry(
                         type = cfg.type,
                         status = CheckInDailyStatus.LOGGED,
                         loggedAtMillis = inferredTs,
+                        detailLabel = inferredDetail,
                         defaultMinuteOfDay = cfg.defaultMinuteOfDay
                     )
                 } else {

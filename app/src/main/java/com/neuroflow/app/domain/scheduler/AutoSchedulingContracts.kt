@@ -18,11 +18,19 @@ object AutoSchedulingContracts {
         return hasDate && hasTime && !task.isAutoScheduled
     }
 
+    /**
+     * A task is mutable by the auto-scheduler whenever it is NOT explicitly schedule-locked
+     * (`isScheduleLocked == false`) and NOT in the Eliminate/Icebox quadrant.
+     *
+     * Explicit manual pins (drag-and-drop, assign-time, defer, calendar external move, or toggling
+     * "Schedule Locked (Pinned)") set `isScheduleLocked = true`. Leaving Schedule Unlocked
+     * explicitly allows the auto-scheduler to rescue incomplete/missed slots and optimize placement.
+     */
     fun isMutableByAutoScheduler(task: TaskEntity, nowMillis: Long = System.currentTimeMillis()): Boolean {
         if (task.isScheduleLocked || task.quadrant == com.neuroflow.app.domain.model.Quadrant.ELIMINATE) {
             return false
         }
-        return !hasManualScheduleData(task) || task.isAutoScheduled
+        return true
     }
 
     /**

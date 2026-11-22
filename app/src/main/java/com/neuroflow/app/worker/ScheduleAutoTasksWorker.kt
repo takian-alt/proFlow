@@ -196,7 +196,6 @@ class ScheduleAutoTasksWorker @AssistedInject constructor(
                 val scheduledStart = task.resolveScheduledEpochMillis(dayStart)
                 task.status == TaskStatus.ACTIVE &&
                     !task.isScheduleLocked &&
-                    task.isAutoScheduled &&
                     AutoSchedulingContracts.isMutableByAutoScheduler(task, nowMillis) &&
                     SchedulingDateSanityValidator.isEntityEligibleForDay(
                         task = task,

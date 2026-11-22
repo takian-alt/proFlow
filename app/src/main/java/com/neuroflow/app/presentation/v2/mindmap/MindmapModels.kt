@@ -24,6 +24,10 @@ data class MindmapGoalNode(
     override val y: Float,
     override val width: Float = 190f,
     override val height: Float = 90f,
+    val description: String = "",
+    val targetDate: Long? = null,
+    val priority: Priority = Priority.MEDIUM,
+    val tags: String = "",
     val totalTasks: Int = 0,
     val completedTasks: Int = 0,
     override val isCollapsed: Boolean = false,
@@ -128,5 +132,6 @@ data class MindmapUiState(
     val goalSummaries: List<GoalSummaryUi> = emptyList(),
     val allRawTasks: List<com.neuroflow.app.data.local.entity.TaskEntity> = emptyList(),
     val breakdownPreview: List<com.neuroflow.app.domain.assistant.GoalBreakdownMilestone>? = null,
+    val selectedTagFilter: String? = null,
     val actionMessage: String? = null
 )

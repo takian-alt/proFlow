@@ -5,7 +5,14 @@ import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.MindmapEdgeEntity
 import com.neuroflow.app.data.local.entity.MindmapNodePositionEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
+import com.neuroflow.app.domain.model.EnergyLevel
+import com.neuroflow.app.domain.model.Priority
 import com.neuroflow.app.domain.model.TaskStatus
+import com.neuroflow.app.domain.model.TaskType
+import com.neuroflow.app.domain.scheduler.SchedulableTaskMapper
+import com.neuroflow.app.domain.scheduler.TagEnergyDemand
+import com.neuroflow.app.domain.scheduler.TaskCategory
+import com.neuroflow.app.domain.scheduler.TaskTagSchedulingProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import java.util.UUID
@@ -353,11 +360,20 @@ class MindmapRepository @Inject constructor(
         }
     }
 
-    suspend fun createGoal(title: String, description: String = "", targetDate: Long? = null): GoalEntity {
+    suspend fun createGoal(
+        title: String,
+        description: String = "",
+        targetDate: Long? = null,
+        priority: Priority = Priority.MEDIUM,
+        tags: String = ""
+    ): GoalEntity {
+        val normalizedTags = SchedulableTaskMapper.mergeTagsCsv(tags, "")
         val goal = GoalEntity(
             title = title,
             description = description,
             targetDate = targetDate,
+            priority = priority,
+            tags = normalizedTags,
             createdAt = System.currentTimeMillis()
         )
         goalRepository.insert(goal)
@@ -365,7 +381,50 @@ class MindmapRepository @Inject constructor(
     }
 
     suspend fun updateGoal(goal: GoalEntity) {
-        goalRepository.update(goal)
+        goalRepository.update(goal.copy(tags = SchedulableTaskMapper.mergeTagsCsv(goal.tags, "")))
+    }
+
+    suspend fun syncGoalTagsToTasks(goalId: String, goalTags: String) {
+        val cleanGoalTags = SchedulableTaskMapper.mergeTagsCsv(goalTags, "")
+        if (cleanGoalTags.isBlank()) return
+        val goalTasks = taskRepository.getAllTasks().filter {
+            it.goalId == goalId && it.status != TaskStatus.COMPLETED
+        }
+        val now = System.currentTimeMillis()
+        goalTasks.forEach { task ->
+            val merged = SchedulableTaskMapper.mergeTagsCsv(task.tags, cleanGoalTags)
+            if (merged != task.tags) {
+                taskRepository.update(
+                    task.copy(
+                        tags = merged,
+                        schedulingCategory = null,
+                        updatedAt = now
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun updateTaskPriority(taskId: String, priority: Priority) {
+        val task = taskRepository.getById(taskId) ?: return
+        taskRepository.update(
+            task.copy(
+                priority = priority,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    suspend fun updateTaskTags(taskId: String, tags: String) {
+        val task = taskRepository.getById(taskId) ?: return
+        val normalized = SchedulableTaskMapper.mergeTagsCsv(tags, "")
+        taskRepository.update(
+            task.copy(
+                tags = normalized,
+                schedulingCategory = null,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
     }
 
     suspend fun deleteGoal(goalId: String) {
@@ -381,10 +440,12 @@ class MindmapRepository @Inject constructor(
         val task = taskRepository.getById(taskId) ?: return
         val goal = goalRepository.getById(newParentId)
         if (goal != null) {
+            val mergedTags = SchedulableTaskMapper.mergeTagsCsv(task.tags, goal.tags)
             taskRepository.update(
                 task.copy(
                     goalId = goal.id,
                     parentTaskId = null,
+                    tags = mergedTags,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -415,26 +476,62 @@ class MindmapRepository @Inject constructor(
         )
     }
 
+    private fun inferEnergyAndTypeFromTags(tagsCsv: String): Pair<EnergyLevel, TaskType> {
+        val profiles = TaskTagSchedulingProfile.profilesFor(tagsCsv)
+        val first = profiles.firstOrNull() ?: return EnergyLevel.MEDIUM to TaskType.ANALYTICAL
+        val energy = when (first.energyDemand) {
+            TagEnergyDemand.HIGH -> EnergyLevel.HIGH
+            TagEnergyDemand.MEDIUM -> EnergyLevel.MEDIUM
+            TagEnergyDemand.LOW -> EnergyLevel.LOW
+        }
+        val taskType = when (first.category) {
+            TaskCategory.HARD_WORK, TaskCategory.ANALYTICAL -> TaskType.ANALYTICAL
+            TaskCategory.CREATIVE -> TaskType.CREATIVE
+            TaskCategory.ROUTINE -> TaskType.ADMIN
+            TaskCategory.EXERCISE, TaskCategory.PHYSICAL -> TaskType.PHYSICAL
+            TaskCategory.MINDFULNESS -> TaskType.MINDFULNESS
+            TaskCategory.FLEXIBLE -> TaskType.GENERAL
+        }
+        return energy to taskType
+    }
+
     suspend fun spawnChildTask(
         parentId: String,
         title: String,
-        priority: com.neuroflow.app.domain.model.Priority = com.neuroflow.app.domain.model.Priority.MEDIUM
+        priority: Priority? = null,
+        tags: String = ""
     ): TaskEntity {
         val goal = goalRepository.getById(parentId)
         val newTask = if (goal != null) {
+            val inheritedTags = SchedulableTaskMapper.mergeTagsCsv(tags, goal.tags)
+            val (energy, taskType) = inferEnergyAndTypeFromTags(inheritedTags)
             TaskEntity(
                 title = title,
                 goalId = goal.id,
                 parentTaskId = null,
-                priority = priority
+                priority = priority ?: goal.priority,
+                tags = inheritedTags,
+                energyLevel = energy,
+                taskType = taskType,
+                estimatedDurationMinutes = 30
             )
         } else {
             val parentTask = taskRepository.getById(parentId)
+            val parentGoal = parentTask?.goalId?.let { goalRepository.getById(it) }
+            val inheritedTags = SchedulableTaskMapper.mergeTagsCsv(
+                tags,
+                SchedulableTaskMapper.mergeTagsCsv(parentTask?.tags.orEmpty(), parentGoal?.tags.orEmpty())
+            )
+            val (energy, taskType) = inferEnergyAndTypeFromTags(inheritedTags)
             TaskEntity(
                 title = title,
                 parentTaskId = parentId,
                 goalId = parentTask?.goalId,
-                priority = priority
+                priority = priority ?: parentTask?.priority ?: parentGoal?.priority ?: Priority.MEDIUM,
+                tags = inheritedTags,
+                energyLevel = energy,
+                taskType = taskType,
+                estimatedDurationMinutes = 30
             )
         }
         taskRepository.insert(newTask)
@@ -444,20 +541,35 @@ class MindmapRepository @Inject constructor(
     suspend fun spawnSiblingTask(
         referenceTaskId: String,
         title: String,
-        priority: com.neuroflow.app.domain.model.Priority = com.neuroflow.app.domain.model.Priority.MEDIUM
+        priority: Priority? = null,
+        tags: String = ""
     ): TaskEntity {
         val refTask = taskRepository.getById(referenceTaskId)
+        val parentGoal = refTask?.goalId?.let { goalRepository.getById(it) }
+        val inheritedTags = SchedulableTaskMapper.mergeTagsCsv(
+            tags,
+            parentGoal?.tags.orEmpty()
+        )
+        val (energy, taskType) = inferEnergyAndTypeFromTags(inheritedTags)
         val newTask = if (refTask != null) {
             TaskEntity(
                 title = title,
                 parentTaskId = refTask.parentTaskId,
                 goalId = refTask.goalId,
-                priority = priority
+                priority = priority ?: refTask.priority,
+                tags = inheritedTags,
+                energyLevel = energy,
+                taskType = taskType,
+                estimatedDurationMinutes = 30
             )
         } else {
             TaskEntity(
                 title = title,
-                priority = priority
+                priority = priority ?: Priority.MEDIUM,
+                tags = inheritedTags,
+                energyLevel = energy,
+                taskType = taskType,
+                estimatedDurationMinutes = 30
             )
         }
         taskRepository.insert(newTask)

@@ -13,9 +13,11 @@ import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.wakeTimeMillis
 import com.neuroflow.app.data.local.parsePhysiologicalLogs
 import com.neuroflow.app.data.local.parseStimulantLogs
+import com.neuroflow.app.data.repository.GoalRepository
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.assistant.BurnoutGuardEngine
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.model.Quadrant
@@ -63,6 +65,15 @@ data class BlueprintTaskItem(
     val conflictWarning: String? = null
 )
 
+data class BlueprintRecoveryBuffer(
+    val id: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val durationMinutes: Int,
+    val label: String,
+    val reason: String
+)
+
 data class DailyBlueprint(
     val targetDateMillis: Long,
     val plannedMinutes: Int,
@@ -71,7 +82,10 @@ data class DailyBlueprint(
     val aiStrategyRationale: String,
     val items: List<BlueprintTaskItem>,
     val overflowTasks: List<TaskEntity>,
-    val precommittedMinutes: Int = 0
+    val precommittedMinutes: Int = 0,
+    val recoveryBuffers: List<BlueprintRecoveryBuffer> = emptyList(),
+    val burnoutPacingSummary: String = "",
+    val maxHeavyStreakMinutes: Int = 0
 )
 
 data class BlueprintApplyResult(
@@ -89,7 +103,8 @@ class DailyBlueprintOrchestrator(
     private val preferencesDataStore: UserPreferencesDataStore,
     private val calendarSyncRepository: CalendarSyncRepository? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val sessionRepository: SessionRepository? = null
+    private val sessionRepository: SessionRepository? = null,
+    private val goalRepository: GoalRepository? = null
 ) {
 
     @Inject
@@ -101,7 +116,8 @@ class DailyBlueprintOrchestrator(
         sleepTelemetryRepository: SleepTelemetryRepository? = null,
         preferencesDataStore: UserPreferencesDataStore,
         calendarSyncRepository: CalendarSyncRepository? = null,
-        sessionRepository: SessionRepository? = null
+        sessionRepository: SessionRepository? = null,
+        goalRepository: GoalRepository? = null
     ) : this(
         taskRepository,
         schedulerService,
@@ -111,7 +127,8 @@ class DailyBlueprintOrchestrator(
         preferencesDataStore,
         calendarSyncRepository,
         Dispatchers.IO,
-        sessionRepository
+        sessionRepository,
+        goalRepository
     )
 
     suspend fun generateBlueprint(targetDateMillis: Long): DailyBlueprint =
@@ -280,6 +297,10 @@ class DailyBlueprintOrchestrator(
             task.id to Pair(steps.count { it.isCompleted }, steps.size)
         }
 
+        val goalsById = runCatching {
+            goalRepository?.getActiveGoals().orEmpty().associateBy { it.id }
+        }.getOrDefault(emptyMap())
+
         val rawSchedulableTasks = candidateTasks.map { task ->
             SchedulableTaskMapper.toSchedulableTask(
                 task = task,
@@ -287,7 +308,8 @@ class DailyBlueprintOrchestrator(
                 dayStartMillis = dayStart,
                 enjoymentCalibration = horizonCtx.enjoymentCalibration,
                 activeTaskId = activeTaskId,
-                microStepCounts = microStepCounts
+                microStepCounts = microStepCounts,
+                goalsById = goalsById
             )
         }
         val schedulableTasks = DependencyGraphValidator.sanitizeDag(rawSchedulableTasks).tasks
@@ -555,6 +577,48 @@ class DailyBlueprintOrchestrator(
         }
         includedItems.sortBy { it.proposedStartMillis }
 
+        // Proactive Burnout Prevention: break up heavy streaks & auto-insert 15–20m recovery buffers
+        val nowSnapshot = circadianEnergyService.evaluateSnapshotWithStimulants(
+            timestampMillis = dayNowMillis,
+            wakeTimeMillis = wakeTimeMillis,
+            lastSleepDurationMinutes = sleepDurationMinutes,
+            continuousActiveFocusMinutes = 0,
+            zoneId = zoneId,
+            naps = dayCtx.naps,
+            chronotype = horizonCtx.chronotype,
+            manualPeakStartHour = horizonCtx.manualPeakStartHour,
+            learnedProfile = horizonCtx.learnedProfile,
+            rollingAverageSleepMinutes = horizonCtx.rollingAverageSleepMinutes,
+            cognitiveBlocks = dayCtx.physiologicalBlocks,
+            stimulantDoses = dayCtx.stimulantDoses,
+            socialJetlagLagHours = horizonCtx.socialJetlagLagHours
+        )
+        val completedTasksKnown = allKnownTasks.filter { it.status == TaskStatus.COMPLETED }
+        val currentBurnoutRisk = BurnoutGuardEngine.evaluateBurnoutRisk(
+            prefs = prefs,
+            sessions = allSessions,
+            completedTasks = completedTasksKnown,
+            activeTasks = allActiveTasks,
+            snapshot = nowSnapshot,
+            nowMillis = dayNowMillis,
+            zoneId = zoneId
+        )
+        val effectiveWorkEndMillis = targetDate
+            .atTime(java.time.LocalTime.of(effectiveWorkDayEnd.coerceIn(12, 23), 45))
+            .atZone(zoneId).toInstant().toEpochMilli()
+        val protectedBusyWindows = dayCtx.protectedSlots.map { it.resolveForDate(targetDate, zoneId) }
+        val burnoutOptimized = BurnoutGuardEngine.optimizeBlueprintForBurnout(
+            items = includedItems,
+            busyWindows = busyWindows + protectedBusyWindows,
+            dayEndMillis = minOf(dayEnd, effectiveWorkEndMillis),
+            nowMillis = dayNowMillis,
+            isToday = isToday,
+            burnoutRisk = currentBurnoutRisk,
+            breakDurationMinutes = prefs.autoSchedulingBreakDurationMinutes.coerceIn(15, 20)
+        )
+        includedItems.clear()
+        includedItems.addAll(burnoutOptimized.items)
+
         for (candidate in candidateTasks) {
             if (candidate.id !in includedTaskIds && overflowTaskList.none { it.id == candidate.id }) {
                 overflowTaskList.add(candidate)
@@ -609,7 +673,10 @@ class DailyBlueprintOrchestrator(
             aiStrategyRationale = aiStrategyRationale,
             items = includedItems,
             overflowTasks = overflowTaskList,
-            precommittedMinutes = precommittedMinutes
+            precommittedMinutes = precommittedMinutes,
+            recoveryBuffers = burnoutOptimized.recoveryBuffers,
+            burnoutPacingSummary = burnoutOptimized.burnoutPacingSummary,
+            maxHeavyStreakMinutes = burnoutOptimized.maxHeavyStreakMinutes
         )
     }
 

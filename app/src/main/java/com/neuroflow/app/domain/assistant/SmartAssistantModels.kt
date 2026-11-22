@@ -12,30 +12,43 @@ enum class CheckInLogType(
     val emoji: String,
     val defaultMinuteOfDay: Int,
     val promptQuestion: String,
+    val pastTimeQuestion: String,
+    val primaryYesLabel: String,
+    val secondaryLaterLabel: String,
     val skipLabel: String,
     val supportsIntensity: Boolean = false,
-    val supportsStimulantSubtype: Boolean = false
+    val supportsStimulantSubtype: Boolean = false,
+    val supportsDuration: Boolean = false
 ) {
     SLEEP_RECAP(
-        displayName = "Sleep Recap",
+        displayName = "Sleep",
         emoji = "🌙",
         defaultMinuteOfDay = 8 * 60 + 30,
-        promptQuestion = "How did you sleep last night?",
-        skipLabel = "Skip sleep log today"
+        promptQuestion = "Ready to log last night's sleep?",
+        pastTimeQuestion = "When did you go to sleep & wake up?",
+        primaryYesLabel = "Log sleep",
+        secondaryLaterLabel = "Remind later",
+        skipLabel = "Skip today"
     ),
     BREAKFAST(
         displayName = "Breakfast",
         emoji = "🍳",
         defaultMinuteOfDay = 9 * 60 + 30,
-        promptQuestion = "Did you have breakfast?",
-        skipLabel = "No breakfast today",
+        promptQuestion = "Have you had breakfast yet?",
+        pastTimeQuestion = "What time did you eat breakfast?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Not yet",
+        skipLabel = "Skipping breakfast",
         supportsIntensity = true
     ),
     CAFFEINE(
-        displayName = "Caffeine / Focus Aid",
+        displayName = "Caffeine",
         emoji = "☕",
         defaultMinuteOfDay = 10 * 60 + 30,
-        promptQuestion = "Did you have coffee, tea, or a focus aid?",
+        promptQuestion = "Had coffee, tea, or a focus aid?",
+        pastTimeQuestion = "What did you have and when?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Not yet",
         skipLabel = "No caffeine today",
         supportsStimulantSubtype = true
     ),
@@ -43,22 +56,32 @@ enum class CheckInLogType(
         displayName = "Lunch",
         emoji = "🍽️",
         defaultMinuteOfDay = 13 * 60 + 30,
-        promptQuestion = "Did you have lunch?",
-        skipLabel = "No lunch today",
+        promptQuestion = "Have you had lunch yet?",
+        pastTimeQuestion = "What time did you eat lunch?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Not yet",
+        skipLabel = "Skipping lunch",
         supportsIntensity = true
     ),
     NAP(
-        displayName = "Afternoon Nap",
+        displayName = "Nap",
         emoji = "😴",
         defaultMinuteOfDay = 15 * 60,
-        promptQuestion = "Did you take a quick nap or rest?",
-        skipLabel = "No nap today"
+        promptQuestion = "Did you take a nap or short rest?",
+        pastTimeQuestion = "When did you nap and for how long?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Planning one",
+        skipLabel = "No nap today",
+        supportsDuration = true
     ),
     SNACKS(
-        displayName = "Snacks",
+        displayName = "Snack",
         emoji = "🍎",
         defaultMinuteOfDay = 16 * 60 + 30,
-        promptQuestion = "Did you have an afternoon snack?",
+        promptQuestion = "Had an afternoon snack?",
+        pastTimeQuestion = "What time did you have a snack?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Not yet",
         skipLabel = "No snacks today",
         supportsIntensity = true
     ),
@@ -67,15 +90,22 @@ enum class CheckInLogType(
         emoji = "🏃",
         defaultMinuteOfDay = 18 * 60 + 30,
         promptQuestion = "Did you get a workout or walk in?",
-        skipLabel = "No workout today",
-        supportsIntensity = true
+        pastTimeQuestion = "When did you work out?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Later today",
+        skipLabel = "Rest day",
+        supportsIntensity = true,
+        supportsDuration = true
     ),
     DINNER(
         displayName = "Dinner",
         emoji = "🥗",
         defaultMinuteOfDay = 20 * 60 + 30,
-        promptQuestion = "Did you have dinner?",
-        skipLabel = "No dinner today",
+        promptQuestion = "Have you had dinner yet?",
+        pastTimeQuestion = "What time did you eat dinner?",
+        primaryYesLabel = "Yes, log it",
+        secondaryLaterLabel = "Not yet",
+        skipLabel = "Skipping dinner",
         supportsIntensity = true
     )
 }
@@ -138,7 +168,10 @@ data class RecommendedSlotProposal(
     val energyMatchLabel: String = "$predictedEnergyPercent% energy",
     val gapContextLabel: String = "",
     val gapDurationMinutes: Int = 0,
-    val isTodayFullFallback: Boolean = false
+    val isTodayFullFallback: Boolean = false,
+    val includesRecoveryBuffer: Boolean = false,
+    val recoveryBufferMinutes: Int = 0,
+    val burnoutSafetyBadge: String? = null
 ) {
     val dayStartMillis: Long get() = dateMillis
     val reason: String get() = reasonLabel
@@ -167,6 +200,77 @@ data class GoalBreakdownMilestone(
     val subtasks: List<String>,
     val estimatedMinutesPerTask: Int = 30
 )
+
+enum class RestBreakSource {
+    MANUAL_CONFIRM,
+    BREAK_TIMER
+}
+
+data class RestBreakLog(
+    val id: String,
+    val completedAtMillis: Long,
+    val durationMinutes: Int,
+    val source: RestBreakSource = RestBreakSource.MANUAL_CONFIRM
+)
+
+enum class BurnoutRiskLevel {
+    CALM,
+    APPROACHING,
+    HIGH
+}
+
+data class BurnoutRiskState(
+    val riskScore: Float = 0f,
+    val riskLevel: BurnoutRiskLevel = BurnoutRiskLevel.CALM,
+    val unbrokenLoadMinutes: Int = 0,
+    val consecutiveHeavyTasks: Int = 0,
+    val minutesSinceLastRest: Int? = null,
+    val lastRestAtMillis: Long = 0L,
+    val lastRestDurationMinutes: Int = 0,
+    val recommendedRestMinutes: Int = 15,
+    val reasonSummary: String = "",
+    val usableEnergy: Int = 75
+) {
+    val isElevated: Boolean get() = riskLevel != BurnoutRiskLevel.CALM
+}
+
+data class RestCheckInProposal(
+    val riskState: BurnoutRiskState,
+    val title: String,
+    val message: String,
+    val recommendedRestMinutes: Int = 15,
+    val followUpMinutes: Int = 25
+)
+
+data class ActiveBreakTimerState(
+    val totalSeconds: Int = 0,
+    val remainingSeconds: Int = 0,
+    val isRunning: Boolean = false,
+    val isPaused: Boolean = false,
+    val startedAtMillis: Long = 0L
+) {
+    val isActive: Boolean get() = totalSeconds > 0 && remainingSeconds > 0
+    val elapsedMinutes: Int get() = ((totalSeconds - remainingSeconds) / 60).coerceAtLeast(0)
+    val plannedMinutes: Int get() = (totalSeconds / 60).coerceAtLeast(1)
+}
+
+object OvertimeAssistantPolicy {
+    /**
+     * Never prompt the user to enable Overtime during normal morning/daytime hours
+     * simply because a task has a deadline tonight — regular daytime hours are still ahead.
+     * Show the assistant only once the workday ends, after hitting the daily deep-work target,
+     * or while Overtime Mode is already active.
+     */
+    fun shouldShowAssistantCard(
+        isEveningShutdownTime: Boolean,
+        dailyTargetReached: Boolean,
+        isOvertimeActive: Boolean,
+        eveningShutdownDismissed: Boolean
+    ): Boolean {
+        if (eveningShutdownDismissed) return false
+        return isOvertimeActive || isEveningShutdownTime || dailyTargetReached
+    }
+}
 
 object SmartAssistantCodecs {
     fun defaultCheckInConfigs(): List<CheckInConfigEntry> =
@@ -259,6 +363,52 @@ object SmartAssistantCodecs {
         }.toString()
     }
 
+    fun parseRestBreakLogs(json: String?): List<RestBreakLog> {
+        if (json.isNullOrBlank() || json == "[]") return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            val result = mutableListOf<RestBreakLog>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val completedAt = obj.optLong("completedAtMillis", 0L)
+                val duration = obj.optInt("durationMinutes", 0)
+                if (completedAt <= 0L || duration <= 0) continue
+                val id = obj.optString("id").ifBlank { "rest_$completedAt" }
+                val source = runCatching {
+                    RestBreakSource.valueOf(obj.optString("source", RestBreakSource.MANUAL_CONFIRM.name))
+                }.getOrDefault(RestBreakSource.MANUAL_CONFIRM)
+                result.add(
+                    RestBreakLog(
+                        id = id,
+                        completedAtMillis = completedAt,
+                        durationMinutes = duration.coerceIn(1, 240),
+                        source = source
+                    )
+                )
+            }
+            result.sortedByDescending { it.completedAtMillis }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun encodeRestBreakLogs(logs: List<RestBreakLog>): String {
+        val arr = JSONArray()
+        logs.sortedByDescending { it.completedAtMillis }
+            .take(30)
+            .forEach { log ->
+                arr.put(
+                    JSONObject().apply {
+                        put("id", log.id)
+                        put("completedAtMillis", log.completedAtMillis)
+                        put("durationMinutes", log.durationMinutes.coerceIn(1, 240))
+                        put("source", log.source.name)
+                    }
+                )
+            }
+        return arr.toString()
+    }
+
     fun formatMinuteOfDay(minuteOfDay: Int): String {
         val clamped = minuteOfDay.coerceIn(0, 1439)
         val hour24 = clamped / 60
@@ -275,6 +425,48 @@ object SmartAssistantCodecs {
     fun formatTimestampShort(millis: Long, zoneId: ZoneId = ZoneId.systemDefault()): String {
         val zdt = Instant.ofEpochMilli(millis).atZone(zoneId)
         return formatMinuteOfDay(zdt.hour * 60 + zdt.minute)
+    }
+
+    fun formatDurationCompact(durationMinutes: Int): String {
+        val clamped = durationMinutes.coerceAtLeast(0)
+        val hours = clamped / 60
+        val mins = clamped % 60
+        return when {
+            hours > 0 && mins > 0 -> "${hours}h ${mins}m"
+            hours > 0 -> "${hours}h"
+            else -> "${mins}m"
+        }
+    }
+
+    /**
+     * Resolves a chosen bedtime (hour:minute) and wake time (hour:minute) into exact epoch millis
+     * for the most recent completed sleep window relative to [nowMillis].
+     * Handles cross-midnight bedtimes (e.g. 11:00 PM -> 7:00 AM), post-midnight bedtimes
+     * (e.g. 1:30 AM -> 8:00 AM), and prevents future wake timestamps.
+     */
+    fun resolveLastNightSleepInterval(
+        bedHour: Int,
+        bedMinute: Int,
+        wakeHour: Int,
+        wakeMinute: Int,
+        nowMillis: Long = System.currentTimeMillis(),
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Pair<Long, Long> {
+        val nowZdt = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+        val today = nowZdt.toLocalDate()
+        var wakeZdt = today
+            .atTime(wakeHour.coerceIn(0, 23), wakeMinute.coerceIn(0, 59))
+            .atZone(zoneId)
+        if (wakeZdt.toInstant().toEpochMilli() > nowMillis + 10 * 60_000L) {
+            wakeZdt = wakeZdt.minusDays(1)
+        }
+        var bedZdt = wakeZdt.toLocalDate()
+            .atTime(bedHour.coerceIn(0, 23), bedMinute.coerceIn(0, 59))
+            .atZone(zoneId)
+        if (!bedZdt.isBefore(wakeZdt)) {
+            bedZdt = bedZdt.minusDays(1)
+        }
+        return bedZdt.toInstant().toEpochMilli() to wakeZdt.toInstant().toEpochMilli()
     }
 
     fun currentEpochDay(nowMillis: Long = System.currentTimeMillis(), zoneId: ZoneId = ZoneId.systemDefault()): Long {

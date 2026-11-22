@@ -174,4 +174,39 @@ class RoomMigrationTest {
             db.close()
         }
     }
+
+    @Test
+    fun testMigration25To26AddsGoalPriorityAndTagsColumns() {
+        val db = createInMemoryDb(25) { database ->
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS `goals` (
+                    `id` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `description` TEXT NOT NULL,
+                    `targetDate` INTEGER,
+                    `isCompleted` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+            """.trimIndent())
+        }
+        try {
+            db.execSQL("""
+                INSERT INTO goals (id, title, description, targetDate, isCompleted, createdAt, updatedAt)
+                VALUES ('g1', 'Launch Portfolio', 'Ship site', NULL, 0, 1000, 1000)
+            """.trimIndent())
+
+            MIGRATION_25_26.migrate(db)
+
+            val cursor = db.query("SELECT title, priority, tags FROM goals WHERE id = 'g1'")
+            assertTrue("Existing goal must be preserved across migration 25->26", cursor.moveToFirst())
+            assertEquals("Launch Portfolio", cursor.getString(0))
+            assertEquals("MEDIUM", cursor.getString(1))
+            assertEquals("", cursor.getString(2))
+            cursor.close()
+        } finally {
+            db.close()
+        }
+    }
 }

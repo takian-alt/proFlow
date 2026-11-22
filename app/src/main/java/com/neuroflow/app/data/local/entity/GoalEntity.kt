@@ -2,6 +2,7 @@ package com.neuroflow.app.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.neuroflow.app.domain.model.Priority
 import java.util.UUID
 
 @Entity(tableName = "goals")
@@ -11,6 +12,8 @@ data class GoalEntity(
     val description: String = "",
     val targetDate: Long? = null,
     val identityStatement: String = "",
+    val priority: Priority = Priority.MEDIUM,
+    val tags: String = "",
     val completedTaskCount: Int = 0,
     val isActive: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()

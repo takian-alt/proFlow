@@ -1,6 +1,7 @@
 package com.neuroflow.app.domain.scheduler
 
 import com.neuroflow.app.data.local.UserPreferences
+import com.neuroflow.app.data.local.entity.GoalEntity
 import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.effectiveScheduledDateMillis
 import com.neuroflow.app.data.local.entity.resolveDeadlineEpochMillis
@@ -56,9 +57,17 @@ object SchedulableTaskMapper {
         enjoymentCalibration: AnalyticsEngine.EnjoymentCalibration? = null,
         activeTaskId: String? = null,
         microStepCounts: Map<String, Pair<Int, Int>> = emptyMap(),
-        usePlannedBlockForScoring: Boolean = false
+        usePlannedBlockForScoring: Boolean = false,
+        goalsById: Map<String, GoalEntity> = emptyMap()
     ): SchedulableTask {
-        val tagProfiles = TaskTagSchedulingProfile.profilesFor(task.tags)
+        val parentGoal = task.goalId?.let { goalsById[it] }
+        val effectiveTagsCsv = mergeTagsCsv(task.tags, parentGoal?.tags.orEmpty())
+        val effectiveTaskForRouting = if (effectiveTagsCsv != task.tags) {
+            task.copy(tags = effectiveTagsCsv)
+        } else {
+            task
+        }
+        val tagProfiles = TaskTagSchedulingProfile.profilesFor(effectiveTagsCsv)
         val fragTolerance = tagProfiles.minOfOrNull { it.fragmentationTolerance } ?: 0.5f
         val inferredContext = task.contextTag.ifBlank {
             tagProfiles.firstNotNullOfOrNull { it.preferredContext }.orEmpty()
@@ -154,10 +163,25 @@ object SchedulableTaskMapper {
             task.resolveDeadlineEpochMillis()
         }
 
+        val effectiveGoalRiskLevel = run {
+            var risk = task.goalRiskLevel.coerceIn(0, 2)
+            if (parentGoal != null) {
+                if (parentGoal.priority == Priority.HIGH) {
+                    risk = maxOf(risk, 1)
+                }
+                val targetDate = parentGoal.targetDate
+                val anchor = dayStartMillis ?: System.currentTimeMillis()
+                if (targetDate != null && targetDate - anchor <= 7L * 24 * 3600_000L) {
+                    risk = maxOf(risk, 2)
+                }
+            }
+            risk
+        }
+
         return SchedulableTask(
             id = task.id,
             title = if (!task.isScheduleLocked && !isPart2Continuation && !usePlannedBlockForScoring) cleanTitle else task.title,
-            category = toServiceCategory(task),
+            category = toServiceCategory(effectiveTaskForRouting),
             priority = when (task.priority) {
                 Priority.HIGH -> 2
                 Priority.MEDIUM -> 1
@@ -201,13 +225,30 @@ object SchedulableTaskMapper {
             effortScore = task.effortScore,
             preferredDayStartMillis = task.effectiveScheduledDateMillis() ?: task.habitDate,
             isWaitingFor = task.waitingFor.isNotBlank(),
-            goalRiskLevel = task.goalRiskLevel.coerceIn(0, 2),
+            goalRiskLevel = effectiveGoalRiskLevel,
             hasGoalAlignment = !task.goalId.isNullOrBlank(),
             isPublicCommitment = task.isPublicCommitment,
             isHabitual = task.isHabitual || task.recurrence != Recurrence.NONE,
             habitStreak = task.habitStreak.coerceAtLeast(0),
             priorSessionCount = task.sessionCount.coerceAtLeast(0)
         )
+    }
+
+    fun mergeTagsCsv(primaryCsv: String, secondaryCsv: String): String {
+        val seen = LinkedHashSet<String>()
+        val result = mutableListOf<String>()
+        listOf(primaryCsv, secondaryCsv).forEach { csv ->
+            csv.split(',')
+                .map { it.trim().trimStart('#', '@') }
+                .filter { it.isNotBlank() }
+                .forEach { tag ->
+                    val key = tag.lowercase()
+                    if (seen.add(key)) {
+                        result.add(tag)
+                    }
+                }
+        }
+        return result.joinToString(",")
     }
 
     fun computeDependentCounts(tasks: List<SchedulableTask>): Map<String, Int> {

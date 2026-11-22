@@ -62,11 +62,15 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.remember
+import com.neuroflow.app.domain.assistant.ActiveBreakTimerState
+import com.neuroflow.app.domain.assistant.BurnoutRiskLevel
+import com.neuroflow.app.domain.assistant.BurnoutRiskState
 import com.neuroflow.app.domain.model.StepByStepPlanStep
 import com.neuroflow.app.domain.service.CircadianSnapshot
 import com.neuroflow.app.domain.service.CognitiveBlockCategory
 import com.neuroflow.app.domain.service.CognitiveBlockWindow
 import com.neuroflow.app.domain.service.EnergyPhase
+import com.neuroflow.app.domain.service.FatigueWarningLevel
 import com.neuroflow.app.domain.service.TaskFatigueScoreUi
 import com.neuroflow.app.presentation.v2.common.FatigueAwareScoreBadge
 import com.neuroflow.app.presentation.v2.common.FatigueBurnoutWarningBanner
@@ -96,7 +100,11 @@ fun FlowSpotlightHeroCard(
     isLowBatterySuggested: Boolean = false,
     topTaskFatigueScore: TaskFatigueScoreUi? = null,
     isOvertimeActive: Boolean = false,
-    onEnableOvertimeClick: (() -> Unit)? = null
+    onEnableOvertimeClick: (() -> Unit)? = null,
+    burnoutRiskState: BurnoutRiskState = BurnoutRiskState(),
+    activeBreakTimer: ActiveBreakTimerState = ActiveBreakTimerState(),
+    onStartBreakTimer: ((Int) -> Unit)? = null,
+    onLogRestBreak: ((Int) -> Unit)? = null
 ) {
     val phaseAccent = NeuroFlowPaletteV2.accentForPhase(currentPhase)
     val cardShape = RoundedCornerShape(24.dp)
@@ -165,10 +173,69 @@ fun FlowSpotlightHeroCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Deep work is paused to protect your ${activeTakeoverSlot.slot.category.name.lowercase()} window and discharge synaptic fatigue.",
+                    text = "Suggested ${activeTakeoverSlot.slot.category.name.lowercase()} recovery window to discharge fatigue — rest now, or continue your task if needed.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = NeuroFlowPaletteV2.TextSecondary
                 )
+                if (topTaskId != null && !topTaskTitle.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val mins = activeTakeoverSlot.minutesLeft.coerceIn(5, 30)
+                                if (onStartBreakTimer != null) onStartBreakTimer(mins) else onLogRestBreak?.invoke(mins)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NeuroFlowPaletteV2.OptimalEmerald,
+                                contentColor = NeuroFlowPaletteV2.onAccentColor(NeuroFlowPaletteV2.OptimalEmerald)
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("recovery_slot_rest_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SelfImprovement,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Take Rest",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                maxLines = 1
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { onStartFocusClick(topTaskId) },
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, phaseAccent.copy(alpha = 0.6f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeuroFlowPaletteV2.TextPrimary),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("recovery_slot_continue_task_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = phaseAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Work Anyway",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
         }
         return
@@ -441,7 +508,91 @@ fun FlowSpotlightHeroCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            if (topTaskFatigueScore != null) {
+            val showRestCompanion = burnoutRiskState.isElevated ||
+                topTaskFatigueScore?.warningLevel == FatigueWarningLevel.HIGH_BURNOUT_RISK
+            val recommendedRestMins = burnoutRiskState.recommendedRestMinutes.coerceIn(10, 20)
+            var showInlineRestLogChips by remember(topTaskId, burnoutRiskState.lastRestAtMillis) {
+                mutableStateOf(false)
+            }
+
+            if (showRestCompanion) {
+                val burnoutAccent = if (burnoutRiskState.riskLevel == BurnoutRiskLevel.HIGH ||
+                    topTaskFatigueScore?.warningLevel == FatigueWarningLevel.HIGH_BURNOUT_RISK
+                ) {
+                    NeuroFlowPaletteV2.RecoveryRose
+                } else {
+                    NeuroFlowPaletteV2.PeakAmber
+                }
+                val summaryText = burnoutRiskState.reasonSummary.ifBlank {
+                    topTaskFatigueScore?.warningReason ?: "Burnout load rising · ${recommendedRestMins}m reset recommended"
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = burnoutAccent.copy(alpha = 0.11f),
+                    border = BorderStroke(1.dp, burnoutAccent.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("flow_burnout_companion_strip")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SelfImprovement,
+                                    contentDescription = null,
+                                    tint = burnoutAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (burnoutRiskState.riskLevel == BurnoutRiskLevel.HIGH) {
+                                        "BURNOUT NEAR · REST RECOMMENDED"
+                                    } else {
+                                        "STRAIN RISING · REST COMPANION"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                    color = burnoutAccent,
+                                    letterSpacing = 0.7.sp
+                                )
+                            }
+                            if (burnoutRiskState.unbrokenLoadMinutes > 0) {
+                                Text(
+                                    text = "${burnoutRiskState.unbrokenLoadMinutes}m load",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontFeatureSettings = "tnum"
+                                    ),
+                                    color = burnoutAccent
+                                )
+                            }
+                        }
+                        Text(
+                            text = summaryText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeuroFlowPaletteV2.TextPrimary
+                        )
+                        LinearProgressIndicator(
+                            progress = { burnoutRiskState.riskScore.coerceIn(0.15f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = burnoutAccent,
+                            trackColor = NeuroFlowPaletteV2.BorderSubtle.copy(alpha = 0.35f)
+                        )
+                    }
+                }
+            } else if (topTaskFatigueScore != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 FatigueAwareScoreBadge(score = topTaskFatigueScore)
                 Spacer(modifier = Modifier.height(6.dp))
@@ -609,92 +760,341 @@ fun FlowSpotlightHeroCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(
-                    onClick = { onStartFocusClick(topTaskId) },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = phaseAccent,
-                        contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .shadow(2.dp, RoundedCornerShape(14.dp))
+            if (showRestCompanion) {
+                // Co-Equal Dual Primary Row: Next Task alongside Rest Suggestion (assists without enforcing)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) "Quick Wrap-Up" else "Launch Focus",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
-                    )
+                    Button(
+                        onClick = { onStartFocusClick(topTaskId) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = phaseAccent,
+                            contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .shadow(2.dp, RoundedCornerShape(14.dp))
+                            .testTag("flow_launch_focus_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) "Wrap-Up" else "Launch Focus",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            if (onStartBreakTimer != null) {
+                                onStartBreakTimer(recommendedRestMins)
+                            } else {
+                                showInlineRestLogChips = !showInlineRestLogChips
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeuroFlowPaletteV2.OptimalEmerald,
+                            contentColor = NeuroFlowPaletteV2.onAccentColor(NeuroFlowPaletteV2.OptimalEmerald)
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .shadow(2.dp, RoundedCornerShape(14.dp))
+                            .testTag("flow_take_rest_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SelfImprovement,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = if (activeBreakTimer.isActive) "Resting…" else "Take ${recommendedRestMins}m Rest",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-                if ((currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) && onShutdownClick != null) {
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Secondary row: 1-tap "Already rested? Log" + 2m Start + Quick Done
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onLogRestBreak != null) {
+                        Surface(
+                            color = if (showInlineRestLogChips) {
+                                NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.18f)
+                            } else {
+                                NeuroFlowPaletteV2.SurfaceElevated
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .testTag("flow_log_rest_toggle")
+                                .clickable { showInlineRestLogChips = !showInlineRestLogChips }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocalCafe,
+                                    contentDescription = "Log rest break",
+                                    tint = NeuroFlowPaletteV2.OptimalEmerald,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Already rested? Log ✓",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = NeuroFlowPaletteV2.OptimalEmerald,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    if (onDoorway2mStart != null) {
+                        Surface(
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .testTag("doorway_2m_start_button")
+                                .clickable { onDoorway2mStart(topTaskId) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = "2-minute doorway focus start",
+                                    tint = NeuroFlowPaletteV2.ReboundCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "2m",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = NeuroFlowPaletteV2.ReboundCyan
+                                )
+                            }
+                        }
+                    }
+
                     Surface(
                         color = NeuroFlowPaletteV2.SurfaceElevated,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, phaseAccent.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
                         modifier = Modifier
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable { onShutdownClick() }
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onCompleteQuickClick(topTaskId) }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ShieldMoon,
-                                contentDescription = "Shutdown",
-                                tint = phaseAccent,
+                                imageVector = Icons.Default.CheckCircleOutline,
+                                contentDescription = "Complete Task",
+                                tint = NeuroFlowPaletteV2.OptimalEmerald,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Shutdown",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = NeuroFlowPaletteV2.TextPrimary
-                            )
                         }
                     }
-                } else if (onDoorway2mStart != null) {
-                    Surface(
-                        color = NeuroFlowPaletteV2.SurfaceElevated,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.55f)),
+                }
+
+                AnimatedVisibility(visible = showInlineRestLogChips && onLogRestBreak != null) {
+                    Column(
                         modifier = Modifier
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .testTag("doorway_2m_start_button")
-                            .clickable { onDoorway2mStart(topTaskId) }
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        Text(
+                            text = "How long did you rest?",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NeuroFlowPaletteV2.TextSecondary
+                        )
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Timer,
-                                contentDescription = "2-minute doorway focus start",
-                                tint = NeuroFlowPaletteV2.ReboundCyan,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "2m Start",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = NeuroFlowPaletteV2.ReboundCyan
-                            )
+                            listOf(5, 10, 15, 20, 30).forEach { mins ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.16f),
+                                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.55f)),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .testTag("flow_rest_chip_$mins")
+                                        .clickable {
+                                            showInlineRestLogChips = false
+                                            onLogRestBreak?.invoke(mins)
+                                        }
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = "${mins}m",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontFeatureSettings = "tnum"
+                                            ),
+                                            color = NeuroFlowPaletteV2.OptimalEmerald
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                } else if (onQuickFocusClick != null) {
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { onStartFocusClick(topTaskId) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = phaseAccent,
+                            contentColor = NeuroFlowPaletteV2.onAccentColor(phaseAccent)
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .shadow(2.dp, RoundedCornerShape(14.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) "Quick Wrap-Up" else "Launch Focus",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                        )
+                    }
+                    if ((currentPhase == EnergyPhase.WIND_DOWN || currentPhase == EnergyPhase.TROUGH) && onShutdownClick != null) {
+                        Surface(
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, phaseAccent.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onShutdownClick() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ShieldMoon,
+                                    contentDescription = "Shutdown",
+                                    tint = phaseAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Shutdown",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = NeuroFlowPaletteV2.TextPrimary
+                                )
+                            }
+                        }
+                    } else if (onDoorway2mStart != null) {
+                        Surface(
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.55f)),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .testTag("doorway_2m_start_button")
+                                .clickable { onDoorway2mStart(topTaskId) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = "2-minute doorway focus start",
+                                    tint = NeuroFlowPaletteV2.ReboundCyan,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "2m Start",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = NeuroFlowPaletteV2.ReboundCyan
+                                )
+                            }
+                        }
+                    } else if (onQuickFocusClick != null) {
+                        Surface(
+                            color = NeuroFlowPaletteV2.SurfaceElevated,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onQuickFocusClick() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = "Quick Focus",
+                                    tint = phaseAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Free Flow",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = NeuroFlowPaletteV2.TextPrimary
+                                )
+                            }
+                        }
+                    }
                     Surface(
                         color = NeuroFlowPaletteV2.SurfaceElevated,
                         shape = RoundedCornerShape(14.dp),
@@ -702,52 +1102,25 @@ fun FlowSpotlightHeroCard(
                         modifier = Modifier
                             .height(48.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .clickable { onQuickFocusClick() }
+                            .clickable { onCompleteQuickClick(topTaskId) }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Bolt,
-                                contentDescription = "Quick Focus",
-                                tint = phaseAccent,
+                                imageVector = Icons.Default.CheckCircleOutline,
+                                contentDescription = "Complete Task",
+                                tint = NeuroFlowPaletteV2.OptimalEmerald,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Free Flow",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                text = "Done",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                                 color = NeuroFlowPaletteV2.TextPrimary
                             )
                         }
-                    }
-                }
-                Surface(
-                    color = NeuroFlowPaletteV2.SurfaceElevated,
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.BorderSubtle),
-                    modifier = Modifier
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { onCompleteQuickClick(topTaskId) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircleOutline,
-                            contentDescription = "Complete Task",
-                            tint = NeuroFlowPaletteV2.OptimalEmerald,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Done",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = NeuroFlowPaletteV2.TextPrimary
-                        )
                     }
                 }
             }

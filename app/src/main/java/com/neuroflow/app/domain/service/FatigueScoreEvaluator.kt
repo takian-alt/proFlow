@@ -5,6 +5,7 @@ import com.neuroflow.app.data.local.entity.TaskEntity
 import com.neuroflow.app.data.local.entity.TimeSessionEntity
 import com.neuroflow.app.data.local.entity.resolveScheduledEpochMillis
 import com.neuroflow.app.data.local.entity.timelineStartMinuteOfDay
+import com.neuroflow.app.domain.assistant.BurnoutGuardEngine
 import com.neuroflow.app.domain.engine.AnalyticsEngine
 import com.neuroflow.app.domain.model.EnergyLevel
 import com.neuroflow.app.domain.scheduler.SchedulableTaskMapper
@@ -180,6 +181,7 @@ object FatigueScoreEvaluator {
         }.sortedBy { it.startMillis }
 
         val latestRealizedEnd = realizedBlocks.maxOfOrNull { it.endMillis } ?: nowMillis
+        val todayRestLogs = BurnoutGuardEngine.collectTodayRestLogs(prefs, dayStartMillis, max(nowMillis, dayEndMillis))
 
         return tasks.associate { task ->
             val schedulable = schedulablesById[task.id]!!
@@ -211,13 +213,30 @@ object FatigueScoreEvaluator {
                 )
             }
 
-            val cumulativeLoad = FatigueHeuristic.computeCumulativeCognitiveLoadAt(
+            val rawCumulativeLoad = FatigueHeuristic.computeCumulativeCognitiveLoadAt(
                 timestampMillis = evalTime,
                 placements = priorPlacements
             )
 
-            val recentSeries = computeRecentSeriesStats(priorBlocks, evalTime)
-            val priorLongSessionCount = priorBlocks.count { it.durationMinutes >= LONG_SESSION_THRESHOLD_MINUTES } +
+            // Apply explicit rest break discharge for breaks logged before evalTime
+            val latestPriorBlockStart = priorBlocks.minOfOrNull { it.startMillis } ?: dayStartMillis
+            val applicableRests = todayRestLogs.filter {
+                it.completedAtMillis in latestPriorBlockStart..evalTime
+            }
+            val totalDischarged = applicableRests.sumOf { BurnoutGuardEngine.restDischargeMinutes(it.durationMinutes) }
+            val latestQualifyingRestEnd = applicableRests
+                .filter { it.durationMinutes >= 10 }
+                .maxOfOrNull { it.completedAtMillis }
+            val cumulativeLoad = (rawCumulativeLoad - totalDischarged).coerceAtLeast(0.0)
+
+            val blocksAfterRest = if (latestQualifyingRestEnd != null) {
+                priorBlocks.filter { it.endMillis > latestQualifyingRestEnd }
+            } else {
+                priorBlocks
+            }
+
+            val recentSeries = computeRecentSeriesStats(blocksAfterRest, evalTime)
+            val priorLongSessionCount = blocksAfterRest.count { it.durationMinutes >= LONG_SESSION_THRESHOLD_MINUTES } +
                 recentSeries.consolidatedShortLongBouts
 
             val baseSnapshot = if (timeline.isNotEmpty()) {

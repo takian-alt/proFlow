@@ -28,6 +28,8 @@ import com.neuroflow.app.data.local.MIGRATION_20_21
 import com.neuroflow.app.data.local.MIGRATION_21_22
 import com.neuroflow.app.data.local.MIGRATION_22_23
 import com.neuroflow.app.data.local.MIGRATION_23_24
+import com.neuroflow.app.data.local.MIGRATION_24_25
+import com.neuroflow.app.data.local.MIGRATION_25_26
 import com.neuroflow.app.data.local.NeuroFlowDatabase
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.local.dao.EnergyPredictionDao
@@ -93,7 +95,9 @@ object AppModule {
                 MIGRATION_20_21,
                 MIGRATION_21_22,
                 MIGRATION_22_23,
-                MIGRATION_23_24
+                MIGRATION_23_24,
+                MIGRATION_24_25,
+                MIGRATION_25_26
             )
             .addCallback(object : androidx.room.RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {

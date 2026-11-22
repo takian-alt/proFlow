@@ -31,12 +31,17 @@ object TaskSlotRecommender {
 
     private const val STEP_MINUTES = 15
     private const val BUFFER_MINUTES = 5
+    private const val RECOVERY_BUFFER_MINUTES = 15
+    private const val HEAVY_STREAK_CEILING_MINUTES = 75
     private const val NEIGHBOR_CONTEXT_WINDOW_MS = 3 * 3_600_000L
 
     private data class NamedBusyInterval(
         val startMillis: Long,
         val endMillis: Long,
-        val label: String
+        val rawEndMillis: Long,
+        val durationMinutes: Int,
+        val label: String,
+        val isHeavy: Boolean
     )
 
     fun recommendSlots(
@@ -52,7 +57,8 @@ object TaskSlotRecommender {
         zoneId: ZoneId = ZoneId.systemDefault(),
         excludeTaskId: String? = null,
         isFrog: Boolean = false,
-        priority: Priority = Priority.MEDIUM
+        priority: Priority = Priority.MEDIUM,
+        burnoutRiskState: BurnoutRiskState? = null
     ): List<RecommendedSlotProposal> {
         val dur = durationMinutes.coerceIn(10, 240)
         val nowZdt = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
@@ -78,8 +84,10 @@ object TaskSlotRecommender {
 
         for (date in candidateDates) {
             val isDateToday = date == today
-            val allowOvertimeOnDate = isDateToday && (isOvertimeToday || isUrgentTomorrowMorning)
-            val dateProposals = findSlotsForDate(
+            // Prefer regular daytime slots first; only unlock evening overtime slots if
+            // Overtime Mode is explicitly enabled OR no regular daytime slots fit before an urgent deadline.
+            val primaryAllowOvertime = isDateToday && isOvertimeToday
+            var dateProposals = findSlotsForDate(
                 date = date,
                 durationMinutes = dur,
                 energyLevel = energyLevel,
@@ -88,14 +96,35 @@ object TaskSlotRecommender {
                 energyTimeline = if (isDateToday) energyTimeline else emptyList(),
                 prefs = prefs,
                 nowMillis = nowMillis,
-                allowOvertime = allowOvertimeOnDate,
+                allowOvertime = primaryAllowOvertime,
                 isUrgentTomorrowMorning = isUrgentTomorrowMorning,
                 zoneId = zoneId,
                 excludeTaskId = excludeTaskId,
                 isFrog = isFrog,
                 priority = priority,
-                isTodayFullFallback = !isDateToday && todayHadNoSlots
+                isTodayFullFallback = !isDateToday && todayHadNoSlots,
+                burnoutRiskState = if (isDateToday) burnoutRiskState else null
             )
+            if (isDateToday && dateProposals.isEmpty() && !primaryAllowOvertime && isUrgentTomorrowMorning) {
+                dateProposals = findSlotsForDate(
+                    date = date,
+                    durationMinutes = dur,
+                    energyLevel = energyLevel,
+                    deadlineMillis = deadlineMillis,
+                    existingTasks = existingTasks,
+                    energyTimeline = energyTimeline,
+                    prefs = prefs,
+                    nowMillis = nowMillis,
+                    allowOvertime = true,
+                    isUrgentTomorrowMorning = true,
+                    zoneId = zoneId,
+                    excludeTaskId = excludeTaskId,
+                    isFrog = isFrog,
+                    priority = priority,
+                    isTodayFullFallback = false,
+                    burnoutRiskState = burnoutRiskState
+                )
+            }
             if (isDateToday && dateProposals.isEmpty()) {
                 todayHadNoSlots = true
             }
@@ -130,7 +159,8 @@ object TaskSlotRecommender {
         excludeTaskId: String?,
         isFrog: Boolean,
         priority: Priority,
-        isTodayFullFallback: Boolean
+        isTodayFullFallback: Boolean,
+        burnoutRiskState: BurnoutRiskState?
     ): List<RecommendedSlotProposal> {
         val dayStartMillis = date.atStartOfDay(zoneId).toInstant().toEpochMilli()
         val dayEndBoundary = date.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
@@ -156,6 +186,20 @@ object TaskSlotRecommender {
         }
         if (horizonStart + durationMinutes * 60_000L > finalHorizonEnd) return emptyList()
 
+        val isNewTaskHeavy = energyLevel == EnergyLevel.HIGH ||
+            isFrog ||
+            (energyLevel == EnergyLevel.MEDIUM && durationMinutes >= 45)
+        val activeBurnoutRecoveryMins = if (date == today && burnoutRiskState?.isElevated == true && isNewTaskHeavy) {
+            burnoutRiskState.recommendedRestMinutes.coerceIn(RECOVERY_BUFFER_MINUTES, 20)
+        } else {
+            0
+        }
+        val activeBurnoutReadyMillis = if (activeBurnoutRecoveryMins > 0) {
+            roundUpToStep(nowMillis + activeBurnoutRecoveryMins * 60_000L, STEP_MINUTES)
+        } else {
+            0L
+        }
+
         val busy = mutableListOf<NamedBusyInterval>()
         existingTasks.forEach { task ->
             if (task.id == excludeTaskId || task.status != TaskStatus.ACTIVE) return@forEach
@@ -164,11 +208,15 @@ object TaskSlotRecommender {
             if (task.scheduledTime == null) return@forEach
             if ((sDate != null && sDate in dayStartMillis..dayEndBoundary) || start in dayStartMillis..dayEndBoundary) {
                 val dur = TaskBlockPlan.plannedMinutes(task).coerceIn(5, 480)
+                val rawEnd = start + dur * 60_000L
                 busy.add(
                     NamedBusyInterval(
                         startMillis = start,
-                        endMillis = start + (dur + BUFFER_MINUTES) * 60_000L,
-                        label = task.title.trim().ifBlank { "Task" }
+                        endMillis = rawEnd + BUFFER_MINUTES * 60_000L,
+                        rawEndMillis = rawEnd,
+                        durationMinutes = dur,
+                        label = task.title.trim().ifBlank { "Task" },
+                        isHeavy = BurnoutGuardEngine.isHeavyTask(task)
                     )
                 )
             }
@@ -177,12 +225,16 @@ object TaskSlotRecommender {
         prefs.protectedTimeSlots.filter { it.isEnabled }.forEach { slot ->
             val startMin = slot.startMinuteOfDay.coerceIn(0, 1439)
             val start = date.atTime(startMin / 60, startMin % 60).atZone(zoneId).toInstant().toEpochMilli()
-            val end = start + (slot.durationMinutes + slot.recoveryBufferMinutes) * 60_000L
+            val rawEnd = start + slot.durationMinutes * 60_000L
+            val end = rawEnd + slot.recoveryBufferMinutes * 60_000L
             busy.add(
                 NamedBusyInterval(
                     startMillis = start,
                     endMillis = end,
-                    label = slot.label.trim().ifBlank { "Protected Block" }
+                    rawEndMillis = rawEnd,
+                    durationMinutes = slot.durationMinutes,
+                    label = slot.label.trim().ifBlank { "Protected Block" },
+                    isHeavy = false
                 )
             )
         }
@@ -230,11 +282,97 @@ object TaskSlotRecommender {
                     else -> 0
                 }
                 val earlinessBonus = if (date == today) {
-                    val hoursOut = ((cursor - horizonStart) / 3_600_000.0).coerceAtLeast(0.0)
+                    val effectiveStartRef = if (activeBurnoutReadyMillis > horizonStart) activeBurnoutReadyMillis else horizonStart
+                    val hoursOut = ((cursor - effectiveStartRef) / 3_600_000.0).coerceAtLeast(0.0)
                     (8.0 - hoursOut * 0.85).roundToInt().coerceIn(0, 8)
                 } else 0
                 val overtimePenalty = if (isOvertimeSlot && !isUrgentTomorrowMorning) -8 else 0
-                val score = (energyMatch + gapFitBonus + urgencyBonus + priorityPeakBonus + earlinessBonus + overtimePenalty)
+
+                // Proactive Burnout Prevention: recovery buffers + heavy-streak breaking
+                var burnoutDelta = 0
+                var includesRecoveryBuffer = false
+                var recoveryBufferMins = 0
+                var burnoutSafetyBadge: String? = null
+
+                if (activeBurnoutRecoveryMins > 0 && activeBurnoutReadyMillis > 0L) {
+                    if (cursor < activeBurnoutReadyMillis) {
+                        burnoutDelta -= 30
+                        burnoutSafetyBadge = "Skipping ${activeBurnoutRecoveryMins}m rest"
+                    } else if ((cursor - activeBurnoutReadyMillis) <= 30 * 60_000L) {
+                        burnoutDelta += 12
+                        includesRecoveryBuffer = true
+                        recoveryBufferMins = activeBurnoutRecoveryMins
+                        burnoutSafetyBadge = "After ${activeBurnoutRecoveryMins}m rest"
+                    }
+                }
+
+                if (isNewTaskHeavy) {
+                    val prevIdx = sortedBusy.indexOfLast { it.endMillis <= cursor }
+                    val nextIdx = sortedBusy.indexOfFirst { it.startMillis >= end }
+
+                    // Measure contiguous heavy load immediately before cursor (broken by >= 15m gap)
+                    var precedingHeavyMins = 0
+                    var prevHeavyGapMins = Int.MAX_VALUE
+                    if (prevIdx >= 0 && sortedBusy[prevIdx].isHeavy) {
+                        prevHeavyGapMins = ((cursor - sortedBusy[prevIdx].rawEndMillis) / 60_000L).toInt().coerceAtLeast(0)
+                        if (prevHeavyGapMins < RECOVERY_BUFFER_MINUTES) {
+                            var k = prevIdx
+                            var anchorStart = sortedBusy[k].startMillis
+                            precedingHeavyMins += sortedBusy[k].durationMinutes
+                            k--
+                            while (k >= 0 && sortedBusy[k].isHeavy) {
+                                val interGap = ((anchorStart - sortedBusy[k].rawEndMillis) / 60_000L).toInt()
+                                if (interGap >= RECOVERY_BUFFER_MINUTES) break
+                                precedingHeavyMins += sortedBusy[k].durationMinutes
+                                anchorStart = sortedBusy[k].startMillis
+                                k--
+                            }
+                        } else if (prevHeavyGapMins in RECOVERY_BUFFER_MINUTES..40) {
+                            // Clean recovery buffer right after a heavy block!
+                            burnoutDelta += 9
+                            if (!includesRecoveryBuffer) {
+                                includesRecoveryBuffer = true
+                                recoveryBufferMins = min(prevHeavyGapMins, 20)
+                                burnoutSafetyBadge = "Burnout-safe · ${recoveryBufferMins}m rest"
+                            }
+                        }
+                    }
+
+                    // Measure contiguous heavy load immediately after end (broken by >= 15m gap)
+                    var followingHeavyMins = 0
+                    if (nextIdx >= 0 && sortedBusy[nextIdx].isHeavy) {
+                        val nextGapMins = ((sortedBusy[nextIdx].startMillis - end) / 60_000L).toInt().coerceAtLeast(0)
+                        if (nextGapMins < RECOVERY_BUFFER_MINUTES) {
+                            var k = nextIdx
+                            var anchorEnd = sortedBusy[k].rawEndMillis
+                            followingHeavyMins += sortedBusy[k].durationMinutes
+                            k++
+                            while (k < sortedBusy.size && sortedBusy[k].isHeavy) {
+                                val interGap = ((sortedBusy[k].startMillis - anchorEnd) / 60_000L).toInt()
+                                if (interGap >= RECOVERY_BUFFER_MINUTES) break
+                                followingHeavyMins += sortedBusy[k].durationMinutes
+                                anchorEnd = sortedBusy[k].rawEndMillis
+                                k++
+                            }
+                        }
+                    }
+
+                    val combinedHeavyStreak = precedingHeavyMins + durationMinutes + followingHeavyMins
+                    if ((precedingHeavyMins > 0 || followingHeavyMins > 0) && combinedHeavyStreak > HEAVY_STREAK_CEILING_MINUTES) {
+                        val streakPenalty = if (combinedHeavyStreak >= 100) -30 else -22
+                        burnoutDelta += streakPenalty
+                        if (burnoutSafetyBadge == null) {
+                            burnoutSafetyBadge = "Heavy streak (${combinedHeavyStreak}m)"
+                        }
+                    } else if (precedingHeavyMins >= 45 && prevHeavyGapMins < RECOVERY_BUFFER_MINUTES) {
+                        burnoutDelta -= 18
+                        if (burnoutSafetyBadge == null) {
+                            burnoutSafetyBadge = "Needs 15m recovery gap"
+                        }
+                    }
+                }
+
+                val score = (energyMatch + gapFitBonus + urgencyBonus + priorityPeakBonus + earlinessBonus + overtimePenalty + burnoutDelta)
                     .coerceIn(10, 100)
 
                 val energyBadge = when {
@@ -245,7 +383,7 @@ object TaskSlotRecommender {
                     else -> "Steady $predictedEnergy%"
                 }
 
-                val gapContext = buildGapContextLabel(
+                val rawGapContext = buildGapContextLabel(
                     slotStartMillis = cursor,
                     slotEndMillis = end,
                     gapMinutes = gapMinutes,
@@ -256,6 +394,11 @@ object TaskSlotRecommender {
                     isOvertimeSlot = isOvertimeSlot,
                     zoneId = zoneId
                 )
+                val gapContext = if (includesRecoveryBuffer && recoveryBufferMins > 0) {
+                    "After ${recoveryBufferMins}m recovery · $rawGapContext"
+                } else {
+                    rawGapContext
+                }
 
                 val reason = when {
                     isTodayFullFallback -> "Today is full · $gapContext"
@@ -277,7 +420,10 @@ object TaskSlotRecommender {
                         energyMatchLabel = energyBadge,
                         gapContextLabel = gapContext,
                         gapDurationMinutes = gapMinutes,
-                        isTodayFullFallback = isTodayFullFallback
+                        isTodayFullFallback = isTodayFullFallback,
+                        includesRecoveryBuffer = includesRecoveryBuffer,
+                        recoveryBufferMinutes = recoveryBufferMins,
+                        burnoutSafetyBadge = burnoutSafetyBadge
                     )
                 )
             }

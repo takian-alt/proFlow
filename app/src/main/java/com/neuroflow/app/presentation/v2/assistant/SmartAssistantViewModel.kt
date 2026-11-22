@@ -7,17 +7,24 @@ import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.data.local.UserPreferencesDataStore
 import com.neuroflow.app.data.repository.SessionRepository
 import com.neuroflow.app.data.repository.SleepLogRepository
+import com.neuroflow.app.data.repository.TaskRepository
 import com.neuroflow.app.data.sleep.SleepTelemetryRepository
+import com.neuroflow.app.domain.assistant.ActiveBreakTimerState
+import com.neuroflow.app.domain.assistant.BurnoutGuardEngine
+import com.neuroflow.app.domain.assistant.BurnoutRiskState
 import com.neuroflow.app.domain.assistant.CheckInConfigEntry
 import com.neuroflow.app.domain.assistant.CheckInDailyRecord
 import com.neuroflow.app.domain.assistant.CheckInDailyStatus
 import com.neuroflow.app.domain.assistant.CheckInLogType
 import com.neuroflow.app.domain.assistant.DailyLogbookEntry
 import com.neuroflow.app.domain.assistant.ProactiveCheckInCoordinator
+import com.neuroflow.app.domain.assistant.RestBreakSource
+import com.neuroflow.app.domain.assistant.RestCheckInProposal
 import com.neuroflow.app.domain.assistant.SmartAssistantCodecs
 import com.neuroflow.app.domain.assistant.WellnessNudgeEvaluator
 import com.neuroflow.app.domain.assistant.WellnessNudgeProposal
 import com.neuroflow.app.domain.model.computeEnergyUiState
+import com.neuroflow.app.domain.repository.SleepPressureRepository
 import com.neuroflow.app.domain.service.CircadianEnergyService
 import com.neuroflow.app.domain.service.DefaultCircadianEnergyService
 import com.neuroflow.app.domain.service.EnergyPhase
@@ -25,6 +32,8 @@ import com.neuroflow.app.domain.service.StimulantType
 import com.neuroflow.app.domain.time.ClockTicker
 import com.neuroflow.app.presentation.v2.focus.service.FocusService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,13 +41,16 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEmpty
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.ZoneId
 import javax.inject.Inject
 
 data class SmartAssistantUiState(
     val dueCheckIn: CheckInConfigEntry? = null,
+    val activeRestCheckIn: RestCheckInProposal? = null,
+    val burnoutRiskState: BurnoutRiskState = BurnoutRiskState(),
+    val breakTimer: ActiveBreakTimerState = ActiveBreakTimerState(),
     val activeWellnessNudge: WellnessNudgeProposal? = null,
     val todayLogbook: List<DailyLogbookEntry> = emptyList(),
     val todayHydrationCount: Int = 0,
@@ -51,25 +63,40 @@ class SmartAssistantViewModel @Inject constructor(
     private val preferencesDataStore: UserPreferencesDataStore,
     private val sleepTelemetryRepository: SleepTelemetryRepository? = null,
     private val sleepLogRepository: SleepLogRepository? = null,
+    private val sleepPressureRepository: SleepPressureRepository? = null,
     private val sessionRepository: SessionRepository? = null,
+    private val taskRepository: TaskRepository? = null,
     private val circadianEnergyService: CircadianEnergyService = DefaultCircadianEnergyService(),
     private val clockTicker: ClockTicker? = null
 ) : ViewModel() {
 
     private val _sessionDismissedTypes = MutableStateFlow<Set<CheckInLogType>>(emptySet())
     private val _toastMessage = MutableStateFlow<String?>(null)
+    private val _breakTimer = MutableStateFlow(ActiveBreakTimerState())
+    private var breakTimerJob: Job? = null
+
+    private val tasksBundleFlow = combine(
+        (taskRepository?.observeActiveTasks() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
+        (taskRepository?.observeCompletedTasks() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) }
+    ) { active, completed -> active to completed }
 
     val uiState: StateFlow<SmartAssistantUiState> = combine(
         preferencesDataStore.preferencesFlow.onEmpty { emit(UserPreferences()) },
         (sleepTelemetryRepository?.observeAllSleepLogs() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
-        (sessionRepository?.observeAll() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
-        FocusService.activeSession,
+        combine(
+            (sessionRepository?.observeAll() ?: flowOf(emptyList())).onEmpty { emit(emptyList()) },
+            tasksBundleFlow
+        ) { sessions, tasksPair -> Triple(sessions, tasksPair.first, tasksPair.second) },
+        combine(
+            FocusService.activeSession,
+            _breakTimer
+        ) { activeFocus, breakTimer -> activeFocus to breakTimer },
         combine(
             (clockTicker?.currentMinuteTick ?: flowOf(0L)).onEmpty { emit(0L) },
             _sessionDismissedTypes,
             _toastMessage
         ) { tick, dismissed, msg -> Triple(tick, dismissed, msg) }
-    ) { prefs, sleepLogs, sessions, activeFocus, (_, dismissedTypes, toast) ->
+    ) { prefs, sleepLogs, (sessions, activeTasks, completedTasks), (activeFocus, breakTimer), (_, dismissedTypes, toast) ->
         val nowMillis = System.currentTimeMillis()
         val zoneId = ZoneId.systemDefault()
         val epochDay = SmartAssistantCodecs.currentEpochDay(nowMillis, zoneId)
@@ -99,13 +126,34 @@ class SmartAssistantViewModel @Inject constructor(
             nowMillis = nowMillis
         )
 
-        // Estimate continuous focus minutes in the last 2 hours
+        val burnoutRiskState = BurnoutGuardEngine.evaluateBurnoutRisk(
+            prefs = prefs,
+            sessions = sessions,
+            completedTasks = completedTasks,
+            activeTasks = activeTasks,
+            snapshot = snapshot,
+            nowMillis = nowMillis,
+            zoneId = zoneId
+        )
+
+        val activeRestCheckIn = if (dueCheckIn == null) {
+            BurnoutGuardEngine.evaluatePersistentRestCheckIn(
+                prefs = prefs,
+                riskState = burnoutRiskState,
+                nowMillis = nowMillis,
+                isFocusSessionActive = isFocusRunning,
+                isBreakTimerActive = breakTimer.isActive
+            )
+        } else {
+            null
+        }
+
         val twoHoursAgo = nowMillis - 2 * 3600_000L
         val recentFocusMinutes = sessions
             .filter { (it.endedAt ?: nowMillis) >= twoHoursAgo }
             .sumOf { it.trackedMinutes(nowMillis).toInt() }
 
-        val wellnessNudge = if (dueCheckIn == null) {
+        val wellnessNudge = if (dueCheckIn == null && activeRestCheckIn == null && !breakTimer.isActive) {
             WellnessNudgeEvaluator.evaluateWellnessNudge(
                 prefs = prefs,
                 usableEnergy = snapshot.usableEnergy,
@@ -123,6 +171,9 @@ class SmartAssistantViewModel @Inject constructor(
 
         SmartAssistantUiState(
             dueCheckIn = dueCheckIn,
+            activeRestCheckIn = activeRestCheckIn,
+            burnoutRiskState = burnoutRiskState,
+            breakTimer = breakTimer,
             activeWellnessNudge = wellnessNudge,
             todayLogbook = todayLogbook,
             todayHydrationCount = hydrationCount,
@@ -135,11 +186,75 @@ class SmartAssistantViewModel @Inject constructor(
         SmartAssistantUiState()
     )
 
+    /**
+     * Logs an exact bedtime -> wake time sleep interval through the canonical SleepPressureRepository
+     * pipeline, replacing any overlapping synthetic AUTO_DEFAULT or prior same-night manual log so
+     * Sleep History, Borbély pressure, and Vault Logbook stay 100% consistent.
+     */
+    fun logSleepInterval(bedtimeMillis: Long, wakeMillis: Long) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val zoneId = ZoneId.systemDefault()
+            val epochDay = SmartAssistantCodecs.currentEpochDay(now, zoneId)
+            val safeBed = minOf(bedtimeMillis, wakeMillis)
+            val safeWake = maxOf(bedtimeMillis, wakeMillis).coerceAtMost(now + 10 * 60_000L)
+            val durationMinutes = ((safeWake - safeBed) / 60_000L).toInt()
+            if (durationMinutes < 15 || durationMinutes > SleepPressureRepository.MAX_SLEEP_LOG_DURATION_MINUTES) {
+                _toastMessage.value = "Sleep duration must be between 15m and 16h"
+                return@launch
+            }
+
+            // Clear any overlapping manual or auto-default logs for the same sleep window to prevent duplicates/mismatches
+            val overlapping = sleepLogRepository?.getOverlapping(safeBed - 30 * 60_000L, safeWake + 30 * 60_000L).orEmpty()
+            overlapping.forEach { existing ->
+                if (existing.source == "AUTO_DEFAULT" || existing.source == "MANUAL") {
+                    if (sleepPressureRepository != null) {
+                        sleepPressureRepository.deleteSleepLog(existing.id)
+                    } else {
+                        sleepLogRepository?.deleteById(existing.id)
+                    }
+                }
+            }
+
+            if (sleepPressureRepository != null) {
+                val res = sleepPressureRepository.addSleepLog(safeBed, safeWake)
+                if (res is SleepPressureRepository.AddSleepLogResult.TooLong) {
+                    _toastMessage.value = "Sleep log cannot exceed 16 hours"
+                    return@launch
+                }
+            } else {
+                sleepLogRepository?.addLog(
+                    startAt = safeBed,
+                    endAt = safeWake,
+                    source = "MANUAL",
+                    notes = "Logged via Smart Check-In"
+                )
+            }
+
+            val bedLabel = SmartAssistantCodecs.formatTimestampShort(safeBed, zoneId)
+            val wakeLabel = SmartAssistantCodecs.formatTimestampShort(safeWake, zoneId)
+            val durLabel = SmartAssistantCodecs.formatDurationCompact(durationMinutes)
+
+            preferencesDataStore.updateDailyCheckInRecord(
+                epochDay = epochDay,
+                record = CheckInDailyRecord(
+                    type = CheckInLogType.SLEEP_RECAP,
+                    status = CheckInDailyStatus.LOGGED,
+                    loggedAtMillis = safeWake,
+                    detailLabel = "$bedLabel → $wakeLabel ($durLabel)"
+                ),
+                promptHandledAtMillis = now
+            )
+            _sessionDismissedTypes.value = _sessionDismissedTypes.value - CheckInLogType.SLEEP_RECAP
+            _toastMessage.value = "🌙 Sleep logged: $bedLabel → $wakeLabel ($durLabel)"
+        }
+    }
+
     fun logCheckInAtTime(
         type: CheckInLogType,
         occurredAtMillis: Long,
         intensityOrSubtype: String = "Normal",
-        sleepHours: Float = 7.5f
+        durationMinutesOverride: Int? = null
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
@@ -154,7 +269,7 @@ class SmartAssistantViewModel @Inject constructor(
                         "heavy" -> 1.35
                         else -> 1.0
                     }
-                    val duration = if (type == CheckInLogType.SNACKS) 15 else 30
+                    val duration = durationMinutesOverride ?: if (type == CheckInLogType.SNACKS) 15 else 30
                     preferencesDataStore.recordPhysiologicalEvent(
                         type = PhysiologicalEventType.MEAL,
                         timestampMillis = clampedTs,
@@ -168,18 +283,20 @@ class SmartAssistantViewModel @Inject constructor(
                         "intense", "heavy" -> 1.3
                         else -> 1.0
                     }
+                    val duration = (durationMinutesOverride ?: 40).coerceIn(10, 180)
                     preferencesDataStore.recordPhysiologicalEvent(
                         type = PhysiologicalEventType.WORKOUT,
                         timestampMillis = clampedTs,
-                        durationMinutes = 40,
+                        durationMinutes = duration,
                         intensity = intensity
                     )
                 }
                 CheckInLogType.NAP -> {
+                    val duration = (durationMinutesOverride ?: 20).coerceIn(10, 120)
                     preferencesDataStore.recordPhysiologicalEvent(
                         type = PhysiologicalEventType.NAP,
                         timestampMillis = clampedTs,
-                        durationMinutes = 20,
+                        durationMinutes = duration,
                         intensity = 1.0
                     )
                 }
@@ -196,20 +313,15 @@ class SmartAssistantViewModel @Inject constructor(
                     )
                 }
                 CheckInLogType.SLEEP_RECAP -> {
-                    val durMs = (sleepHours.coerceIn(3f, 12f) * 3600_000L).toLong()
-                    val wakeMillis = clampedTs
-                    val bedMillis = wakeMillis - durMs
-                    sleepLogRepository?.addLog(
-                        startAt = bedMillis,
-                        endAt = wakeMillis,
-                        source = "MANUAL",
-                        notes = "Logged via Assistant Check-In (${String.format("%.1f", sleepHours)}h)"
-                    )
+                    // Fallback if called directly; prefer logSleepInterval(bedtimeMillis, wakeMillis)
+                    val durMs = ((durationMinutesOverride ?: 450).coerceIn(15, 960)) * 60_000L
+                    logSleepInterval(bedtimeMillis = clampedTs - durMs, wakeMillis = clampedTs)
+                    return@launch
                 }
             }
 
-            val detail = when (type) {
-                CheckInLogType.SLEEP_RECAP -> "${String.format("%.1f", sleepHours)}h"
+            val detail = when {
+                type.supportsDuration && durationMinutesOverride != null -> "${durationMinutesOverride}m · $intensityOrSubtype"
                 else -> intensityOrSubtype
             }
             preferencesDataStore.updateDailyCheckInRecord(
@@ -281,6 +393,101 @@ class SmartAssistantViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesDataStore.dismissWellnessNudge()
         }
+    }
+
+    fun logRestBreak(
+        durationMinutes: Int,
+        source: RestBreakSource = RestBreakSource.MANUAL_CONFIRM
+    ) {
+        val safeMins = durationMinutes.coerceIn(1, 240)
+        breakTimerJob?.cancel()
+        breakTimerJob = null
+        _breakTimer.value = ActiveBreakTimerState()
+        viewModelScope.launch {
+            preferencesDataStore.recordRestBreak(
+                durationMinutes = safeMins,
+                source = source
+            )
+            _toastMessage.value = "🌿 ${safeMins}m rest logged — burnout pressure eased!"
+        }
+    }
+
+    fun snoozeRestCheckInNotYet(followUpMinutes: Int = BurnoutGuardEngine.REST_CHECK_IN_FOLLOW_UP_MINUTES) {
+        val mins = followUpMinutes.coerceIn(20, 30)
+        viewModelScope.launch {
+            preferencesDataStore.snoozeRestCheckIn(followUpMinutes = mins)
+            _toastMessage.value = "Got it — I'll check in again in ${mins}m"
+        }
+    }
+
+    fun startBreakTimer(durationMinutes: Int) {
+        val safeMins = durationMinutes.coerceIn(1, 60)
+        val totalSecs = safeMins * 60
+        breakTimerJob?.cancel()
+        _breakTimer.value = ActiveBreakTimerState(
+            totalSeconds = totalSecs,
+            remainingSeconds = totalSecs,
+            isRunning = true,
+            isPaused = false,
+            startedAtMillis = System.currentTimeMillis()
+        )
+        _toastMessage.value = "🌿 ${safeMins}m break timer started — take a breather"
+        breakTimerJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1_000L)
+                val current = _breakTimer.value
+                if (!current.isActive) break
+                if (current.isPaused) continue
+                val nextRemaining = (current.remainingSeconds - 1).coerceAtLeast(0)
+                if (nextRemaining == 0) {
+                    _breakTimer.value = ActiveBreakTimerState()
+                    preferencesDataStore.recordRestBreak(
+                        durationMinutes = safeMins,
+                        source = RestBreakSource.BREAK_TIMER
+                    )
+                    _toastMessage.value = "🌿 ${safeMins}m break complete — rest logged & energy refreshed!"
+                    break
+                } else {
+                    _breakTimer.value = current.copy(remainingSeconds = nextRemaining)
+                }
+            }
+        }
+    }
+
+    fun togglePauseBreakTimer() {
+        val current = _breakTimer.value
+        if (!current.isActive) return
+        _breakTimer.value = current.copy(
+            isPaused = !current.isPaused,
+            isRunning = current.isPaused
+        )
+    }
+
+    fun finishBreakTimerEarly() {
+        val current = _breakTimer.value
+        breakTimerJob?.cancel()
+        breakTimerJob = null
+        _breakTimer.value = ActiveBreakTimerState()
+        val elapsedMins = ((current.totalSeconds - current.remainingSeconds) / 60.0).let {
+            if (it >= 0.75) kotlin.math.max(1, it.toInt()) else 0
+        }
+        if (elapsedMins > 0) {
+            viewModelScope.launch {
+                preferencesDataStore.recordRestBreak(
+                    durationMinutes = elapsedMins,
+                    source = RestBreakSource.BREAK_TIMER
+                )
+                _toastMessage.value = "🌿 ${elapsedMins}m rest logged — welcome back!"
+            }
+        } else {
+            _toastMessage.value = "Break timer ended"
+        }
+    }
+
+    fun cancelBreakTimer() {
+        breakTimerJob?.cancel()
+        breakTimerJob = null
+        _breakTimer.value = ActiveBreakTimerState()
     }
 
     fun clearToastMessage() {

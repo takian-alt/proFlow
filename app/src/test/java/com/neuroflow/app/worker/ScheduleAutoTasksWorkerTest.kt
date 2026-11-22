@@ -599,4 +599,82 @@ class ScheduleAutoTasksWorkerTest : StringSpec({
         deletedTask.isAutoScheduled shouldBe false
         deletedTask.isScheduleLocked shouldBe false
     }
+
+    "incomplete scheduled tasks with schedule unlocked (isScheduleLocked=false, isAutoScheduled=false) are rescued into missedTasks and replanCandidates" {
+        val todayStart = com.neuroflow.app.data.local.entity.startOfLocalDay(baseMillis)
+        val dayEnd = com.neuroflow.app.data.local.entity.startOfNextLocalDay(todayStart) - 1
+        val nowMillis = todayStart + 14 * 3600_000L // 2:00 PM
+
+        val missedUnlockedManual = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "missed_unlocked_manual",
+            title = "Incomplete Morning Task",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+            scheduledDate = todayStart,
+            scheduledTime = 9 * 3600_000L, // 9:00 AM - 9:45 AM (expired!)
+            estimatedDurationMinutes = 45,
+            isAutoScheduled = false,
+            isScheduleLocked = false
+        )
+        val missedYesterdayUnlocked = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "missed_yesterday_unlocked",
+            title = "Incomplete Yesterday Task",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+            scheduledDate = todayStart - 24 * 3600_000L,
+            scheduledTime = 15 * 3600_000L,
+            estimatedDurationMinutes = 30,
+            isAutoScheduled = false,
+            isScheduleLocked = false
+        )
+        val upcomingUnlockedManual = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "upcoming_unlocked_manual",
+            title = "Flexible Afternoon Task",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+            scheduledDate = todayStart,
+            scheduledTime = 17 * 3600_000L,
+            estimatedDurationMinutes = 30,
+            isAutoScheduled = false,
+            isScheduleLocked = false
+        )
+        val missedLockedTask = com.neuroflow.app.data.local.entity.TaskEntity(
+            id = "missed_locked_task",
+            title = "Pinned Morning Meeting",
+            status = com.neuroflow.app.domain.model.TaskStatus.ACTIVE,
+            scheduledDate = todayStart,
+            scheduledTime = 9 * 3600_000L,
+            estimatedDurationMinutes = 45,
+            isAutoScheduled = false,
+            isScheduleLocked = true
+        )
+
+        val prefs = com.neuroflow.app.data.local.UserPreferences(
+            autoSchedulingEnabled = true,
+            isAutoScheduleToggleOn = true
+        )
+
+        val bucketsPassive = ScheduleAutoTasksWorker.selectCandidateBuckets(
+            allTasks = listOf(missedUnlockedManual, missedYesterdayUnlocked, upcomingUnlockedManual, missedLockedTask),
+            dayStart = todayStart,
+            dayEnd = dayEnd,
+            nowMillis = nowMillis,
+            prefs = prefs,
+            forceReplan = false
+        )
+
+        bucketsPassive.missedTasks.map { it.id } shouldBe listOf("missed_unlocked_manual", "missed_yesterday_unlocked")
+        bucketsPassive.missedTasks.any { it.id == "missed_locked_task" } shouldBe false
+        bucketsPassive.replanCandidates.any { it.id == "missed_locked_task" } shouldBe false
+
+        val bucketsForced = ScheduleAutoTasksWorker.selectCandidateBuckets(
+            allTasks = listOf(missedUnlockedManual, missedYesterdayUnlocked, upcomingUnlockedManual, missedLockedTask),
+            dayStart = todayStart,
+            dayEnd = dayEnd,
+            nowMillis = nowMillis,
+            prefs = prefs,
+            forceReplan = true
+        )
+
+        bucketsForced.missedTasks.map { it.id } shouldBe listOf("missed_unlocked_manual", "missed_yesterday_unlocked")
+        bucketsForced.replanCandidates.map { it.id } shouldBe listOf("upcoming_unlocked_manual")
+        bucketsForced.replanCandidates.any { it.id == "missed_locked_task" } shouldBe false
+    }
 })

@@ -104,6 +104,7 @@ fun PlanScreenV2(
     onNavigateToNotes: () -> Unit = {},
     onNavigateToMindmap: () -> Unit = {},
     onOpenToolsSheet: () -> Unit = {},
+    burnoutRiskState: com.neuroflow.app.domain.assistant.BurnoutRiskState? = null,
     viewModel: PlanViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -611,7 +612,8 @@ fun PlanScreenV2(
             completedTasks = completedTasks,
             activeTasks = state.tasksForDay + state.unscheduledTasks,
             energyTimeline = state.energyTimeline,
-            preferences = state.preferences
+            preferences = state.preferences,
+            burnoutRiskState = burnoutRiskState
         )
     }
 
@@ -628,7 +630,8 @@ fun PlanScreenV2(
             completedTasks = completedTasks,
             activeTasks = state.tasksForDay + state.unscheduledTasks,
             energyTimeline = state.energyTimeline,
-            preferences = state.preferences
+            preferences = state.preferences,
+            burnoutRiskState = burnoutRiskState
         )
     }
 

@@ -511,6 +511,13 @@ val MIGRATION_24_25 = object : Migration(24, 25) {
     }
 }
 
+val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `goals` ADD COLUMN `priority` TEXT NOT NULL DEFAULT 'MEDIUM'")
+        db.execSQL("ALTER TABLE `goals` ADD COLUMN `tags` TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 @Database(
     entities = [
         TaskEntity::class,
@@ -531,7 +538,7 @@ val MIGRATION_24_25 = object : Migration(24, 25) {
         MindmapNodePositionEntity::class,
         MindmapEdgeEntity::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

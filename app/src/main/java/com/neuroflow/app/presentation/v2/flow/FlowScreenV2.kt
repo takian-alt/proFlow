@@ -65,6 +65,9 @@ fun FlowScreenV2(
     onStartDoorwayFocus: ((String) -> Unit)? = null,
     initialOpenComposer: Boolean = false,
     onInitialComposerConsumed: () -> Unit = {},
+    activeBreakTimer: com.neuroflow.app.domain.assistant.ActiveBreakTimerState = com.neuroflow.app.domain.assistant.ActiveBreakTimerState(),
+    onStartBreakTimer: ((Int) -> Unit)? = null,
+    onLogRestBreak: ((Int) -> Unit)? = null,
     viewModel: FlowViewModelV2 = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -452,7 +455,17 @@ fun FlowScreenV2(
                         isLowBatterySuggested = battery < 45,
                         topTaskFatigueScore = topTask?.let { state.fatigueScoresByTaskId[it.id] },
                         isOvertimeActive = state.isOvertimeActive,
-                        onEnableOvertimeClick = { viewModel.toggleOvertimeTonight() }
+                        onEnableOvertimeClick = { viewModel.toggleOvertimeTonight() },
+                        burnoutRiskState = state.burnoutRiskState,
+                        activeBreakTimer = activeBreakTimer,
+                        onStartBreakTimer = onStartBreakTimer,
+                        onLogRestBreak = { mins ->
+                            if (onLogRestBreak != null) {
+                                onLogRestBreak(mins)
+                            } else {
+                                viewModel.logRestBreak(mins)
+                            }
+                        }
                     )
                 }
             } else {
@@ -494,9 +507,13 @@ fun FlowScreenV2(
                 }
             }
 
-            // Soft Evening & Overtime Assistant Card (replaces rigid shutdown — never hides tasks)
-            val showOvertimeAssistantCard = (state.isEveningShutdownTime || state.dailyTargetReached || state.hasUrgentTomorrowMorningTask || state.isOvertimeActive) &&
-                !state.eveningShutdownDismissed
+            // Soft Evening & Overtime Assistant Card (only shown in evening, after hitting target, or when Overtime is active)
+            val showOvertimeAssistantCard = com.neuroflow.app.domain.assistant.OvertimeAssistantPolicy.shouldShowAssistantCard(
+                isEveningShutdownTime = state.isEveningShutdownTime,
+                dailyTargetReached = state.dailyTargetReached,
+                isOvertimeActive = state.isOvertimeActive,
+                eveningShutdownDismissed = state.eveningShutdownDismissed
+            )
             if (showOvertimeAssistantCard) {
                 Spacer(modifier = Modifier.height(10.dp))
                 val cardAccent = if (state.isOvertimeActive) NeuroFlowPaletteV2.OptimalEmerald else NeuroFlowPaletteV2.PeakAmber
@@ -538,13 +555,13 @@ fun FlowScreenV2(
                                     color = cardAccent
                                 )
                             }
-                            if (state.hasUrgentTomorrowMorningTask) {
+                            if (state.hasUrgentTonightTask || state.hasUrgentTomorrowMorningTask) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = NeuroFlowPaletteV2.RecoveryRose.copy(alpha = 0.16f)
                                 ) {
                                     Text(
-                                        text = "Due AM",
+                                        text = if (state.hasUrgentTonightTask) "Due Tonight" else "Due AM",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = NeuroFlowPaletteV2.RecoveryRose,
@@ -560,6 +577,7 @@ fun FlowScreenV2(
                         }
                         val message = when {
                             state.isOvertimeActive -> "Extra evening capacity & tonight's slots are unlocked. Pace yourself with short hydration breaks."
+                            state.hasUrgentTonightTask -> "You still have a task due tonight. Turn on Overtime to schedule an evening slot or jump right in."
                             state.hasUrgentTomorrowMorningTask -> "You have an urgent task due before tomorrow morning. Turn on Overtime to schedule it tonight or jump right in."
                             state.dailyTargetReached -> "You hit your ${state.preferences.dailyDeepWorkTargetMinutes}m focus goal ($todayCompletedCount done). Rest up, or enable Overtime to keep pushing."
                             else -> "It's evening wind-down ($todayCompletedCount done today). Keep working with one-tap Overtime, or wrap up cleanly."
@@ -755,7 +773,8 @@ fun FlowScreenV2(
             completedTasks = state.completedTasks,
             activeTasks = state.activeTasks,
             energyTimeline = state.energyTimeline,
-            preferences = state.preferences
+            preferences = state.preferences,
+            burnoutRiskState = state.burnoutRiskState
         )
     }
 
@@ -771,7 +790,8 @@ fun FlowScreenV2(
             completedTasks = state.completedTasks,
             activeTasks = state.activeTasks,
             energyTimeline = state.energyTimeline,
-            preferences = state.preferences
+            preferences = state.preferences,
+            burnoutRiskState = state.burnoutRiskState
         )
     }
 
