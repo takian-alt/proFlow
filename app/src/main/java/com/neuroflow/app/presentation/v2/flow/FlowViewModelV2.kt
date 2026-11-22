@@ -169,7 +169,8 @@ data class FlowUiStateV2(
     val previewedBoosterId: String? = null,
     val previewedBoosterTimeline: List<CircadianSnapshot>? = null,
     val previewedBoosterSummary: String? = null,
-    val energyBoostDeltaBanner: com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner? = null
+    val energyBoostDeltaBanner: com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner? = null,
+    val physEventCooldownMinutes: Map<PhysiologicalEventType, Int> = emptyMap()
 )
 
 @HiltViewModel
@@ -210,6 +211,7 @@ class FlowViewModelV2 @Inject constructor(
     private var lastPredictionRecordedAt: Long = 0L
 
     internal var nowProvider: () -> Long = { System.currentTimeMillis() }
+    private val recentBoosterTapMillis = mutableMapOf<String, Long>()
 
     internal constructor(
         taskRepository: TaskRepository,
@@ -858,6 +860,13 @@ class FlowViewModelV2 @Inject constructor(
             zoneId = systemZone
         )
 
+        val physEventCooldownMinutes = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.buildActivePhysEventCooldowns(
+            prefs = prefs,
+            naps = naps,
+            nowMillis = now,
+            zoneId = systemZone
+        )
+
         val previewedBoosterTimeline: List<CircadianSnapshot>? = if (previewedBooster != null && dayTimeline.size >= 2) {
             val (extraNaps, extraStims, extraBlocks) = com.neuroflow.app.domain.assistant.EnergyBoosterEngine
                 .toPreviewSimulationInputs(previewedBooster, now, systemZone)
@@ -945,7 +954,8 @@ class FlowViewModelV2 @Inject constructor(
             previewedBoosterId = previewedBooster?.id,
             previewedBoosterTimeline = previewedBoosterTimeline,
             previewedBoosterSummary = previewedBoosterSummary,
-            energyBoostDeltaBanner = energyBoostDeltaBanner
+            energyBoostDeltaBanner = energyBoostDeltaBanner,
+            physEventCooldownMinutes = physEventCooldownMinutes
         )
     }.stateIn(
         viewModelScope,
@@ -954,22 +964,44 @@ class FlowViewModelV2 @Inject constructor(
     )
 
     fun logRestBreak(durationMinutes: Int) {
+        val tapNow = nowProvider()
+        val lastTap = recentBoosterTapMillis[com.neuroflow.app.domain.assistant.EnergyBoosterType.REST_BREAK.name] ?: 0L
+        if (tapNow - lastTap < 3_000L) return
+        recentBoosterTapMillis[com.neuroflow.app.domain.assistant.EnergyBoosterType.REST_BREAK.name] = tapNow
         viewModelScope.launch {
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val remaining = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.remainingCooldownMinutes(
+                type = com.neuroflow.app.domain.assistant.EnergyBoosterType.REST_BREAK,
+                prefs = prefs,
+                stimulants = uiState.value.stimulantDoses,
+                naps = uiState.value.daytimeNaps,
+                nowMillis = tapNow
+            )
+            if (remaining > 0) {
+                val wait = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.formatCooldownCompact(remaining)
+                _lastActionMessage.value = "⏳ Rest break already active — next available in $wait"
+                return@launch
+            }
             val safe = durationMinutes.coerceIn(1, 240)
             val prevEnergy = uiState.value.energyUi?.availableEnergy ?: 50
+            val currentBoost = uiState.value.currentEnergyBoostPoints
             preferencesDataStore.recordRestBreak(
                 durationMinutes = safe,
-                source = com.neuroflow.app.domain.assistant.RestBreakSource.MANUAL_CONFIRM
+                source = com.neuroflow.app.domain.assistant.RestBreakSource.MANUAL_CONFIRM,
+                completedAtMillis = tapNow
             )
-            val delta = if (safe >= 15) 11 else 9
-            _energyBoostDeltaBanner.value = com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner(
-                boosterEmoji = "🌿",
-                boosterTitle = "${safe}m Rest Break",
-                previousEnergyPercent = prevEnergy,
-                newEnergyPercent = (prevEnergy + delta).coerceAtMost(100),
-                deltaPoints = delta,
-                createdAtMillis = nowProvider()
-            )
+            val rawDelta = if (safe >= 15) 11 else 9
+            val effectiveDelta = rawDelta.coerceAtMost((22 - currentBoost).coerceAtLeast(0))
+            if (effectiveDelta > 0) {
+                _energyBoostDeltaBanner.value = com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner(
+                    boosterEmoji = "🌿",
+                    boosterTitle = "${safe}m Rest Break",
+                    previousEnergyPercent = prevEnergy,
+                    newEnergyPercent = (prevEnergy + effectiveDelta).coerceAtMost(100),
+                    deltaPoints = effectiveDelta,
+                    createdAtMillis = tapNow
+                )
+            }
             _lastActionMessage.value = "🌿 ${safe}m rest logged — energy curve & burnout pressure updated"
         }
     }
@@ -987,9 +1019,27 @@ class FlowViewModelV2 @Inject constructor(
     }
 
     fun completeEnergyBooster(rec: com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) {
+        val tapNow = nowProvider()
+        val lastTap = recentBoosterTapMillis[rec.type.name] ?: 0L
+        if (tapNow - lastTap < 3_000L) return
+        recentBoosterTapMillis[rec.type.name] = tapNow
         viewModelScope.launch {
-            val now = nowProvider()
+            val now = tapNow
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val remaining = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.remainingCooldownMinutes(
+                type = rec.type,
+                prefs = prefs,
+                stimulants = uiState.value.stimulantDoses,
+                naps = uiState.value.daytimeNaps,
+                nowMillis = now
+            )
+            if (remaining > 0) {
+                val wait = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.formatCooldownCompact(remaining)
+                _lastActionMessage.value = "⏳ ${rec.title} already logged — available again in $wait"
+                return@launch
+            }
             val prevEnergy = uiState.value.energyUi?.availableEnergy ?: 50
+            val currentBoost = uiState.value.currentEnergyBoostPoints
             when (rec.type) {
                 com.neuroflow.app.domain.assistant.EnergyBoosterType.HYDRATION -> {
                     preferencesDataStore.recordHydrationDrink(nowMillis = now)
@@ -1054,15 +1104,27 @@ class FlowViewModelV2 @Inject constructor(
             }
             _previewedBooster.value = null
             if (rec.type != com.neuroflow.app.domain.assistant.EnergyBoosterType.SLEEP_WIND_DOWN) {
-                val delta = rec.predictedBoostPoints.coerceAtLeast(4)
-                _energyBoostDeltaBanner.value = com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner(
-                    boosterEmoji = rec.emoji,
-                    boosterTitle = rec.title,
-                    previousEnergyPercent = prevEnergy,
-                    newEnergyPercent = (prevEnergy + delta).coerceAtMost(100),
-                    deltaPoints = delta,
-                    createdAtMillis = now
+                val isDirectImpulse = rec.type in setOf(
+                    com.neuroflow.app.domain.assistant.EnergyBoosterType.HYDRATION,
+                    com.neuroflow.app.domain.assistant.EnergyBoosterType.BALANCED_SNACK,
+                    com.neuroflow.app.domain.assistant.EnergyBoosterType.SUNLIGHT_WALK,
+                    com.neuroflow.app.domain.assistant.EnergyBoosterType.REST_BREAK
                 )
+                val delta = if (isDirectImpulse) {
+                    rec.predictedBoostPoints.coerceAtLeast(4).coerceAtMost((22 - currentBoost).coerceAtLeast(0))
+                } else {
+                    rec.predictedBoostPoints.coerceAtLeast(4)
+                }
+                if (delta > 0) {
+                    _energyBoostDeltaBanner.value = com.neuroflow.app.domain.assistant.EnergyBoostDeltaBanner(
+                        boosterEmoji = rec.emoji,
+                        boosterTitle = rec.title,
+                        previousEnergyPercent = prevEnergy,
+                        newEnergyPercent = (prevEnergy + delta).coerceAtMost(100),
+                        deltaPoints = delta,
+                        createdAtMillis = now
+                    )
+                }
             }
             _lastActionMessage.value = "${rec.emoji} ${rec.title} logged — live energy curve updated!"
         }
@@ -1394,8 +1456,25 @@ class FlowViewModelV2 @Inject constructor(
     }
 
     fun logPhysiologicalEvent(type: PhysiologicalEventType) {
+        val tapNow = nowProvider()
+        val key = "phys_${type.name}"
+        val lastTap = recentBoosterTapMillis[key] ?: 0L
+        if (tapNow - lastTap < 3_000L) return
+        recentBoosterTapMillis[key] = tapNow
         viewModelScope.launch {
-            val now = nowProvider()
+            val now = tapNow
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val remaining = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.remainingCooldownMinutesForEvent(
+                type = type,
+                prefs = prefs,
+                naps = uiState.value.daytimeNaps,
+                nowMillis = now
+            )
+            if (remaining > 0) {
+                val wait = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.formatCooldownCompact(remaining)
+                _lastActionMessage.value = "⏳ Already logged recently — available again in $wait"
+                return@launch
+            }
             when (type) {
                 PhysiologicalEventType.HYDRATION -> {
                     preferencesDataStore.recordHydrationDrink(nowMillis = now)
@@ -1429,6 +1508,7 @@ class FlowViewModelV2 @Inject constructor(
         viewModelScope.launch {
             val undone = preferencesDataStore.undoLastPhysiologicalEvent()
             if (undone) {
+                recentBoosterTapMillis.clear()
                 _lastActionMessage.value = "Undone: Removed last physiological event ↩️"
             } else {
                 _lastActionMessage.value = null
@@ -1438,6 +1518,7 @@ class FlowViewModelV2 @Inject constructor(
 
     fun clearAllPhysiologicalEvents() {
         viewModelScope.launch {
+            recentBoosterTapMillis.clear()
             preferencesDataStore.clearPhysiologicalLogs()
             _lastActionMessage.value = "Cleared all physiological events 🧹"
         }

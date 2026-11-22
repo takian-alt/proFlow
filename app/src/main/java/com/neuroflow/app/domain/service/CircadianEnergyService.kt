@@ -734,6 +734,7 @@ object PhysiologicalImpulseCalculator {
 
     /**
      * Computes acute hydration alertness recovery impulse (+6.0 peak at completion, 5m ramp, tau=55m, cap +7.5).
+     * Uses a non-stacking envelope across hydration logs so repeated taps cannot inflate energy.
      */
     fun computeHydrationImpulse(
         minuteOfDay: Int,
@@ -741,7 +742,7 @@ object PhysiologicalImpulseCalculator {
         timestampMillis: Long? = null
     ): Double {
         if (hydrationBlocks.isEmpty()) return 0.0
-        var total = 0.0
+        var peak = 0.0
         for (block in hydrationBlocks) {
             val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
             val intensity = block.intensity.coerceIn(0.4, 1.5)
@@ -750,13 +751,14 @@ object PhysiologicalImpulseCalculator {
                 dt in 0..150 -> 6.0 * exp(-dt / 55.0) * intensity
                 else -> 0.0
             }
-            total += boost
+            if (boost > peak) peak = boost
         }
-        return total.coerceAtMost(7.5)
+        return peak.coerceAtMost(7.5)
     }
 
     /**
      * Computes balanced snack glucose-stabilization impulse (+8.0 peak at completion, 10m ramp, tau=75m, cap +9.5).
+     * Uses a non-stacking envelope across snack logs so repeated taps cannot inflate energy.
      */
     fun computeSnackImpulse(
         minuteOfDay: Int,
@@ -764,7 +766,7 @@ object PhysiologicalImpulseCalculator {
         timestampMillis: Long? = null
     ): Double {
         if (snackBlocks.isEmpty()) return 0.0
-        var total = 0.0
+        var peak = 0.0
         for (block in snackBlocks) {
             val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
             val intensity = block.intensity.coerceIn(0.4, 1.5)
@@ -773,13 +775,14 @@ object PhysiologicalImpulseCalculator {
                 dt in 0..180 -> 8.0 * exp(-dt / 75.0) * intensity
                 else -> 0.0
             }
-            total += boost
+            if (boost > peak) peak = boost
         }
-        return total.coerceAtMost(9.5)
+        return peak.coerceAtMost(9.5)
     }
 
     /**
      * Computes sunlight + brisk walk circadian & vascular boost (+9.5 peak at completion, 10m ramp, tau=75m, cap +11.0).
+     * Uses a non-stacking envelope across walk logs so repeated taps cannot inflate energy.
      */
     fun computeSunlightWalkImpulse(
         minuteOfDay: Int,
@@ -787,7 +790,7 @@ object PhysiologicalImpulseCalculator {
         timestampMillis: Long? = null
     ): Double {
         if (walkBlocks.isEmpty()) return 0.0
-        var total = 0.0
+        var peak = 0.0
         for (block in walkBlocks) {
             val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
             val intensity = block.intensity.coerceIn(0.4, 1.5)
@@ -796,14 +799,15 @@ object PhysiologicalImpulseCalculator {
                 dt in 0..180 -> 9.5 * exp(-dt / 75.0) * intensity
                 else -> 0.0
             }
-            total += boost
+            if (boost > peak) peak = boost
         }
-        return total.coerceAtMost(11.0)
+        return peak.coerceAtMost(11.0)
     }
 
     /**
      * Computes restorative break / NSDR parasympathetic recovery boost (+8.0..+12.0 scaled by duration,
      * 10m smooth ramp, tau=70m, cap +12.5).
+     * Uses a non-stacking envelope across rest break logs so repeated taps cannot inflate energy.
      */
     fun computeRestBreakImpulse(
         minuteOfDay: Int,
@@ -811,7 +815,7 @@ object PhysiologicalImpulseCalculator {
         timestampMillis: Long? = null
     ): Double {
         if (restBlocks.isEmpty()) return 0.0
-        var total = 0.0
+        var peak = 0.0
         for (block in restBlocks) {
             val dt = signedMinutesSinceBlockStart(minuteOfDay, block, timestampMillis)
             val durationMinutes = if (block.explicitStartMillis != null && block.explicitEndMillis != null) {
@@ -831,9 +835,9 @@ object PhysiologicalImpulseCalculator {
                 dt in 0..165 -> basePeak * exp(-dt / 70.0) * intensity
                 else -> 0.0
             }
-            total += boost
+            if (boost > peak) peak = boost
         }
-        return total.coerceAtMost(12.5)
+        return peak.coerceAtMost(12.5)
     }
 
     private fun signedMinutesSinceBlockStart(

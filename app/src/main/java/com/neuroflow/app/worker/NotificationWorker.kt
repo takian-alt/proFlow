@@ -54,7 +54,8 @@ internal data class NotificationWorkerPlan(
     val streakEnabled: Boolean,
     val streakDelayMs: Long,
     val escalationEnabled: Boolean,
-    val energyRecoveryEnabled: Boolean = false
+    val energyRecoveryEnabled: Boolean = false,
+    val proactiveWellnessNudgesEnabled: Boolean = false
 )
 
 internal fun delayUntilHour(hour: Int, nowMillis: Long = System.currentTimeMillis()): Long {
@@ -80,7 +81,8 @@ internal fun buildNotificationWorkerPlan(
         streakEnabled = prefs.streakNotificationsEnabled,
         streakDelayMs = delayUntilHour(prefs.streakCheckNotificationHour, nowMillis),
         escalationEnabled = prefs.deadlineEscalationNotificationsEnabled,
-        energyRecoveryEnabled = prefs.energyRecoveryAlertsEnabled
+        energyRecoveryEnabled = prefs.energyRecoveryAlertsEnabled,
+        proactiveWellnessNudgesEnabled = prefs.wellnessNudgesEnabled
     )
 }
 
@@ -138,6 +140,12 @@ fun scheduleNotificationWorkers(context: Context, prefs: UserPreferences) {
         workManager.cancelUniqueWork(WORK_ENERGY_RECOVERY)
         EnergyRecoveryNotificationWorker.cancelRecoveryNotification(context)
     }
+
+    if (plan.proactiveWellnessNudgesEnabled) {
+        ProactiveWellnessNotificationService.schedulePeriodicWork(context)
+    } else {
+        ProactiveWellnessNotificationService.cancelAllWork(context)
+    }
 }
 
 fun createNotificationChannels(context: Context) {
@@ -163,8 +171,17 @@ fun createNotificationChannels(context: Context) {
         CHANNEL_RECOVERY, "Energy Recovery Breaks", NotificationManager.IMPORTANCE_DEFAULT
     ).apply { description = "Short-break alerts when predicted energy drops below your recovery threshold" }
 
+    val wellnessNudgesChannel = ProactiveWellnessNotificationService.buildChannel()
+
     manager.createNotificationChannels(
-        listOf(taskChannel, focusChannel, dailyChannel, autonomyNudgeChannel, recoveryChannel)
+        listOf(
+            taskChannel,
+            focusChannel,
+            dailyChannel,
+            autonomyNudgeChannel,
+            recoveryChannel,
+            wellnessNudgesChannel
+        )
     )
 }
 

@@ -112,6 +112,11 @@
             android:name=".receiver.EnergyRecoverySnoozeReceiver"
             android:exported="false" />
 
+        <!-- Handles 1-tap hydration, break, and snooze actions from proactive wellness notifications -->
+        <receiver
+            android:name=".receiver.WellnessNudgeActionReceiver"
+            android:exported="false" />
+
            <!-- Device admin receiver used for fully managed device-owner provisioning -->
         <receiver
             android:name=".receiver.DeviceAdminReceiver"

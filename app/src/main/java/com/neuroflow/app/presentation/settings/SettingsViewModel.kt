@@ -320,7 +320,8 @@ class SettingsViewModel @Inject constructor(
                     before.deadlineEscalationNotificationsEnabled != after.deadlineEscalationNotificationsEnabled ||
                     before.dailyPlanNotificationHour != after.dailyPlanNotificationHour ||
                     before.streakCheckNotificationHour != after.streakCheckNotificationHour ||
-                    before.energyRecoveryAlertsEnabled != after.energyRecoveryAlertsEnabled
+                    before.energyRecoveryAlertsEnabled != after.energyRecoveryAlertsEnabled ||
+                    before.wellnessNudgesEnabled != after.wellnessNudgesEnabled
 
             if (scheduleChanged) {
                 scheduleNotificationWorkers(context, after)
@@ -329,6 +330,9 @@ class SettingsViewModel @Inject constructor(
             if (before.energyRecoveryAlertsEnabled && !after.energyRecoveryAlertsEnabled) {
                 com.neuroflow.app.worker.EnergyRecoveryNotificationWorker.cancelRecoveryNotification(context)
             }
+            if (before.wellnessNudgesEnabled && !after.wellnessNudgesEnabled) {
+                com.neuroflow.app.worker.ProactiveWellnessNotificationService.cancelAllWork(context)
+            }
             if (before.autonomyNudgeNotificationsEnabled && !after.autonomyNudgeNotificationsEnabled) {
                 WorkManager.getInstance(context).cancelAllWorkByTag(AutonomyNudgeEngine.globalTag())
             }
@@ -336,6 +340,13 @@ class SettingsViewModel @Inject constructor(
                 WorkManager.getInstance(context).cancelAllWorkByTag("task_reminder_all")
             }
         }
+    }
+
+    fun sendTestWellnessNudge() {
+        com.neuroflow.app.worker.ProactiveWellnessNotificationService.enqueueImmediateWork(
+            context = context,
+            forcePreview = true
+        )
     }
 
     fun setTheme(theme: AppTheme) {

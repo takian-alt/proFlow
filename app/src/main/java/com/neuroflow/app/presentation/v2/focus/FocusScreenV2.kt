@@ -348,8 +348,36 @@ fun FocusScreenV2(
                 isRunning = state.isRunning,
                 isPaused = state.isPaused,
                 isCompleted = state.isCompleted,
-                bodyDoublingEnabled = state.bodyDoublingEnabled
+                bodyDoublingEnabled = state.bodyDoublingEnabled,
+                bodyDoublingPromptActive = state.bodyDoublingPromptActive
             )
+
+            // Non-blocking Body-Doubling Anchor Check-In Card or brief confirmation pill
+            AnimatedVisibility(visible = state.bodyDoublingPromptActive && !state.isCompleted) {
+                BodyDoublingCheckInCard(
+                    pulseNumber = state.bodyDoublingPulseCount.coerceAtLeast(1),
+                    currentStepTitle = currentMicroStep?.text,
+                    onLockedIn = { viewModel.confirmBodyDoublingLockedIn() },
+                    onRefocus = { viewModel.confirmBodyDoublingRefocus() }
+                )
+            }
+
+            AnimatedVisibility(visible = !state.bodyDoublingPromptActive && state.bodyDoublingFeedbackMessage != null && !state.isCompleted) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, NeuroFlowPaletteV2.OptimalEmerald.copy(alpha = 0.4f)),
+                    modifier = Modifier.testTag("body_doubling_feedback_pill")
+                ) {
+                    Text(
+                        text = state.bodyDoublingFeedbackMessage.orEmpty(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeuroFlowPaletteV2.OptimalEmerald,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
 
             // Primary Control Actions
             if (state.isCompleted) {
@@ -501,13 +529,17 @@ fun FocusScreenV2(
                             },
                             label = {
                                 Text(
-                                    text = if (state.bodyDoublingEnabled) "Body-Doubling Pulse Active" else "Body-Doubling Pulse",
-                                    style = MaterialTheme.typography.labelMedium,
+                                    text = if (state.bodyDoublingEnabled) {
+                                        "Body-Doubling Pulse · Every ${state.bodyDoublingIntervalMinutes}m"
+                                    } else {
+                                        "Body-Doubling Pulse"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.18f),
+                                selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.20f),
                                 selectedLabelColor = NeuroFlowPaletteV2.ReboundCyan,
                                 selectedLeadingIconColor = NeuroFlowPaletteV2.ReboundCyan,
                                 containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
@@ -518,13 +550,141 @@ fun FocusScreenV2(
                                 enabled = true,
                                 selected = state.bodyDoublingEnabled,
                                 borderColor = NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.5f),
-                                selectedBorderColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.6f)
+                                selectedBorderColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.7f)
                             ),
                             shape = RoundedCornerShape(50),
                             modifier = Modifier
                                 .heightIn(min = 48.dp)
                                 .testTag("body_doubling_toggle")
                         )
+
+                        AnimatedVisibility(visible = state.bodyDoublingEnabled) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val nextMins = state.bodyDoublingNextPulseInSeconds / 60
+                                val nextSecs = state.bodyDoublingNextPulseInSeconds % 60
+                                val countdownText = String.format(Locale.getDefault(), "%02d:%02d", nextMins, nextSecs)
+                                val statusLine = when {
+                                    state.isRunning && !state.isPaused -> {
+                                        val anchorSuffix = if (state.bodyDoublingPulseCount > 0) {
+                                            " · ${state.bodyDoublingLockedCount}/${state.bodyDoublingPulseCount} anchored"
+                                        } else {
+                                            ""
+                                        }
+                                        "Companion active · Next pulse in $countdownText$anchorSuffix"
+                                    }
+                                    state.isPaused -> "Paused · Resumes check-in pulse every ${state.bodyDoublingIntervalMinutes}m"
+                                    else -> {
+                                        val sensoryLabel = if (state.bodyDoublingSoundEnabled) "haptic + soft chime" else "haptic-only"
+                                        "Ready · Gentle $sensoryLabel anchor every ${state.bodyDoublingIntervalMinutes}m"
+                                    }
+                                }
+                                Text(
+                                    text = statusLine,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    color = NeuroFlowPaletteV2.ReboundCyan,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.testTag("body_doubling_status_text")
+                                )
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    listOf(5, 10, 15).forEach { mins ->
+                                        val isSelected = state.bodyDoublingIntervalMinutes == mins
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { viewModel.setBodyDoublingInterval(mins) },
+                                            label = {
+                                                Text(
+                                                    text = "${mins}m",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.22f),
+                                                selectedLabelColor = NeuroFlowPaletteV2.ReboundCyan,
+                                                containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                                labelColor = NeuroFlowThemeV2Colors.TextSecondary
+                                            ),
+                                            shape = RoundedCornerShape(50),
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("body_doubling_interval_${mins}m")
+                                        )
+                                    }
+
+                                    FilterChip(
+                                        selected = state.bodyDoublingSoundEnabled,
+                                        onClick = { viewModel.toggleBodyDoublingSound() },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = if (state.bodyDoublingSoundEnabled) {
+                                                    Icons.AutoMirrored.Filled.VolumeUp
+                                                } else {
+                                                    Icons.AutoMirrored.Filled.VolumeMute
+                                                },
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        },
+                                        label = {
+                                            Text(
+                                                text = if (state.bodyDoublingSoundEnabled) "Chime" else "Haptic",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.22f),
+                                            selectedLabelColor = NeuroFlowPaletteV2.ReboundCyan,
+                                            selectedLeadingIconColor = NeuroFlowPaletteV2.ReboundCyan,
+                                            containerColor = NeuroFlowThemeV2Colors.SlateSurfaceAlt,
+                                            labelColor = NeuroFlowThemeV2Colors.TextSecondary,
+                                            iconColor = NeuroFlowThemeV2Colors.TextSecondary
+                                        ),
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier
+                                            .heightIn(min = 48.dp)
+                                            .testTag("body_doubling_sound_toggle")
+                                    )
+
+                                    AssistChip(
+                                        onClick = { viewModel.triggerTestBodyDoublingPulse() },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Bolt,
+                                                contentDescription = null,
+                                                tint = NeuroFlowPaletteV2.ReboundCyan,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        },
+                                        label = {
+                                            Text(
+                                                text = "Test",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = NeuroFlowPaletteV2.ReboundCyan
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(50),
+                                        border = BorderStroke(1.dp, NeuroFlowPaletteV2.ReboundCyan.copy(alpha = 0.45f)),
+                                        modifier = Modifier
+                                            .heightIn(min = 48.dp)
+                                            .testTag("body_doubling_test_pulse")
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1339,7 +1499,8 @@ fun RadialTimerGauge(
     isRunning: Boolean,
     isPaused: Boolean,
     isCompleted: Boolean = false,
-    bodyDoublingEnabled: Boolean = false
+    bodyDoublingEnabled: Boolean = false,
+    bodyDoublingPromptActive: Boolean = false
 ) {
     val totalSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) 3600L else timerMode.durationSeconds
     val currentSeconds = if (timerMode == FocusTimerModeV2.FLOW_STOPWATCH) elapsedSeconds else remainingSeconds
@@ -1361,14 +1522,23 @@ fun RadialTimerGauge(
         ),
         label = "pulse_alpha"
     )
-    val bodyDoublingHaloRadius by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = if (bodyDoublingEnabled && isRunning && !isPaused) 1.14f else 0.96f,
+    val bodyDoublingBreathe by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(3800, easing = FastOutSlowInEasing),
+            animation = tween(3200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "body_doubling_halo"
+        label = "body_doubling_breathe"
+    )
+    val bodyDoublingSonar by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "body_doubling_sonar"
     )
 
     val minutes = currentSeconds / 60
@@ -1391,27 +1561,63 @@ fun RadialTimerGauge(
     val tickBaseColor = NeuroFlowThemeV2Colors.SlateBorder
     Box(
         modifier = Modifier
-            .size(264.dp)
-            .padding(8.dp),
+            .size(284.dp)
+            .padding(6.dp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 14.dp.toPx()
-            val glowStrokeWidth = 24.dp.toPx()
+            val glowStrokeWidth = 44.dp.toPx()
             val diameter = size.minDimension - glowStrokeWidth
             val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
             val arcSize = Size(diameter, diameter)
             val center = Offset(size.width / 2f, size.height / 2f)
             val radius = diameter / 2f
 
-            // Optional soft body-doubling rhythmic breathing halo
+            // Clearly visible bioluminescent Body-Doubling presence halo + expanding sonar wave
             if (bodyDoublingEnabled && !isCompleted) {
+                val isActivelyPulsing = (isRunning && !isPaused) || bodyDoublingPromptActive
+                val auraAlpha = when {
+                    bodyDoublingPromptActive -> 0.42f + 0.22f * bodyDoublingBreathe
+                    isRunning && !isPaused -> 0.22f + 0.16f * bodyDoublingBreathe
+                    else -> 0.18f + 0.10f * bodyDoublingBreathe
+                }
+                val outerHaloRadius = radius * (1.07f + 0.05f * bodyDoublingBreathe)
+
+                // Soft cyan outer presence glow
                 drawCircle(
-                    color = haloColor.copy(alpha = if (isRunning && !isPaused) 0.14f else 0.08f),
-                    radius = radius * bodyDoublingHaloRadius,
-                    center = center,
-                    style = Stroke(width = 3.dp.toPx())
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            haloColor.copy(alpha = auraAlpha * 0.55f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = radius * 1.18f
+                    ),
+                    radius = radius * 1.18f,
+                    center = center
                 )
+
+                // Crisp breathing presence ring outside the main timer ring (never hidden or clipped)
+                drawCircle(
+                    color = haloColor.copy(alpha = auraAlpha),
+                    radius = outerHaloRadius,
+                    center = center,
+                    style = Stroke(width = if (bodyDoublingPromptActive) 3.5.dp.toPx() else 2.25.dp.toPx())
+                )
+
+                // Expanding sonar wave ring when actively running or pulsing
+                if (isActivelyPulsing) {
+                    val sonarRadius = radius * (1.03f + 0.16f * bodyDoublingSonar)
+                    val sonarAlpha = ((1f - bodyDoublingSonar) * if (bodyDoublingPromptActive) 0.65f else 0.42f).coerceIn(0f, 1f)
+                    drawCircle(
+                        color = haloColor.copy(alpha = sonarAlpha),
+                        radius = sonarRadius,
+                        center = center,
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                }
             }
 
             // 1. Breathing radial core aura
@@ -2047,5 +2253,119 @@ private fun UltradianWarningBanner(
         }
     }
 }
+
+@Composable
+private fun BodyDoublingCheckInCard(
+    pulseNumber: Int,
+    currentStepTitle: String?,
+    onLockedIn: () -> Unit,
+    onRefocus: () -> Unit
+) {
+    val cyan = NeuroFlowPaletteV2.ReboundCyan
+    val emerald = NeuroFlowPaletteV2.OptimalEmerald
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("body_doubling_checkin_card"),
+        shape = RoundedCornerShape(16.dp),
+        color = cyan.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, cyan.copy(alpha = 0.50f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.GraphicEq,
+                    contentDescription = null,
+                    tint = cyan,
+                    modifier = Modifier.size(18.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Anchor Pulse #$pulseNumber · Still locked in?",
+                        style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.Bold,
+                        color = cyan
+                    )
+                    Text(
+                        text = if (!currentStepTitle.isNullOrBlank()) {
+                            "Stay with: $currentStepTitle (fades if you stay in flow)"
+                        } else {
+                            "Quick presence check — fades automatically if you stay in flow"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeuroFlowPaletteV2.TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRefocus,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, NeuroFlowThemeV2Colors.SlateBorder.copy(alpha = 0.7f)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("body_doubling_refocus_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SelfImprovement,
+                        contentDescription = null,
+                        tint = NeuroFlowPaletteV2.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Refocus",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeuroFlowPaletteV2.TextPrimary
+                    )
+                }
+
+                Button(
+                    onClick = onLockedIn,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = emerald,
+                        contentColor = Color(0xFF042F2E)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("body_doubling_locked_in_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Locked In ✓",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 

@@ -1,19 +1,27 @@
 package com.neuroflow.app.presentation.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.neuroflow.app.data.local.UserPreferences
 import com.neuroflow.app.domain.assistant.CheckInConfigEntry
 import com.neuroflow.app.domain.assistant.SmartAssistantCodecs
@@ -22,7 +30,8 @@ import com.neuroflow.app.domain.assistant.SmartAssistantCodecs
 @Composable
 fun SmartAssistantCheckInSettingsSection(
     prefs: UserPreferences,
-    onUpdatePreferences: ((UserPreferences) -> UserPreferences) -> Unit
+    onUpdatePreferences: ((UserPreferences) -> UserPreferences) -> Unit,
+    onSendTestWellnessNudge: (() -> Unit)? = null
 ) {
     val configs = remember(prefs.checkInConfigJson) {
         SmartAssistantCodecs.parseCheckInConfigs(prefs.checkInConfigJson)
@@ -214,6 +223,76 @@ fun SmartAssistantCheckInSettingsSection(
                             label = { Text("${mins}m", fontSize = 11.sp) }
                         )
                     }
+                }
+            }
+            if (onSendTestWellnessNudge != null) {
+                val context = LocalContext.current
+                var testNudgeStatus by remember { mutableStateOf<String?>(null) }
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) {
+                        onSendTestWellnessNudge()
+                        testNudgeStatus = "Live energy nudge sent — check your notification shade."
+                    } else {
+                        testNudgeStatus = "Allow Notifications in system settings to receive wellness nudges."
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                        Text(
+                            text = "Background energy checks every 30m",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Silent during active Focus sessions & sleep hours · 1-tap log actions",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                ) != PackageManager.PERMISSION_GRANTED
+                            if (needsPermission) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                onSendTestWellnessNudge()
+                                testNudgeStatus = "Live energy nudge sent — check your notification shade."
+                            }
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("settings_test_wellness_nudge_button"),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = "Send test wellness nudge",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Test Nudge", fontSize = 12.sp)
+                    }
+                }
+                testNudgeStatus?.let { msg ->
+                    Text(
+                        text = msg,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("settings_test_wellness_nudge_status")
+                    )
                 }
             }
         }

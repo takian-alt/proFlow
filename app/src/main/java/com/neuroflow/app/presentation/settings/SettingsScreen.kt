@@ -305,7 +305,8 @@ fun SettingsScreen(
             SettingsSection("Smart Assistant & Check-Ins") {
                 SmartAssistantCheckInSettingsSection(
                     prefs = prefs,
-                    onUpdatePreferences = { transform -> viewModel.updatePreferences(transform) }
+                    onUpdatePreferences = { transform -> viewModel.updatePreferences(transform) },
+                    onSendTestWellnessNudge = { viewModel.sendTestWellnessNudge() }
                 )
             }
 

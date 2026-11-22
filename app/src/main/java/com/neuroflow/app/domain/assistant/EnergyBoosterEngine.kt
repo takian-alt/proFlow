@@ -83,6 +83,150 @@ object EnergyBoosterEngine {
 
     const val BOOSTER_NUDGE_COOLDOWN_MILLIS = 45L * 60_000L
 
+    // Realistic per-modality physiological cooldowns (in minutes) so the same booster
+    // cannot be tapped repeatedly to artificially farm energy.
+    const val COOLDOWN_HYDRATION_MINUTES = 45
+    const val COOLDOWN_REST_BREAK_MINUTES = 45
+    const val COOLDOWN_SUNLIGHT_WALK_MINUTES = 90
+    const val COOLDOWN_SNACK_MINUTES = 90
+    const val COOLDOWN_MEAL_MINUTES = 90
+    const val COOLDOWN_WORKOUT_MINUTES = 180
+    const val COOLDOWN_NAP_MINUTES = 360
+    const val COOLDOWN_CAFFEINE_MINUTES = 150
+
+    fun formatCooldownCompact(minutes: Int): String {
+        val safe = minutes.coerceAtLeast(1)
+        return if (safe >= 60) {
+            val h = safe / 60
+            val m = safe % 60
+            if (m == 0) "${h}h" else "${h}h ${m}m"
+        } else {
+            "${safe}m"
+        }
+    }
+
+    /**
+     * Returns remaining cooldown minutes before [type] can be logged again as a meaningful
+     * real-life energy booster (0 means ready to log).
+     */
+    fun remainingCooldownMinutes(
+        type: EnergyBoosterType,
+        prefs: UserPreferences,
+        stimulants: List<StimulantDoseBout>,
+        naps: List<DaytimeNapBout>,
+        nowMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Int {
+        val zdt = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+        val dayStart = zdt.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val upperBound = nowMillis + 60_000L
+        val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
+            .filter { it.timestampMillis in (dayStart - 6 * 3_600_000L)..upperBound }
+        val restLogs = SmartAssistantCodecs.parseRestBreakLogs(prefs.restBreakLogsJson)
+            .filter { it.completedAtMillis in dayStart..upperBound }
+
+        fun remainingSince(lastAt: Long, cooldownMins: Int): Int {
+            if (lastAt <= 0L) return 0
+            val elapsed = ((nowMillis - lastAt) / 60_000L).toInt().coerceAtLeast(0)
+            return (cooldownMins - elapsed).coerceAtLeast(0)
+        }
+
+        return when (type) {
+            EnergyBoosterType.HYDRATION -> {
+                val last = maxOf(
+                    prefs.lastHydrationLoggedAtMillis,
+                    physLogs.filter { it.type == PhysiologicalEventType.HYDRATION }.maxOfOrNull { it.timestampMillis } ?: 0L
+                )
+                remainingSince(last, COOLDOWN_HYDRATION_MINUTES)
+            }
+            EnergyBoosterType.REST_BREAK -> {
+                val last = maxOf(
+                    restLogs.maxOfOrNull { it.completedAtMillis } ?: 0L,
+                    physLogs.filter { it.type == PhysiologicalEventType.REST_BREAK }.maxOfOrNull { it.timestampMillis } ?: 0L
+                )
+                remainingSince(last, COOLDOWN_REST_BREAK_MINUTES)
+            }
+            EnergyBoosterType.SUNLIGHT_WALK -> {
+                val last = physLogs.filter { it.type == PhysiologicalEventType.SUNLIGHT_WALK }
+                    .maxOfOrNull { it.timestampMillis } ?: 0L
+                remainingSince(last, COOLDOWN_SUNLIGHT_WALK_MINUTES)
+            }
+            EnergyBoosterType.BALANCED_SNACK -> {
+                val last = physLogs.filter { it.type == PhysiologicalEventType.SNACK || it.type == PhysiologicalEventType.MEAL }
+                    .maxOfOrNull { it.timestampMillis } ?: 0L
+                remainingSince(last, COOLDOWN_SNACK_MINUTES)
+            }
+            EnergyBoosterType.MEAL_REFUEL -> {
+                val last = physLogs.filter { it.type == PhysiologicalEventType.MEAL }
+                    .maxOfOrNull { it.timestampMillis } ?: 0L
+                remainingSince(last, COOLDOWN_MEAL_MINUTES)
+            }
+            EnergyBoosterType.SHORT_WORKOUT -> {
+                val last = physLogs.filter { it.type == PhysiologicalEventType.WORKOUT }
+                    .maxOfOrNull { it.timestampMillis } ?: 0L
+                remainingSince(last, COOLDOWN_WORKOUT_MINUTES)
+            }
+            EnergyBoosterType.POWER_NAP -> {
+                val last = maxOf(
+                    naps.filter { it.startMillis >= dayStart }.maxOfOrNull { it.endMillis } ?: 0L,
+                    physLogs.filter { it.type == PhysiologicalEventType.NAP && it.timestampMillis >= dayStart }
+                        .maxOfOrNull { it.timestampMillis } ?: 0L
+                )
+                remainingSince(last, COOLDOWN_NAP_MINUTES)
+            }
+            EnergyBoosterType.SMART_CAFFEINE -> {
+                val last = stimulants.maxOfOrNull { it.timestampMillis } ?: 0L
+                remainingSince(last, COOLDOWN_CAFFEINE_MINUTES)
+            }
+            EnergyBoosterType.SLEEP_WIND_DOWN -> {
+                val hasToday = physLogs.any { it.type == PhysiologicalEventType.WIND_DOWN && it.timestampMillis >= dayStart }
+                if (hasToday) 720 else 0
+            }
+        }
+    }
+
+    /**
+     * Returns remaining cooldown minutes for manual quick-log chips in Bio Log & Stimulants.
+     */
+    fun remainingCooldownMinutesForEvent(
+        type: PhysiologicalEventType,
+        prefs: UserPreferences,
+        naps: List<DaytimeNapBout>,
+        nowMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Int {
+        val boosterType = when (type) {
+            PhysiologicalEventType.HYDRATION -> EnergyBoosterType.HYDRATION
+            PhysiologicalEventType.SNACK -> EnergyBoosterType.BALANCED_SNACK
+            PhysiologicalEventType.MEAL -> EnergyBoosterType.MEAL_REFUEL
+            PhysiologicalEventType.SUNLIGHT_WALK -> EnergyBoosterType.SUNLIGHT_WALK
+            PhysiologicalEventType.REST_BREAK -> EnergyBoosterType.REST_BREAK
+            PhysiologicalEventType.NAP -> EnergyBoosterType.POWER_NAP
+            PhysiologicalEventType.WORKOUT -> EnergyBoosterType.SHORT_WORKOUT
+            PhysiologicalEventType.WIND_DOWN -> EnergyBoosterType.SLEEP_WIND_DOWN
+        }
+        return remainingCooldownMinutes(
+            type = boosterType,
+            prefs = prefs,
+            stimulants = emptyList(),
+            naps = naps,
+            nowMillis = nowMillis,
+            zoneId = zoneId
+        )
+    }
+
+    fun buildActivePhysEventCooldowns(
+        prefs: UserPreferences,
+        naps: List<DaytimeNapBout>,
+        nowMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Map<PhysiologicalEventType, Int> {
+        return PhysiologicalEventType.entries.mapNotNull { type ->
+            val rem = remainingCooldownMinutesForEvent(type, prefs, naps, nowMillis, zoneId)
+            if (rem > 0) type to rem else null
+        }.toMap()
+    }
+
     fun mapPhysiologicalLogToBlock(
         log: PhysiologicalEventLog,
         zoneId: ZoneId = ZoneId.systemDefault()
@@ -338,42 +482,43 @@ object EnergyBoosterEngine {
         val isBeforeSafeCaffeineCutoff = minuteOfDay < safeCaffeineCutoffMin && minutesUntilBedtime >= 390
 
         val dayStart = zdt.toLocalDate().atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val upperBound = nowMillis + 60_000L
         val physLogs = parsePhysiologicalLogs(prefs.quickPhysiologicalLogsJson)
-            .filter { it.timestampMillis in (dayStart - 2 * 3_600_000L)..nowMillis }
+            .filter { it.timestampMillis in (dayStart - 2 * 3_600_000L)..upperBound }
         val restLogs = SmartAssistantCodecs.parseRestBreakLogs(prefs.restBreakLogsJson)
-            .filter { it.completedAtMillis in dayStart..nowMillis }
+            .filter { it.completedAtMillis in dayStart..upperBound }
 
         val lastHydrationAt = maxOf(
             prefs.lastHydrationLoggedAtMillis,
             physLogs.filter { it.type == PhysiologicalEventType.HYDRATION }.maxOfOrNull { it.timestampMillis } ?: 0L
         )
-        val minutesSinceHydration = if (lastHydrationAt > 0L) ((nowMillis - lastHydrationAt) / 60_000L).toInt() else 180
+        val minutesSinceHydration = if (lastHydrationAt > 0L) ((nowMillis - lastHydrationAt) / 60_000L).toInt().coerceAtLeast(0) else 180
 
         val lastFuelAt = physLogs
             .filter { it.type == PhysiologicalEventType.MEAL || it.type == PhysiologicalEventType.SNACK }
             .maxOfOrNull { it.timestampMillis } ?: 0L
-        val minutesSinceFuel = if (lastFuelAt > 0L) ((nowMillis - lastFuelAt) / 60_000L).toInt() else 240
+        val minutesSinceFuel = if (lastFuelAt > 0L) ((nowMillis - lastFuelAt) / 60_000L).toInt().coerceAtLeast(0) else 240
 
         val lastWalkAt = physLogs
             .filter { it.type == PhysiologicalEventType.SUNLIGHT_WALK }
             .maxOfOrNull { it.timestampMillis } ?: 0L
-        val minutesSinceWalk = if (lastWalkAt > 0L) ((nowMillis - lastWalkAt) / 60_000L).toInt() else 240
+        val minutesSinceWalk = if (lastWalkAt > 0L) ((nowMillis - lastWalkAt) / 60_000L).toInt().coerceAtLeast(0) else 240
 
         val lastWorkoutAt = physLogs
             .filter { it.type == PhysiologicalEventType.WORKOUT }
             .maxOfOrNull { it.timestampMillis } ?: 0L
-        val minutesSinceWorkout = if (lastWorkoutAt > 0L) ((nowMillis - lastWorkoutAt) / 60_000L).toInt() else 360
+        val minutesSinceWorkout = if (lastWorkoutAt > 0L) ((nowMillis - lastWorkoutAt) / 60_000L).toInt().coerceAtLeast(0) else 360
 
         val lastRestAt = maxOf(
             restLogs.maxOfOrNull { it.completedAtMillis } ?: 0L,
             physLogs.filter { it.type == PhysiologicalEventType.REST_BREAK }.maxOfOrNull { it.timestampMillis } ?: 0L
         )
-        val minutesSinceRest = if (lastRestAt > 0L) ((nowMillis - lastRestAt) / 60_000L).toInt() else 120
+        val minutesSinceRest = if (lastRestAt > 0L) ((nowMillis - lastRestAt) / 60_000L).toInt().coerceAtLeast(0) else 120
 
         val hasNappedToday = naps.any { it.startMillis >= dayStart } ||
             physLogs.any { it.type == PhysiologicalEventType.NAP && it.timestampMillis >= dayStart }
         val lastCaffeineAt = stimulants.maxOfOrNull { it.timestampMillis } ?: 0L
-        val minutesSinceCaffeine = if (lastCaffeineAt > 0L) ((nowMillis - lastCaffeineAt) / 60_000L).toInt() else 360
+        val minutesSinceCaffeine = if (lastCaffeineAt > 0L) ((nowMillis - lastCaffeineAt) / 60_000L).toInt().coerceAtLeast(0) else 360
         val totalTodayCaffeineMg = stimulants.filter { it.timestampMillis >= dayStart }.sumOf { it.doseMg }
         val hasWindDownToday = physLogs.any { it.type == PhysiologicalEventType.WIND_DOWN && it.timestampMillis >= dayStart }
 
@@ -423,7 +568,7 @@ object EnergyBoosterEngine {
         }
 
         // 3. Rest / NSDR Break (high burnout, sustained focus, crash, or low energy)
-        if (minutesSinceRest >= 35) {
+        if (minutesSinceRest >= COOLDOWN_REST_BREAK_MINUTES) {
             val burnoutBonus = when (burnoutRiskState.riskLevel) {
                 BurnoutRiskLevel.HIGH -> 32.0
                 BurnoutRiskLevel.APPROACHING -> 22.0
@@ -582,42 +727,8 @@ object EnergyBoosterEngine {
             )
         }
 
-        // Guarantee at least 2 helpful options even on a well-rested peak day
-        if (candidates.size < 2 && !isNearBedtime) {
-            if (candidates.none { it.type == EnergyBoosterType.HYDRATION }) {
-                candidates.add(
-                    EnergyBoosterRecommendation(
-                        id = "booster_hydration",
-                        type = EnergyBoosterType.HYDRATION,
-                        title = "Drink Water",
-                        emoji = EnergyBoosterType.HYDRATION.emoji,
-                        durationMinutes = 5,
-                        predictedBoostPoints = 6,
-                        boostBadgeLabel = "+6% energy",
-                        reason = "Keep hydration steady to sustain peak focus",
-                        priorityScore = 45.0,
-                        supportsTimer = false
-                    )
-                )
-            }
-            if (candidates.none { it.type == EnergyBoosterType.REST_BREAK }) {
-                candidates.add(
-                    EnergyBoosterRecommendation(
-                        id = "booster_rest_break",
-                        type = EnergyBoosterType.REST_BREAK,
-                        title = "10m Rest Break",
-                        emoji = EnergyBoosterType.REST_BREAK.emoji,
-                        durationMinutes = 10,
-                        predictedBoostPoints = 9,
-                        boostBadgeLabel = "+9% energy",
-                        reason = "Proactive micro-recovery keeps your curve high",
-                        priorityScore = 44.0,
-                        supportsTimer = true
-                    )
-                )
-            }
-        }
-
+        // Never force recently completed boosters back into the list — when all boosters are
+        // on cooldown, return only genuinely eligible options (or empty so the UI shows active recovery).
         return candidates
             .sortedByDescending { it.priorityScore }
             .take(maxResults)

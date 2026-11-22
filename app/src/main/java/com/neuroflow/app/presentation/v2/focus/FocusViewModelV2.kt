@@ -86,6 +86,13 @@ data class FocusUiStateV2(
     val completionAffirmation: String? = null,
     val showDndNotice: Boolean = false,
     val bodyDoublingEnabled: Boolean = false,
+    val bodyDoublingIntervalMinutes: Int = 5,
+    val bodyDoublingSoundEnabled: Boolean = true,
+    val bodyDoublingPulseCount: Int = 0,
+    val bodyDoublingLockedCount: Int = 0,
+    val bodyDoublingPromptActive: Boolean = false,
+    val bodyDoublingNextPulseInSeconds: Long = 300L,
+    val bodyDoublingFeedbackMessage: String? = null,
     val isUltradianLimitExceeded: Boolean = elapsedSeconds >= ULTRADIAN_LIMIT_SECONDS,
     val ultradianWarning: String? = if (isUltradianLimitExceeded) ULTRADIAN_WARNING_MESSAGE else null
 ) {
@@ -123,6 +130,9 @@ class FocusViewModelV2 @Inject constructor(
     private var twoMinuteWarningPlayed = false
     private var autoTrackerJob: Job? = null
     private var autoTrackerTriggered = false
+    private var lastBodyDoublingPulseBucket: Int = 0
+    private var bodyDoublingPromptShownAtElapsed: Long = 0L
+    private var bodyDoublingFeedbackJob: Job? = null
 
     val soundscapePlayer: NeuralSoundscapePlayer by lazy {
         NeuralSoundscapePlayer(context)
@@ -353,7 +363,21 @@ class FocusViewModelV2 @Inject constructor(
         viewModelScope.launch {
             preferencesDataStore.preferencesFlow
                 .collect { prefs ->
-                    _uiState.update { it.copy(preferences = prefs) }
+                    _uiState.update { current ->
+                        val intervalSec = prefs.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
+                        val nextIn = if (current.isRunning && current.elapsedSeconds > 0L) {
+                            intervalSec - (current.elapsedSeconds % intervalSec)
+                        } else {
+                            intervalSec
+                        }
+                        current.copy(
+                            preferences = prefs,
+                            bodyDoublingEnabled = prefs.bodyDoublingEnabled,
+                            bodyDoublingIntervalMinutes = prefs.bodyDoublingIntervalMinutes.coerceIn(1, 30),
+                            bodyDoublingSoundEnabled = prefs.bodyDoublingSoundEnabled,
+                            bodyDoublingNextPulseInSeconds = nextIn
+                        )
+                    }
                     checkDndNotice(prefs)
                     if (!prefs.dndEnabled) {
                         disableDnd()
@@ -553,7 +577,10 @@ class FocusViewModelV2 @Inject constructor(
         autoTrackerJob = null
         hasNotifiedCompletion = false
         twoMinuteWarningPlayed = false
+        lastBodyDoublingPulseBucket = 0
+        bodyDoublingPromptShownAtElapsed = 0L
         _uiState.update {
+            val intervalSec = it.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
             it.copy(
                 timerMode = mode,
                 remainingSeconds = mode.durationSeconds,
@@ -564,13 +591,124 @@ class FocusViewModelV2 @Inject constructor(
                 isSprintCompleted = false,
                 showSprintCompletionSheet = false,
                 isUltradianLimitExceeded = false,
-                ultradianWarning = null
+                ultradianWarning = null,
+                bodyDoublingPulseCount = 0,
+                bodyDoublingLockedCount = 0,
+                bodyDoublingPromptActive = false,
+                bodyDoublingNextPulseInSeconds = intervalSec,
+                bodyDoublingFeedbackMessage = null
             )
         }
     }
 
     fun toggleBodyDoubling() {
-        _uiState.update { it.copy(bodyDoublingEnabled = !it.bodyDoublingEnabled) }
+        val current = _uiState.value
+        val nextEnabled = !current.bodyDoublingEnabled
+        val intervalSec = current.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
+        if (nextEnabled) {
+            lastBodyDoublingPulseBucket = (current.elapsedSeconds / intervalSec).toInt()
+            focusCompletionNotifier?.playBodyDoublingGroundingTap()
+        }
+        val nextIn = if (current.isRunning && current.elapsedSeconds > 0L) {
+            intervalSec - (current.elapsedSeconds % intervalSec)
+        } else {
+            intervalSec
+        }
+        _uiState.update {
+            it.copy(
+                bodyDoublingEnabled = nextEnabled,
+                bodyDoublingPromptActive = if (nextEnabled) it.bodyDoublingPromptActive else false,
+                bodyDoublingNextPulseInSeconds = nextIn
+            )
+        }
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(bodyDoublingEnabled = nextEnabled)
+            }
+        }
+    }
+
+    fun setBodyDoublingInterval(minutes: Int) {
+        val safe = minutes.coerceIn(1, 30)
+        val intervalSec = safe * 60L
+        val elapsed = _uiState.value.elapsedSeconds
+        lastBodyDoublingPulseBucket = (elapsed / intervalSec).toInt()
+        val nextIn = if (_uiState.value.isRunning && elapsed > 0L) {
+            intervalSec - (elapsed % intervalSec)
+        } else {
+            intervalSec
+        }
+        _uiState.update {
+            it.copy(
+                bodyDoublingIntervalMinutes = safe,
+                bodyDoublingNextPulseInSeconds = nextIn
+            )
+        }
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(bodyDoublingIntervalMinutes = safe)
+            }
+        }
+    }
+
+    fun toggleBodyDoublingSound() {
+        val nextSound = !_uiState.value.bodyDoublingSoundEnabled
+        _uiState.update { it.copy(bodyDoublingSoundEnabled = nextSound) }
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(bodyDoublingSoundEnabled = nextSound)
+            }
+        }
+    }
+
+    fun triggerTestBodyDoublingPulse() {
+        val current = _uiState.value
+        focusCompletionNotifier?.playBodyDoublingAnchorPulse(
+            scope = viewModelScope,
+            includeSoftChime = current.bodyDoublingSoundEnabled
+        )
+        bodyDoublingPromptShownAtElapsed = current.elapsedSeconds
+        _uiState.update {
+            it.copy(
+                bodyDoublingEnabled = true,
+                bodyDoublingPromptActive = true,
+                bodyDoublingPulseCount = it.bodyDoublingPulseCount + 1,
+                bodyDoublingFeedbackMessage = null
+            )
+        }
+    }
+
+    fun confirmBodyDoublingLockedIn() {
+        val nextLocked = _uiState.value.bodyDoublingLockedCount + 1
+        val totalPulses = maxOf(_uiState.value.bodyDoublingPulseCount, nextLocked)
+        _uiState.update {
+            it.copy(
+                bodyDoublingLockedCount = nextLocked,
+                bodyDoublingPulseCount = totalPulses,
+                bodyDoublingPromptActive = false,
+                bodyDoublingFeedbackMessage = "Locked in ✓ ($nextLocked/$totalPulses anchors held)"
+            )
+        }
+        scheduleBodyDoublingFeedbackClear()
+    }
+
+    fun confirmBodyDoublingRefocus() {
+        focusCompletionNotifier?.playBodyDoublingGroundingTap()
+        _uiState.update {
+            it.copy(
+                bodyDoublingPromptActive = false,
+                bodyDoublingFeedbackMessage = "No guilt — take one breath & return to your current step"
+            )
+        }
+        scheduleBodyDoublingFeedbackClear()
+    }
+
+    private fun scheduleBodyDoublingFeedbackClear() {
+        bodyDoublingFeedbackJob?.cancel()
+        bodyDoublingFeedbackJob = viewModelScope.launch {
+            delay(6_000L)
+            _uiState.update { it.copy(bodyDoublingFeedbackMessage = null) }
+        }
     }
 
     fun selectSoundscape(type: SoundscapeType) {
@@ -653,8 +791,11 @@ class FocusViewModelV2 @Inject constructor(
         hasNotifiedCompletion = false
         twoMinuteWarningPlayed = false
         pauseCount = 0
+        lastBodyDoublingPulseBucket = 0
+        bodyDoublingPromptShownAtElapsed = 0L
 
         _uiState.update {
+            val intervalSec = it.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
             it.copy(
                 isRunning = true,
                 isPaused = false,
@@ -667,7 +808,12 @@ class FocusViewModelV2 @Inject constructor(
                 isSprintCompleted = false,
                 showSprintCompletionSheet = false,
                 isUltradianLimitExceeded = false,
-                ultradianWarning = null
+                ultradianWarning = null,
+                bodyDoublingPulseCount = 0,
+                bodyDoublingLockedCount = 0,
+                bodyDoublingPromptActive = false,
+                bodyDoublingNextPulseInSeconds = intervalSec,
+                bodyDoublingFeedbackMessage = null
             )
         }
 
@@ -718,6 +864,8 @@ class FocusViewModelV2 @Inject constructor(
     fun tickSecond() {
         if (!_uiState.value.isRunning || _uiState.value.isPaused) return
         var countdownHitZero = false
+        var triggerBodyDoublingPulseNow = false
+        var includeBodyDoublingChime = true
         val now = System.currentTimeMillis()
         _uiState.update { current ->
             if (!current.isRunning || current.isPaused) return@update current
@@ -742,14 +890,36 @@ class FocusViewModelV2 @Inject constructor(
                     remainingSeconds = 0L,
                     isSprintCompleted = true,
                     showSprintCompletionSheet = true,
+                    bodyDoublingPromptActive = false,
                     isUltradianLimitExceeded = current.timerMode.durationSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS,
                     ultradianWarning = if (current.timerMode.durationSeconds >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
                 )
             } else {
                 val isUltradian = elapsed >= FocusUiStateV2.ULTRADIAN_LIMIT_SECONDS
+                val intervalSec = current.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
+                val bucket = (elapsed / intervalSec).toInt()
+                val nextPulseIn = intervalSec - (elapsed % intervalSec)
+                var nextPromptActive = current.bodyDoublingPromptActive
+                var nextPulseCount = current.bodyDoublingPulseCount
+
+                if (current.bodyDoublingEnabled && bucket > lastBodyDoublingPulseBucket) {
+                    lastBodyDoublingPulseBucket = bucket
+                    nextPulseCount += 1
+                    nextPromptActive = true
+                    bodyDoublingPromptShownAtElapsed = elapsed
+                    triggerBodyDoublingPulseNow = true
+                    includeBodyDoublingChime = current.bodyDoublingSoundEnabled
+                } else if (nextPromptActive && (elapsed - bodyDoublingPromptShownAtElapsed) >= 45L) {
+                    // Auto-fade silently after 45s so deep hyperfocus is never interrupted
+                    nextPromptActive = false
+                }
+
                 current.copy(
                     elapsedSeconds = elapsed,
                     remainingSeconds = remaining,
+                    bodyDoublingPulseCount = nextPulseCount,
+                    bodyDoublingPromptActive = nextPromptActive,
+                    bodyDoublingNextPulseInSeconds = nextPulseIn,
                     isUltradianLimitExceeded = isUltradian,
                     ultradianWarning = if (isUltradian) FocusUiStateV2.ULTRADIAN_WARNING_MESSAGE else null
                 )
@@ -761,6 +931,12 @@ class FocusViewModelV2 @Inject constructor(
             if (!twoMinuteWarningPlayed && !isStopwatch && current.timerMode.durationSeconds > 120L && current.remainingSeconds in 1L..120L) {
                 twoMinuteWarningPlayed = true
                 focusCompletionNotifier?.playTwoMinuteWarningCue(viewModelScope)
+            }
+            if (triggerBodyDoublingPulseNow) {
+                focusCompletionNotifier?.playBodyDoublingAnchorPulse(
+                    scope = viewModelScope,
+                    includeSoftChime = includeBodyDoublingChime
+                )
             }
         }
         if (countdownHitZero) {

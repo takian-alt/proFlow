@@ -46,6 +46,53 @@ class FocusCompletionNotifier @Inject constructor(
         }
     }
 
+    /**
+     * Gentle rhythmic presence double-tap + optional soft warm anchor chime for Body-Doubling Pulse.
+     * Designed to anchor wandering attention without startling someone in deep flow.
+     */
+    fun playBodyDoublingAnchorPulse(scope: CoroutineScope, includeSoftChime: Boolean = true) {
+        triggerBodyDoublingDoubleTap()
+        if (includeSoftChime) {
+            scope.launch(Dispatchers.Default) {
+                playSynthesizedBell(
+                    durationSeconds = 0.55,
+                    volumeScale = 0.20,
+                    fundamentalHz = 432.0,
+                    harmonicHz = 648.0
+                )
+            }
+        }
+    }
+
+    /**
+     * Quick, calm single tactile confirmation tap when toggling Body-Doubling ON or refocusing.
+     */
+    fun playBodyDoublingGroundingTap() {
+        triggerSubtleCuePulse()
+    }
+
+    private fun triggerBodyDoublingDoubleTap() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            } ?: return
+
+            if (!vibrator.hasVibrator()) return
+            val timings = longArrayOf(0L, 50L, 90L, 60L)
+            val effect = if (vibrator.hasAmplitudeControl()) {
+                val amplitudes = intArrayOf(0, 125, 0, 155)
+                VibrationEffect.createWaveform(timings, amplitudes, -1)
+            } else {
+                VibrationEffect.createWaveform(timings, -1)
+            }
+            vibrator.vibrate(effect)
+        }
+    }
+
     private fun triggerSubtleCuePulse() {
         runCatching {
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -90,7 +137,9 @@ class FocusCompletionNotifier @Inject constructor(
 
     private suspend fun playSynthesizedBell(
         durationSeconds: Double = DURATION_SECONDS,
-        volumeScale: Double = 0.45
+        volumeScale: Double = 0.45,
+        fundamentalHz: Double = FREQ_FUNDAMENTAL,
+        harmonicHz: Double = FREQ_FIFTH
     ) {
         val audioManager = runCatching { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }.getOrNull()
         var focusRequest: AudioFocusRequest? = null
@@ -117,8 +166,8 @@ class FocusCompletionNotifier @Inject constructor(
                 val decay = exp(-t * 3.2)
                 val envelope = attack * decay
 
-                val wave = 0.70 * sin(2.0 * PI * FREQ_FUNDAMENTAL * t) +
-                           0.30 * sin(2.0 * PI * FREQ_FIFTH * t)
+                val wave = 0.70 * sin(2.0 * PI * fundamentalHz * t) +
+                           0.30 * sin(2.0 * PI * harmonicHz * t)
                 pcm[i] = (wave * envelope * Short.MAX_VALUE * volumeScale).toInt()
                     .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             }

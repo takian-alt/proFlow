@@ -210,7 +210,10 @@ data class UserPreferences(
     val lastRestCheckInPromptAtMillis: Long = 0L,
     val nextRestCheckInAllowedAtMillis: Long = 0L,
     val lastEnergyBoosterNudgeAtMillis: Long = 0L,
-    val snoozedEnergyBoosterUntilMillis: Long = 0L
+    val snoozedEnergyBoosterUntilMillis: Long = 0L,
+    val bodyDoublingEnabled: Boolean = false,
+    val bodyDoublingIntervalMinutes: Int = 5,
+    val bodyDoublingSoundEnabled: Boolean = true
 )
 
 @Singleton
@@ -374,6 +377,9 @@ class UserPreferencesDataStore @Inject constructor(
         val NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS = longPreferencesKey("next_rest_check_in_allowed_at_millis")
         val LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS = longPreferencesKey("last_energy_booster_nudge_at_millis")
         val SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS = longPreferencesKey("snoozed_energy_booster_until_millis")
+        val BODY_DOUBLING_ENABLED = booleanPreferencesKey("body_doubling_enabled")
+        val BODY_DOUBLING_INTERVAL_MINUTES = intPreferencesKey("body_doubling_interval_minutes")
+        val BODY_DOUBLING_SOUND_ENABLED = booleanPreferencesKey("body_doubling_sound_enabled")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -540,7 +546,10 @@ class UserPreferencesDataStore @Inject constructor(
             lastRestCheckInPromptAtMillis = prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
             nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L,
             lastEnergyBoosterNudgeAtMillis = prefs[Keys.LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS] ?: 0L,
-            snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L
+            snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L,
+            bodyDoublingEnabled = prefs[Keys.BODY_DOUBLING_ENABLED] ?: false,
+            bodyDoublingIntervalMinutes = (prefs[Keys.BODY_DOUBLING_INTERVAL_MINUTES] ?: 5).coerceIn(1, 30),
+            bodyDoublingSoundEnabled = prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] ?: true
         )
     }
 
@@ -782,7 +791,10 @@ class UserPreferencesDataStore @Inject constructor(
                 lastRestCheckInPromptAtMillis = prefs[Keys.LAST_REST_CHECK_IN_PROMPT_AT_MILLIS] ?: 0L,
                 nextRestCheckInAllowedAtMillis = prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] ?: 0L,
                 lastEnergyBoosterNudgeAtMillis = prefs[Keys.LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS] ?: 0L,
-                snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L
+                snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L,
+                bodyDoublingEnabled = prefs[Keys.BODY_DOUBLING_ENABLED] ?: false,
+                bodyDoublingIntervalMinutes = (prefs[Keys.BODY_DOUBLING_INTERVAL_MINUTES] ?: 5).coerceIn(1, 30),
+                bodyDoublingSoundEnabled = prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] ?: true
             )
             val updated = update(current)
             val nextWakeHour = if (updated.wakeTimeHour != current.wakeTimeHour && updated.wakeUpHour == current.wakeUpHour) {
@@ -957,6 +969,9 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.NEXT_REST_CHECK_IN_ALLOWED_AT_MILLIS] = updated.nextRestCheckInAllowedAtMillis
             prefs[Keys.LAST_ENERGY_BOOSTER_NUDGE_AT_MILLIS] = updated.lastEnergyBoosterNudgeAtMillis
             prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] = updated.snoozedEnergyBoosterUntilMillis
+            prefs[Keys.BODY_DOUBLING_ENABLED] = updated.bodyDoublingEnabled
+            prefs[Keys.BODY_DOUBLING_INTERVAL_MINUTES] = updated.bodyDoublingIntervalMinutes.coerceIn(1, 30)
+            prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] = updated.bodyDoublingSoundEnabled
         }
     }
 
@@ -1350,7 +1365,11 @@ class UserPreferencesDataStore @Inject constructor(
 
     suspend fun clearPhysiologicalLogs() {
         updatePreferences { prefs ->
-            prefs.copy(quickPhysiologicalLogsJson = "[]")
+            prefs.copy(
+                quickPhysiologicalLogsJson = "[]",
+                lastHydrationLoggedAtMillis = 0L,
+                restBreakLogsJson = "[]"
+            )
         }
     }
 
@@ -1441,6 +1460,14 @@ class UserPreferencesDataStore @Inject constructor(
             prefs.copy(
                 lastWellnessNudgeDismissedAtMillis = nowMillis,
                 lastEnergyBoosterNudgeAtMillis = nowMillis
+            )
+        }
+    }
+
+    suspend fun recordWellnessNotificationSent(nowMillis: Long = System.currentTimeMillis()) {
+        updatePreferences { prefs ->
+            prefs.copy(
+                lastEnergyBoosterNudgeAtMillis = maxOf(prefs.lastEnergyBoosterNudgeAtMillis, nowMillis)
             )
         }
     }

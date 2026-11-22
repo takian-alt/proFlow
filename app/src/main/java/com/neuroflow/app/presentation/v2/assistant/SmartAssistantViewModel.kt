@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEmpty
 import kotlinx.coroutines.flow.stateIn
@@ -548,6 +549,20 @@ class SmartAssistantViewModel @Inject constructor(
     fun completeEnergyBoosterFromNudge(rec: com.neuroflow.app.domain.assistant.EnergyBoosterRecommendation) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val prefs = preferencesDataStore.preferencesFlow.first()
+            val stims = com.neuroflow.app.data.local.parseStimulantLogs(prefs.stimulantLogsJson)
+            val remaining = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.remainingCooldownMinutes(
+                type = rec.type,
+                prefs = prefs,
+                stimulants = stims,
+                naps = emptyList(),
+                nowMillis = now
+            )
+            if (remaining > 0) {
+                val wait = com.neuroflow.app.domain.assistant.EnergyBoosterEngine.formatCooldownCompact(remaining)
+                _toastMessage.value = "⏳ ${rec.title} already logged — available again in $wait"
+                return@launch
+            }
             when (rec.type) {
                 com.neuroflow.app.domain.assistant.EnergyBoosterType.HYDRATION -> {
                     preferencesDataStore.recordHydrationDrink(nowMillis = now)

@@ -323,7 +323,8 @@ fun FlowScreenV2(
                 onCompleteBooster = { rec -> viewModel.completeEnergyBooster(rec) },
                 onStartBoosterTimer = onStartBreakTimer,
                 onRefreshUnlockedSchedule = { viewModel.refreshUnlockedScheduleAfterBoost() },
-                onDismissEnergyBoostDeltaBanner = { viewModel.dismissEnergyBoostDeltaBanner() }
+                onDismissEnergyBoostDeltaBanner = { viewModel.dismissEnergyBoostDeltaBanner() },
+                physEventCooldownMinutes = state.physEventCooldownMinutes
             )
 
             // Active Biophysical Impulse Strip (Meal, Workout, Nap, Stimulant PK ticker)

@@ -405,4 +405,95 @@ class EnergyBoosterEngineTest {
             )
         )
     }
+
+    @Test
+    fun completingBoosters_enforcesCooldownsAndNeverReaddsViaFallback() {
+        val now = epochMillis(14, 30)
+        val snap = CircadianSnapshot(
+            timestampMillis = now,
+            usableEnergy = 55,
+            homeostaticPressureS = 0.50,
+            circadianAlertnessC = 0.50,
+            focusDepletionPenalty = 0.05,
+            phase = EnergyPhase.DIP
+        )
+
+        // Log every daytime booster right now
+        val physJson = """
+            [
+              {"type":"${PhysiologicalEventType.HYDRATION.name}","timestampMillis":$now,"durationMinutes":5,"intensity":1.0},
+              {"type":"${PhysiologicalEventType.SNACK.name}","timestampMillis":$now,"durationMinutes":10,"intensity":1.0},
+              {"type":"${PhysiologicalEventType.SUNLIGHT_WALK.name}","timestampMillis":$now,"durationMinutes":12,"intensity":1.0},
+              {"type":"${PhysiologicalEventType.WORKOUT.name}","timestampMillis":$now,"durationMinutes":15,"intensity":1.0},
+              {"type":"${PhysiologicalEventType.NAP.name}","timestampMillis":$now,"durationMinutes":20,"intensity":1.0}
+            ]
+        """.trimIndent()
+        val restJson = SmartAssistantCodecs.encodeRestBreakLogs(
+            listOf(RestBreakLog("r1", now, 10, RestBreakSource.MANUAL_CONFIRM))
+        )
+        val stims = listOf(StimulantDoseBout(timestampMillis = now, doseMg = 95.0, type = StimulantType.CAFFEINE))
+        val naps = listOf(DaytimeNapBout(startMillis = now - 20 * 60_000L, endMillis = now))
+        val prefs = UserPreferences(
+            wakeUpHour = 7,
+            sleepHour = 23,
+            lastHydrationLoggedAtMillis = now,
+            quickPhysiologicalLogsJson = physJson,
+            restBreakLogsJson = restJson
+        )
+
+        // Recommendations must be empty (Drink Water / 10m Rest Break must NOT sneak back via fallback)
+        val recs = EnergyBoosterEngine.recommendBoosters(
+            prefs = prefs,
+            snapshot = snap,
+            burnoutRiskState = BurnoutRiskState(),
+            stimulants = stims,
+            naps = naps,
+            nowMillis = now,
+            zoneId = zoneId
+        )
+        assertTrue("All recently completed boosters must stay hidden on cooldown, got $recs", recs.isEmpty())
+
+        // Cooldowns must report positive remaining time immediately
+        assertEquals(
+            EnergyBoosterEngine.COOLDOWN_HYDRATION_MINUTES,
+            EnergyBoosterEngine.remainingCooldownMinutes(EnergyBoosterType.HYDRATION, prefs, stims, naps, now, zoneId)
+        )
+        assertEquals(
+            EnergyBoosterEngine.COOLDOWN_REST_BREAK_MINUTES,
+            EnergyBoosterEngine.remainingCooldownMinutes(EnergyBoosterType.REST_BREAK, prefs, stims, naps, now, zoneId)
+        )
+
+        // Once 50 minutes pass, Hydration and Rest Break unlock again (cooldown == 0)
+        val fiftyMinLater = now + 50 * 60_000L
+        assertEquals(
+            0,
+            EnergyBoosterEngine.remainingCooldownMinutes(EnergyBoosterType.HYDRATION, prefs, stims, naps, fiftyMinLater, zoneId)
+        )
+        assertEquals(
+            0,
+            EnergyBoosterEngine.remainingCooldownMinutes(EnergyBoosterType.REST_BREAK, prefs, stims, naps, fiftyMinLater, zoneId)
+        )
+    }
+
+    @Test
+    fun duplicateSameCategoryBoosters_doNotStackEnergyInImpulseCalculator() {
+        val now = epochMillis(14, 30)
+        val minOfDay = 14 * 60 + 30
+        val oneWater = CognitiveBlockWindow(minOfDay, minOfDay + 5, CognitiveBlockCategory.HYDRATION, 1.0, "Water", now, now + 5 * 60_000L)
+        val fiveWaters = List(5) { idx ->
+            oneWater.copy(label = "Water #$idx", explicitStartMillis = now - idx * 5_000L)
+        }
+
+        val singleImpulse = PhysiologicalImpulseCalculator.computeHydrationImpulse(minOfDay, listOf(oneWater), now)
+        val repeatedImpulse = PhysiologicalImpulseCalculator.computeHydrationImpulse(minOfDay, fiveWaters, now)
+        assertEquals("Repeating hydration logs must not stack energy above a single log", singleImpulse, repeatedImpulse, 1e-6)
+
+        val oneRest = CognitiveBlockWindow(minOfDay, minOfDay + 10, CognitiveBlockCategory.REST_BREAK, 1.0, "Rest", now, now + 10 * 60_000L)
+        val fiveRests = List(5) { idx ->
+            oneRest.copy(label = "Rest #$idx", explicitStartMillis = now - idx * 5_000L, explicitEndMillis = now - idx * 5_000L + 10 * 60_000L)
+        }
+        val singleRest = PhysiologicalImpulseCalculator.computeRestBreakImpulse(minOfDay, listOf(oneRest), now)
+        val repeatedRest = PhysiologicalImpulseCalculator.computeRestBreakImpulse(minOfDay, fiveRests, now)
+        assertEquals("Repeating rest break logs must not stack energy above a single log", singleRest, repeatedRest, 1e-6)
+    }
 }
