@@ -213,7 +213,8 @@ data class UserPreferences(
     val snoozedEnergyBoosterUntilMillis: Long = 0L,
     val bodyDoublingEnabled: Boolean = false,
     val bodyDoublingIntervalMinutes: Int = 5,
-    val bodyDoublingSoundEnabled: Boolean = true
+    val bodyDoublingSoundEnabled: Boolean = true,
+    val bodyDoublingHaloOnly: Boolean = false
 )
 
 @Singleton
@@ -380,6 +381,7 @@ class UserPreferencesDataStore @Inject constructor(
         val BODY_DOUBLING_ENABLED = booleanPreferencesKey("body_doubling_enabled")
         val BODY_DOUBLING_INTERVAL_MINUTES = intPreferencesKey("body_doubling_interval_minutes")
         val BODY_DOUBLING_SOUND_ENABLED = booleanPreferencesKey("body_doubling_sound_enabled")
+        val BODY_DOUBLING_HALO_ONLY = booleanPreferencesKey("body_doubling_halo_only")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -549,7 +551,8 @@ class UserPreferencesDataStore @Inject constructor(
             snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L,
             bodyDoublingEnabled = prefs[Keys.BODY_DOUBLING_ENABLED] ?: false,
             bodyDoublingIntervalMinutes = (prefs[Keys.BODY_DOUBLING_INTERVAL_MINUTES] ?: 5).coerceIn(1, 30),
-            bodyDoublingSoundEnabled = prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] ?: true
+            bodyDoublingSoundEnabled = prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] ?: true,
+            bodyDoublingHaloOnly = prefs[Keys.BODY_DOUBLING_HALO_ONLY] ?: false
         )
     }
 
@@ -794,7 +797,8 @@ class UserPreferencesDataStore @Inject constructor(
                 snoozedEnergyBoosterUntilMillis = prefs[Keys.SNOOZED_ENERGY_BOOSTER_UNTIL_MILLIS] ?: 0L,
                 bodyDoublingEnabled = prefs[Keys.BODY_DOUBLING_ENABLED] ?: false,
                 bodyDoublingIntervalMinutes = (prefs[Keys.BODY_DOUBLING_INTERVAL_MINUTES] ?: 5).coerceIn(1, 30),
-                bodyDoublingSoundEnabled = prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] ?: true
+                bodyDoublingSoundEnabled = prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] ?: true,
+                bodyDoublingHaloOnly = prefs[Keys.BODY_DOUBLING_HALO_ONLY] ?: false
             )
             val updated = update(current)
             val nextWakeHour = if (updated.wakeTimeHour != current.wakeTimeHour && updated.wakeUpHour == current.wakeUpHour) {
@@ -972,6 +976,7 @@ class UserPreferencesDataStore @Inject constructor(
             prefs[Keys.BODY_DOUBLING_ENABLED] = updated.bodyDoublingEnabled
             prefs[Keys.BODY_DOUBLING_INTERVAL_MINUTES] = updated.bodyDoublingIntervalMinutes.coerceIn(1, 30)
             prefs[Keys.BODY_DOUBLING_SOUND_ENABLED] = updated.bodyDoublingSoundEnabled
+            prefs[Keys.BODY_DOUBLING_HALO_ONLY] = updated.bodyDoublingHaloOnly
         }
     }
 

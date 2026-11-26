@@ -88,6 +88,7 @@ data class FocusUiStateV2(
     val bodyDoublingEnabled: Boolean = false,
     val bodyDoublingIntervalMinutes: Int = 5,
     val bodyDoublingSoundEnabled: Boolean = true,
+    val bodyDoublingHaloOnly: Boolean = false,
     val bodyDoublingPulseCount: Int = 0,
     val bodyDoublingLockedCount: Int = 0,
     val bodyDoublingPromptActive: Boolean = false,
@@ -375,6 +376,8 @@ class FocusViewModelV2 @Inject constructor(
                             bodyDoublingEnabled = prefs.bodyDoublingEnabled,
                             bodyDoublingIntervalMinutes = prefs.bodyDoublingIntervalMinutes.coerceIn(1, 30),
                             bodyDoublingSoundEnabled = prefs.bodyDoublingSoundEnabled,
+                            bodyDoublingHaloOnly = prefs.bodyDoublingHaloOnly,
+                            bodyDoublingPromptActive = if (prefs.bodyDoublingHaloOnly) false else current.bodyDoublingPromptActive,
                             bodyDoublingNextPulseInSeconds = nextIn
                         )
                     }
@@ -607,7 +610,9 @@ class FocusViewModelV2 @Inject constructor(
         val intervalSec = current.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
         if (nextEnabled) {
             lastBodyDoublingPulseBucket = (current.elapsedSeconds / intervalSec).toInt()
-            focusCompletionNotifier?.playBodyDoublingGroundingTap()
+            if (!current.bodyDoublingHaloOnly) {
+                focusCompletionNotifier?.playBodyDoublingGroundingTap()
+            }
         }
         val nextIn = if (current.isRunning && current.elapsedSeconds > 0L) {
             intervalSec - (current.elapsedSeconds % intervalSec)
@@ -617,13 +622,40 @@ class FocusViewModelV2 @Inject constructor(
         _uiState.update {
             it.copy(
                 bodyDoublingEnabled = nextEnabled,
-                bodyDoublingPromptActive = if (nextEnabled) it.bodyDoublingPromptActive else false,
+                bodyDoublingPromptActive = if (nextEnabled && !it.bodyDoublingHaloOnly) it.bodyDoublingPromptActive else false,
                 bodyDoublingNextPulseInSeconds = nextIn
             )
         }
         viewModelScope.launch {
             preferencesDataStore.updatePreferences { prefs ->
                 prefs.copy(bodyDoublingEnabled = nextEnabled)
+            }
+        }
+    }
+
+    fun setBodyDoublingHaloOnly(haloOnly: Boolean) {
+        val current = _uiState.value
+        if (current.bodyDoublingHaloOnly == haloOnly) return
+        val intervalSec = current.bodyDoublingIntervalMinutes.coerceIn(1, 30) * 60L
+        if (!haloOnly) {
+            lastBodyDoublingPulseBucket = (current.elapsedSeconds / intervalSec).toInt()
+        }
+        val nextIn = if (current.isRunning && current.elapsedSeconds > 0L) {
+            intervalSec - (current.elapsedSeconds % intervalSec)
+        } else {
+            intervalSec
+        }
+        _uiState.update {
+            it.copy(
+                bodyDoublingHaloOnly = haloOnly,
+                bodyDoublingPromptActive = if (haloOnly) false else it.bodyDoublingPromptActive,
+                bodyDoublingFeedbackMessage = if (haloOnly) null else it.bodyDoublingFeedbackMessage,
+                bodyDoublingNextPulseInSeconds = nextIn
+            )
+        }
+        viewModelScope.launch {
+            preferencesDataStore.updatePreferences { prefs ->
+                prefs.copy(bodyDoublingHaloOnly = haloOnly)
             }
         }
     }
@@ -663,6 +695,7 @@ class FocusViewModelV2 @Inject constructor(
 
     fun triggerTestBodyDoublingPulse() {
         val current = _uiState.value
+        if (current.bodyDoublingHaloOnly) return
         focusCompletionNotifier?.playBodyDoublingAnchorPulse(
             scope = viewModelScope,
             includeSoftChime = current.bodyDoublingSoundEnabled
@@ -902,13 +935,15 @@ class FocusViewModelV2 @Inject constructor(
                 var nextPromptActive = current.bodyDoublingPromptActive
                 var nextPulseCount = current.bodyDoublingPulseCount
 
-                if (current.bodyDoublingEnabled && bucket > lastBodyDoublingPulseBucket) {
+                if (current.bodyDoublingEnabled && !current.bodyDoublingHaloOnly && bucket > lastBodyDoublingPulseBucket) {
                     lastBodyDoublingPulseBucket = bucket
                     nextPulseCount += 1
                     nextPromptActive = true
                     bodyDoublingPromptShownAtElapsed = elapsed
                     triggerBodyDoublingPulseNow = true
                     includeBodyDoublingChime = current.bodyDoublingSoundEnabled
+                } else if (current.bodyDoublingHaloOnly) {
+                    nextPromptActive = false
                 } else if (nextPromptActive && (elapsed - bodyDoublingPromptShownAtElapsed) >= 45L) {
                     // Auto-fade silently after 45s so deep hyperfocus is never interrupted
                     nextPromptActive = false
